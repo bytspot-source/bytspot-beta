@@ -193,7 +193,7 @@ export default function App() {
   const memoizedLocations = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       return getPersonalizedNearbyLocations(
-        { lat: 37.7749, lng: -122.4194 },
+        { lat: 33.7866, lng: -84.3833 },
         userPreferences,
         userBehavior
       );
@@ -574,9 +574,9 @@ export default function App() {
                       
                       <div className="space-y-3">
                         {(personalizedLocations.length > 0 ? personalizedLocations : [
-                          { name: 'Downtown Plaza Garage', distance: '0.3', spots: 24, available: true, priority: 0 },
-                          { name: 'Central Station Parking', distance: '0.5', spots: 18, available: true, priority: 0 },
-                          { name: 'Bay Area Mall Garage', distance: '0.8', spots: 42, available: true, priority: 0 },
+                          { name: 'Colony Square Garage', distance: '0.2', spots: 32, available: true, priority: 0 },
+                          { name: '1380 W Peachtree Garage', distance: '0.4', spots: 21, available: true, priority: 0 },
+                          { name: 'Promenade Midtown Parking', distance: '0.7', spots: 45, available: true, priority: 0 },
                         ]).map((location, index) => (
                           <motion.button
                             key={location.name}

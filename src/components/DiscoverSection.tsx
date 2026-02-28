@@ -8,6 +8,193 @@ import { type DiscoverCard, type CardType } from '../utils/mockData';
 import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
 import { useVenues } from '../utils/hooks/useVenues';
 
+
+// Pure helper — no state deps, safe at module level
+function getTypeColor(type: CardType): string {
+  switch (type) {
+    case 'parking': return 'from-cyan-500 to-blue-500';
+    case 'venue': return 'from-purple-500 to-fuchsia-500';
+    case 'valet': return 'from-orange-500 to-amber-500';
+    case 'coffee': return 'from-amber-600 to-yellow-500';
+    case 'dining': return 'from-red-500 to-pink-500';
+    case 'shopping': return 'from-indigo-500 to-purple-500';
+    case 'nightlife': return 'from-fuchsia-600 to-pink-500';
+    case 'entertainment': return 'from-violet-500 to-purple-500';
+    case 'fitness': return 'from-green-500 to-emerald-500';
+    default: return 'from-gray-500 to-gray-600';
+  }
+}
+
+interface SwipeableCardProps {
+  card: DiscoverCard;
+  onSwipe: (direction: 'left' | 'right') => void;
+  onShowBottomNav?: () => void;
+  onTouch?: () => void;
+  onSaveSpot: (card: DiscoverCard) => void;
+}
+
+
+const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
+  ({ card, onSwipe, onShowBottomNav, onTouch, onSaveSpot }, ref) => {
+    const [dragX, setDragX] = useState(0);
+    const [dragY, setDragY] = useState(0);
+    const [exitX, setExitX] = useState<number | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStartTimeRef = useRef<number>(0);
+    const hasDraggedRef = useRef<boolean>(false);
+
+    const handlePan = (_event: any, info: PanInfo) => {
+      if (exitX !== null) return;
+      setDragX(info.offset.x);
+      setDragY(info.offset.y);
+      if (Math.abs(info.offset.x) > 5 || Math.abs(info.offset.y) > 5) {
+        setIsDragging(true);
+        hasDraggedRef.current = true;
+      }
+    };
+
+    const handlePanStart = () => {
+      dragStartTimeRef.current = Date.now();
+      hasDraggedRef.current = false;
+    };
+
+    const handlePanEnd = (_event: any, info: PanInfo) => {
+      const horizontalThreshold = 80;
+      const verticalThreshold = 80;
+      if (info.offset.y < -verticalThreshold && Math.abs(info.offset.x) < 50) {
+        onSaveSpot(card);
+        setDragX(0); setDragY(0); setIsDragging(false);
+      } else if (Math.abs(info.offset.x) > horizontalThreshold) {
+        const direction = info.offset.x > 0 ? 'right' : 'left';
+        setExitX(direction === 'right' ? 1000 : -1000);
+        setTimeout(() => { onSwipe(direction); }, 50);
+      } else {
+        setDragX(0); setDragY(0); setIsDragging(false);
+      }
+    };
+
+    const handleCardTap = () => {
+      const tapDuration = Date.now() - dragStartTimeRef.current;
+      if (!hasDraggedRef.current && tapDuration < 300) {
+        onShowBottomNav?.();
+        onTouch?.();
+      }
+    };
+
+    const rotation = (exitX !== null ? exitX : dragX) / 20;
+    const opacity = exitX !== null ? 0 : (Math.abs(dragX) > Math.abs(dragY) ? 1 - Math.abs(dragX) / 300 : 1);
+
+    return (
+      <motion.div
+        ref={ref}
+        className="absolute inset-4 cursor-grab active:cursor-grabbing"
+        drag={exitX === null}
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        onPan={handlePan}
+        onPanStart={handlePanStart}
+        onPanEnd={handlePanEnd}
+        animate={{ x: exitX !== null ? exitX : dragX, y: dragY, rotate: rotation, opacity, scale: exitX !== null ? 0.9 : 1 }}
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        exit={{ x: exitX !== null ? exitX : (dragX > 0 ? 1000 : -1000), opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+        transition={{ type: "spring", stiffness: 320, damping: 30 }}
+        style={{ touchAction: 'none' }}
+      >
+        <motion.div
+          className="w-full h-full rounded-[32px] overflow-hidden border-4 border-white/30 shadow-2xl bg-[#1C1C1E] flex flex-col"
+          onClick={handleCardTap}
+          whileTap={{ scale: 0.98 }}
+        >
+          <div className="relative flex-shrink-0" style={{ height: '300px' }}>
+            <img src={card.image} alt={card.name} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+            <AnimatePresence>
+              {isDragging && (Math.abs(dragX) > 30 || Math.abs(dragY) > 30) && (
+                <motion.div className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                  initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                  {dragY < -30 && Math.abs(dragX) < Math.abs(dragY) && (
+                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-pink-500/80 border-pink-400/50">
+                      <div className="flex items-center gap-2">
+                        <Heart className="w-5 h-5 text-white fill-white" strokeWidth={2.5} />
+                        <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>Save</span>
+                      </div>
+                    </div>
+                  )}
+                  {dragX > 30 && Math.abs(dragX) > Math.abs(dragY) && (
+                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-green-500/80 border-green-400/50">
+                      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>→ Open</span>
+                    </div>
+                  )}
+                  {dragX < -30 && Math.abs(dragX) > Math.abs(dragY) && (
+                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-red-500/80 border-red-400/50">
+                      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>← Skip</span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div className="absolute top-4 right-4">
+              <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
+                <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{card.type}</span>
+              </div>
+            </div>
+            <div className="absolute top-4 left-4">
+              <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
+                <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.distance}</span>
+              </div>
+            </div>
+            <div className="absolute bottom-0 left-0 right-0 p-5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <h2 className="text-title-2 text-white drop-shadow-lg">{card.name}</h2>
+                {card.verified && (
+                  <div className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500 border-2 border-white">
+                    <Shield className="w-3 h-3 text-white" strokeWidth={3} />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-white/90 drop-shadow-md">
+                {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating}</span></div>)}
+                {card.price && (<span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>)}
+                {card.spots && (<div className="flex items-center gap-1"><Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span></div>)}
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 flex flex-col p-4 bg-[#1C1C1E] overflow-hidden">
+            {card.description && (<p className="text-[14px] text-white/80 mb-2.5 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
+            {card.features && card.features.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 flex-shrink-0 mb-auto">
+                {card.features.slice(0, 6).map((feature, idx) => (
+                  <div key={idx} className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20">
+                    <span className="text-[11px] text-white/90 whitespace-nowrap" style={{ fontWeight: 500 }}>{feature}</span>
+                  </div>
+                ))}
+                {card.features.length > 6 && (
+                  <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
+                    <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>+{card.features.length - 6}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {card.vibe && (
+              <div className="mt-2.5 flex-shrink-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[12px] text-white/70" style={{ fontWeight: 500 }}>Vibe Score</span>
+                  <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>
+                </div>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 rounded-full" style={{ width: `${card.vibe * 10}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    );
+  }
+);
+
+SwipeableCard.displayName = 'SwipeableCard';
+
 interface DiscoverSectionProps {
   isDarkMode: boolean;
   onNavigateToMap?: () => void;
@@ -73,7 +260,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
       id: card.name.toLowerCase().replace(/\s+/g, '-'),
       type: card.type as SpotType,
       name: card.name,
-      address: card.location || 'San Francisco, CA',
+      address: card.location || 'Atlanta, GA',
       distance: card.distance,
       rating: card.rating,
       imageUrl: card.image,
@@ -148,29 +335,13 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
     }
   };
 
-  // Type-specific color schemes
-  const getTypeColor = (type: CardType) => {
-    switch (type) {
-      case 'parking': return 'from-cyan-500 to-blue-500';
-      case 'venue': return 'from-purple-500 to-fuchsia-500';
-      case 'valet': return 'from-orange-500 to-amber-500';
-      case 'coffee': return 'from-amber-600 to-yellow-500';
-      case 'dining': return 'from-red-500 to-pink-500';
-      case 'shopping': return 'from-indigo-500 to-purple-500';
-      case 'nightlife': return 'from-fuchsia-600 to-pink-500';
-      case 'entertainment': return 'from-violet-500 to-purple-500';
-      case 'fitness': return 'from-green-500 to-emerald-500';
-      default: return 'from-gray-500 to-gray-600';
-    }
-  };
-
   const handleCardClick = (card: DiscoverCard) => {
     if (card.type === 'parking') {
       // Convert DiscoverCard to ParkingSpot format
       const parkingSpot = {
         id: card.id.toString(),
         name: card.name,
-        address: card.location || 'San Francisco, CA',
+        address: card.location || 'Atlanta, GA',
         distance: parseFloat(card.distance.replace(' mi', '')),
         walkTime: Math.ceil(parseFloat(card.distance.replace(' mi', '')) * 15), // Estimate walk time
         price: parseInt(card.price?.replace('$', '').replace('/hr', '') || '0'),
@@ -192,267 +363,6 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
     }
   };
 
-  // Swipeable Card Component
-  const SwipeableCard = forwardRef<HTMLDivElement, { card: DiscoverCard; onSwipe: (direction: 'left' | 'right') => void }>(
-    ({ card, onSwipe }, ref) => {
-    const [dragX, setDragX] = useState(0);
-    const [dragY, setDragY] = useState(0);
-    const [exitX, setExitX] = useState<number | null>(null);
-    const [isDragging, setIsDragging] = useState(false);
-    const dragStartTimeRef = useRef<number>(0);
-    const hasDraggedRef = useRef<boolean>(false);
-
-    const handlePan = (event: any, info: PanInfo) => {
-      if (exitX !== null) return;
-      setDragX(info.offset.x);
-      setDragY(info.offset.y);
-      
-      // Mark as dragging if moved more than 5px
-      if (Math.abs(info.offset.x) > 5 || Math.abs(info.offset.y) > 5) {
-        setIsDragging(true);
-        hasDraggedRef.current = true;
-      }
-    };
-
-    const handlePanStart = () => {
-      dragStartTimeRef.current = Date.now();
-      hasDraggedRef.current = false;
-    };
-
-    const handlePanEnd = (event: any, info: PanInfo) => {
-      const horizontalThreshold = 80; // Reduced threshold for better mobile experience
-      const verticalThreshold = 80;
-      
-      // Check for swipe up to favorite
-      if (info.offset.y < -verticalThreshold && Math.abs(info.offset.x) < 50) {
-        handleSaveSpot(card);
-        setDragX(0);
-        setDragY(0);
-        setIsDragging(false);
-      }
-      // Check for horizontal swipe
-      else if (Math.abs(info.offset.x) > horizontalThreshold) {
-        const direction = info.offset.x > 0 ? 'right' : 'left';
-        // Trigger exit animation
-        setExitX(direction === 'right' ? 1000 : -1000);
-        // Small delay to ensure state updates before parent unmounts component
-        setTimeout(() => {
-          onSwipe(direction);
-        }, 50);
-      } else {
-        // Reset if threshold not met
-        setDragX(0);
-        setDragY(0);
-        setIsDragging(false);
-      }
-    };
-
-    const handleCardTap = () => {
-      // Only trigger tap if not dragged and it was a quick tap
-      const tapDuration = Date.now() - dragStartTimeRef.current;
-      
-      if (!hasDraggedRef.current && tapDuration < 300) {
-        // Show bottom nav
-        if (onShowBottomNav) {
-          onShowBottomNav();
-        }
-        if (onTouch) {
-          onTouch();
-        }
-      }
-    };
-
-    const rotation = (exitX !== null ? exitX : dragX) / 20;
-    const opacity = exitX !== null ? 0 : (Math.abs(dragX) > Math.abs(dragY) ? 1 - Math.abs(dragX) / 300 : 1);
-
-    return (
-      <motion.div
-        ref={ref}
-        className="absolute inset-4 cursor-grab active:cursor-grabbing"
-        drag={exitX === null} // Disable drag during exit
-        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-        onPan={handlePan}
-        onPanStart={handlePanStart}
-        onPanEnd={handlePanEnd}
-        animate={{
-          x: exitX !== null ? exitX : dragX,
-          y: dragY,
-          rotate: rotation,
-          opacity,
-          scale: exitX !== null ? 0.9 : 1
-        }}
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        exit={{ 
-          x: exitX !== null ? exitX : (dragX > 0 ? 1000 : -1000), 
-          opacity: 0, 
-          scale: 0.9,
-          transition: { duration: 0.2 } 
-        }}
-        transition={{
-          type: "spring",
-          stiffness: 320,
-          damping: 30,
-        }}
-        style={{ touchAction: 'none' }}
-      >
-        <motion.div
-          className="w-full h-full rounded-[32px] overflow-hidden border-4 border-white/30 shadow-2xl bg-[#1C1C1E] flex flex-col"
-          onClick={handleCardTap}
-          whileTap={{ scale: 0.98 }}
-        >
-          {/* Card Image - Dynamic height for photos/videos */}
-          <div className="relative flex-shrink-0" style={{ height: '300px' }}>
-            <img 
-              src={card.image} 
-              alt={card.name}
-              className="w-full h-full object-cover"
-            />
-            
-            {/* Gradient Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
-            
-            {/* Swipe Indicators */}
-            <AnimatePresence>
-              {isDragging && (Math.abs(dragX) > 30 || Math.abs(dragY) > 30) && (
-                <motion.div
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                >
-                  {/* Swipe Up Indicator - Favorite */}
-                  {dragY < -30 && Math.abs(dragX) < Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-pink-500/80 border-pink-400/50">
-                      <div className="flex items-center gap-2">
-                        <Heart className="w-5 h-5 text-white fill-white" strokeWidth={2.5} />
-                        <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-                          Save
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Swipe Right Indicator - Open */}
-                  {dragX > 30 && Math.abs(dragX) > Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-green-500/80 border-green-400/50">
-                      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-                        → Open
-                      </span>
-                    </div>
-                  )}
-                  
-                  {/* Swipe Left Indicator - Skip */}
-                  {dragX < -30 && Math.abs(dragX) > Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-red-500/80 border-red-400/50">
-                      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-                        ← Skip
-                      </span>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Type Badge */}
-            <div className="absolute top-4 right-4">
-              <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
-                <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>
-                  {card.type}
-                </span>
-              </div>
-            </div>
-
-            {/* Distance Badge */}
-            <div className="absolute top-4 left-4">
-              <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
-                <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>
-                  {card.distance}
-                </span>
-              </div>
-            </div>
-
-            {/* Bottom Info */}
-            <div className="absolute bottom-0 left-0 right-0 p-5">
-              <div className="flex items-center gap-2 mb-1.5">
-                <h2 className="text-title-2 text-white drop-shadow-lg">
-                  {card.name}
-                </h2>
-                {card.verified && (
-                  <div className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500 border-2 border-white">
-                    <Shield className="w-3 h-3 text-white" strokeWidth={3} />
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex items-center gap-3 text-white/90 drop-shadow-md">
-                {card.rating && (
-                  <div className="flex items-center gap-1">
-                    <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} />
-                    <span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating}</span>
-                  </div>
-                )}
-                {card.price && (
-                  <span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>
-                )}
-                {card.spots && (
-                  <div className="flex items-center gap-1">
-                    <Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} />
-                    <span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Card Details - Minimal brief info only */}
-          <div className="flex-1 min-h-0 flex flex-col p-4 bg-[#1C1C1E] overflow-hidden">
-            {card.description && (
-              <p className="text-[14px] text-white/80 mb-2.5 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>
-                {card.description}
-              </p>
-            )}
-            
-            {card.features && card.features.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 flex-shrink-0 mb-auto">
-                {card.features.slice(0, 6).map((feature, idx) => (
-                  <div key={idx} className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20">
-                    <span className="text-[11px] text-white/90 whitespace-nowrap" style={{ fontWeight: 500 }}>
-                      {feature}
-                    </span>
-                  </div>
-                ))}
-                {card.features.length > 6 && (
-                  <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
-                    <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>
-                      +{card.features.length - 6}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {card.vibe && (
-              <div className="mt-2.5 flex-shrink-0">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] text-white/70" style={{ fontWeight: 500 }}>Vibe Score</span>
-                  <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>
-                </div>
-                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 rounded-full"
-                    style={{ width: `${card.vibe * 10}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      </motion.div>
-    );
-  });
-  
-  SwipeableCard.displayName = "SwipeableCard";
 
   return (
     <div
@@ -587,6 +497,9 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
               key={currentCard.id}
               card={currentCard}
               onSwipe={handleSwipe}
+              onShowBottomNav={onShowBottomNav}
+              onTouch={onTouch}
+              onSaveSpot={handleSaveSpot}
             />
           )}
         </AnimatePresence>

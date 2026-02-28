@@ -17,13 +17,23 @@ interface ProfileSectionProps {
   isDarkMode: boolean;
   onBecomeHost?: () => void;
   onBecomeValet?: () => void;
+  onLogout?: () => void;
 }
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points';
 
-export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet }: ProfileSectionProps) {
+export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const savedSpotsStats = getSavedSpotsStats();
+  // Read real user data from localStorage
+  const userName = (() => {
+    const name = localStorage.getItem('bytspot_user_name');
+    if (name) return name;
+    try {
+      const user = JSON.parse(localStorage.getItem('bytspot_user') || '{}');
+      return user?.name?.split(' ')[0] || 'Guest';
+    } catch { return 'Guest'; }
+  })();
   const userPoints = getUserPoints();
   const userTier = getUserTier(userPoints.total);
   const achievementStats = getAchievementStats();
@@ -147,7 +157,7 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet }: Prof
             {/* User Info */}
             <div className="flex-1">
               <h2 className="text-[22px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                Alex Thompson
+                {userName}
               </h2>
               <div className="flex items-center gap-2">
                 <div className={`px-2.5 py-1 rounded-full text-[12px] bg-gradient-to-br ${userTier.gradient}/30 border-2 border-white/30`} style={{ fontWeight: 600 }}>
@@ -349,6 +359,12 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet }: Prof
             className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 bg-red-600/30 border-red-500/50 text-red-200 hover:bg-red-600/40 shadow-xl"
             whileTap={{ scale: 0.98 }}
             transition={springConfig}
+            onClick={() => {
+              localStorage.removeItem('bytspot_auth_token');
+              localStorage.removeItem('bytspot_user');
+              localStorage.removeItem('bytspot_user_name');
+              onLogout?.();
+            }}
           >
             <LogOut className="w-5 h-5" strokeWidth={2.5} />
             <span className="text-[15px]" style={{ fontWeight: 600 }}>

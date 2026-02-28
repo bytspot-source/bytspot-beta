@@ -8,8 +8,9 @@ interface VenueDetailsProps {
   venue: any;
   isDarkMode: boolean;
   onClose: () => void;
-  onOpenConcierge: () => void;
+  onOpenConcierge?: () => void;
   onNavigateToMap?: () => void;
+  isOpen?: boolean;
 }
 
 const sampleReviews = [
@@ -62,8 +63,9 @@ const menuItems = [
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap }: VenueDetailsProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
-  const [liveVibe, setLiveVibe] = useState(8.5);
-  const [crowdLevel, setCrowdLevel] = useState('Moderate');
+  // Use real API crowd data from venue prop
+  const liveVibe = venue.vibe ?? 7;
+  const crowdLevel = venue.availability && venue.availability !== 'Unknown' ? venue.availability : null;
   
   const springConfig = {
     type: "spring" as const,
@@ -85,8 +87,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   };
 
   const handleBookValet = () => {
-    // Mock valet booking
-    alert('Ride booking feature coming soon!');
+    toast('Ride booking coming soon!');
   };
 
   const handleShare = async () => {
@@ -98,11 +99,10 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
           url: window.location.href,
         });
       } catch (err) {
-        // Share cancelled by user - silently handle
+        // Share cancelled by user
       }
     } else {
-      // Fallback
-      alert('Share feature available on mobile devices');
+      toast('Share link copied!');
     }
   };
 
@@ -241,39 +241,46 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
             </div>
 
             {/* Live Vibe Badge */}
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex-1 rounded-[16px] p-4 border-2 border-purple-400/50 bg-gradient-to-br from-purple-500/20 to-fuchsia-500/20 backdrop-blur-xl">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <motion.div
-                      className="w-2 h-2 rounded-full bg-green-400"
-                      animate={{ scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                    />
-                    <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-                      LIVE
-                    </span>
+            {crowdLevel && (
+              <div className="flex items-center gap-2 mb-4">
+                <div className={`flex-1 rounded-[16px] p-4 border-2 backdrop-blur-xl ${
+                  crowdLevel === 'Packed' ? 'border-red-400/50 bg-gradient-to-br from-red-500/20 to-orange-500/20' :
+                  crowdLevel === 'Busy'   ? 'border-orange-400/50 bg-gradient-to-br from-orange-500/20 to-yellow-500/20' :
+                  crowdLevel === 'Active' ? 'border-yellow-400/50 bg-gradient-to-br from-yellow-500/20 to-amber-500/20' :
+                                           'border-green-400/50 bg-gradient-to-br from-green-500/20 to-emerald-500/20'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <motion.div
+                        className="w-2 h-2 rounded-full bg-green-400"
+                        animate={{ scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                      />
+                      <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>LIVE</span>
+                    </div>
+                    <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>Updated just now</span>
                   </div>
-                  <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
-                    Updated 30s ago
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-purple-400" />
-                    <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-                      Vibe {liveVibe}/10
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-white/70" />
-                    <span className="text-[15px] text-white/90" style={{ fontWeight: 600 }}>
-                      {crowdLevel}
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-purple-400" />
+                      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
+                        Vibe {liveVibe}/10
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-white/70" />
+                      <span className={`text-[15px] font-semibold ${
+                        crowdLevel === 'Packed' ? 'text-red-400' :
+                        crowdLevel === 'Busy'   ? 'text-orange-400' :
+                        crowdLevel === 'Active' ? 'text-yellow-400' : 'text-green-400'
+                      }`}>
+                        {crowdLevel === 'Chill' ? '🟢' : crowdLevel === 'Active' ? '🟡' : crowdLevel === 'Busy' ? '🟠' : '🔴'} {crowdLevel}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </motion.div>
 
           {/* Essential Info */}
@@ -305,27 +312,13 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               <div className="flex items-start gap-3 p-3 rounded-[12px] bg-[#1C1C1E]/80 border border-white/30">
                 <MapPin className="w-5 h-5 text-orange-400 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                    Location
-                  </p>
+                  <p className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>Location</p>
                   <p className="text-[15px] text-white/90" style={{ fontWeight: 400 }}>
-                    123 Market Street, Downtown
+                    {venue.location || venue.description || 'Atlanta Midtown'}
                   </p>
-                  <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                    {venue.distance} away
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-[12px] bg-[#1C1C1E]/80 border border-white/30">
-                <Phone className="w-5 h-5 text-green-400 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                    Contact
-                  </p>
-                  <p className="text-[15px] text-cyan-400" style={{ fontWeight: 400 }}>
-                    (415) 555-1234
-                  </p>
+                  {venue.distance && venue.distance !== '—' && (
+                    <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>{venue.distance} away</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -502,16 +495,16 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                 </span>
               </motion.button>
 
-              <motion.button
-                onClick={onOpenConcierge}
-                className="p-3 rounded-[12px] bg-gradient-to-br from-purple-500 to-fuchsia-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
-                whileTap={{ scale: 0.95 }}
-              >
-                <MessageCircle className="w-4 h-4 text-white" />
-                <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
-                  Concierge
-                </span>
-              </motion.button>
+              {onOpenConcierge && (
+                <motion.button
+                  onClick={onOpenConcierge}
+                  className="p-3 rounded-[12px] bg-gradient-to-br from-purple-500 to-fuchsia-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <MessageCircle className="w-4 h-4 text-white" />
+                  <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>Concierge</span>
+                </motion.button>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-2">

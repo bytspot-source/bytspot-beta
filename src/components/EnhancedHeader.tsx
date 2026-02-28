@@ -122,7 +122,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#00BFFF]/15 border border-[#00BFFF]/30">
                   <MapPin className="w-[13px] h-[13px] text-[#00BFFF]" strokeWidth={2.5} />
                   <span className="text-[12px] text-[#00BFFF]" style={{ fontWeight: 600 }}>
-                    SF
+                    ATL
                   </span>
                 </div>
                 

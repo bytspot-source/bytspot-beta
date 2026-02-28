@@ -12,6 +12,7 @@ const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m
 const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
+const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -397,8 +398,8 @@ export default function App() {
 
         {/* Enhanced Header - Only on Home */}
         {activeTab === 'home' && (
-          <EnhancedHeader 
-            onProfileClick={() => {}}
+          <EnhancedHeader
+            onProfileClick={() => setActiveTab('profile')}
             scrollContainerRef={homeScrollRef}
           />
         )}
@@ -771,6 +772,28 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === 'profile' && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute top-0 left-0 right-0 bottom-0 overflow-y-auto"
+              >
+                <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
+                  <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+                    <ProfileSection
+                      isDarkMode={isDarkMode}
+                      onLogout={() => {
+                        setCurrentScreen('auth');
+                        setActiveTab('home');
+                      }}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              </motion.div>
+            )}
 
           </AnimatePresence>
         </div>

@@ -543,7 +543,6 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
         {selectedVenue && (
           <VenueDetails
             venue={selectedVenue}
-            isOpen={!!selectedVenue}
             onClose={() => setSelectedVenue(null)}
             isDarkMode={true}
           />

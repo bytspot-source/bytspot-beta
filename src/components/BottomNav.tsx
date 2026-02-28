@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, Compass, Map } from 'lucide-react';
+import { Home, Compass, Map, User } from 'lucide-react';
 import { memo } from 'react';
 
 interface BottomNavProps {
@@ -36,11 +36,11 @@ export const BottomNav = memo(function BottomNav({
     }
   };
 
-  // Beta MVP: 3 core tabs only
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'discover', label: 'Discover', icon: Compass },
     { id: 'map', label: 'Map', icon: Map },
+    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (

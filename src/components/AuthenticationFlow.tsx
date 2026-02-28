@@ -38,6 +38,10 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
       if (res.success && res.data?.token) {
         localStorage.setItem('bytspot_auth_token', res.data.token);
         localStorage.setItem('bytspot_user', JSON.stringify(res.data.user));
+        // Store name separately for quick header access
+        if (res.data.user?.name) {
+          localStorage.setItem('bytspot_user_name', res.data.user.name.split(' ')[0]);
+        }
         toast.success(mode === 'signup' ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
         onComplete();
       } else {

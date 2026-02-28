@@ -295,8 +295,22 @@ export function MapSection({ isDarkMode, selectedFunction, destination }: MapSec
 
       {/* Right Controls — Zoom + Recenter */}
       <div className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-2 z-[1000]">
-        <MapZoomIn springConfig={springConfig} />
-        <MapZoomOut springConfig={springConfig} />
+        <motion.button
+          onClick={() => setZoomDirection(1)}
+          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+        >
+          <Plus className="w-5 h-5 text-white" strokeWidth={2.5} />
+        </motion.button>
+        <motion.button
+          onClick={() => setZoomDirection(-1)}
+          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+        >
+          <Minus className="w-5 h-5 text-white" strokeWidth={2.5} />
+        </motion.button>
         <motion.button
           onClick={() => setShouldRecenter(true)}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"

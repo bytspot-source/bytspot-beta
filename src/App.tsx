@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart } from 'lucide-react';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
 import { BottomNav } from './components/BottomNav';
@@ -8,10 +8,10 @@ import { SplashScreen } from './components/SplashScreen';
 import { LandingPage } from './components/LandingPage';
 import { EnhancedHeader } from './components/EnhancedHeader';
 import { SmartSearchBar } from './components/SmartSearchBar';
-import { DiscoverSection } from './components/DiscoverSection';
-import { MapSection } from './components/MapSection';
-import { AuthenticationFlow } from './components/AuthenticationFlow';
-import { RideSelection } from './components/RideSelection';
+const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
+const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
+const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
+const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -359,6 +359,7 @@ export default function App() {
 
   if (currentScreen === 'auth') {
     return (
+      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
       <AuthenticationFlow
         isDarkMode={isDarkMode}
         onComplete={() => {
@@ -366,6 +367,7 @@ export default function App() {
           setCurrentScreen('main');
         }}
       />
+      </Suspense>
     );
   }
 
@@ -659,13 +661,15 @@ export default function App() {
                 onScroll={handleScroll}
               >
                 <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
-                  <DiscoverSection 
+                  <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+                  <DiscoverSection
                     isDarkMode={isDarkMode}
                     onNavigateToMap={() => setActiveTab('map')}
                     onShowBottomNav={() => setShowBottomNav(true)}
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
                   />
+                  </Suspense>
                 </ErrorBoundary>
               </motion.div>
             )}
@@ -680,9 +684,10 @@ export default function App() {
                 className="absolute inset-0"
               >
                 <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
-                  <MapSection 
-                    isDarkMode={isDarkMode} 
-                    selectedFunction={selectedMapFunction} 
+                  <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+                  <MapSection
+                    isDarkMode={isDarkMode}
+                    selectedFunction={selectedMapFunction}
                     viewMode={mapViewMode}
                     destination={selectedDestination}
                     onBackToHome={() => {
@@ -691,6 +696,7 @@ export default function App() {
                       setSelectedMapFunction(undefined);
                     }}
                   />
+                  </Suspense>
                 </ErrorBoundary>
               </motion.div>
             )}
@@ -741,6 +747,7 @@ export default function App() {
         />
 
         {/* Ride Selection Modal */}
+        <Suspense fallback={null}>
         <RideSelection
           isOpen={showRideSelection}
           onClose={() => setShowRideSelection(false)}
@@ -750,6 +757,7 @@ export default function App() {
           }}
           isDarkMode={isDarkMode}
         />
+        </Suspense>
 
 
       </div>

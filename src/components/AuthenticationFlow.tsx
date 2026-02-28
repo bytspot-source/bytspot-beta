@@ -1,19 +1,23 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Phone, Mail, ChevronRight, Check, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, User, Loader2, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
+import { authApi } from '../utils/api';
+import { toast } from 'sonner@2.0.3';
 
 interface AuthenticationFlowProps {
   isDarkMode: boolean;
   onComplete: () => void;
 }
 
-type AuthStep = 'method' | 'phone' | 'code';
+type AuthMode = 'signup' | 'login';
 
 export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlowProps) {
-  const [currentStep, setCurrentStep] = useState<AuthStep>('method');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [mode, setMode] = useState<AuthMode>('signup');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const springConfig = {
     type: "spring" as const,
@@ -22,47 +26,34 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
     mass: 0.8,
   };
 
-  const handlePhoneSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (phoneNumber.length >= 10) {
-      setCurrentStep('code');
+    setError('');
+    setLoading(true);
+    try {
+      const res = mode === 'signup'
+        ? await authApi.signup(email.trim(), password, name.trim())
+        : await authApi.login(email.trim(), password);
+
+      if (res.success && res.data?.token) {
+        localStorage.setItem('bytspot_auth_token', res.data.token);
+        localStorage.setItem('bytspot_user', JSON.stringify(res.data.user));
+        toast.success(mode === 'signup' ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
+        onComplete();
+      } else {
+        setError(res.error?.message || 'Something went wrong. Please try again.');
+      }
+    } catch {
+      setError('Connection error. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCodeChange = (index: number, value: string) => {
-    if (value.length > 1) return;
-    
-    const newCode = [...verificationCode];
-    newCode[index] = value;
-    setVerificationCode(newCode);
-
-    // Auto-focus next input
-    if (value && index < 5) {
-      const nextInput = document.getElementById(`code-${index + 1}`);
-      nextInput?.focus();
-    }
-
-    // Auto-verify when all digits entered
-    if (index === 5 && value && newCode.every(digit => digit)) {
-      handleVerify(newCode);
-    }
-  };
-
-  const handleVerify = (code: string[]) => {
-    setIsVerifying(true);
-    // Mock verification
-    setTimeout(() => {
-      setIsVerifying(false);
-      onComplete();
-    }, 1500);
-  };
-
-  const handleSocialLogin = (provider: 'google' | 'apple') => {
-    // Mock social login
-    alert(`Mock ${provider} OAuth login would happen here`);
-    setTimeout(() => {
-      onComplete();
-    }, 500);
+  // Beta guest bypass — no OAuth needed for now
+  const handleGuestContinue = () => {
+    localStorage.setItem('bytspot_auth_token', 'beta_guest');
+    onComplete();
   };
 
   return (
@@ -78,291 +69,153 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
         </div>
       </div>
 
-      <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col px-6 py-12">
-        <AnimatePresence mode="wait">
-          {/* Method Selection Step */}
-          {currentStep === 'method' && (
-            <motion.div
-              key="method"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={springConfig}
-              className="flex-1 flex flex-col justify-center"
+      <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col px-6 py-12 justify-center">
+
+        {/* Logo + heading */}
+        <motion.div
+          className="text-center mb-10"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springConfig}
+        >
+          <div className="w-20 h-20 rounded-[24px] bg-gradient-to-br from-purple-500 via-pink-500 to-cyan-500 flex items-center justify-center mx-auto mb-5 shadow-xl">
+            <span className="text-[36px]">👋</span>
+          </div>
+          <h1 className="text-large-title text-white mb-2">Welcome to Bytspot</h1>
+          <p className="text-[15px] text-white/60" style={{ fontWeight: 400 }}>Midtown Atlanta, know before you go</p>
+        </motion.div>
+
+        {/* Mode toggle */}
+        <motion.div
+          className="flex rounded-[14px] bg-white/10 p-1 mb-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...springConfig, delay: 0.1 }}
+        >
+          {(['signup', 'login'] as AuthMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setError(''); }}
+              className={`flex-1 py-2.5 rounded-[10px] text-[15px] transition-all ${
+                mode === m ? 'bg-white text-black shadow' : 'text-white/60'
+              }`}
+              style={{ fontWeight: 600 }}
             >
-              <div className="text-center mb-12">
-                <motion.div
-                  className="w-24 h-24 rounded-[28px] bg-gradient-to-br from-purple-500 via-pink-500 to-cyan-500 flex items-center justify-center mx-auto mb-6 shadow-xl"
-                  initial={{ scale: 0.8 }}
-                  animate={{ scale: 1 }}
-                  transition={{ ...springConfig, delay: 0.1 }}
-                >
-                  <span className="text-[40px]">👋</span>
-                </motion.div>
+              {m === 'signup' ? 'Sign Up' : 'Log In'}
+            </button>
+          ))}
+        </motion.div>
 
-                <motion.h1
-                  className="text-large-title mb-4 text-white"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                >
-                  Welcome to Bytspot
-                </motion.h1>
-
-                <motion.p
-                  className="text-[17px] text-white/90"
-                  style={{ fontWeight: 400 }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.3 }}
-                >
-                  Sign in to get started
-                </motion.p>
-              </div>
-
+        {/* Form */}
+        <motion.form
+          onSubmit={handleSubmit}
+          className="space-y-3"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...springConfig, delay: 0.15 }}
+        >
+          <AnimatePresence>
+            {mode === 'signup' && (
               <motion.div
-                className="space-y-3 mb-6"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
+                key="name"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
               >
-                {/* Phone Sign In */}
-                <motion.button
-                  onClick={() => setCurrentStep('phone')}
-                  className="w-full rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl flex items-center gap-3"
-                  whileTap={{ scale: 0.98 }}
-                  transition={springConfig}
-                >
-                  <div className="w-12 h-12 rounded-full bg-cyan-500/30 flex items-center justify-center flex-shrink-0">
-                    <Phone className="w-6 h-6 text-cyan-300" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-                      Continue with Phone
-                    </p>
-                    <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                      We'll send you a verification code
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-white/50" />
-                </motion.button>
-
-                {/* Apple Sign In */}
-                <motion.button
-                  onClick={() => handleSocialLogin('apple')}
-                  className="w-full rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl flex items-center gap-3"
-                  whileTap={{ scale: 0.98 }}
-                  transition={springConfig}
-                >
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[24px]">🍎</span>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-                      Continue with Apple
-                    </p>
-                    <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                      Sign in with your Apple ID
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-white/50" />
-                </motion.button>
-
-                {/* Google Sign In */}
-                <motion.button
-                  onClick={() => handleSocialLogin('google')}
-                  className="w-full rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl flex items-center gap-3"
-                  whileTap={{ scale: 0.98 }}
-                  transition={springConfig}
-                >
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[24px]">G</span>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-                      Continue with Google
-                    </p>
-                    <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                      Sign in with your Google account
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-white/50" />
-                </motion.button>
+                <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+                  <User className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required={mode === 'signup'}
+                    className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
+                  />
+                </div>
               </motion.div>
+            )}
+          </AnimatePresence>
 
-              <motion.p
-                className="text-[12px] text-white/40 text-center"
-                style={{ fontWeight: 400 }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
+          <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+            <Mail className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+            <Lock className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+              className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
+            />
+          </div>
+
+          {/* Error */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-2 px-4 py-3 rounded-[12px] bg-red-500/15 border border-red-400/30"
               >
-                By signing in, you agree to our Terms of Service and Privacy Policy
-              </motion.p>
-            </motion.div>
-          )}
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                <p className="text-[13px] text-red-300" style={{ fontWeight: 500 }}>{error}</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Phone Number Entry Step */}
-          {currentStep === 'phone' && (
-            <motion.div
-              key="phone"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={springConfig}
-              className="flex-1 flex flex-col"
-            >
-              <motion.button
-                onClick={() => setCurrentStep('method')}
-                className="flex items-center gap-2 text-white/70 mb-8 -ml-2 p-2 rounded-lg tap-target"
-                whileTap={{ scale: 0.95 }}
-              >
-                <ArrowLeft className="w-5 h-5" />
-                <span className="text-[17px]" style={{ fontWeight: 500 }}>Back</span>
-              </motion.button>
+          <motion.button
+            type="submit"
+            disabled={loading}
+            className="w-full py-4 rounded-[16px] bg-gradient-to-r from-purple-500 to-cyan-500 text-white flex items-center justify-center gap-2 shadow-lg disabled:opacity-60"
+            style={{ fontWeight: 600, fontSize: 17 }}
+            whileTap={{ scale: loading ? 1 : 0.98 }}
+            transition={springConfig}
+          >
+            {loading
+              ? <Loader2 className="w-5 h-5 animate-spin" />
+              : mode === 'signup' ? 'Create Account' : 'Log In'
+            }
+          </motion.button>
+        </motion.form>
 
-              <div className="flex-1 flex flex-col justify-center">
-                <div className="mb-12">
-                  <div className="w-16 h-16 rounded-full bg-cyan-500/30 flex items-center justify-center mx-auto mb-6">
-                    <Phone className="w-8 h-8 text-cyan-300" />
-                  </div>
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-[12px] text-white/30" style={{ fontWeight: 500 }}>or</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
 
-                  <h2 className="text-title-1 mb-4 text-white text-center">
-                    Enter your phone number
-                  </h2>
+        {/* Beta guest bypass */}
+        <motion.button
+          onClick={handleGuestContinue}
+          className="w-full py-3.5 rounded-[16px] border-2 border-white/20 text-white/60 text-[15px]"
+          style={{ fontWeight: 500 }}
+          whileTap={{ scale: 0.98 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...springConfig, delay: 0.3 }}
+        >
+          Continue as Guest
+        </motion.button>
 
-                  <p className="text-[15px] text-white/70 text-center max-w-[300px] mx-auto" style={{ fontWeight: 400 }}>
-                    We'll send you a verification code to confirm your number
-                  </p>
-                </div>
-
-                <form onSubmit={handlePhoneSubmit} className="space-y-6">
-                  <div>
-                    <label className="block text-[13px] mb-2 px-1 text-white" style={{ fontWeight: 500 }}>
-                      Phone Number
-                    </label>
-                    <div className="rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
-                      <div className="flex items-center gap-3 p-4">
-                        <span className="text-[17px] text-white" style={{ fontWeight: 500 }}>+1</span>
-                        <input
-                          type="tel"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                          placeholder="(555) 123-4567"
-                          className="flex-1 bg-transparent text-[17px] outline-none text-white placeholder:text-white/60"
-                          style={{ fontWeight: 400 }}
-                          autoFocus
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <motion.button
-                    type="submit"
-                    disabled={phoneNumber.length < 10}
-                    className={`w-full rounded-[16px] p-4 flex items-center justify-center gap-2 transition-all ${
-                      phoneNumber.length >= 10
-                        ? 'bg-gradient-to-br from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/25'
-                        : 'bg-white/10'
-                    }`}
-                    whileTap={{ scale: phoneNumber.length >= 10 ? 0.98 : 1 }}
-                    transition={springConfig}
-                  >
-                    <span className={`text-[17px] ${
-                      phoneNumber.length >= 10 ? 'text-white' : 'text-white/40'
-                    }`} style={{ fontWeight: 600 }}>
-                      Send Code
-                    </span>
-                    <ChevronRight className={`w-5 h-5 ${
-                      phoneNumber.length >= 10 ? 'text-white' : 'text-white/40'
-                    }`} strokeWidth={2.5} />
-                  </motion.button>
-                </form>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Verification Code Step */}
-          {currentStep === 'code' && (
-            <motion.div
-              key="code"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={springConfig}
-              className="flex-1 flex flex-col"
-            >
-              <motion.button
-                onClick={() => setCurrentStep('phone')}
-                className="flex items-center gap-2 text-white/70 mb-8 -ml-2 p-2 rounded-lg tap-target"
-                whileTap={{ scale: 0.95 }}
-              >
-                <ArrowLeft className="w-5 h-5" />
-                <span className="text-[17px]" style={{ fontWeight: 500 }}>Back</span>
-              </motion.button>
-
-              <div className="flex-1 flex flex-col justify-center">
-                <div className="mb-12">
-                  <div className="w-16 h-16 rounded-full bg-cyan-500/30 flex items-center justify-center mx-auto mb-6">
-                    <Mail className="w-8 h-8 text-cyan-300" />
-                  </div>
-
-                  <h2 className="text-title-1 mb-4 text-white text-center">
-                    Enter verification code
-                  </h2>
-
-                  <p className="text-[15px] text-white/70 text-center max-w-[300px] mx-auto" style={{ fontWeight: 400 }}>
-                    We sent a code to +1 {phoneNumber}
-                  </p>
-                </div>
-
-                <div className="space-y-8">
-                  {/* Code Input */}
-                  <div className="flex justify-center gap-3">
-                    {verificationCode.map((digit, index) => (
-                      <input
-                        key={index}
-                        id={`code-${index}`}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={digit}
-                        onChange={(e) => handleCodeChange(index, e.target.value)}
-                        className="w-12 h-14 rounded-[12px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-center text-[24px] text-white outline-none focus:border-cyan-400 transition-colors shadow-xl"
-                        style={{ fontWeight: 600 }}
-                      />
-                    ))}
-                  </div>
-
-                  {isVerifying && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="p-4 rounded-[12px] bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center gap-2"
-                    >
-                      <div className="w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-[15px] text-cyan-400" style={{ fontWeight: 600 }}>
-                        Verifying...
-                      </span>
-                    </motion.div>
-                  )}
-
-                  <motion.button
-                    onClick={() => {
-                      setVerificationCode(['', '', '', '', '', '']);
-                      // Mock resend
-                    }}
-                    className="w-full text-[15px] text-cyan-400"
-                    style={{ fontWeight: 600 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Resend Code
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <p className="text-[11px] text-white/25 text-center mt-6" style={{ fontWeight: 400 }}>
+          By continuing, you agree to our Terms of Service and Privacy Policy
+        </p>
       </div>
     </div>
   );

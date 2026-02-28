@@ -152,10 +152,24 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-3 text-white/90 drop-shadow-md">
-                {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating}</span></div>)}
+              <div className="flex items-center gap-3 text-white/90 drop-shadow-md flex-wrap">
+                {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating.toFixed(1)}</span></div>)}
                 {card.price && (<span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>)}
                 {card.spots && (<div className="flex items-center gap-1"><Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span></div>)}
+                {card.availability && card.availability !== 'Unknown' && (
+                  <div className={`px-2.5 py-0.5 rounded-full text-[12px] border ${
+                    card.availability === 'Chill'   ? 'bg-green-500/40 border-green-400/60 text-green-200' :
+                    card.availability === 'Active'  ? 'bg-yellow-500/40 border-yellow-400/60 text-yellow-200' :
+                    card.availability === 'Busy'    ? 'bg-orange-500/40 border-orange-400/60 text-orange-200' :
+                    card.availability === 'Packed'  ? 'bg-red-500/40 border-red-400/60 text-red-200' :
+                    'bg-white/20 border-white/30 text-white/80'
+                  }`} style={{ fontWeight: 700 }}>
+                    {card.availability === 'Chill'  ? '🟢' :
+                     card.availability === 'Active' ? '🟡' :
+                     card.availability === 'Busy'   ? '🟠' :
+                     card.availability === 'Packed' ? '🔴' : '⚪'} {card.availability}
+                  </div>
+                )}
               </div>
             </div>
           </div>

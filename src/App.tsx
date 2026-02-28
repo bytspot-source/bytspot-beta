@@ -587,6 +587,7 @@ export default function App() {
                                 type: 'venue' as const,
                                 rating: 4.5,
                                 priority: 0,
+                                crowd: v.crowd,
                               }))
                             : [
                                 { name: 'Colony Square Garage', distance: '0.2', spots: 14, available: true, priority: 0 },
@@ -616,22 +617,27 @@ export default function App() {
                                 <h3 className="text-[17px] mb-1 text-white" style={{ fontWeight: 600 }}>
                                   {location.name}
                                 </h3>
-                                <div className="flex items-center gap-3 text-[15px]">
-                                  <span className="text-white" style={{ fontWeight: 400 }}>
+                                <div className="flex items-center gap-2 flex-wrap text-[13px]">
+                                  <span className="text-white/80" style={{ fontWeight: 400 }}>
                                     {location.distance} mi
                                   </span>
-                                  <span className="text-white/70">•</span>
-                                  <span className={`${location.spots > 20 ? 'text-green-400' : location.spots > 10 ? 'text-yellow-400' : 'text-orange-400'}`} style={{ fontWeight: 600 }}>
-                                    {location.spots} spots
+                                  <span className="text-white/40">•</span>
+                                  <span className={`${(location.spots ?? 0) > 20 ? 'text-green-400' : (location.spots ?? 0) > 10 ? 'text-yellow-400' : 'text-orange-400'}`} style={{ fontWeight: 600 }}>
+                                    {location.spots ?? 0} spots
                                   </span>
-                                  {location.rating && (
+                                  {(location as any).crowd && (
                                     <>
-                                      <span className="text-white/70">•</span>
-                                      <div className="flex items-center gap-1">
-                                        <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-                                        <span className="text-white" style={{ fontWeight: 500 }}>
-                                          {location.rating}
-                                        </span>
+                                      <span className="text-white/40">•</span>
+                                      <div className={`px-2 py-0.5 rounded-full text-[11px] border ${
+                                        (location as any).crowd.label === 'Chill'  ? 'bg-green-500/30 border-green-400/50 text-green-300' :
+                                        (location as any).crowd.label === 'Active' ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300' :
+                                        (location as any).crowd.label === 'Busy'   ? 'bg-orange-500/30 border-orange-400/50 text-orange-300' :
+                                        'bg-red-500/30 border-red-400/50 text-red-300'
+                                      }`} style={{ fontWeight: 700 }}>
+                                        {(location as any).crowd.label === 'Chill'  ? '🟢' :
+                                         (location as any).crowd.label === 'Active' ? '🟡' :
+                                         (location as any).crowd.label === 'Busy'   ? '🟠' : '🔴'} {(location as any).crowd.label}
+                                        {(location as any).crowd.waitMins ? ` · ${(location as any).crowd.waitMins}m wait` : ''}
                                       </div>
                                     </>
                                   )}

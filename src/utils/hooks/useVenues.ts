@@ -34,13 +34,11 @@ function mapCategory(category: string): CardType {
   return map[category] || 'venue';
 }
 
-/** Map API crowd label → human-friendly availability */
+/** Map API crowd label → human-friendly availability (level is 1-4) */
 function crowdToAvailability(crowd: ApiVenue['crowd']): string {
   if (!crowd) return 'Unknown';
-  if (crowd.level <= 30) return 'Not Busy';
-  if (crowd.level <= 60) return 'Moderate';
-  if (crowd.level <= 80) return 'Busy';
-  return 'Very Busy';
+  // Use the label the API already provides: "Chill", "Active", "Busy", "Packed"
+  return crowd.label || 'Unknown';
 }
 
 /** Convert an ApiVenue → DiscoverCard */
@@ -56,7 +54,7 @@ export function venueToCard(v: ApiVenue, index: number): DiscoverCard {
     distance: '—', // will be enriched by nearby endpoint
     rating: 4.5 + Math.random() * 0.5, // placeholder until reviews exist
     availability: crowdToAvailability(v.crowd),
-    vibe: v.crowd ? Math.round((100 - v.crowd.level) / 10) : undefined,
+    vibe: v.crowd ? Math.round((5 - v.crowd.level) * 2.5) : undefined, // level 1→10, 2→8, 3→5, 4→3
     description: v.address,
     location: v.address,
     features: v.parking.spots.length > 0

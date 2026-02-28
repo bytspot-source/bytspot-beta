@@ -17,6 +17,7 @@ import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from 'sonner@2.0.3';
 import { useOffline } from './utils/hooks/useOffline';
+import { useVenues } from './utils/hooks/useVenues';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 
@@ -43,6 +44,7 @@ export default function App() {
   const isDarkMode = true; // Fixed to dark mode
 
   const { isOnline, isOffline } = useOffline();
+  const { venues: apiVenues } = useVenues();
   const [searchValue, setSearchValue] = useState('');
   const [showMapMenu, setShowMapMenu] = useState(false);
   const [selectedMapFunction, setSelectedMapFunction] = useState<MapFunction | undefined>();
@@ -573,11 +575,23 @@ export default function App() {
                       </div>
                       
                       <div className="space-y-3">
-                        {(personalizedLocations.length > 0 ? personalizedLocations : [
-                          { name: 'Colony Square Garage', distance: '0.2', spots: 32, available: true, priority: 0 },
-                          { name: '1380 W Peachtree Garage', distance: '0.4', spots: 21, available: true, priority: 0 },
-                          { name: 'Promenade Midtown Parking', distance: '0.7', spots: 45, available: true, priority: 0 },
-                        ]).map((location, index) => (
+                        {(personalizedLocations.length > 0 ? personalizedLocations :
+                          apiVenues.length > 0
+                            ? apiVenues.slice(0, 3).map((v, i) => ({
+                                name: v.name,
+                                distance: ((i + 1) * 0.2).toFixed(1),
+                                spots: v.parking?.totalAvailable ?? 0,
+                                available: (v.parking?.totalAvailable ?? 0) > 0,
+                                type: 'venue' as const,
+                                rating: 4.5,
+                                priority: 0,
+                              }))
+                            : [
+                                { name: 'Colony Square Garage', distance: '0.2', spots: 14, available: true, priority: 0 },
+                                { name: '1380 W Peachtree Garage', distance: '0.4', spots: 22, available: true, priority: 0 },
+                                { name: 'Promenade Midtown Parking', distance: '0.6', spots: 38, available: true, priority: 0 },
+                              ]
+                        ).map((location, index) => (
                           <motion.button
                             key={location.name}
                             onClick={() => handleNearbyLocationClick(location.name)}

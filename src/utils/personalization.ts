@@ -283,44 +283,44 @@ export function getPersonalizedNearbyLocations(
   // Sample locations with priorities
   const locations: NearbyLocation[] = [
     {
-      name: 'Downtown Plaza Garage',
-      distance: '0.3',
-      spots: 24,
+      name: 'Colony Square Garage',
+      distance: '0.2',
+      spots: 14,
       available: true,
       type: 'parking',
       rating: 4.8,
       priority: 10,
     },
     {
-      name: 'Central Station Parking',
-      distance: '0.5',
-      spots: 18,
+      name: '1380 W Peachtree Garage',
+      distance: '0.4',
+      spots: 22,
       available: true,
       type: 'parking',
       rating: 4.3,
       priority: 8,
     },
     {
-      name: 'Bay Area Mall Garage',
-      distance: '0.8',
-      spots: 42,
+      name: 'Promenade Midtown Parking',
+      distance: '0.6',
+      spots: 38,
       available: true,
       type: 'parking',
       rating: 4.6,
       priority: 6,
     },
     {
-      name: 'Tech Hub Premium Parking',
-      distance: '0.4',
-      spots: 12,
-      available: true,
+      name: 'Midtown Place Parking',
+      distance: '0.5',
+      spots: 0,
+      available: false,
       type: 'parking',
       rating: 4.9,
       priority: 5,
     },
     {
-      name: 'Union Square Garage',
-      distance: '0.6',
+      name: 'Arts Center MARTA Garage',
+      distance: '0.7',
       spots: 28,
       available: true,
       type: 'parking',
@@ -335,7 +335,7 @@ export function getPersonalizedNearbyLocations(
     
     // For now, boost premium locations if user prefers premium security
     if (prefs.security === 'premium') {
-      const premiumSpots = ['Downtown Plaza Garage', 'Tech Hub Premium Parking'];
+      const premiumSpots = ['Colony Square Garage', 'Midtown Place Parking'];
       locations.forEach(loc => {
         if (premiumSpots.includes(loc.name)) {
           loc.priority += 20;

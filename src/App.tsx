@@ -14,6 +14,7 @@ const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
+import { VenueDetails } from './components/VenueDetails';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from 'sonner@2.0.3';
@@ -58,6 +59,7 @@ export default function App() {
   const [discoverFilter, setDiscoverFilter] = useState<'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | undefined>(undefined);
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
+  const [selectedSearchVenue, setSelectedSearchVenue] = useState<any>(null);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -413,6 +415,11 @@ export default function App() {
               onSubmit={handleSearch}
               onSuggestionClick={handleSuggestionClick}
               isDarkMode={isDarkMode}
+              venues={apiVenues}
+              onVenueClick={(venue) => {
+                setSelectedSearchVenue(venue);
+                setSearchValue('');
+              }}
             />
           </div>
         )}
@@ -819,6 +826,17 @@ export default function App() {
           currentViewMode={mapViewMode}
           isDarkMode={isDarkMode}
         />
+
+        {/* Search Venue Detail Sheet */}
+        <AnimatePresence>
+          {selectedSearchVenue && (
+            <VenueDetails
+              venue={selectedSearchVenue}
+              onClose={() => setSelectedSearchVenue(null)}
+              isDarkMode={isDarkMode}
+            />
+          )}
+        </AnimatePresence>
 
         {/* Toast Notifications - ACCESSIBILITY: Screen reader announcements */}
         <Toaster 

@@ -17,14 +17,18 @@ interface SmartSearchBarProps {
   onSubmit: (e: React.FormEvent) => void;
   onSuggestionClick: (suggestion: SearchSuggestion) => void;
   isDarkMode: boolean;
+  venues?: any[];
+  onVenueClick?: (venue: any) => void;
 }
 
-export function SmartSearchBar({ 
-  value, 
-  onChange, 
-  onSubmit, 
+export function SmartSearchBar({
+  value,
+  onChange,
+  onSubmit,
   onSuggestionClick,
-  isDarkMode 
+  isDarkMode,
+  venues = [],
+  onVenueClick,
 }: SmartSearchBarProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -56,11 +60,11 @@ export function SmartSearchBar({
     }
   };
 
-  // Trending searches
+  // Trending searches — ATL Midtown
   const trendingSearches: SearchSuggestion[] = [
     {
       id: 'trend-1',
-      text: 'Downtown parking',
+      text: 'Midtown parking',
       type: 'trending',
       icon: <TrendingUp className="w-4 h-4 text-[#FF4500]" strokeWidth={2.5} />,
       category: 'parking',
@@ -81,21 +85,29 @@ export function SmartSearchBar({
     },
   ];
 
-  // Nearby suggestions
+  // Nearby suggestions — ATL Midtown landmarks
   const nearbySuggestions: SearchSuggestion[] = [
     {
       id: 'nearby-1',
-      text: 'Union Square',
+      text: 'Piedmont Park',
       type: 'nearby',
       icon: <MapPin className="w-4 h-4 text-[#00BFFF]" strokeWidth={2.5} />,
     },
     {
       id: 'nearby-2',
-      text: 'Ferry Building',
+      text: 'Ponce City Market',
       type: 'nearby',
       icon: <MapPin className="w-4 h-4 text-[#00BFFF]" strokeWidth={2.5} />,
     },
   ];
+
+  // Live venue matches from API
+  const venueMatches = value.trim().length >= 2
+    ? venues.filter(v =>
+        v.name?.toLowerCase().includes(value.toLowerCase()) ||
+        v.category?.toLowerCase().includes(value.toLowerCase())
+      ).slice(0, 4)
+    : [];
 
   // All suggestions
   const allSuggestions = [
@@ -111,10 +123,10 @@ export function SmartSearchBar({
       )
     : allSuggestions;
 
-  // Show suggestions when focused and have suggestions
+  // Show suggestions when focused and have suggestions (or live venue matches)
   useEffect(() => {
-    setShowSuggestions(isFocused && filteredSuggestions.length > 0);
-  }, [isFocused, filteredSuggestions.length]);
+    setShowSuggestions(isFocused && (filteredSuggestions.length > 0 || venueMatches.length > 0));
+  }, [isFocused, filteredSuggestions.length, venueMatches.length]);
 
   // Handle voice input (mock)
   const handleVoiceInput = () => {
@@ -260,6 +272,43 @@ export function SmartSearchBar({
             transition={springConfig}
           >
             <div className="p-2">
+
+              {/* Live Venue Results — shown first when typing */}
+              {venueMatches.length > 0 && (
+                <>
+                  <div className="px-3 py-2 flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-[11px] text-green-300" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Live Results
+                    </span>
+                  </div>
+                  {venueMatches.map((venue, index) => {
+                    const crowdEmoji = venue.crowd?.label === 'Chill' ? '🟢' : venue.crowd?.label === 'Active' ? '🟡' : venue.crowd?.label === 'Busy' ? '🟠' : venue.crowd?.label === 'Packed' ? '🔴' : '';
+                    return (
+                      <motion.button
+                        key={venue.id || index}
+                        onClick={() => { onVenueClick?.(venue); setShowSuggestions(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[12px] hover:bg-white/10 transition-colors text-left"
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#A855F7]/40 to-[#00BFFF]/40 border border-white/20 flex items-center justify-center text-[14px] flex-shrink-0">
+                          {venue.category === 'dining' ? '🍽️' : venue.category === 'nightlife' ? '🍸' : venue.category === 'coffee' ? '☕' : venue.category === 'shopping' ? '🛍️' : venue.category === 'entertainment' ? '🎶' : venue.category === 'fitness' ? '💪' : '📍'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="block text-[15px] text-white truncate" style={{ fontWeight: 500 }}>{venue.name}</span>
+                          <span className="text-[12px] text-white/50 capitalize">{venue.category}{crowdEmoji ? ` · ${crowdEmoji} ${venue.crowd?.label}` : ''}</span>
+                        </div>
+                        <Navigation className="w-4 h-4 text-white/40 flex-shrink-0" strokeWidth={2} />
+                      </motion.button>
+                    );
+                  })}
+                  <div className="h-px bg-white/10 my-2" />
+                </>
+              )}
+
               {/* Recent Searches Section */}
               {getRecentSearches().length > 0 && !value && (
                 <>

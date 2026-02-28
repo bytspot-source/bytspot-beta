@@ -500,6 +500,70 @@ export default function App() {
                       />
                     </div>
 
+                    {/* ── Right Now in Midtown ── Live Crowd Feed */}
+                    {apiVenues.filter(v => v.crowd).length > 0 && (
+                      <div className="mb-8">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h2 className="text-title-2 text-white">Right Now in Midtown</h2>
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30">
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                            <span className="text-[11px] text-green-300" style={{ fontWeight: 600 }}>Live</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                          {[...apiVenues]
+                            .filter(v => v.crowd)
+                            .sort((a, b) => (b.crowd?.level ?? 0) - (a.crowd?.level ?? 0))
+                            .slice(0, 8)
+                            .map((v, i) => {
+                              const lvl = v.crowd!.level;
+                              const label = v.crowd!.label;
+                              const wait = v.crowd!.waitMins;
+                              const accentColor =
+                                lvl === 4 ? '#ef4444' :
+                                lvl === 3 ? '#f97316' :
+                                lvl === 2 ? '#eab308' : '#10b981';
+                              const pillBg =
+                                lvl === 4 ? 'bg-red-500/30 border-red-400/50 text-red-300' :
+                                lvl === 3 ? 'bg-orange-500/30 border-orange-400/50 text-orange-300' :
+                                lvl === 2 ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300' :
+                                            'bg-green-500/30 border-green-400/50 text-green-300';
+                              const emoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
+                              const catEmoji: Record<string, string> = {
+                                restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
+                                shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
+                              };
+                              const icon = catEmoji[v.category] || '📍';
+                              return (
+                                <motion.button
+                                  key={v.id}
+                                  onClick={() => { setDiscoverFilter(undefined); setActiveTab('discover'); }}
+                                  className="flex-shrink-0 w-[148px] rounded-2xl overflow-hidden bg-[#1C1C1E]/90 border border-white/10 text-left"
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ ...springConfig, delay: 0.3 + i * 0.04 }}
+                                  whileTap={{ scale: 0.96 }}
+                                  whileHover={{ scale: 1.02, y: -2 }}
+                                >
+                                  {/* Color accent bar */}
+                                  <div className="h-[3px]" style={{ background: accentColor }} />
+                                  <div className="p-3">
+                                    <div className="text-xl mb-1.5">{icon}</div>
+                                    <h3 className="text-white text-[13px] leading-tight mb-2 truncate" style={{ fontWeight: 600 }}>{v.name}</h3>
+                                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
+                                      {emoji} {label}
+                                    </div>
+                                    {wait ? (
+                                      <p className="text-white/50 text-[11px] mt-1">~{wait}m wait</p>
+                                    ) : null}
+                                  </div>
+                                </motion.button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Category Quick Search - Personalized */}
                     <div className="mb-8">
                       <div className="mb-4 flex items-center justify-between">

@@ -66,6 +66,7 @@ export default function App() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingSlide, setOnboardingSlide] = useState(0);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -984,6 +985,10 @@ export default function App() {
             const dismiss = () => {
               localStorage.setItem('bytspot_onboarding_seen', 'true');
               setShowOnboarding(false);
+              // Offer notification permission after onboarding
+              if ('Notification' in window && Notification.permission === 'default') {
+                setTimeout(() => setShowNotifPrompt(true), 600);
+              }
             };
             return (
               <motion.div
@@ -1029,6 +1034,56 @@ export default function App() {
               </motion.div>
             );
           })()}
+        </AnimatePresence>
+
+        {/* ─── Notification Permission Prompt ─── */}
+        <AnimatePresence>
+          {showNotifPrompt && (
+            <motion.div
+              key="notif-prompt"
+              initial={{ opacity: 0, y: 80 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 80 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+              className="fixed bottom-24 left-4 right-4 z-[9998] rounded-[24px] p-5 flex flex-col gap-3"
+              style={{ background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)' }}>🔔</div>
+                <div>
+                  <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Crowd Alerts</p>
+                  <p className="text-[13px] text-white/50">Get notified when spots hit Packed</p>
+                </div>
+                <button className="ml-auto text-white/30 text-lg" onClick={() => setShowNotifPrompt(false)}>✕</button>
+              </div>
+              <div className="flex gap-2">
+                <motion.button
+                  className="flex-1 rounded-[14px] py-3 text-[14px] text-white/60 border border-white/20"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setShowNotifPrompt(false)}
+                >
+                  Not now
+                </motion.button>
+                <motion.button
+                  className="flex-1 rounded-[14px] py-3 text-[14px] text-black"
+                  style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    setShowNotifPrompt(false);
+                    if ('Notification' in window) {
+                      Notification.requestPermission().then((perm) => {
+                        if (perm === 'granted') {
+                          toast.success('Crowd alerts enabled 🔔', { description: "We'll notify you when spots hit Packed" });
+                        }
+                      });
+                    }
+                  }}
+                >
+                  Enable Alerts
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
       </div>

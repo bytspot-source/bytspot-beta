@@ -1,7 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
+import { addPoints } from '../utils/gamification';
 import { toast } from 'sonner@2.0.3';
 
 interface VenueDetailsProps {
@@ -66,6 +67,19 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   // Use real API crowd data from venue prop
   const liveVibe = venue.vibe ?? 7;
   const crowdLevel = venue.availability && venue.availability !== 'Unknown' ? venue.availability : null;
+
+  // Check-in state — 1-hour cooldown per venue
+  const checkInKey = `bytspot_checkin_${venue.id || venue.name}`;
+  const lastCheckIn = parseInt(localStorage.getItem(checkInKey) || '0', 10);
+  const [checkedIn, setCheckedIn] = useState(Date.now() - lastCheckIn < 3600_000);
+
+  const handleCheckIn = () => {
+    if (checkedIn) return;
+    localStorage.setItem(checkInKey, String(Date.now()));
+    setCheckedIn(true);
+    addPoints('VENUE_CHECKIN');
+    toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
+  };
   
   const springConfig = {
     type: "spring" as const,
@@ -506,6 +520,25 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                 </motion.button>
               )}
             </div>
+
+            {/* Check In CTA */}
+            <motion.button
+              onClick={handleCheckIn}
+              disabled={checkedIn}
+              className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3"
+              style={{
+                background: checkedIn
+                  ? 'rgba(16,185,129,0.15)'
+                  : 'linear-gradient(135deg,#10b981,#059669)',
+                border: checkedIn ? '2px solid rgba(16,185,129,0.4)' : '2px solid transparent',
+              }}
+              whileTap={checkedIn ? {} : { scale: 0.97 }}
+            >
+              <CheckCircle className={`w-5 h-5 ${checkedIn ? 'text-emerald-400' : 'text-white'}`} strokeWidth={2.5} />
+              <span className={`text-[15px] ${checkedIn ? 'text-emerald-400' : 'text-white'}`} style={{ fontWeight: 700 }}>
+                {checkedIn ? 'Checked In ✓' : 'Check In · +10 pts'}
+              </span>
+            </motion.button>
 
             <div className="grid grid-cols-3 gap-2">
               <motion.button

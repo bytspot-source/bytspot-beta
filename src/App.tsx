@@ -64,6 +64,8 @@ export default function App() {
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingSlide, setOnboardingSlide] = useState(0);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -372,6 +374,10 @@ export default function App() {
         onComplete={() => {
           localStorage.setItem('bytspot_auth_token', 'beta_user');
           setCurrentScreen('main');
+          if (!localStorage.getItem('bytspot_onboarding_seen')) {
+            setOnboardingSlide(0);
+            setShowOnboarding(true);
+          }
         }}
       />
       </Suspense>
@@ -963,6 +969,66 @@ export default function App() {
               </motion.div>
             </>
           )}
+        </AnimatePresence>
+
+        {/* ─── Onboarding Overlay ─── */}
+        <AnimatePresence>
+          {showOnboarding && (() => {
+            const slides = [
+              { emoji: '🔴', title: "See what's packed right now", body: "Live crowd levels for every bar, restaurant, and venue in Midtown — updated every minute." },
+              { emoji: '🅿️', title: "Find & reserve parking", body: "Real-time spot availability across 8+ Midtown garages. Reserve before you leave home." },
+              { emoji: '🚗', title: "Book your ride instantly", body: "Compare Uber & Lyft prices side-by-side and book without switching apps." },
+            ];
+            const slide = slides[onboardingSlide];
+            const isLast = onboardingSlide === slides.length - 1;
+            const dismiss = () => {
+              localStorage.setItem('bytspot_onboarding_seen', 'true');
+              setShowOnboarding(false);
+            };
+            return (
+              <motion.div
+                key="onboarding"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[9999] flex items-end justify-center"
+                style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}
+              >
+                <motion.div
+                  key={onboardingSlide}
+                  initial={{ opacity: 0, y: 40 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+                  className="w-full max-w-md mx-auto mb-10 rounded-[28px] p-8 flex flex-col items-center gap-5"
+                  style={{ background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  <div className="text-6xl">{slide.emoji}</div>
+                  <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{slide.title}</h2>
+                  <p className="text-[15px] text-white/60 text-center leading-relaxed">{slide.body}</p>
+
+                  {/* Dots */}
+                  <div className="flex gap-2 mt-1">
+                    {slides.map((_, i) => (
+                      <div key={i} className="h-2 rounded-full transition-all duration-300"
+                        style={{ width: i === onboardingSlide ? 20 : 8, background: i === onboardingSlide ? '#00BFFF' : 'rgba(255,255,255,0.25)' }} />
+                    ))}
+                  </div>
+
+                  <motion.button
+                    className="w-full rounded-[16px] py-4 text-[16px] text-black mt-2"
+                    style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => isLast ? dismiss() : setOnboardingSlide(s => s + 1)}
+                  >
+                    {isLast ? "Let's go 🚀" : 'Next'}
+                  </motion.button>
+
+                  <button className="text-[13px] text-white/40 mt-1" onClick={dismiss}>Skip</button>
+                </motion.div>
+              </motion.div>
+            );
+          })()}
         </AnimatePresence>
 
       </div>

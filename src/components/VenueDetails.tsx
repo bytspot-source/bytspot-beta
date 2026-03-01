@@ -133,18 +133,27 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   };
 
   const handleShare = async () => {
+    const slug = venue._slug || venue.slug;
+    const venueUrl = slug
+      ? `https://beta.bytspot.com/v/${slug}`
+      : 'https://beta.bytspot.com';
+    const crowdEmoji = crowdLevel === 'Packed' ? '🔴' : crowdLevel === 'Busy' ? '🟠' : crowdLevel === 'Active' ? '🟡' : crowdLevel === 'Chill' ? '🟢' : '';
+    const crowdText = crowdLevel ? ` ${crowdEmoji} ${crowdLevel} right now` : '';
+    const shareText = `${venue.name}${crowdText} — check it out on Bytspot!`;
+
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: venue.name,
-          text: `Check out ${venue.name} on Bytspot!`,
-          url: window.location.href,
-        });
-      } catch (err) {
-        // Share cancelled by user
+        await navigator.share({ title: venue.name, text: shareText, url: venueUrl });
+      } catch {
+        // user cancelled
       }
     } else {
-      toast('Share link copied!');
+      try {
+        await navigator.clipboard.writeText(`${shareText}\n${venueUrl}`);
+        toast.success('Link copied!', { description: venueUrl, duration: 3000 });
+      } catch {
+        toast.success(`Share: ${venueUrl}`, { duration: 4000 });
+      }
     }
   };
 

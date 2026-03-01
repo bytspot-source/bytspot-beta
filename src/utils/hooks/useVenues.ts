@@ -106,6 +106,13 @@ export function useVenues(): UseVenuesResult {
       fetchedRef.current = true;
       fetchVenues();
     }
+
+    // Auto-refresh crowd data every 60 seconds
+    const interval = setInterval(() => {
+      fetchVenues();
+    }, 60_000);
+
+    return () => clearInterval(interval);
   }, []);
 
   return { venues, cards, loading, error, refresh: fetchVenues };

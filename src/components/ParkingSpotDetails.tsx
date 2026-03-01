@@ -133,7 +133,7 @@ export function ParkingSpotDetails({
   const reviews = spot.reviews || 128;
   const distance = spot.distance || 0.3;
   const walkTime = spot.walkTime || 4;
-  const address = spot.address || '123 Downtown Plaza, San Francisco, CA';
+  const address = spot.address || '123 Peachtree St NE, Atlanta, GA';
   const hours = spot.hours || '24/7 Access';
   const description = spot.description || 'Secure parking in the heart of downtown with 24/7 access and premium amenities.';
   const hostName = spot.hostName || 'ParkHost Pro';

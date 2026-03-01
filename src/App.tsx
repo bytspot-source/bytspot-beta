@@ -60,6 +60,10 @@ export default function App() {
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
   const [selectedSearchVenue, setSelectedSearchVenue] = useState<any>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -870,6 +874,96 @@ export default function App() {
         />
         </Suspense>
 
+        {/* Beta Feedback Button — floating, above bottom nav */}
+        <motion.button
+          className="fixed bottom-24 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-white/30 shadow-xl flex items-center justify-center"
+          whileTap={{ scale: 0.9 }}
+          animate={{ scale: [1, 1.05, 1] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          onClick={() => { setShowFeedback(true); setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(''); }}
+          aria-label="Share beta feedback"
+        >
+          <span className="text-[20px]">💬</span>
+        </motion.button>
+
+        {/* Beta Feedback Sheet */}
+        <AnimatePresence>
+          {showFeedback && (
+            <>
+              <motion.div
+                className="fixed inset-0 z-[58] bg-black/60 backdrop-blur-sm"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setShowFeedback(false)}
+              />
+              <motion.div
+                className="fixed bottom-0 left-0 right-0 z-[59] bg-[#1C1C1E] border-t-2 border-white/20 rounded-t-[24px] p-6 max-w-[430px] mx-auto"
+                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+              >
+                {feedbackSubmitted ? (
+                  <div className="flex flex-col items-center py-6 gap-3">
+                    <div className="text-[48px]">🎉</div>
+                    <p className="text-[20px] text-white font-semibold">Thanks for the feedback!</p>
+                    <p className="text-[14px] text-white/60 text-center">You're helping shape Bytspot for Atlanta 🏙️</p>
+                    <motion.button
+                      className="mt-4 px-8 py-3 rounded-[14px] bg-white/10 border border-white/20 text-white text-[15px] font-semibold"
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => setShowFeedback(false)}
+                    >Done</motion.button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-5">
+                      <div>
+                        <p className="text-[18px] text-white font-semibold">Beta Feedback</p>
+                        <p className="text-[13px] text-white/50">How's Bytspot feeling?</p>
+                      </div>
+                      <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowFeedback(false)}
+                        className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+                        <span className="text-white/70 text-[18px]">✕</span>
+                      </motion.button>
+                    </div>
+
+                    {/* Star rating */}
+                    <div className="flex justify-center gap-3 mb-5">
+                      {[1,2,3,4,5].map(star => (
+                        <motion.button key={star} whileTap={{ scale: 0.85 }}
+                          onClick={() => setFeedbackRating(star)}
+                          className="text-[36px] transition-all"
+                          style={{ filter: feedbackRating >= star ? 'none' : 'grayscale(1) opacity(0.35)' }}
+                        >⭐</motion.button>
+                      ))}
+                    </div>
+
+                    {/* Text input */}
+                    <textarea
+                      className="w-full rounded-[14px] bg-white/8 border border-white/20 text-white text-[14px] p-3 resize-none placeholder:text-white/40 outline-none focus:border-cyan-400/60"
+                      rows={3}
+                      placeholder="Anything broken? Anything you love? (optional)"
+                      value={feedbackText}
+                      onChange={e => setFeedbackText(e.target.value)}
+                      style={{ background: 'rgba(255,255,255,0.06)' }}
+                    />
+
+                    <motion.button
+                      className="w-full mt-4 py-3.5 rounded-[16px] bg-gradient-to-r from-cyan-500 to-blue-500 border-2 border-white/20 text-white text-[16px] font-semibold disabled:opacity-40"
+                      whileTap={{ scale: 0.98 }}
+                      disabled={feedbackRating === 0}
+                      onClick={() => {
+                        const entry = { rating: feedbackRating, text: feedbackText.trim(), ts: Date.now(), version: '0.1-beta' };
+                        try {
+                          const existing = JSON.parse(localStorage.getItem('bytspot_feedback') || '[]');
+                          localStorage.setItem('bytspot_feedback', JSON.stringify([...existing, entry]));
+                        } catch {}
+                        setFeedbackSubmitted(true);
+                      }}
+                    >Submit Feedback</motion.button>
+                  </>
+                )}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
       </div>
     </div>

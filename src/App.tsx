@@ -22,6 +22,7 @@ import { useOffline } from './utils/hooks/useOffline';
 import { useVenues } from './utils/hooks/useVenues';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
+import { getSavedSpots } from './utils/savedSpots';
 
 import {
   getPersonalizedCategories,
@@ -82,6 +83,43 @@ export default function App() {
   useEffect(() => {
     initAnalytics();
   }, []);
+
+  // ─── "Near me now" push alerts ───────────────────────────────────────────
+  // When a saved venue hits Packed, fire a browser notification (30-min cooldown per venue)
+  useEffect(() => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!apiVenues || apiVenues.length === 0) return;
+
+    const savedSpots = getSavedSpots();
+    if (savedSpots.length === 0) return;
+
+    const savedNames = new Set(savedSpots.map((s: any) => s.name.toLowerCase()));
+    const notifiedKey = 'bytspot_packed_notified';
+    const notified: Record<string, number> = JSON.parse(localStorage.getItem(notifiedKey) || '{}');
+    const now = Date.now();
+    const COOLDOWN = 30 * 60 * 1000; // 30 minutes
+
+    let updated = false;
+    apiVenues.forEach((venue) => {
+      if (venue.crowd?.label !== 'Packed') return;
+      if (!savedNames.has(venue.name.toLowerCase())) return;
+
+      const lastNotified = notified[venue.id] || 0;
+      if (now - lastNotified < COOLDOWN) return;
+
+      // Fire the notification
+      try {
+        new Notification(`🔴 ${venue.name} is Packed!`, {
+          body: 'Your saved spot just hit max capacity. Check the app for alternatives.',
+          icon: '/icon-192.png',
+        });
+        notified[venue.id] = now;
+        updated = true;
+      } catch (_) { /* permission may have been revoked */ }
+    });
+
+    if (updated) localStorage.setItem(notifiedKey, JSON.stringify(notified));
+  }, [apiVenues]);
 
   // Handle intelligent search
   const handleSearch = (e: React.FormEvent) => {

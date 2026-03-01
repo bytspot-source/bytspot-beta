@@ -13,11 +13,13 @@ import {
   getUserAchievements,
   getAchievementStats,
   getPointTransactions,
+  getLeaderboard,
   getRarityColor,
   TIERS,
   type Achievement,
   type PointTransaction,
-  type MembershipTier
+  type MembershipTier,
+  type LeaderboardEntry,
 } from '../utils/gamification';
 
 interface BytspotPointsProps {
@@ -25,7 +27,7 @@ interface BytspotPointsProps {
   onBack: () => void;
 }
 
-type ViewMode = 'overview' | 'achievements' | 'history' | 'rewards';
+type ViewMode = 'overview' | 'achievements' | 'history' | 'rewards' | 'leaderboard';
 
 export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
@@ -282,6 +284,28 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
           </div>
           <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.5} />
         </motion.button>
+
+        <motion.button
+          onClick={() => setViewMode('leaderboard')}
+          className="w-full rounded-[20px] p-4 border-2 border-white/30 bg-gradient-to-br from-yellow-500/20 to-amber-500/20 backdrop-blur-xl shadow-xl flex items-center justify-between tap-target"
+          whileTap={{ scale: 0.98 }}
+          transition={springConfig}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-500/60 to-amber-500/60 border-2 border-yellow-400/30 flex items-center justify-center">
+              <Trophy className="w-5 h-5 text-white" strokeWidth={2.5} />
+            </div>
+            <div className="text-left">
+              <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>
+                Leaderboard
+              </p>
+              <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                See how you rank this week
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.5} />
+        </motion.button>
       </motion.div>
     </div>
   );
@@ -505,6 +529,70 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
     </div>
   );
 
+  const renderLeaderboard = () => {
+    const { entries, userRank, userPoints: myPoints } = getLeaderboard();
+    const medalColors: Record<number, string> = { 1: 'text-yellow-400', 2: 'text-gray-300', 3: 'text-amber-600' };
+    return (
+      <div className="px-4 space-y-4">
+        {/* Your rank banner */}
+        <motion.div
+          className="rounded-[20px] p-4 border-2 border-white/30 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 backdrop-blur-xl"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.05 }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[12px] text-white/60 mb-1" style={{ fontWeight: 600 }}>YOUR RANK THIS WEEK</p>
+              <p className="text-[36px] text-white" style={{ fontWeight: 700 }}>#{userRank}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[12px] text-white/60 mb-1" style={{ fontWeight: 600 }}>YOUR POINTS</p>
+              <p className="text-[28px] text-white" style={{ fontWeight: 700 }}>{myPoints.toLocaleString()}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Top 10 */}
+        <div className="rounded-[20px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/10">
+            <p className="text-[13px] text-white/60" style={{ fontWeight: 700 }}>🏆 TOP 10 THIS WEEK</p>
+          </div>
+          {entries.map((entry, i) => (
+            <motion.div
+              key={entry.userId}
+              className={`flex items-center gap-3 px-4 py-3 ${entry.isCurrentUser ? 'bg-purple-500/20 border-l-4 border-purple-400' : ''} ${i < entries.length - 1 ? 'border-b border-white/10' : ''}`}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ ...springConfig, delay: 0.05 + i * 0.04 }}
+            >
+              {/* Rank */}
+              <div className="w-8 text-center">
+                {entry.rank <= 3
+                  ? <span className={`text-[20px] ${medalColors[entry.rank]}`}>{entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}</span>
+                  : <span className="text-[14px] text-white/50" style={{ fontWeight: 700 }}>#{entry.rank}</span>
+                }
+              </div>
+              {/* Name */}
+              <div className="flex-1">
+                <p className={`text-[15px] ${entry.isCurrentUser ? 'text-purple-300' : 'text-white'}`} style={{ fontWeight: entry.isCurrentUser ? 700 : 600 }}>
+                  {entry.name}{entry.isCurrentUser ? ' (You)' : ''}
+                </p>
+              </div>
+              {/* Tier badge */}
+              <span className="text-[18px]">{TIERS[entry.tier].icon}</span>
+              {/* Points */}
+              <p className="text-[14px] text-white/80 w-16 text-right" style={{ fontWeight: 700 }}>
+                {entry.points.toLocaleString()}
+              </p>
+            </motion.div>
+          ))}
+        </div>
+        <p className="text-[12px] text-white/30 text-center pb-2">Leaderboard resets every Monday</p>
+      </div>
+    );
+  };
+
   return (
     <div className="h-full overflow-y-auto pb-24">
       {/* Header */}
@@ -527,6 +615,7 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
           {viewMode === 'achievements' && 'Achievements'}
           {viewMode === 'history' && 'Points History'}
           {viewMode === 'rewards' && 'Redeem Rewards'}
+          {viewMode === 'leaderboard' && 'Leaderboard'}
         </h1>
       </motion.div>
 
@@ -543,6 +632,7 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
           {viewMode === 'achievements' && renderAchievements()}
           {viewMode === 'history' && renderHistory()}
           {viewMode === 'rewards' && renderRewards()}
+          {viewMode === 'leaderboard' && renderLeaderboard()}
         </motion.div>
       </AnimatePresence>
 

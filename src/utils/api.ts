@@ -275,6 +275,12 @@ export const venuesApi = {
     apiRequest<{ similar: Array<{ id: string; name: string; slug: string; category: string; similarity: number }> }>(
       `/venues/${slug}/similar?limit=${limit}`
     ),
+
+  /** POST /venues/:id/checkin — user check-in to contribute crowd data */
+  checkin: (venueId: string) =>
+    apiRequest<{ success: boolean; newCrowdLevel: number }>(`/venues/${venueId}/checkin`, {
+      method: 'POST',
+    }),
 };
 
 // RIDES

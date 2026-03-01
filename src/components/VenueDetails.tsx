@@ -3,6 +3,7 @@ import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock,
 import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
 import { addPoints } from '../utils/gamification';
+import { venuesApi } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
 
 interface VenueDetailsProps {
@@ -73,12 +74,39 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const lastCheckIn = parseInt(localStorage.getItem(checkInKey) || '0', 10);
   const [checkedIn, setCheckedIn] = useState(Date.now() - lastCheckIn < 3600_000);
 
-  const handleCheckIn = () => {
+  // Crowd history for trend chart
+  const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
+  useEffect(() => {
+    if (venue.slug) {
+      venuesApi.getBySlug(venue.slug).then((result) => {
+        if (result.success && result.data?.crowd?.history?.length) {
+          setCrowdHistory(result.data.crowd.history);
+        }
+      }).catch(() => {});
+    }
+  }, [venue.slug]);
+
+  const handleCheckIn = async () => {
     if (checkedIn) return;
     localStorage.setItem(checkInKey, String(Date.now()));
     setCheckedIn(true);
     addPoints('VENUE_CHECKIN');
-    toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
+    try {
+      const venueId = venue.id || venue.apiId;
+      if (venueId) {
+        const result = await venuesApi.checkin(venueId);
+        const lvl = result.success ? result.data?.newCrowdLevel : null;
+        const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
+        toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
+          description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
+          duration: 3000,
+        });
+      } else {
+        toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
+      }
+    } catch {
+      toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
+    }
   };
   
   const springConfig = {
@@ -335,6 +363,48 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                   )}
                 </div>
               </div>
+            </div>
+          </motion.div>
+
+          {/* Crowd Trend Chart */}
+          <motion.div
+            className="mb-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+          >
+            <h3 className="text-[20px] mb-3 text-white" style={{ fontWeight: 600 }}>When to Go</h3>
+            <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-white/30">
+              {crowdHistory.length > 0 ? (
+                <>
+                  <div className="flex items-end justify-between gap-1" style={{ height: 80 }}>
+                    {crowdHistory.slice(0, 12).reverse().map((reading, i) => {
+                      const heightPct = (reading.level / 4) * 100;
+                      const color =
+                        reading.level === 1 ? '#10b981' :
+                        reading.level === 2 ? '#eab308' :
+                        reading.level === 3 ? '#f97316' : '#ef4444';
+                      return (
+                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                          <div
+                            className="w-full rounded-t-[3px]"
+                            style={{ height: `${heightPct}%`, background: color, minHeight: 4 }}
+                          />
+                          <span className="text-[9px] text-white/40">{(crowdHistory.slice(0, 12).length - 1 - i) * 2}h</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /><span className="text-[11px] text-white/60">Chill</span></div>
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /><span className="text-[11px] text-white/60">Active</span></div>
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /><span className="text-[11px] text-white/60">Busy</span></div>
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /><span className="text-[11px] text-white/60">Packed</span></div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[13px] text-white/40 text-center py-4">Crowd data coming soon</p>
+              )}
             </div>
           </motion.div>
 

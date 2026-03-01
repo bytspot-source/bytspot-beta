@@ -23,13 +23,18 @@ const CATEGORY_IMAGES: Record<string, string> = {
 function mapCategory(category: string): CardType {
   const map: Record<string, CardType> = {
     restaurant: 'dining',
+    food: 'dining',
     bar: 'nightlife',
+    club: 'nightlife',
+    nightlife: 'nightlife',
     entertainment: 'entertainment',
     shopping: 'shopping',
+    market: 'shopping',
     park: 'venue',
     fitness: 'fitness',
+    gym: 'fitness',
     coffee: 'coffee',
-    nightlife: 'nightlife',
+    cafe: 'coffee',
   };
   return map[category] || 'venue';
 }

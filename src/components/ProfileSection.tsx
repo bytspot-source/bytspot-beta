@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Star, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2 } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Star, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
@@ -13,6 +13,7 @@ import { SavedSpotsSection } from './SavedSpotsSection';
 import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
 import { getUserPoints, getUserTier, getAchievementStats } from '../utils/gamification';
+import { getCheckinHistory, type CheckInRecord } from '../utils/checkinHistory';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -21,11 +22,12 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history';
 
 export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const savedSpotsStats = getSavedSpotsStats();
+  const checkinHistory = getCheckinHistory();
   // Read real user data from localStorage
   const userName = (() => {
     const name = localStorage.getItem('bytspot_user_name');
@@ -54,6 +56,7 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: '2', screen: 'vehicles' as ProfileScreen },
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: '2', screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
+        { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
       ],
     },
     {
@@ -131,6 +134,60 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
 
   if (currentScreen === 'points') {
     return <BytspotPoints isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+
+  if (currentScreen === 'checkin-history') {
+    const crowdColor = (lvl: number) =>
+      lvl === 1 ? 'text-green-400' : lvl === 2 ? 'text-yellow-400' : lvl === 3 ? 'text-orange-400' : 'text-red-400';
+    const crowdBg = (lvl: number) =>
+      lvl === 1 ? 'bg-green-500/20 border-green-500/30' : lvl === 2 ? 'bg-yellow-500/20 border-yellow-500/30' : lvl === 3 ? 'bg-orange-500/20 border-orange-500/30' : 'bg-red-500/20 border-red-500/30';
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <motion.button onClick={() => setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Places I've Been</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-3 mt-2">
+          {checkinHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+                <Clock className="w-8 h-8 text-white/40" strokeWidth={1.5} />
+              </div>
+              <p className="text-white/50 text-[15px]" style={{ fontWeight: 500 }}>No check-ins yet</p>
+              <p className="text-white/30 text-[13px] text-center">Check in at venues to track where you've been</p>
+            </div>
+          ) : checkinHistory.map((record: CheckInRecord) => {
+            const d = new Date(record.timestamp);
+            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            return (
+              <motion.div key={record.id} className="rounded-[16px] p-4 bg-[#1C1C1E]/80 border border-white/15 backdrop-blur-xl" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-5 h-5 text-purple-400" strokeWidth={2} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white text-[15px] truncate" style={{ fontWeight: 600 }}>{record.venueName}</p>
+                      <p className="text-white/50 text-[12px] mt-0.5">{dateStr} · {timeStr}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] border ${crowdBg(record.crowdLevel)} ${crowdColor(record.crowdLevel)}`} style={{ fontWeight: 600 }}>
+                      {record.crowdLabel}
+                    </span>
+                    <span className="text-purple-400 text-[12px]" style={{ fontWeight: 600 }}>+{record.pointsEarned} pts</span>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (

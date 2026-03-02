@@ -6,6 +6,7 @@ import { addPoints } from '../utils/gamification';
 import { venuesApi } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
+import { saveCheckinRecord } from '../utils/checkinHistory';
 
 interface VenueDetailsProps {
   venue: any;
@@ -95,17 +96,40 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     setCheckedIn(true);
     addPoints('VENUE_CHECKIN');
     recordTrendingCheckin(venue.id || venue.name, venue.name);
+    const currentLevel = venue.crowd?.level ?? (crowdLevel === 'Packed' ? 4 : crowdLevel === 'Busy' ? 3 : crowdLevel === 'Active' ? 2 : 1);
+    const currentLabel = venue.crowd?.label ?? crowdLevel ?? 'Unknown';
     try {
       const venueId = venue.id || venue.apiId;
       if (venueId) {
         const result = await venuesApi.checkin(venueId);
         const lvl = result.success ? result.data?.newCrowdLevel : null;
         const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
+        const finalLevel = lvl ?? currentLevel;
+        const finalLabel = lvl ? (lvlLabels[lvl] ?? currentLabel) : currentLabel;
+        // Save to history
+        saveCheckinRecord({
+          venueId: venueId,
+          venueName: venue.name,
+          venueCategory: venue.category || venue.type || 'venue',
+          timestamp: new Date().toISOString(),
+          crowdLevel: finalLevel,
+          crowdLabel: finalLabel,
+          pointsEarned: 10,
+        });
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
           description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
           duration: 3000,
         });
       } else {
+        saveCheckinRecord({
+          venueId: venue.name,
+          venueName: venue.name,
+          venueCategory: venue.category || venue.type || 'venue',
+          timestamp: new Date().toISOString(),
+          crowdLevel: currentLevel,
+          crowdLabel: currentLabel,
+          pointsEarned: 10,
+        });
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
       }
     } catch {

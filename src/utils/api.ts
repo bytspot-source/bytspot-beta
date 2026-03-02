@@ -8,7 +8,7 @@
 import { toast } from 'sonner@2.0.3';
 
 // API Configuration — points to live Render backend
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://bytspot-api.onrender.com';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://bytspot-api.onrender.com';
 const API_TIMEOUT = 15000; // 15 seconds (Render cold-starts can be slow)
 
 export interface ApiError {

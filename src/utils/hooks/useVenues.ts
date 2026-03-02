@@ -1,9 +1,10 @@
 /**
  * useVenues — fetches real venue data from bytspot-api.onrender.com
+ * Uses SSE for real-time crowd updates, falls back to 60s polling
  * Maps API response → DiscoverCard format for existing UI components
  */
 import { useState, useEffect, useRef } from 'react';
-import { venuesApi, type ApiVenue } from '../api';
+import { venuesApi, type ApiVenue, API_BASE_URL } from '../api';
 import type { DiscoverCard, CardType } from '../mockData';
 
 // Category images (Unsplash fallbacks when API imageUrl is null)
@@ -89,20 +90,19 @@ export function useVenues(): UseVenuesResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
+  const venuesRef = useRef<ApiVenue[]>([]);
 
   const fetchVenues = async () => {
     setLoading(true);
     setError(null);
-
     const res = await venuesApi.getAll();
-
     if (res.success && res.data?.venues) {
+      venuesRef.current = res.data.venues;
       setVenues(res.data.venues);
       setCards(res.data.venues.map((v, i) => venueToCard(v, i)));
     } else {
       setError(res.error?.message || 'Failed to load venues');
     }
-
     setLoading(false);
   };
 
@@ -112,12 +112,58 @@ export function useVenues(): UseVenuesResult {
       fetchVenues();
     }
 
-    // Auto-refresh crowd data every 60 seconds
-    const interval = setInterval(() => {
-      fetchVenues();
-    }, 60_000);
+    // ── SSE: real-time crowd updates ───────────────────────────
+    let es: EventSource | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-    return () => clearInterval(interval);
+    try {
+      es = new EventSource(`${API_BASE_URL}/venues/crowd/stream`);
+
+      es.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'snapshot') {
+            // Merge crowd snapshot into current venues list
+            setVenues((prev) => {
+              if (!prev.length) return prev;
+              const updated = prev.map((v) => {
+                const snap = (msg.venues as Array<{ id: string; crowd: ApiVenue['crowd'] }>).find((s) => s.id === v.id);
+                return snap ? { ...v, crowd: snap.crowd } : v;
+              });
+              venuesRef.current = updated;
+              setCards(updated.map((v, i) => venueToCard(v, i)));
+              return updated;
+            });
+          } else if (msg.type === 'update') {
+            setVenues((prev) => {
+              const updated = prev.map((v) =>
+                v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
+              );
+              venuesRef.current = updated;
+              setCards(updated.map((v, i) => venueToCard(v, i)));
+              return updated;
+            });
+          }
+        } catch { /* malformed message — ignore */ }
+      };
+
+      es.onerror = () => {
+        // SSE failed — fall back to 60s polling
+        es?.close();
+        es = null;
+        if (!pollInterval) {
+          pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
+        }
+      };
+    } catch {
+      // Browser doesn't support EventSource — use polling
+      pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
+    }
+
+    return () => {
+      es?.close();
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
   return { venues, cards, loading, error, refresh: fetchVenues };

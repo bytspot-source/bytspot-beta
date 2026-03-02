@@ -13,6 +13,7 @@ const MapSection = lazy(() => import('./components/MapSection').then(m => ({ def
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
@@ -390,6 +391,15 @@ export default function App() {
       setCurrentScreen('main');
     }
   }, []);
+
+  // Admin dashboard — accessible at /admin regardless of auth state
+  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+        <AdminDashboard />
+      </Suspense>
+    );
+  }
 
   // Beta MVP: Splash → Landing → Auth → Main
   if (currentScreen === 'splash') {

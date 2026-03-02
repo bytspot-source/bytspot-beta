@@ -304,6 +304,12 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+
+  validateInvite: (code: string) =>
+    apiRequest<{ valid: boolean; error?: string; warning?: string }>('/admin/validate-invite', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
 };
 
 // HEALTH

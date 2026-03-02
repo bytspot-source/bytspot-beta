@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Lock, User, Loader2, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import { authApi } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
@@ -16,6 +16,7 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,6 +32,16 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
     setError('');
     setLoading(true);
     try {
+      // Validate invite code on signup (only if a code was entered or if it's required)
+      if (mode === 'signup' && inviteCode.trim()) {
+        const inv = await authApi.validateInvite(inviteCode.trim().toUpperCase());
+        if (!inv.success || inv.data?.valid === false) {
+          setError(inv.data?.error || 'Invalid invite code. Check your code and try again.');
+          setLoading(false);
+          return;
+        }
+      }
+
       const res = mode === 'signup'
         ? await authApi.signup(email.trim(), password, name.trim())
         : await authApi.login(email.trim(), password);
@@ -38,7 +49,6 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
       if (res.success && res.data?.token) {
         localStorage.setItem('bytspot_auth_token', res.data.token);
         localStorage.setItem('bytspot_user', JSON.stringify(res.data.user));
-        // Store name separately for quick header access
         if (res.data.user?.name) {
           localStorage.setItem('bytspot_user_name', res.data.user.name.split(' ')[0]);
         }
@@ -120,25 +130,47 @@ export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlo
         >
           <AnimatePresence>
             {mode === 'signup' && (
-              <motion.div
-                key="name"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
-                  <User className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
-                  <input
-                    type="text"
-                    placeholder="Full name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required={mode === 'signup'}
-                    className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
-                  />
-                </div>
-              </motion.div>
+              <>
+                <motion.div
+                  key="name"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+                    <User className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
+                    <input
+                      type="text"
+                      placeholder="Full name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required={mode === 'signup'}
+                      className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
+                    />
+                  </div>
+                </motion.div>
+                <motion.div
+                  key="invite"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2, delay: 0.05 }}
+                >
+                  <div className={`flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 backdrop-blur-xl ${inviteCode ? 'border-purple-400/50 bg-purple-500/10' : 'border-white/10 bg-[#1C1C1E]/50'}`}>
+                    <KeyRound className={`w-5 h-5 flex-shrink-0 ${inviteCode ? 'text-purple-400' : 'text-white/25'}`} strokeWidth={2} />
+                    <input
+                      type="text"
+                      placeholder="Invite code (optional)"
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      maxLength={10}
+                      className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/30 outline-none tracking-widest"
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </motion.div>
+              </>
             )}
           </AnimatePresence>
 

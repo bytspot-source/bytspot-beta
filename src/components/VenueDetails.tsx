@@ -5,6 +5,7 @@ import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
 import { addPoints } from '../utils/gamification';
 import { venuesApi } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
+import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 
 interface VenueDetailsProps {
   venue: any;
@@ -69,6 +70,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   // Use real API crowd data from venue prop
   const liveVibe = venue.vibe ?? 7;
   const crowdLevel = venue.availability && venue.availability !== 'Unknown' ? venue.availability : null;
+  const openStatus = getOpenStatusText(venue.category || venue.type || 'default');
 
   // Check-in state — 1-hour cooldown per venue
   const checkInKey = `bytspot_checkin_${venue.id || venue.name}`;
@@ -92,6 +94,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     localStorage.setItem(checkInKey, String(Date.now()));
     setCheckedIn(true);
     addPoints('VENUE_CHECKIN');
+    recordTrendingCheckin(venue.id || venue.name, venue.name);
     try {
       const venueId = venue.id || venue.apiId;
       if (venueId) {
@@ -289,6 +292,10 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                   <span className="text-white/50">•</span>
                   <span className="text-[15px] text-white/90" style={{ fontWeight: 400 }}>
                     1.2k reviews
+                  </span>
+                  <span className="text-white/50">•</span>
+                  <span className={`text-[14px] ${openStatus.color}`} style={{ fontWeight: 600 }}>
+                    {openStatus.label}
                   </span>
                 </div>
                 {venue.description && (

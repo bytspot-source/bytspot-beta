@@ -9,11 +9,12 @@ interface RideSelectionProps {
   onClose: () => void;
   onSelectValet: () => void;
   isDarkMode: boolean;
+  destination?: string;
   lat?: number;
   lng?: number;
 }
 
-export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, lat = 33.7866, lng = -84.3833 }: RideSelectionProps) {
+export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, destination, lat = 33.7866, lng = -84.3833 }: RideSelectionProps) {
   const [rides, setRides] = useState<ApiRidesResponse | null>(null);
 
   useEffect(() => {
@@ -83,9 +84,18 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, lat 
                   <h2 className="text-[22px] text-white mb-1" style={{ fontWeight: 700 }}>
                     Book a Ride
                   </h2>
-                  <p className="text-[15px] text-white/60" style={{ fontWeight: 400 }}>
-                    Choose your preferred way to travel
-                  </p>
+                  {destination ? (
+                    <div className="flex items-center gap-1.5">
+                      <Navigation className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
+                      <p className="text-[15px] text-cyan-300 truncate max-w-[200px]" style={{ fontWeight: 600 }}>
+                        To: {destination}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[15px] text-white/60" style={{ fontWeight: 400 }}>
+                      Choose your preferred way to travel
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={onClose}

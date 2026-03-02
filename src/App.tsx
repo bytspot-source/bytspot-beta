@@ -15,6 +15,7 @@ const RideSelection = lazy(() => import('./components/RideSelection').then(m => 
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { VenueDetails } from './components/VenueDetails';
+import { HomeConcierge } from './components/HomeConcierge';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from 'sonner@2.0.3';
@@ -23,6 +24,7 @@ import { useVenues } from './utils/hooks/useVenues';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
+import { getTrendingVenueIds } from './utils/venueHours';
 
 import {
   getPersonalizedCategories,
@@ -60,7 +62,9 @@ export default function App() {
   const [discoverFilter, setDiscoverFilter] = useState<'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | undefined>(undefined);
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
+  const [rideDestination, setRideDestination] = useState<{ name: string; lat?: number; lng?: number } | undefined>(undefined);
   const [selectedSearchVenue, setSelectedSearchVenue] = useState<any>(null);
+  const [showConcierge, setShowConcierge] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
@@ -594,7 +598,7 @@ export default function App() {
                               return (
                                 <motion.button
                                   key={v.id}
-                                  onClick={() => { setDiscoverFilter(undefined); setActiveTab('discover'); }}
+                                  onClick={() => setSelectedSearchVenue(v)}
                                   className="flex-shrink-0 w-[148px] rounded-2xl overflow-hidden bg-[#1C1C1E]/90 border border-white/10 text-left"
                                   initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
@@ -620,6 +624,56 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    {/* ── 🔥 Trending Now ── Check-in velocity feed */}
+                    {(() => {
+                      const trendingMap = getTrendingVenueIds();
+                      if (trendingMap.size === 0) return null;
+                      const trendingVenues = apiVenues
+                        .filter(v => trendingMap.has(v.id || v.name))
+                        .sort((a, b) => (trendingMap.get(b.id || b.name) ?? 0) - (trendingMap.get(a.id || a.name) ?? 0))
+                        .slice(0, 8);
+                      if (trendingVenues.length === 0) return null;
+                      const catEmoji: Record<string, string> = {
+                        restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
+                        shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
+                      };
+                      return (
+                        <div className="mb-8">
+                          <div className="mb-3 flex items-center justify-between">
+                            <h2 className="text-title-2 text-white">🔥 Trending Now</h2>
+                            <span className="text-[11px] text-orange-300/80" style={{ fontWeight: 600 }}>By check-ins</span>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                            {trendingVenues.map((v, i) => {
+                              const count = trendingMap.get(v.id || v.name) ?? 1;
+                              const icon = catEmoji[v.category] || '📍';
+                              return (
+                                <motion.button
+                                  key={v.id}
+                                  onClick={() => setSelectedSearchVenue(v)}
+                                  className="flex-shrink-0 w-[148px] rounded-2xl overflow-hidden bg-[#1C1C1E]/90 border border-orange-500/20 text-left"
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ ...springConfig, delay: 0.3 + i * 0.04 }}
+                                  whileTap={{ scale: 0.96 }}
+                                  whileHover={{ scale: 1.02, y: -2 }}
+                                >
+                                  <div className="h-[3px] bg-gradient-to-r from-orange-500 to-red-500" />
+                                  <div className="p-3">
+                                    <div className="text-xl mb-1.5">{icon}</div>
+                                    <h3 className="text-white text-[13px] leading-tight mb-2 truncate" style={{ fontWeight: 600 }}>{v.name}</h3>
+                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border bg-orange-500/20 border-orange-400/40 text-orange-300" style={{ fontWeight: 700 }}>
+                                      🔥 {count} check-in{count !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                </motion.button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Category Quick Search - Personalized */}
                     <div className="mb-8">
@@ -795,6 +849,10 @@ export default function App() {
                     onShowBottomNav={() => setShowBottomNav(true)}
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
+                    onBookRide={(v) => {
+                      if (v) setRideDestination(v);
+                      setShowRideSelection(true);
+                    }}
                   />
                   </Suspense>
                 </ErrorBoundary>
@@ -822,7 +880,10 @@ export default function App() {
                       setSelectedDestination(undefined);
                       setSelectedMapFunction(undefined);
                     }}
-                    onBookRide={() => setShowRideSelection(true)}
+                    onBookRide={(v) => {
+                      if (v) setRideDestination(v);
+                      setShowRideSelection(true);
+                    }}
                   />
                   </Suspense>
                 </ErrorBoundary>
@@ -883,7 +944,14 @@ export default function App() {
             <VenueDetails
               venue={selectedSearchVenue}
               onClose={() => setSelectedSearchVenue(null)}
-              onBookRide={() => setShowRideSelection(true)}
+              onBookRide={() => {
+                setRideDestination({
+                  name: selectedSearchVenue?.name || 'Destination',
+                  lat: selectedSearchVenue?._lat ?? selectedSearchVenue?.lat,
+                  lng: selectedSearchVenue?._lng ?? selectedSearchVenue?.lng,
+                });
+                setShowRideSelection(true);
+              }}
               isDarkMode={isDarkMode}
             />
           )}
@@ -912,14 +980,42 @@ export default function App() {
         <Suspense fallback={null}>
         <RideSelection
           isOpen={showRideSelection}
-          onClose={() => setShowRideSelection(false)}
+          onClose={() => { setShowRideSelection(false); setRideDestination(undefined); }}
           onSelectValet={() => {
             setDiscoverFilter('valet');
             setActiveTab('discover');
           }}
+          destination={rideDestination?.name}
+          lat={rideDestination?.lat}
+          lng={rideDestination?.lng}
           isDarkMode={isDarkMode}
         />
         </Suspense>
+
+        {/* Home Concierge Chat */}
+        <HomeConcierge
+          isOpen={showConcierge}
+          onClose={() => setShowConcierge(false)}
+          venues={apiVenues}
+          onVenueSelect={(v) => {
+            setShowConcierge(false);
+            setSelectedSearchVenue(v);
+          }}
+        />
+
+        {/* Concierge floating button — only on Home tab */}
+        {activeTab === 'home' && currentScreen === 'main' && (
+          <motion.button
+            className="fixed bottom-40 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-500 border-2 border-white/30 shadow-xl flex items-center justify-center"
+            whileTap={{ scale: 0.9 }}
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+            onClick={() => setShowConcierge(true)}
+            aria-label="Open AI Concierge"
+          >
+            <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
+          </motion.button>
+        )}
 
         {/* Beta Feedback Button — floating, above bottom nav */}
         <motion.button

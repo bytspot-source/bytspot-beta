@@ -214,10 +214,11 @@ interface DiscoverSectionProps {
   onNavigateToMap?: () => void;
   onShowBottomNav?: () => void;
   onTouch?: () => void;
+  onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
   initialFilter?: CardType;
 }
 
-export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialFilter }: DiscoverSectionProps) {
+export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter }: DiscoverSectionProps) {
   // Beta MVP: Live API data instead of mock
   const { cards, loading, error, refresh } = useVenues();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -544,6 +545,11 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, initialF
           <VenueDetails
             venue={selectedVenue}
             onClose={() => setSelectedVenue(null)}
+            onBookRide={() => onBookRide?.({
+              name: selectedVenue?.name,
+              lat: selectedVenue?._lat,
+              lng: selectedVenue?._lng,
+            })}
             isDarkMode={true}
           />
         )}

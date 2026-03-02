@@ -1,11 +1,12 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ArrowLeft, Star, Award, TrendingUp, Zap, Gift, 
+import {
+  ArrowLeft, Star, Award, TrendingUp, Zap, Gift,
   ChevronRight, Lock, Check, Trophy, Crown, Sparkles,
-  Clock, Calendar, Target, Users, MapPin, Camera
+  Clock, Calendar, Target, Users, MapPin, Camera, UserPlus, UserCheck
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { isFollowing, followUser, unfollowUser, getFollowedUsers } from '../utils/social';
 import {
   getUserPoints,
   getUserTier,
@@ -529,6 +530,22 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
     </div>
   );
 
+  const [followedIds, setFollowedIds] = useState<Set<string>>(
+    () => new Set(getFollowedUsers().map((u) => u.userId))
+  );
+
+  const handleToggleFollow = (userId: string, name: string, tier: string) => {
+    if (isFollowing(userId)) {
+      unfollowUser(userId);
+      setFollowedIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
+      toast(`Unfollowed ${name}`);
+    } else {
+      followUser(userId, name, tier);
+      setFollowedIds((prev) => new Set([...prev, userId]));
+      toast.success(`Following ${name} — their check-ins now show in your Friends feed`);
+    }
+  };
+
   const renderLeaderboard = () => {
     const { entries, userRank, userPoints: myPoints } = getLeaderboard();
     const medalColors: Record<number, string> = { 1: 'text-yellow-400', 2: 'text-gray-300', 3: 'text-amber-600' };
@@ -558,35 +575,53 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
           <div className="px-4 py-3 border-b border-white/10">
             <p className="text-[13px] text-white/60" style={{ fontWeight: 700 }}>🏆 TOP 10 THIS WEEK</p>
           </div>
-          {entries.map((entry, i) => (
-            <motion.div
-              key={entry.userId}
-              className={`flex items-center gap-3 px-4 py-3 ${entry.isCurrentUser ? 'bg-purple-500/20 border-l-4 border-purple-400' : ''} ${i < entries.length - 1 ? 'border-b border-white/10' : ''}`}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ ...springConfig, delay: 0.05 + i * 0.04 }}
-            >
-              {/* Rank */}
-              <div className="w-8 text-center">
-                {entry.rank <= 3
-                  ? <span className={`text-[20px] ${medalColors[entry.rank]}`}>{entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}</span>
-                  : <span className="text-[14px] text-white/50" style={{ fontWeight: 700 }}>#{entry.rank}</span>
-                }
-              </div>
-              {/* Name */}
-              <div className="flex-1">
-                <p className={`text-[15px] ${entry.isCurrentUser ? 'text-purple-300' : 'text-white'}`} style={{ fontWeight: entry.isCurrentUser ? 700 : 600 }}>
-                  {entry.name}{entry.isCurrentUser ? ' (You)' : ''}
+          {entries.map((entry, i) => {
+            const followed = followedIds.has(entry.userId);
+            return (
+              <motion.div
+                key={entry.userId}
+                className={`flex items-center gap-3 px-4 py-3 ${entry.isCurrentUser ? 'bg-purple-500/20 border-l-4 border-purple-400' : ''} ${i < entries.length - 1 ? 'border-b border-white/10' : ''}`}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ ...springConfig, delay: 0.05 + i * 0.04 }}
+              >
+                {/* Rank */}
+                <div className="w-8 text-center">
+                  {entry.rank <= 3
+                    ? <span className={`text-[20px] ${medalColors[entry.rank]}`}>{entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}</span>
+                    : <span className="text-[14px] text-white/50" style={{ fontWeight: 700 }}>#{entry.rank}</span>
+                  }
+                </div>
+                {/* Name */}
+                <div className="flex-1">
+                  <p className={`text-[15px] ${entry.isCurrentUser ? 'text-purple-300' : 'text-white'}`} style={{ fontWeight: entry.isCurrentUser ? 700 : 600 }}>
+                    {entry.name}{entry.isCurrentUser ? ' (You)' : ''}
+                  </p>
+                </div>
+                {/* Tier badge */}
+                <span className="text-[18px]">{TIERS[entry.tier].icon}</span>
+                {/* Points */}
+                <p className="text-[14px] text-white/80 w-14 text-right" style={{ fontWeight: 700 }}>
+                  {entry.points.toLocaleString()}
                 </p>
-              </div>
-              {/* Tier badge */}
-              <span className="text-[18px]">{TIERS[entry.tier].icon}</span>
-              {/* Points */}
-              <p className="text-[14px] text-white/80 w-16 text-right" style={{ fontWeight: 700 }}>
-                {entry.points.toLocaleString()}
-              </p>
-            </motion.div>
-          ))}
+                {/* Follow button — skip for current user */}
+                {!entry.isCurrentUser && (
+                  <motion.button
+                    onClick={() => handleToggleFollow(entry.userId, entry.name, entry.tier)}
+                    className={`ml-1 w-8 h-8 rounded-full flex items-center justify-center border-2 tap-target ${followed ? 'bg-purple-500/30 border-purple-400/60' : 'bg-white/10 border-white/20'}`}
+                    whileTap={{ scale: 0.88 }}
+                    transition={springConfig}
+                    title={followed ? `Unfollow ${entry.name}` : `Follow ${entry.name}`}
+                  >
+                    {followed
+                      ? <UserCheck className="w-4 h-4 text-purple-300" strokeWidth={2.5} />
+                      : <UserPlus className="w-4 h-4 text-white/60" strokeWidth={2.5} />
+                    }
+                  </motion.button>
+                )}
+              </motion.div>
+            );
+          })}
         </div>
         <p className="text-[12px] text-white/30 text-center pb-2">Leaderboard resets every Monday</p>
       </div>

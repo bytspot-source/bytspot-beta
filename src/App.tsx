@@ -25,6 +25,7 @@ import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
+import { ensurePushSubscribed } from './utils/pushSubscription';
 
 import {
   getPersonalizedCategories,
@@ -83,9 +84,10 @@ export default function App() {
     mass: 0.8,
   };
 
-  // Initialize analytics on mount
+  // Initialize analytics on mount + re-register push subscription
   useEffect(() => {
     initAnalytics();
+    ensurePushSubscribed(); // silently re-subscribes if previously granted
   }, []);
 
   // ─── "Near me now" push alerts ───────────────────────────────────────────

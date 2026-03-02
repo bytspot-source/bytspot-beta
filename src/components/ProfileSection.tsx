@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Star, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2 } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Star, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
@@ -14,6 +14,7 @@ import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
 import { getUserPoints, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, type CheckInRecord } from '../utils/checkinHistory';
+import { getFollowedUsers, getSocialFeed, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -22,7 +23,7 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends';
 
 export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
@@ -57,6 +58,7 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: '2', screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
+        { icon: <Users className="w-5 h-5" />, label: 'Friends', badge: (() => { const f = getFollowedUsers().length; return f > 0 ? f.toString() : null; })(), screen: 'friends' as ProfileScreen },
       ],
     },
     {
@@ -134,6 +136,83 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
 
   if (currentScreen === 'points') {
     return <BytspotPoints isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+
+  if (currentScreen === 'friends') {
+    const followed = getFollowedUsers();
+    const feed = getSocialFeed();
+    const crowdColor = (lvl: number) =>
+      lvl === 1 ? 'text-green-400' : lvl === 2 ? 'text-yellow-400' : lvl === 3 ? 'text-orange-400' : 'text-red-400';
+    const crowdEmoji = (lvl: number) => lvl === 1 ? '🟢' : lvl === 2 ? '🟡' : lvl === 3 ? '🟠' : '🔴';
+    const formatTime = (iso: string) => {
+      const diff = Date.now() - new Date(iso).getTime();
+      const m = Math.floor(diff / 60000);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
+    };
+    // Filter feed to only show followed users + own check-ins
+    const followedIds = new Set(followed.map((u: FollowedUser) => u.userId));
+    const myId = (() => { try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}')?.id || 'me'; } catch { return 'me'; } })();
+    const visibleFeed = feed.filter((e: SocialFeedEvent) => followedIds.has(e.userId) || e.userId === myId);
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <motion.button onClick={() => setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Friends</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+          {/* Following list */}
+          {followed.length > 0 && (
+            <div>
+              <p className="text-[12px] text-white/40 mb-2" style={{ fontWeight: 700 }}>FOLLOWING ({followed.length})</p>
+              <div className="flex flex-wrap gap-2">
+                {followed.map((u: FollowedUser) => (
+                  <div key={u.userId} className="flex items-center gap-2 px-3 py-2 rounded-full bg-[#1C1C1E]/80 border border-white/20">
+                    <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>{u.userName}</span>
+                    <motion.button onClick={() => { unfollowUser(u.userId); setCurrentScreen('main'); setTimeout(() => setCurrentScreen('friends'), 10); }}
+                      className="text-white/40 hover:text-red-400 text-[11px]" whileTap={{ scale: 0.88 }}>✕</motion.button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Activity feed */}
+          <div>
+            <p className="text-[12px] text-white/40 mb-2" style={{ fontWeight: 700 }}>FRIEND ACTIVITY</p>
+            {visibleFeed.length === 0 ? (
+              <div className="text-center py-12 text-white/40">
+                <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-[15px]" style={{ fontWeight: 600 }}>No activity yet</p>
+                <p className="text-[13px] mt-1">Follow people on the Leaderboard to see where they're going</p>
+              </div>
+            ) : visibleFeed.map((event: SocialFeedEvent) => (
+              <motion.div key={event.id} className="rounded-[16px] p-4 bg-[#1C1C1E]/80 border border-white/10 mb-3"
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className="text-[14px] text-white/80" style={{ fontWeight: 600 }}>
+                      <span className="text-white">{event.userId === myId ? 'You' : event.userName}</span>
+                      {' '}checked in at{' '}
+                      <span className="text-purple-300">{event.venueName}</span>
+                    </p>
+                    <p className={`text-[13px] mt-1 ${crowdColor(event.crowdLevel)}`} style={{ fontWeight: 500 }}>
+                      {crowdEmoji(event.crowdLevel)} {event.crowdLabel}
+                    </p>
+                  </div>
+                  <span className="text-[12px] text-white/30 ml-3 shrink-0">{formatTime(event.timestamp)}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (currentScreen === 'checkin-history') {

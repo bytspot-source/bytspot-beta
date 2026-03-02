@@ -1,11 +1,13 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  X, ChevronLeft, MapPin, Clock, DollarSign, Shield, Star, 
+import {
+  X, ChevronLeft, MapPin, Clock, DollarSign, Shield, Star,
   Navigation, Phone, Camera, QrCode, Check, AlertCircle,
   TrendingUp, Users, Zap, Car, Bell, Receipt, ArrowRight,
   WifiOff, Wifi, Circle, Timer, CreditCard
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { paymentsApi } from '../utils/api';
+import { toast } from 'sonner@2.0.3';
 
 interface ParkingSpot {
   id: string;
@@ -150,14 +152,32 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
     };
   }, [currentScreen]);
 
-  const handleReserve = () => {
+  const handleReserve = async () => {
     setIsReserving(true);
-    // Simulate reservation process
-    setTimeout(() => {
-      setReservationCode(`BYT${Date.now().toString().slice(-6)}`);
-      setIsReserving(false);
-      setCurrentScreen('active');
-    }, 2000);
+    try {
+      const result = await paymentsApi.createCheckout({
+        spotId: selectedSpot.id,
+        spotName: selectedSpot.name,
+        address: selectedSpot.address,
+        duration,
+        totalCost,
+      });
+      if (result.data?.url) {
+        // Real Stripe Checkout — redirect to hosted payment page
+        window.location.href = result.data.url;
+        return;
+      }
+      if (result.data?.demoMode) {
+        // Stripe not configured yet — fall through to demo confirmation
+        toast('Stripe not configured — using demo mode', { description: 'Set STRIPE_SECRET_KEY on Render to enable real payments' });
+      }
+    } catch {
+      // Network error — fall through to demo
+    }
+    // Demo fallback: simulate successful reservation
+    setReservationCode(`BYT${Date.now().toString().slice(-6)}`);
+    setIsReserving(false);
+    setCurrentScreen('active');
   };
 
   const totalCost = selectedSpot.price * duration;

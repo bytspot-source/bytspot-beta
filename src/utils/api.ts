@@ -311,6 +311,22 @@ export const healthApi = {
   check: () => apiRequest<{ status: string; uptime: number }>('/health'),
 };
 
+// PAYMENTS (Stripe)
+export const paymentsApi = {
+  /** POST /payments/checkout — creates a Stripe Checkout session for parking */
+  createCheckout: (params: {
+    spotId: string;
+    spotName: string;
+    address: string;
+    duration: number;
+    totalCost: number;
+  }) =>
+    apiRequest<{ url: string | null; demoMode?: boolean; message?: string }>('/payments/checkout', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+};
+
 /**
  * Error handling helper
  */

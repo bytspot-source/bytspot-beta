@@ -7,6 +7,7 @@ import { venuesApi } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
+import { broadcastOwnCheckin } from '../utils/social';
 
 interface VenueDetailsProps {
   venue: any;
@@ -118,6 +119,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
           crowdLabel: finalLabel,
           pointsEarned: 10,
         });
+        broadcastOwnCheckin(venue.name, venueId, finalLevel, finalLabel);
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
           description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
           duration: 3000,
@@ -132,9 +134,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
           crowdLabel: currentLabel,
           pointsEarned: 10,
         });
+        broadcastOwnCheckin(venue.name, venueId, currentLevel, currentLabel);
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
       }
     } catch {
+      broadcastOwnCheckin(venue.name, venue.id, currentLevel, currentLabel);
       toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
     }
   };

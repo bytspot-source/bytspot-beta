@@ -92,6 +92,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
 
   const handleCheckIn = async () => {
     if (checkedIn) return;
+    // Generate idempotency key once per tap — retries on this key are no-ops
+    const idempotencyKey = crypto.randomUUID();
     localStorage.setItem(checkInKey, String(Date.now()));
     setCheckedIn(true);
     addPoints('VENUE_CHECKIN');
@@ -101,7 +103,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     try {
       const venueId = venue.id || venue.apiId;
       if (venueId) {
-        const result = await venuesApi.checkin(venueId);
+        const result = await venuesApi.checkin(venueId, idempotencyKey);
         const lvl = result.success ? result.data?.newCrowdLevel : null;
         const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
         const finalLevel = lvl ?? currentLevel;

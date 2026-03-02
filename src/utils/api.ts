@@ -276,10 +276,11 @@ export const venuesApi = {
       `/venues/${slug}/similar?limit=${limit}`
     ),
 
-  /** POST /venues/:id/checkin — user check-in to contribute crowd data */
-  checkin: (venueId: string) =>
+  /** POST /venues/:id/checkin — idempotent user check-in */
+  checkin: (venueId: string, idempotencyKey?: string) =>
     apiRequest<{ success: boolean; newCrowdLevel: number }>(`/venues/${venueId}/checkin`, {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
     }),
 };
 

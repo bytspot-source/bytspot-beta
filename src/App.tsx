@@ -822,6 +822,7 @@ export default function App() {
                       setSelectedDestination(undefined);
                       setSelectedMapFunction(undefined);
                     }}
+                    onBookRide={() => setShowRideSelection(true)}
                   />
                   </Suspense>
                 </ErrorBoundary>
@@ -882,6 +883,7 @@ export default function App() {
             <VenueDetails
               venue={selectedSearchVenue}
               onClose={() => setSelectedSearchVenue(null)}
+              onBookRide={() => setShowRideSelection(true)}
               isDarkMode={isDarkMode}
             />
           )}

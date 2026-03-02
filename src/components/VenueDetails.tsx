@@ -12,6 +12,7 @@ interface VenueDetailsProps {
   onClose: () => void;
   onOpenConcierge?: () => void;
   onNavigateToMap?: () => void;
+  onBookRide?: () => void;
   isOpen?: boolean;
 }
 
@@ -62,7 +63,7 @@ const menuItems = [
   { name: 'Craft Beer', price: '$8-12', available: true },
 ];
 
-export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap }: VenueDetailsProps) {
+export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   // Use real API crowd data from venue prop
@@ -117,19 +118,42 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   };
 
   const handleNavigate = () => {
-    // Navigate to map tab in app
-    if (onNavigateToMap) {
-      onNavigateToMap();
-      onClose();
+    const lat = venue._lat ?? venue.lat ?? 33.7866;
+    const lng = venue._lng ?? venue.lng ?? -84.3833;
+    const name = encodeURIComponent(venue.name || 'Venue');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    if (isIOS) {
+      // Try Apple Maps first; falls back to Google Maps web if not installed
+      window.open(`maps://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`, '_self');
+    } else {
+      // Google Maps with real-time driving directions
+      window.open(
+        `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${name}&travelmode=driving`,
+        '_blank'
+      );
     }
   };
 
   const handleCall = () => {
-    window.open('tel:+14155551234', '_self');
+    const phone = venue.phone || venue.phoneNumber;
+    if (phone) {
+      const clean = String(phone).replace(/[^\d+]/g, '');
+      window.open(`tel:${clean}`, '_self');
+    } else {
+      // Search Google for the venue's contact info
+      const q = encodeURIComponent(`${venue.name} Atlanta phone number`);
+      window.open(`https://www.google.com/search?q=${q}`, '_blank');
+      toast.info('Phone not in system', { description: 'Opening Google search', duration: 2500 });
+    }
   };
 
   const handleBookValet = () => {
-    toast('Ride booking coming soon!');
+    if (onBookRide) {
+      onBookRide();
+    } else {
+      toast('Ride booking coming soon!');
+    }
   };
 
   const handleShare = async () => {

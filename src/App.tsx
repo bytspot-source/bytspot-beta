@@ -341,17 +341,27 @@ export default function App() {
 
   // Reset scroll state and show nav when changing tabs
   useEffect(() => {
+    // Clear any existing timers FIRST before setting new ones
+    if (navHideTimerRef.current) {
+      clearTimeout(navHideTimerRef.current);
+      navHideTimerRef.current = null;
+    }
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+
     // ANALYTICS: Track tab changes
     trackEvent('tab_changed', {
       tab: activeTab,
       previous_tab: lastScrollY > 0 ? 'scrolled' : 'top',
     });
-    
-    // Show nav by default; hide immediately for Discover & Map (full-screen views)
+
+    // Show nav by default; auto-hide for full-screen views (Map + Concierge)
     if (activeTab === 'discover') {
       setShowBottomNav(false);
-    } else if (activeTab === 'map') {
-      // Show briefly so user sees active tab, then auto-hide for full-screen map
+    } else if (activeTab === 'map' || activeTab === 'concierge') {
+      // Show briefly so user sees active tab, then auto-hide
       setShowBottomNav(true);
       navHideTimerRef.current = setTimeout(() => {
         setShowBottomNav(false);
@@ -361,23 +371,15 @@ export default function App() {
       // Reset discover filter when leaving discover tab
       setDiscoverFilter(undefined);
     }
-    
+
     // Reset map destination when leaving map tab
     if (activeTab !== 'map') {
       setSelectedDestination(undefined);
       setSelectedMapFunction(undefined);
     }
-    
+
     setLastScrollY(0);
     setIsScrolling(false);
-    
-    // Clear timers when changing tabs
-    if (navHideTimerRef.current) {
-      clearTimeout(navHideTimerRef.current);
-    }
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
   }, [activeTab]);
 
   // Cleanup timers on unmount
@@ -922,7 +924,17 @@ export default function App() {
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                 className="absolute inset-0"
-                onClick={() => { if (showBottomNav) setShowBottomNav(false); }}
+                onClick={() => {
+                  if (navHideTimerRef.current) clearTimeout(navHideTimerRef.current);
+                  if (!showBottomNav) {
+                    // Nav hidden — tap to show briefly then re-hide
+                    setShowBottomNav(true);
+                    navHideTimerRef.current = setTimeout(() => setShowBottomNav(false), 2000);
+                  } else {
+                    // Nav visible — tap to hide immediately
+                    setShowBottomNav(false);
+                  }
+                }}
               >
                 <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>

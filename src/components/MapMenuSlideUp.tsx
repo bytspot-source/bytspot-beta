@@ -37,14 +37,15 @@ interface MapFunctionItem {
   isPremium?: boolean;
 }
 
+// Beta: 3 core map functions only
 const MAP_FUNCTIONS: MapFunctionItem[] = [
   {
-    id: 'trending-hotspots',
-    icon: TrendingUp,
-    title: 'Trending Hotspots',
-    description: 'Real-time popular spots & events',
-    color: '#FF4500',
-    gradient: 'from-orange-500 to-red-500',
+    id: 'smart-parking',
+    icon: Car,
+    title: 'Smart Parking',
+    description: 'Available spots with live pricing',
+    color: '#A855F7',
+    gradient: 'from-purple-500 to-fuchsia-500',
     badge: 'LIVE',
   },
   {
@@ -54,42 +55,16 @@ const MAP_FUNCTIONS: MapFunctionItem[] = [
     description: 'Crowd levels & wait times',
     color: '#00BFFF',
     gradient: 'from-cyan-500 to-blue-500',
-    badge: 'NEW',
+    badge: 'LIVE',
   },
   {
-    id: 'smart-parking',
-    icon: Car,
-    title: 'Smart Parking',
-    description: 'Available spots with pricing',
-    color: '#A855F7',
-    gradient: 'from-purple-500 to-fuchsia-500',
-  },
-  {
-    id: 'ai-navigation',
-    icon: Brain,
-    title: 'AI Navigation',
-    description: 'Optimized routes with insights',
-    color: '#FF00FF',
-    gradient: 'from-fuchsia-500 to-pink-500',
-    badge: 'PRO',
-    isPremium: true,
-  },
-  {
-    id: 'spot-radar',
-    icon: Radar,
-    title: 'Spot Radar',
-    description: 'Hidden gem discovery',
-    color: '#008080',
-    gradient: 'from-teal-500 to-cyan-500',
-    badge: 'NEW',
-  },
-  {
-    id: 'traffic-intelligence',
-    icon: Zap,
-    title: 'Traffic Intelligence',
-    description: 'Real-time traffic analysis',
-    color: '#FFD700',
-    gradient: 'from-yellow-500 to-amber-500',
+    id: 'trending-hotspots',
+    icon: TrendingUp,
+    title: 'Trending Hotspots',
+    description: 'Real-time popular spots & events',
+    color: '#FF4500',
+    gradient: 'from-orange-500 to-red-500',
+    badge: 'LIVE',
   },
 ];
 

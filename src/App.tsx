@@ -26,6 +26,7 @@ import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
+import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { TONIGHT_EVENTS, type AppEvent } from './utils/events';
 
@@ -662,12 +663,12 @@ export default function App() {
                         delay={0.25}
                         icon={<MapPin className="w-[22px] h-[22px]" strokeWidth={2.5} />}
                         title="Find Parking"
-                        subtitle="Near you"
+                        subtitle="Live spots near you"
                         color="cyan"
                         isDarkMode={isDarkMode}
                         onClick={() => {
-                          setDiscoverFilter('parking');
-                          setActiveTab('discover');
+                          setSelectedMapFunction('smart-parking');
+                          setActiveTab('map');
                         }}
                       />
                       
@@ -773,29 +774,47 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* ── 🔥 Trending Now ── Check-in velocity feed */}
+                    {/* ── 🔥 Trending Now ── Always visible: check-in velocity or top crowd venues */}
                     {(() => {
                       const trendingMap = getTrendingVenueIds();
-                      if (trendingMap.size === 0) return null;
-                      const trendingVenues = apiVenues
-                        .filter(v => trendingMap.has(v.id || v.name))
-                        .sort((a, b) => (trendingMap.get(b.id || b.name) ?? 0) - (trendingMap.get(a.id || a.name) ?? 0))
-                        .slice(0, 8);
-                      if (trendingVenues.length === 0) return null;
                       const catEmoji: Record<string, string> = {
                         restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
                         shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
                       };
+                      // Primary: local check-in velocity; Fallback: API venues sorted by crowd level
+                      let trendingVenues: typeof apiVenues = [];
+                      let byCheckins = false;
+                      if (trendingMap.size > 0) {
+                        trendingVenues = apiVenues
+                          .filter(v => trendingMap.has(v.id || v.name))
+                          .sort((a, b) => (trendingMap.get(b.id || b.name) ?? 0) - (trendingMap.get(a.id || a.name) ?? 0))
+                          .slice(0, 8);
+                        byCheckins = true;
+                      }
+                      if (trendingVenues.length === 0 && apiVenues.length > 0) {
+                        // fallback: top venues by live crowd level (Busy/Packed first)
+                        trendingVenues = [...apiVenues]
+                          .sort((a, b) => (b.crowd?.level ?? 0) - (a.crowd?.level ?? 0))
+                          .slice(0, 8);
+                      }
+                      if (trendingVenues.length === 0) return null;
                       return (
                         <div className="mb-8">
                           <div className="mb-3 flex items-center justify-between">
                             <h2 className="text-title-2 text-white">🔥 Trending Now</h2>
-                            <span className="text-[11px] text-orange-300/80" style={{ fontWeight: 600 }}>By check-ins</span>
+                            <span className="text-[11px] text-orange-300/80" style={{ fontWeight: 600 }}>
+                              {byCheckins ? 'By check-ins' : 'Live crowd'}
+                            </span>
                           </div>
                           <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
                             {trendingVenues.map((v, i) => {
-                              const count = trendingMap.get(v.id || v.name) ?? 1;
+                              const count = trendingMap.get(v.id || v.name) ?? 0;
                               const icon = catEmoji[v.category] || '📍';
+                              const crowdLevel = v.crowd?.level ?? 0;
+                              const crowdLabel = v.crowd?.label ?? '';
+                              const crowdColor = crowdLevel >= 4 ? 'bg-red-500/20 border-red-400/40 text-red-300'
+                                : crowdLevel >= 3 ? 'bg-orange-500/20 border-orange-400/40 text-orange-300'
+                                : 'bg-orange-500/20 border-orange-400/40 text-orange-300';
                               return (
                                 <motion.button
                                   key={v.id}
@@ -811,13 +830,58 @@ export default function App() {
                                   <div className="p-3">
                                     <div className="text-xl mb-1.5">{icon}</div>
                                     <h3 className="text-white text-[13px] leading-tight mb-2 truncate" style={{ fontWeight: 600 }}>{v.name}</h3>
-                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border bg-orange-500/20 border-orange-400/40 text-orange-300" style={{ fontWeight: 700 }}>
-                                      🔥 {count} check-in{count !== 1 ? 's' : ''}
+                                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${crowdColor}`} style={{ fontWeight: 700 }}>
+                                      {byCheckins ? `🔥 ${count} check-in${count !== 1 ? 's' : ''}` : (crowdLabel ? `🔴 ${crowdLabel}` : '🔥 Trending')}
                                     </div>
                                   </div>
                                 </motion.button>
                               );
                             })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── 👥 Friends are at... ── Social feed row */}
+                    {(() => {
+                      const feed = getSocialFeed().slice(0, 6);
+                      if (feed.length === 0) return null;
+                      const crowdEmoji: Record<string, string> = { Chill: '🟢', Active: '🟡', Busy: '🟠', Packed: '🔴' };
+                      const timeAgo = (ts: string) => {
+                        const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
+                        if (mins < 60) return `${mins}m ago`;
+                        return `${Math.floor(mins / 60)}h ago`;
+                      };
+                      return (
+                        <div className="mb-8">
+                          <div className="mb-3 flex items-center justify-between">
+                            <h2 className="text-title-2 text-white">👥 Friends Are At…</h2>
+                            <span className="text-[11px] text-purple-300/80" style={{ fontWeight: 600 }}>Live</span>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                            {feed.map((event, i) => (
+                              <motion.div
+                                key={event.id}
+                                className="flex-shrink-0 w-[160px] rounded-[16px] bg-[#1C1C1E]/90 border border-purple-500/20 p-3"
+                                initial={{ opacity: 0, y: 12 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ ...springConfig, delay: 0.35 + i * 0.04 }}
+                              >
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white text-[11px]" style={{ fontWeight: 700 }}>
+                                    {event.userName.slice(0, 1).toUpperCase()}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[12px] text-white truncate" style={{ fontWeight: 600 }}>{event.userName}</p>
+                                    <p className="text-[10px] text-white/40">{timeAgo(event.timestamp)}</p>
+                                  </div>
+                                </div>
+                                <p className="text-[12px] text-white/90 truncate leading-snug" style={{ fontWeight: 500 }}>{event.venueName}</p>
+                                <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-purple-500/20 border border-purple-400/30 text-purple-300" style={{ fontWeight: 600 }}>
+                                  {crowdEmoji[event.crowdLabel] ?? '📍'} {event.crowdLabel}
+                                </div>
+                              </motion.div>
+                            ))}
                           </div>
                         </div>
                       );

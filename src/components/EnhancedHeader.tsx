@@ -21,18 +21,37 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
     return () => clearInterval(timer);
   }, []);
 
-  // Generate personalized greeting
+  // Generate personalized greeting with Midtown context
   useEffect(() => {
     const hour = currentTime.getHours();
     const userName = localStorage.getItem('bytspot_user_name') || '';
-    
+
     let timeGreeting = '';
-    if (hour < 12) timeGreeting = 'Good morning';
-    else if (hour < 17) timeGreeting = 'Good afternoon';
-    else if (hour < 21) timeGreeting = 'Good evening';
-    else timeGreeting = 'Good night';
-    
-    setGreeting(userName ? `${timeGreeting}, ${userName}` : timeGreeting);
+    let midtownContext = '';
+    if (hour >= 5 && hour < 9) {
+      timeGreeting = 'Good morning';
+      midtownContext = 'Midtown is waking up ☕';
+    } else if (hour >= 9 && hour < 12) {
+      timeGreeting = 'Good morning';
+      midtownContext = 'Perfect time to explore 🌤️';
+    } else if (hour >= 12 && hour < 14) {
+      timeGreeting = 'Good afternoon';
+      midtownContext = 'Lunch rush in Midtown 🍽️';
+    } else if (hour >= 14 && hour < 17) {
+      timeGreeting = 'Good afternoon';
+      midtownContext = 'Midtown is buzzing 🌆';
+    } else if (hour >= 17 && hour < 20) {
+      timeGreeting = 'Good evening';
+      midtownContext = 'Happy hour time 🍸';
+    } else if (hour >= 20 && hour < 23) {
+      timeGreeting = 'Good evening';
+      midtownContext = 'Midtown is live tonight 🔥';
+    } else {
+      timeGreeting = 'Late night';
+      midtownContext = 'Late night in Midtown 🌙';
+    }
+
+    setGreeting(userName ? `${timeGreeting}, ${userName}` : `${timeGreeting} · ${midtownContext}`);
   }, [currentTime]);
 
   // Scroll-based animations
@@ -194,12 +213,9 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
       </motion.div>
 
       {/* Greeting - Compact */}
-      <motion.div 
+      <motion.div
         className="px-4 pt-3 pb-2"
-        style={{ 
-          scale: titleScale,
-          opacity: titleOpacity,
-        }}
+        style={{ scale: titleScale, opacity: titleOpacity }}
       >
         <motion.p
           className="text-[15px] text-white/80"
@@ -210,6 +226,30 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
         >
           {greeting}
         </motion.p>
+        {(() => {
+          const userName = localStorage.getItem('bytspot_user_name') || '';
+          const hour = new Date().getHours();
+          let ctx = '';
+          if (hour >= 5 && hour < 9) ctx = 'Midtown is waking up ☕';
+          else if (hour >= 9 && hour < 12) ctx = 'Perfect time to explore 🌤️';
+          else if (hour >= 12 && hour < 14) ctx = 'Lunch rush in Midtown 🍽️';
+          else if (hour >= 14 && hour < 17) ctx = 'Midtown is buzzing 🌆';
+          else if (hour >= 17 && hour < 20) ctx = 'Happy hour time 🍸';
+          else if (hour >= 20 && hour < 23) ctx = 'Midtown is live tonight 🔥';
+          else ctx = 'Late night in Midtown 🌙';
+          if (!userName) return null;
+          return (
+            <motion.p
+              className="text-[12px] text-white/50 mt-0.5"
+              style={{ fontWeight: 400 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ ...springConfig, delay: 0.25 }}
+            >
+              {ctx}
+            </motion.p>
+          );
+        })()}
       </motion.div>
     </motion.div>
   );

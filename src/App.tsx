@@ -67,7 +67,6 @@ export default function App() {
   const [showRideSelection, setShowRideSelection] = useState(false);
   const [rideDestination, setRideDestination] = useState<{ name: string; lat?: number; lng?: number } | undefined>(undefined);
   const [selectedSearchVenue, setSelectedSearchVenue] = useState<any>(null);
-  const [showConcierge, setShowConcierge] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
@@ -947,6 +946,26 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === 'concierge' && (
+              <motion.div
+                key="concierge"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0"
+              >
+                <HomeConcierge
+                  tabMode
+                  venues={apiVenues}
+                  onVenueSelect={(v) => {
+                    setSelectedSearchVenue(v);
+                    setActiveTab('home');
+                  }}
+                />
+              </motion.div>
+            )}
+
             {activeTab === 'profile' && (
               <motion.div
                 key="profile"
@@ -979,8 +998,6 @@ export default function App() {
           setActiveTab={setActiveTab}
           isDarkMode={isDarkMode}
           onMapButtonClick={() => setShowMapMenu(true)}
-          onConciergeTap={() => setShowConcierge(true)}
-          isConciergeOpen={showConcierge}
           isVisible={showBottomNav}
         />
 
@@ -1050,17 +1067,6 @@ export default function App() {
           isDarkMode={isDarkMode}
         />
         </Suspense>
-
-        {/* Home Concierge Chat */}
-        <HomeConcierge
-          isOpen={showConcierge}
-          onClose={() => setShowConcierge(false)}
-          venues={apiVenues}
-          onVenueSelect={(v) => {
-            setShowConcierge(false);
-            setSelectedSearchVenue(v);
-          }}
-        />
 
         {/* Beta Feedback Button — only on Home tab */}
         {activeTab === 'home' && currentScreen === 'main' && (

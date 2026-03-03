@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, Compass, Map, User, Sparkles } from 'lucide-react';
+import { Home, Compass, Map, Sparkles } from 'lucide-react';
 import { memo } from 'react';
 
 interface BottomNavProps {
@@ -7,8 +7,6 @@ interface BottomNavProps {
   setActiveTab: (tab: string) => void;
   isDarkMode: boolean;
   onMapButtonClick?: () => void;
-  onConciergeTap?: () => void;
-  isConciergeOpen?: boolean;
   isVisible?: boolean;
 }
 
@@ -18,8 +16,6 @@ export const BottomNav = memo(function BottomNav({
   setActiveTab,
   isDarkMode,
   onMapButtonClick,
-  onConciergeTap,
-  isConciergeOpen = false,
   isVisible = true
 }: BottomNavProps) {
   // Haptic feedback simulation
@@ -33,8 +29,6 @@ export const BottomNav = memo(function BottomNav({
     triggerHaptic();
     if (itemId === 'map' && onMapButtonClick) {
       onMapButtonClick();
-    } else if (itemId === 'concierge' && onConciergeTap) {
-      onConciergeTap();
     } else {
       setActiveTab(itemId);
     }
@@ -43,9 +37,8 @@ export const BottomNav = memo(function BottomNav({
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'discover', label: 'Discover', icon: Compass },
-    { id: 'concierge', label: 'AI', icon: Sparkles },
     { id: 'map', label: 'Map', icon: Map },
-    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'concierge', label: 'Concierge', icon: Sparkles },
   ];
 
   return (
@@ -78,8 +71,8 @@ export const BottomNav = memo(function BottomNav({
         <div className="px-1 py-2 flex items-center" role="tablist" aria-label="App sections">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = item.id === 'concierge' ? isConciergeOpen : activeTab === item.id;
-            
+            const isActive = activeTab === item.id;
+
             return (
               <motion.button
                 key={item.id}
@@ -111,33 +104,21 @@ export const BottomNav = memo(function BottomNav({
                     }}
                   />
                 )}
-                
+
                 {/* Icon */}
                 <motion.div
                   className="relative"
                   animate={{ scale: isActive ? 1 : 0.9 }}
                   transition={{ type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 }}
                 >
-                  {/* AI tab gets a glowing pill when active */}
-                  {item.id === 'concierge' && isActive && (
-                    <motion.div
-                      className="absolute -inset-1.5 rounded-full"
-                      style={{ background: 'linear-gradient(135deg,rgba(109,40,217,0.5),rgba(79,70,229,0.5))' }}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    />
-                  )}
                   <Icon
-                    className={`w-[24px] h-[24px] relative ${
-                      item.id === 'concierge' && isActive
-                        ? 'text-violet-300'
-                        : isActive ? 'text-white' : 'text-white/85'
-                    }`}
+                    className={`w-[24px] h-[24px] relative ${isActive ? 'text-white' : 'text-white/85'}`}
                     strokeWidth={isActive ? 2.5 : 2}
                   />
                   {/* Active dot indicator */}
                   {isActive && (
                     <motion.div
-                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${item.id === 'concierge' ? 'bg-violet-400' : 'bg-white'}`}
+                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-white"
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 }}
@@ -147,9 +128,7 @@ export const BottomNav = memo(function BottomNav({
 
                 {/* Label */}
                 <span
-                  className={`relative ${
-                    item.id === 'concierge' && isActive ? 'text-violet-300' : isActive ? 'text-white' : 'text-white/85'
-                  }`}
+                  className={`relative ${isActive ? 'text-white' : 'text-white/85'}`}
                   style={{
                     fontSize: 'var(--text-caption-2)',
                     lineHeight: 'var(--text-caption-2-line)',

@@ -7,14 +7,15 @@ import { toast } from 'sonner@2.0.3';
 interface AuthenticationFlowProps {
   isDarkMode: boolean;
   onComplete: () => void;
+  initialEmail?: string;
 }
 
 type AuthMode = 'signup' | 'login';
 
-export function AuthenticationFlow({ isDarkMode, onComplete }: AuthenticationFlowProps) {
+export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '' }: AuthenticationFlowProps) {
   const [mode, setMode] = useState<AuthMode>('signup');
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);

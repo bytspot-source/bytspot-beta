@@ -26,7 +26,7 @@ import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
-import { ensurePushSubscribed } from './utils/pushSubscription';
+import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { TONIGHT_EVENTS, type AppEvent } from './utils/events';
 
 import {
@@ -74,6 +74,8 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingSlide, setOnboardingSlide] = useState(0);
   const [quizStep, setQuizStep] = useState(0);
+  // Read ?email= URL param set by bytspot.com funnel "Try Beta App" link
+  const prefillEmail = useMemo(() => new URLSearchParams(window.location.search).get('email') ?? '', []);
   const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
@@ -466,6 +468,7 @@ export default function App() {
       <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
       <AuthenticationFlow
         isDarkMode={isDarkMode}
+        initialEmail={prefillEmail}
         onComplete={() => {
           localStorage.setItem('bytspot_auth_token', 'beta_user');
           setCurrentScreen('main');
@@ -1425,13 +1428,9 @@ export default function App() {
                   whileTap={{ scale: 0.97 }}
                   onClick={() => {
                     setShowNotifPrompt(false);
-                    if ('Notification' in window) {
-                      Notification.requestPermission().then((perm) => {
-                        if (perm === 'granted') {
-                          toast.success('Crowd alerts enabled 🔔', { description: "We'll notify you when spots hit Packed" });
-                        }
-                      });
-                    }
+                    subscribeToPush().then((ok) => {
+                      if (ok) toast.success('Crowd alerts enabled 🔔', { description: "We'll notify you when spots hit Packed" });
+                    });
                   }}
                 >
                   Enable Alerts

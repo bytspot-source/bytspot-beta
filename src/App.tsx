@@ -80,6 +80,36 @@ export default function App() {
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
   const homeScrollRef = useRef<HTMLDivElement>(null);
 
+  // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
+  const tonightsPick = useMemo(() => {
+    if (!apiVenues || apiVenues.length === 0) return null;
+    let quizAnswers: Record<string, string> = {};
+    try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
+
+    // Map quiz vibe → preferred API categories
+    const vibeMap: Record<string, string[]> = {
+      drinks: ['bar', 'nightlife', 'cocktails'],
+      coffee: ['coffee', 'cafe', 'brunch'],
+      food: ['restaurant', 'dining', 'food'],
+      fitness: ['fitness', 'gym', 'wellness'],
+    };
+    const preferredCats = vibeMap[quizAnswers.vibe ?? ''] ?? [];
+
+    // Score each venue: prefer quiz match (2pts), prefer crowd 1-2 (1pt for date, deduct for group=solo if packed)
+    const scored = apiVenues.map(v => {
+      const catMatch = preferredCats.some(c => (v.category ?? '').toLowerCase().includes(c));
+      const lvl = v.crowd?.level ?? 2;
+      let score = catMatch ? 2 : 0;
+      if (quizAnswers.group === 'date') score += lvl <= 2 ? 1 : -1; // date prefers chill
+      else if (quizAnswers.group === 'group') score += lvl >= 3 ? 1 : 0; // group prefers busy
+      else score += lvl <= 3 ? 1 : 0; // default: not packed
+      if (lvl === 4) score -= 2; // heavily penalise Packed
+      return { v, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0]?.v ?? null;
+  }, [apiVenues]);
+
   const springConfig = {
     type: "spring" as const,
     stiffness: 320,
@@ -516,6 +546,64 @@ export default function App() {
                 className="absolute inset-0 overflow-y-auto"
                 onScroll={handleScroll}
               >
+                {/* ── Tonight's Pick ── Smart venue recommendation */}
+                {tonightsPick && (() => {
+                  const v = tonightsPick;
+                  const lvl = v.crowd?.level ?? 1;
+                  const crowdLabel = v.crowd?.label ?? 'Chill';
+                  const crowdColor = lvl === 4 ? 'bg-red-500/30 border-red-400/50 text-red-300'
+                    : lvl === 3 ? 'bg-orange-500/30 border-orange-400/50 text-orange-300'
+                    : lvl === 2 ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300'
+                    : 'bg-green-500/30 border-green-400/50 text-green-300';
+                  const crowdEmoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
+                  const catEmoji: Record<string, string> = {
+                    restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
+                    shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
+                  };
+                  const icon = catEmoji[v.category] || '📍';
+                  const imgUrl = v.imageUrl || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
+                  return (
+                    <motion.div
+                      className="px-4 mb-5 pt-4"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...springConfig, delay: 0.05 }}
+                    >
+                      <div className="mb-2.5 flex items-center gap-2">
+                        <span className="text-[11px] text-[#A855F7]" style={{ fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>✨ Tonight's Pick</span>
+                        <div className="flex-1 h-px bg-white/10" />
+                      </div>
+                      <motion.button
+                        className="relative w-full rounded-2xl overflow-hidden text-left"
+                        style={{ height: 148 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => setSelectedSearchVenue(v)}
+                      >
+                        {/* Background image */}
+                        <img src={imgUrl} alt={v.name} className="absolute inset-0 w-full h-full object-cover" />
+                        {/* Gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+                        {/* AI Pick badge */}
+                        <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
+                          <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
+                          <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
+                        </div>
+                        {/* Content */}
+                        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
+                          <div>
+                            <div className="text-xl mb-0.5">{icon}</div>
+                            <h3 className="text-white text-[17px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
+                            {v.address && <p className="text-white/60 text-[12px] mt-0.5 truncate">{v.address}</p>}
+                          </div>
+                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>
+                            {crowdEmoji} {crowdLabel}
+                          </div>
+                        </div>
+                      </motion.button>
+                    </motion.div>
+                  );
+                })()}
+
                 {/* ── Tonight's Events ── */}
                 <div className="mb-6 pt-4">
                   <div className="px-4 mb-3 flex items-center justify-between">

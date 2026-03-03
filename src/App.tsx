@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart } from 'lucide-react';
+import { Search, MapPin, Star, Navigation, Sun, Mic, Menu, Heart } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
@@ -967,11 +967,13 @@ export default function App() {
         </div>
 
         {/* Bottom Navigation */}
-        <BottomNav 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
           isDarkMode={isDarkMode}
           onMapButtonClick={() => setShowMapMenu(true)}
+          onConciergeTap={() => setShowConcierge(true)}
+          isConciergeOpen={showConcierge}
           isVisible={showBottomNav}
         />
 
@@ -1052,20 +1054,6 @@ export default function App() {
             setSelectedSearchVenue(v);
           }}
         />
-
-        {/* Concierge floating button — only on Home tab */}
-        {activeTab === 'home' && currentScreen === 'main' && (
-          <motion.button
-            className="fixed bottom-40 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-violet-600 to-indigo-500 border-2 border-white/30 shadow-xl flex items-center justify-center"
-            whileTap={{ scale: 0.9 }}
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
-            onClick={() => setShowConcierge(true)}
-            aria-label="Open AI Concierge"
-          >
-            <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
-          </motion.button>
-        )}
 
         {/* Beta Feedback Button — only on Home tab */}
         {activeTab === 'home' && currentScreen === 'main' && (

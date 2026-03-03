@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, Compass, Map, User } from 'lucide-react';
+import { Home, Compass, Map, User, Sparkles } from 'lucide-react';
 import { memo } from 'react';
 
 interface BottomNavProps {
@@ -7,16 +7,20 @@ interface BottomNavProps {
   setActiveTab: (tab: string) => void;
   isDarkMode: boolean;
   onMapButtonClick?: () => void;
+  onConciergeTap?: () => void;
+  isConciergeOpen?: boolean;
   isVisible?: boolean;
 }
 
 // PERFORMANCE: Memoized to prevent re-renders on parent updates
-export const BottomNav = memo(function BottomNav({ 
-  activeTab, 
-  setActiveTab, 
-  isDarkMode, 
-  onMapButtonClick, 
-  isVisible = true 
+export const BottomNav = memo(function BottomNav({
+  activeTab,
+  setActiveTab,
+  isDarkMode,
+  onMapButtonClick,
+  onConciergeTap,
+  isConciergeOpen = false,
+  isVisible = true
 }: BottomNavProps) {
   // Haptic feedback simulation
   const triggerHaptic = () => {
@@ -27,10 +31,10 @@ export const BottomNav = memo(function BottomNav({
 
   const handleNavClick = (itemId: string) => {
     triggerHaptic();
-    
     if (itemId === 'map' && onMapButtonClick) {
-      // Open map menu instead of navigating directly
       onMapButtonClick();
+    } else if (itemId === 'concierge' && onConciergeTap) {
+      onConciergeTap();
     } else {
       setActiveTab(itemId);
     }
@@ -39,6 +43,7 @@ export const BottomNav = memo(function BottomNav({
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'discover', label: 'Discover', icon: Compass },
+    { id: 'concierge', label: 'AI', icon: Sparkles },
     { id: 'map', label: 'Map', icon: Map },
     { id: 'profile', label: 'Profile', icon: User },
   ];
@@ -73,13 +78,13 @@ export const BottomNav = memo(function BottomNav({
         <div className="px-3 py-2 flex items-center justify-around" role="tablist" aria-label="App sections">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = item.id === 'concierge' ? isConciergeOpen : activeTab === item.id;
             
             return (
               <motion.button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className="flex flex-col items-center gap-1 py-2 px-4 relative min-w-[60px] tap-target"
+                className="flex flex-col items-center gap-1 py-2 px-2 relative min-w-[52px] tap-target"
                 whileTap={{ scale: 0.9 }}
                 transition={{
                   type: "spring" as const,
@@ -110,45 +115,42 @@ export const BottomNav = memo(function BottomNav({
                 {/* Icon */}
                 <motion.div
                   className="relative"
-                  animate={{
-                    scale: isActive ? 1 : 0.9,
-                  }}
-                  transition={{
-                    type: "spring" as const,
-                    stiffness: 320,
-                    damping: 30,
-                    mass: 0.8,
-                  }}
+                  animate={{ scale: isActive ? 1 : 0.9 }}
+                  transition={{ type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 }}
                 >
-                  <Icon 
+                  {/* AI tab gets a glowing pill when active */}
+                  {item.id === 'concierge' && isActive && (
+                    <motion.div
+                      className="absolute -inset-1.5 rounded-full"
+                      style={{ background: 'linear-gradient(135deg,rgba(109,40,217,0.5),rgba(79,70,229,0.5))' }}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    />
+                  )}
+                  <Icon
                     className={`w-[24px] h-[24px] relative ${
-                      isActive ? 'text-white' : 'text-white/85'
+                      item.id === 'concierge' && isActive
+                        ? 'text-violet-300'
+                        : isActive ? 'text-white' : 'text-white/85'
                     }`}
                     strokeWidth={isActive ? 2.5 : 2}
                   />
-                  
                   {/* Active dot indicator */}
                   {isActive && (
                     <motion.div
-                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-white"
+                      className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${item.id === 'concierge' ? 'bg-violet-400' : 'bg-white'}`}
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
-                      transition={{
-                        type: "spring" as const,
-                        stiffness: 320,
-                        damping: 30,
-                        mass: 0.8,
-                      }}
+                      transition={{ type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 }}
                     />
                   )}
                 </motion.div>
-                
-                {/* Label - iOS caption-2 size */}
-                <span 
+
+                {/* Label */}
+                <span
                   className={`relative ${
-                    isActive ? 'text-white' : 'text-white/85'
+                    item.id === 'concierge' && isActive ? 'text-violet-300' : isActive ? 'text-white' : 'text-white/85'
                   }`}
-                  style={{ 
+                  style={{
                     fontSize: 'var(--text-caption-2)',
                     lineHeight: 'var(--text-caption-2-line)',
                     fontWeight: isActive ? 'var(--font-weight-semibold)' : 'var(--font-weight-regular)',

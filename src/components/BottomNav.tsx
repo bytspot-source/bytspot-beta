@@ -75,7 +75,7 @@ export const BottomNav = memo(function BottomNav({
           delay: 0.2,
         }}
       >
-        <div className="px-3 py-2 flex items-center justify-around" role="tablist" aria-label="App sections">
+        <div className="px-1 py-2 flex items-center" role="tablist" aria-label="App sections">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === 'concierge' ? isConciergeOpen : activeTab === item.id;
@@ -84,7 +84,7 @@ export const BottomNav = memo(function BottomNav({
               <motion.button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className="flex flex-col items-center gap-1 py-2 px-2 relative min-w-[52px] tap-target"
+                className="flex flex-col items-center gap-1 py-2 flex-1 relative tap-target min-h-[44px]"
                 whileTap={{ scale: 0.9 }}
                 transition={{
                   type: "spring" as const,

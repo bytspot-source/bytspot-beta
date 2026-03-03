@@ -104,7 +104,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
           onClick={handleCardTap}
           whileTap={{ scale: 0.98 }}
         >
-          <div className="relative flex-shrink-0" style={{ height: '300px' }}>
+          <div className="relative flex-shrink-0" style={{ height: '240px' }}>
             <img src={card.image} alt={card.name} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
             <AnimatePresence>
@@ -173,24 +173,24 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
             </div>
           </div>
-          <div className="flex-1 min-h-0 flex flex-col p-4 bg-[#1C1C1E] overflow-hidden">
-            {card.description && (<p className="text-[14px] text-white/80 mb-2.5 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
+          <div className="flex-1 flex flex-col p-4 bg-[#1C1C1E] gap-2">
+            {card.description && (<p className="text-[13px] text-white/80 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
             {card.features && card.features.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 flex-shrink-0 mb-auto">
-                {card.features.slice(0, 6).map((feature, idx) => (
+              <div className="flex flex-wrap gap-1.5 flex-shrink-0">
+                {card.features.slice(0, 4).map((feature, idx) => (
                   <div key={idx} className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20">
                     <span className="text-[11px] text-white/90 whitespace-nowrap" style={{ fontWeight: 500 }}>{feature}</span>
                   </div>
                 ))}
-                {card.features.length > 6 && (
+                {card.features.length > 4 && (
                   <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
-                    <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>+{card.features.length - 6}</span>
+                    <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>+{card.features.length - 4}</span>
                   </div>
                 )}
               </div>
             )}
             {card.vibe && (
-              <div className="mt-2.5 flex-shrink-0">
+              <div className="mt-auto pt-1 flex-shrink-0">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[12px] text-white/70" style={{ fontWeight: 500 }}>Vibe Score</span>
                   <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MapPin, Star, Navigation, Sun, Mic, Menu, Heart } from 'lucide-react';
+import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
@@ -348,9 +348,15 @@ export default function App() {
       previous_tab: lastScrollY > 0 ? 'scrolled' : 'top',
     });
     
-    // Show nav by default for all tabs except Discover
+    // Show nav by default; hide immediately for Discover & Map (full-screen views)
     if (activeTab === 'discover') {
       setShowBottomNav(false);
+    } else if (activeTab === 'map') {
+      // Show briefly so user sees active tab, then auto-hide for full-screen map
+      setShowBottomNav(true);
+      navHideTimerRef.current = setTimeout(() => {
+        setShowBottomNav(false);
+      }, 2000);
     } else {
       setShowBottomNav(true);
       // Reset discover filter when leaving discover tab
@@ -917,6 +923,7 @@ export default function App() {
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                 className="absolute inset-0"
+                onClick={() => { if (showBottomNav) setShowBottomNav(false); }}
               >
                 <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>

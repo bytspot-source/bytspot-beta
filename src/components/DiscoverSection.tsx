@@ -5,7 +5,7 @@ import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { type DiscoverCard, type CardType } from '../utils/mockData';
-import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
+import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { useVenues } from '../utils/hooks/useVenues';
 
 
@@ -223,6 +223,8 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
   const { cards, loading, error, refresh } = useVenues();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
+  const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<DiscoverCard | null>(null);
   const [selectedParkingSpot, setSelectedParkingSpot] = useState<any>(null);
   const [showHint, setShowHint] = useState(true);
@@ -238,13 +240,38 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
     mass: 0.8,
   };
 
-  // Apply filter to cards
-  const filteredCards = appliedFilter 
+  // 1. Category filter
+  let filteredCards = appliedFilter
     ? cards.filter(card => card.type === appliedFilter)
     : cards;
 
+  // 2. Saved-only filter
+  if (showSavedOnly) {
+    const savedIds = new Set(getSavedSpots().map(s => s.id));
+    filteredCards = filteredCards.filter(card => {
+      const spotId = card.name.toLowerCase().replace(/\s+/g, '-');
+      return savedIds.has(spotId);
+    });
+  }
+
+  // 3. Sort
+  filteredCards = [...filteredCards].sort((a, b) => {
+    if (sortBy === 'crowd') {
+      // vibe is inverse of crowd: high vibe = chill, low vibe = packed
+      // Sort hottest first (Packed first = low vibe first)
+      return (a.vibe ?? 5) - (b.vibe ?? 5);
+    }
+    if (sortBy === 'rating') return (b.rating ?? 0) - (a.rating ?? 0);
+    if (sortBy === 'distance') {
+      const da = parseFloat(a.distance.replace(' mi', '')) || 99;
+      const db = parseFloat(b.distance.replace(' mi', '')) || 99;
+      return da - db;
+    }
+    return 0;
+  });
+
   // Use filtered cards for current card display
-  const currentCard = filteredCards[currentIndex % filteredCards.length];
+  const currentCard = filteredCards[currentIndex % Math.max(filteredCards.length, 1)];
 
   const handleNext = () => {
     if (currentIndex < filteredCards.length - 1) {
@@ -448,54 +475,99 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         </div>
       )}
 
-      {/* Filter Indicator */}
-      <AnimatePresence>
-        {appliedFilter && (
-          <motion.div 
-            className="flex-shrink-0 px-4 mb-2"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={springConfig}
-          >
-            <motion.div 
-              className="flex items-center justify-between p-2 rounded-[14px] bg-gradient-to-r from-purple-500/20 to-fuchsia-500/20 border-2 border-purple-400/30 backdrop-blur-xl"
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              transition={springConfig}
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-300" strokeWidth={2.5} />
-                <div className="flex flex-col">
-                  <span className="text-[13px] text-white capitalize" style={{ fontWeight: 600 }}>
-                    {appliedFilter === 'parking' ? 'Parking Spots' :
-                     appliedFilter === 'valet' ? 'Book a Ride' :
-                     appliedFilter === 'coffee' ? 'Coffee Shops' :
-                     appliedFilter === 'dining' ? 'Restaurants' :
-                     appliedFilter === 'shopping' ? 'Shopping' :
-                     appliedFilter === 'nightlife' ? 'Nightlife' :
-                     appliedFilter === 'entertainment' ? 'Entertainment' :
-                     appliedFilter === 'fitness' ? 'Fitness' :
-                     appliedFilter}
-                  </span>
-                  {appliedFilter === 'valet' && (
-                    <span className="text-[10px] text-white/60" style={{ fontWeight: 500, lineHeight: 1 }}>
-                      Valet & Rideshare
-                    </span>
-                  )}
-                </div>
-              </div>
+      {/* ── Filter Bar ── */}
+      <div className="flex-shrink-0 px-4 pt-3 pb-2 flex flex-col gap-2 sticky top-0 z-10"
+        style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(18px)' }}>
+        {/* Category pills */}
+        <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+          {([
+            { label: 'All',    value: null },
+            { label: '🍸 Nightlife',    value: 'nightlife' },
+            { label: '🍽️ Dining',       value: 'dining' },
+            { label: '☕ Coffee',        value: 'coffee' },
+            { label: '🛍️ Shopping',     value: 'shopping' },
+            { label: '🎭 Events',        value: 'entertainment' },
+            { label: '💪 Fitness',       value: 'fitness' },
+            { label: '🅿️ Parking',      value: 'parking' },
+          ] as { label: string; value: CardType | null }[]).map((cat) => {
+            const active = appliedFilter === cat.value;
+            return (
               <motion.button
-                onClick={() => setAppliedFilter(null)}
-                className="px-2 py-0.5 rounded-full bg-white/20 border border-white/30"
-                whileTap={{ scale: 0.95 }}
+                key={cat.label}
+                onClick={() => { setAppliedFilter(cat.value); setCurrentIndex(0); }}
+                className="flex-shrink-0 px-3 py-1.5 rounded-full text-[13px] transition-all"
+                style={{
+                  background: active ? '#00BFFF' : 'rgba(255,255,255,0.08)',
+                  border: active ? '1.5px solid #00BFFF' : '1.5px solid rgba(255,255,255,0.14)',
+                  color: active ? '#000' : '#fff',
+                  fontWeight: active ? 700 : 500,
+                }}
+                whileTap={{ scale: 0.93 }}
               >
-                <span className="text-[11px] text-white" style={{ fontWeight: 600 }}>Clear</span>
+                {cat.label}
               </motion.button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            );
+          })}
+        </div>
+
+        {/* Sort + Saved row */}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 flex-1">
+            {([
+              ['crowd',    '🔥 Buzzing'],
+              ['rating',   '⭐ Rating'],
+              ['distance', '📍 Distance'],
+            ] as [typeof sortBy, string][]).map(([val, label]) => (
+              <motion.button
+                key={val}
+                onClick={() => setSortBy(val)}
+                className="px-2.5 py-1 rounded-full text-[11px] transition-all"
+                style={{
+                  background: sortBy === val ? 'rgba(124,58,237,0.28)' : 'rgba(255,255,255,0.06)',
+                  border: sortBy === val ? '1.5px solid rgba(124,58,237,0.7)' : '1.5px solid rgba(255,255,255,0.12)',
+                  color: sortBy === val ? '#c084fc' : 'rgba(255,255,255,0.45)',
+                  fontWeight: sortBy === val ? 700 : 500,
+                }}
+                whileTap={{ scale: 0.93 }}
+              >
+                {label}
+              </motion.button>
+            ))}
+          </div>
+          <motion.button
+            onClick={() => { setShowSavedOnly(s => !s); setCurrentIndex(0); }}
+            className="px-3 py-1 rounded-full text-[11px] flex items-center gap-1 transition-all"
+            style={{
+              background: showSavedOnly ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)',
+              border: showSavedOnly ? '1.5px solid rgba(239,68,68,0.55)' : '1.5px solid rgba(255,255,255,0.12)',
+              color: showSavedOnly ? '#f87171' : 'rgba(255,255,255,0.45)',
+              fontWeight: showSavedOnly ? 700 : 500,
+            }}
+            whileTap={{ scale: 0.93 }}
+          >
+            <Heart className="w-3 h-3" fill={showSavedOnly ? '#f87171' : 'none'} strokeWidth={2.5} />
+            <span>Saved</span>
+          </motion.button>
+        </div>
+      </div>
+
+      {/* Empty saved state */}
+      {showSavedOnly && filteredCards.length === 0 && !loading && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 px-6">
+          <Heart className="w-10 h-10 text-white/20" strokeWidth={1.5} />
+          <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
+            No saved spots yet.<br />Swipe up on a card to save it.
+          </p>
+          <motion.button
+            onClick={() => { setShowSavedOnly(false); setCurrentIndex(0); }}
+            className="px-5 py-2 rounded-full bg-purple-600 text-white text-[14px]"
+            style={{ fontWeight: 600 }}
+            whileTap={{ scale: 0.96 }}
+          >
+            Browse All
+          </motion.button>
+        </div>
+      )}
 
       {/* Swipeable Cards */}
       <div 

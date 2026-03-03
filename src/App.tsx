@@ -1332,126 +1332,135 @@ export default function App() {
         <AnimatePresence>
           {showOnboarding && (() => {
             const quizQuestions = [
-              {
-                emoji: '✨',
-                question: "What's your vibe tonight?",
-                key: 'vibe' as const,
-                options: [
-                  { label: '🍸 Drinks', value: 'drinks' },
-                  { label: '☕ Coffee', value: 'coffee' },
-                  { label: '🍔 Food', value: 'food' },
-                  { label: '🏋️ Fitness', value: 'fitness' },
-                ],
-              },
-              {
-                emoji: '🗺️',
-                question: "How far will you walk?",
-                key: 'walk' as const,
-                options: [
-                  { label: '🚶 < 5 min', value: 'close' },
-                  { label: '🚶‍♀️ 10 min', value: 'medium' },
-                  { label: '🚌 Anywhere', value: 'far' },
-                ],
-              },
-              {
-                emoji: '👥',
-                question: "Solo or with crew?",
-                key: 'group' as const,
-                options: [
-                  { label: '🙋 Solo', value: 'solo' },
-                  { label: '👫 Date night', value: 'date' },
-                  { label: '👥 Group', value: 'group' },
-                ],
-              },
+              { emoji: '✨', question: "What's your vibe tonight?", key: 'vibe' as const,
+                options: [{ label: '🍸 Drinks', value: 'drinks' }, { label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '🏋️ Fitness', value: 'fitness' }] },
+              { emoji: '🗺️', question: "How far will you walk?", key: 'walk' as const,
+                options: [{ label: '🚶 < 5 min', value: 'close' }, { label: '🚶‍♀️ 10 min', value: 'medium' }, { label: '🚌 Anywhere', value: 'far' }] },
+              { emoji: '👥', question: "Solo or with crew?", key: 'group' as const,
+                options: [{ label: '🙋 Solo', value: 'solo' }, { label: '👫 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }] },
             ];
-            const q = quizQuestions[quizStep];
-            const isLast = quizStep === quizQuestions.length - 1;
+            const total = quizQuestions.length;
+            const isConfirmation = quizStep === total;
+            const q = isConfirmation ? null : quizQuestions[quizStep];
+            const isLast = quizStep === total - 1;
             const dismiss = (final?: typeof quizSelections) => {
               const answers = final ?? quizSelections;
               localStorage.setItem('bytspot_onboarding_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
-
-              // Map quiz answers → bytspot_preferences so personalization engine picks them up
-              const vibeToInterests: Record<string, string[]> = {
-                drinks: ['bars', 'nightlife', 'cocktails'],
-                coffee: ['coffee', 'cafes', 'brunch'],
-                food: ['dining', 'restaurants', 'food'],
-                fitness: ['fitness', 'gym', 'wellness'],
-              };
-              const interests: string[] = [
-                ...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []),
-                ...(answers.group === 'date' ? ['date night', 'romantic'] : []),
-                ...(answers.group === 'group' ? ['group', 'nightlife'] : []),
-              ];
-              const vibePreferences = answers.vibe ? { selectedVibes: [answers.vibe] } : undefined;
-              const preferences = { interests, vibePreferences };
-              localStorage.setItem('bytspot_preferences', JSON.stringify(preferences));
-
-              setShowOnboarding(false);
-              setQuizStep(0);
-              if ('Notification' in window && Notification.permission === 'default') {
-                setTimeout(() => setShowNotifPrompt(true), 600);
-              }
+              const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'] };
+              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
+              localStorage.setItem('bytspot_preferences', JSON.stringify({ interests, vibePreferences: answers.vibe ? { selectedVibes: [answers.vibe] } : undefined }));
+              setShowOnboarding(false); setQuizStep(0);
+              if ('Notification' in window && Notification.permission === 'default') setTimeout(() => setShowNotifPrompt(true), 600);
             };
+            // Top-3 venue picks for confirmation screen
+            const picks = (() => {
+              if (!isConfirmation || !apiVenues?.length) return [];
+              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining'], fitness: ['fitness','gym'] };
+              const preferred = vibeMap[quizSelections.vibe ?? ''] ?? [];
+              return [...apiVenues].map(v => {
+                const match = preferred.some(c => (v.category ?? '').toLowerCase().includes(c));
+                const lvl = v.crowd?.level ?? 2;
+                let score = match ? 3 : 0;
+                if (quizSelections.group === 'date') score += lvl <= 2 ? 1 : -1;
+                else if (quizSelections.group === 'group') score += lvl >= 3 ? 1 : 0;
+                if (lvl >= 4) score -= 1;
+                return { v, score };
+              }).sort((a, b) => b.score - a.score).slice(0, 3).map(s => s.v);
+            })();
+            // Animated SVG ring
+            const ringR = 18; const ringC = 2 * Math.PI * ringR;
+            const ringFill = isConfirmation ? 1 : (quizStep + 1) / total;
             return (
-              <motion.div
-                key="onboarding-quiz"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+              <motion.div key="onboarding-quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 z-[9999] flex items-end justify-center"
-                style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}
-              >
-                <motion.div
-                  key={quizStep}
-                  initial={{ opacity: 0, y: 40 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
+                style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
+                <motion.div key={quizStep} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
                   transition={{ type: 'spring', stiffness: 320, damping: 30 }}
                   className="w-full max-w-md mx-auto mb-10 rounded-[28px] p-8 flex flex-col gap-5"
-                  style={{ background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.12)' }}
-                >
-                  {/* Progress dots */}
-                  <div className="flex gap-2">
-                    {quizQuestions.map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full flex-1 transition-all duration-300"
-                        style={{ background: i <= quizStep ? '#00BFFF' : 'rgba(255,255,255,0.2)' }} />
-                    ))}
+                  style={{ background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.12)' }}>
+
+                  {/* ── Header: progress ring + skip ── */}
+                  <div className="flex items-center justify-between">
+                    <svg width="48" height="48" viewBox="0 0 48 48">
+                      <circle cx="24" cy="24" r={ringR} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                      <g transform="rotate(-90 24 24)">
+                        <motion.circle cx="24" cy="24" r={ringR} fill="none" stroke="#00BFFF" strokeWidth="3"
+                          strokeLinecap="round" strokeDasharray={ringC}
+                          animate={{ strokeDashoffset: ringC * (1 - ringFill) }}
+                          initial={{ strokeDashoffset: ringC }}
+                          transition={{ type: 'spring', stiffness: 120, damping: 20 }} />
+                      </g>
+                      {!isConfirmation
+                        ? <text x="24" y="28" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">{quizStep + 1}/{total}</text>
+                        : <text x="24" y="29" textAnchor="middle" fill="#00BFFF" fontSize="15" fontWeight="700">✓</text>}
+                    </svg>
+                    {!isConfirmation && (
+                      <button className="text-[13px] px-3 py-1 rounded-full"
+                        style={{ color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.14)', fontWeight: 500 }}
+                        onClick={() => dismiss()}>Skip</button>
+                    )}
                   </div>
 
-                  <div className="text-5xl text-center">{q.emoji}</div>
-                  <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{q.question}</h2>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    {q.options.map((opt) => {
-                      const selected = quizSelections[q.key] === opt.value;
-                      return (
-                        <motion.button
-                          key={opt.value}
-                          className="py-3.5 px-4 rounded-[16px] text-[15px] text-white border-2 transition-all"
-                          style={{
-                            background: selected ? 'rgba(0,191,255,0.18)' : 'rgba(255,255,255,0.06)',
-                            border: selected ? '2px solid #00BFFF' : '2px solid rgba(255,255,255,0.12)',
-                            fontWeight: selected ? 700 : 500,
-                          }}
-                          whileTap={{ scale: 0.96 }}
-                          onClick={() => {
-                            const updated = { ...quizSelections, [q.key]: opt.value };
-                            setQuizSelections(updated);
-                            if (isLast) {
-                              setTimeout(() => dismiss(updated), 300);
-                            } else {
-                              setTimeout(() => setQuizStep(s => s + 1), 300);
-                            }
-                          }}
-                        >
-                          {opt.label}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-
-                  <button className="text-[13px] text-white/40 text-center mt-1" onClick={() => dismiss()}>Skip for now</button>
+                  {isConfirmation ? (
+                    /* ── Confirmation: Here's your Midtown ── */
+                    <>
+                      <div className="text-center">
+                        <div className="text-4xl mb-2">🗺️</div>
+                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Here's your Midtown</h2>
+                        <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 400 }}>Tonight's top picks, just for you</p>
+                      </div>
+                      <div className="flex flex-col gap-2.5">
+                        {picks.length > 0 ? picks.map((venue, i) => {
+                          const lvl = venue.crowd?.level ?? 2;
+                          const crowdColor = lvl === 4 ? '#ef4444' : lvl === 3 ? '#f97316' : lvl === 2 ? '#22c55e' : '#60a5fa';
+                          return (
+                            <div key={venue.id} className="flex items-center gap-3 p-3 rounded-[16px]"
+                              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                              <span className="text-xl">{['🥇','🥈','🥉'][i]}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[15px] text-white truncate" style={{ fontWeight: 600 }}>{venue.name}</p>
+                                <p className="text-[12px] truncate" style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}>{venue.address}</p>
+                              </div>
+                              <span className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0"
+                                style={{ background: `${crowdColor}22`, color: crowdColor, border: `1px solid ${crowdColor}44`, fontWeight: 600 }}>
+                                {venue.crowd?.label ?? '—'}
+                              </span>
+                            </div>
+                          );
+                        }) : <p className="text-[14px] text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>Discovering spots for you…</p>}
+                      </div>
+                      <motion.button className="w-full rounded-[18px] py-4 text-[16px] text-black"
+                        style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
+                        whileTap={{ scale: 0.97 }} onClick={() => dismiss()}>
+                        Let's Go 🚀
+                      </motion.button>
+                    </>
+                  ) : (
+                    /* ── Quiz slide ── */
+                    <>
+                      <div className="text-5xl text-center">{q!.emoji}</div>
+                      <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{q!.question}</h2>
+                      <div className="grid grid-cols-2 gap-3">
+                        {q!.options.map((opt) => {
+                          const selected = quizSelections[q!.key] === opt.value;
+                          return (
+                            <motion.button key={opt.value} className="py-3.5 px-4 rounded-[16px] text-[15px] text-white border-2 transition-all"
+                              style={{ background: selected ? 'rgba(0,191,255,0.18)' : 'rgba(255,255,255,0.06)', border: selected ? '2px solid #00BFFF' : '2px solid rgba(255,255,255,0.12)', fontWeight: selected ? 700 : 500 }}
+                              whileTap={{ scale: 0.96 }}
+                              onClick={() => {
+                                const updated = { ...quizSelections, [q!.key]: opt.value };
+                                setQuizSelections(updated);
+                                if (isLast) { setTimeout(() => setQuizStep(total), 300); }
+                                else { setTimeout(() => setQuizStep(s => s + 1), 300); }
+                              }}>
+                              {opt.label}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </motion.div>
               </motion.div>
             );

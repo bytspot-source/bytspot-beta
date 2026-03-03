@@ -9,6 +9,7 @@ import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';
 import { getVenuePhotos } from '../utils/venuePhoto';
+import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
 
 interface VenueDetailsProps {
   venue: any;
@@ -80,6 +81,16 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const checkInKey = `bytspot_checkin_${venue.id || venue.name}`;
   const lastCheckIn = parseInt(localStorage.getItem(checkInKey) || '0', 10);
   const [checkedIn, setCheckedIn] = useState(Date.now() - lastCheckIn < 3600_000);
+
+  // Review state
+  const venueKey = venue.id || venue.name;
+  const [userReviews, setUserReviews] = useState<VenueReview[]>(() => getVenueReviews(venueKey));
+  const avgRating = getAverageRating(venueKey);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewStars, setReviewStars] = useState(0);
+  const [reviewVibe, setReviewVibe] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
   // Crowd history for trend chart
   const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
@@ -559,66 +570,126 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
             transition={{ delay: 0.6 }}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[20px] text-white" style={{ fontWeight: 600 }}>
-                Reviews
-              </h3>
-              <button className="text-[15px] text-cyan-400 flex items-center gap-1" style={{ fontWeight: 600 }}>
-                See All
-                <ExternalLink className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              {sampleReviews.map((review) => (
-                <div
-                  key={review.id}
-                  className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-white/30"
+              <div>
+                <h3 className="text-[20px] text-white" style={{ fontWeight: 600 }}>Reviews</h3>
+                {avgRating && (
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-1">
+                      {[1,2,3,4,5].map(s => (
+                        <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.round(avgRating.stars) ? 'fill-yellow-400 text-yellow-400' : 'text-white/20'}`} />
+                      ))}
+                    </div>
+                    <span className="text-[13px] text-white/60">{avgRating.stars.toFixed(1)} · {avgRating.count} review{avgRating.count !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+              </div>
+              {checkedIn && !userReviews.find(r => r.venueId === venueKey) && (
+                <motion.button
+                  className="text-[13px] text-cyan-400 font-semibold px-3 py-1.5 rounded-full border border-cyan-400/40"
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowReviewForm(v => !v)}
                 >
+                  {showReviewForm ? 'Cancel' : '+ Review'}
+                </motion.button>
+              )}
+            </div>
+
+            {/* Review write form */}
+            <AnimatePresence>
+              {showReviewForm && !reviewSubmitted && (
+                <motion.div
+                  className="mb-4 p-4 rounded-[16px] bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-white/20"
+                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                >
+                  <p className="text-[14px] text-white/80 mb-3 font-semibold">How was {venue.name}?</p>
+                  {/* Stars */}
+                  <div className="flex gap-2 mb-3">
+                    {[1,2,3,4,5].map(s => (
+                      <button key={s} onClick={() => setReviewStars(s)}>
+                        <Star className={`w-7 h-7 transition-all ${s <= reviewStars ? 'fill-yellow-400 text-yellow-400 scale-110' : 'text-white/30'}`} />
+                      </button>
+                    ))}
+                  </div>
+                  {/* Vibe slider */}
+                  <div className="mb-3">
+                    <div className="flex justify-between text-[12px] text-white/50 mb-1">
+                      <span>Vibe score</span><span className="text-cyan-400 font-bold">{reviewVibe}/10</span>
+                    </div>
+                    <input type="range" min={1} max={10} value={reviewVibe}
+                      onChange={e => setReviewVibe(Number(e.target.value))}
+                      className="w-full accent-cyan-400" />
+                  </div>
+                  {/* Comment */}
+                  <textarea
+                    className="w-full rounded-[12px] bg-white/8 border border-white/20 text-white text-[13px] p-2.5 resize-none placeholder:text-white/30 outline-none focus:border-cyan-400/60"
+                    rows={2} placeholder="Anything to add? (optional)"
+                    value={reviewComment} onChange={e => setReviewComment(e.target.value)}
+                    style={{ background: 'rgba(255,255,255,0.06)' }}
+                  />
+                  <motion.button
+                    className="mt-3 w-full py-3 rounded-[12px] text-white text-[14px] font-semibold disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)' }}
+                    whileTap={{ scale: 0.97 }} disabled={reviewStars === 0}
+                    onClick={() => {
+                      const rev: VenueReview = {
+                        venueId: venueKey,
+                        venueName: venue.name,
+                        stars: reviewStars,
+                        vibe: reviewVibe,
+                        comment: reviewComment.trim(),
+                        createdAt: new Date().toISOString(),
+                      };
+                      saveVenueReview(rev);
+                      setUserReviews(getVenueReviews(venueKey));
+                      setReviewSubmitted(true);
+                      setShowReviewForm(false);
+                      toast.success('Review saved! Thanks 🙌', { duration: 2500 });
+                    }}
+                  >Submit Review</motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="space-y-3">
+              {/* User-written reviews first */}
+              {userReviews.map((review, idx) => (
+                <div key={idx} className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-cyan-400/30">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center text-white text-[13px] font-bold">You</div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex">{[1,2,3,4,5].map(s => <Star key={s} className={`w-3 h-3 ${s <= review.stars ? 'fill-yellow-400 text-yellow-400' : 'text-white/20'}`} />)}</div>
+                        <span className="text-[11px] text-white/40">{new Date(review.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <span className="text-[12px] text-purple-300 font-semibold">Vibe {review.vibe}/10</span>
+                    </div>
+                  </div>
+                  {review.comment && <p className="text-[14px] text-white/80">{review.comment}</p>}
+                </div>
+              ))}
+              {/* Sample/seed reviews */}
+              {sampleReviews.map((review) => (
+                <div key={review.id} className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-white/30">
                   <div className="flex items-start gap-3 mb-3">
-                    <img
-                      src={review.avatar}
-                      alt={review.user}
-                      className="w-10 h-10 rounded-full"
-                    />
+                    <img src={review.avatar} alt={review.user} className="w-10 h-10 rounded-full" />
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                          {review.user}
-                        </p>
-                        <span className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                          {review.date}
-                        </span>
+                        <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>{review.user}</p>
+                        <span className="text-[13px] text-white/70">{review.date}</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1">
                           <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
-                          <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-                            {review.rating}.0
-                          </span>
+                          <span className="text-[13px] text-white font-semibold">{review.rating}.0</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Zap className="w-3.5 h-3.5 text-purple-400" />
-                          <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-                            Vibe {review.vibe}/10
-                          </span>
+                          <span className="text-[13px] text-white font-semibold">Vibe {review.vibe}/10</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <p className="text-[15px] text-white/90 mb-3" style={{ fontWeight: 400 }}>
-                    {review.comment}
-                  </p>
-                  {review.images.length > 0 && (
-                    <div className="flex gap-2">
-                      {review.images.map((img, idx) => (
-                        <img
-                          key={idx}
-                          src={img}
-                          alt="Review"
-                          className="w-20 h-20 rounded-[8px] object-cover"
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <p className="text-[15px] text-white/90">{review.comment}</p>
                 </div>
               ))}
             </div>

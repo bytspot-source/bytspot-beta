@@ -27,6 +27,7 @@ import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
 import { ensurePushSubscribed } from './utils/pushSubscription';
+import { TONIGHT_EVENTS, type AppEvent } from './utils/events';
 
 import {
   getPersonalizedCategories,
@@ -73,6 +74,8 @@ export default function App() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingSlide, setOnboardingSlide] = useState(0);
+  const [quizStep, setQuizStep] = useState(0);
+  const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
@@ -506,6 +509,41 @@ export default function App() {
                 className="absolute inset-0 overflow-y-auto"
                 onScroll={handleScroll}
               >
+                {/* ── Tonight's Events ── */}
+                <div className="mb-6 pt-4">
+                  <div className="px-4 mb-3 flex items-center justify-between">
+                    <h2 className="text-title-2 text-white">What's Happening Tonight</h2>
+                    <span className="text-[11px] text-white/40">Midtown ATL</span>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4 pb-2">
+                    {TONIGHT_EVENTS.map((evt: AppEvent, i: number) => (
+                      <motion.div
+                        key={evt.id}
+                        className="flex-shrink-0 w-[160px] rounded-2xl overflow-hidden border border-white/10"
+                        style={{ background: '#1C1C1E' }}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 + i * 0.05 }}
+                        whileTap={{ scale: 0.96 }}
+                      >
+                        <div className="relative h-[90px] overflow-hidden">
+                          <img src={evt.image} alt={evt.title} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                          <span className="absolute top-2 left-2 text-[18px]">{evt.emoji}</span>
+                          <span className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/60 text-white border border-white/20">
+                            {evt.price}
+                          </span>
+                        </div>
+                        <div className="p-2.5">
+                          <p className="text-[13px] text-white font-semibold leading-tight truncate">{evt.title}</p>
+                          <p className="text-[11px] text-white/50 mt-0.5 truncate">{evt.venue}</p>
+                          <p className="text-[11px] text-cyan-400 mt-1 font-semibold">{evt.time}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Quick Actions & Nearby - Main Home Content */}
                 <div className="px-4">
                   <motion.div
@@ -1018,7 +1056,7 @@ export default function App() {
         {/* Concierge floating button — only on Home tab */}
         {activeTab === 'home' && currentScreen === 'main' && (
           <motion.button
-            className="fixed bottom-40 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-500 border-2 border-white/30 shadow-xl flex items-center justify-center"
+            className="fixed bottom-40 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-violet-600 to-indigo-500 border-2 border-white/30 shadow-xl flex items-center justify-center"
             whileTap={{ scale: 0.9 }}
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
@@ -1029,17 +1067,19 @@ export default function App() {
           </motion.button>
         )}
 
-        {/* Beta Feedback Button — floating, above bottom nav */}
-        <motion.button
-          className="fixed bottom-24 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-white/30 shadow-xl flex items-center justify-center"
-          whileTap={{ scale: 0.9 }}
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          onClick={() => { setShowFeedback(true); setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(''); }}
-          aria-label="Share beta feedback"
-        >
-          <span className="text-[20px]">💬</span>
-        </motion.button>
+        {/* Beta Feedback Button — only on Home tab */}
+        {activeTab === 'home' && currentScreen === 'main' && (
+          <motion.button
+            className="fixed bottom-24 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-white/30 shadow-xl flex items-center justify-center"
+            whileTap={{ scale: 0.9 }}
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            onClick={() => { setShowFeedback(true); setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(''); }}
+            aria-label="Share beta feedback"
+          >
+            <span className="text-[20px]">💬</span>
+          </motion.button>
+        )}
 
         {/* Beta Feedback Sheet */}
         <AnimatePresence>
@@ -1120,27 +1160,57 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* ─── Onboarding Overlay ─── */}
+        {/* ─── Onboarding Quiz ─── */}
         <AnimatePresence>
           {showOnboarding && (() => {
-            const slides = [
-              { emoji: '🔴', title: "See what's packed right now", body: "Live crowd levels for every bar, restaurant, and venue in Midtown — updated every minute." },
-              { emoji: '🅿️', title: "Find & reserve parking", body: "Real-time spot availability across 8+ Midtown garages. Reserve before you leave home." },
-              { emoji: '🚗', title: "Book your ride instantly", body: "Compare Uber & Lyft prices side-by-side and book without switching apps." },
+            const quizQuestions = [
+              {
+                emoji: '✨',
+                question: "What's your vibe tonight?",
+                key: 'vibe' as const,
+                options: [
+                  { label: '🍸 Drinks', value: 'drinks' },
+                  { label: '☕ Coffee', value: 'coffee' },
+                  { label: '🍔 Food', value: 'food' },
+                  { label: '🏋️ Fitness', value: 'fitness' },
+                ],
+              },
+              {
+                emoji: '🗺️',
+                question: "How far will you walk?",
+                key: 'walk' as const,
+                options: [
+                  { label: '🚶 < 5 min', value: 'close' },
+                  { label: '🚶‍♀️ 10 min', value: 'medium' },
+                  { label: '🚌 Anywhere', value: 'far' },
+                ],
+              },
+              {
+                emoji: '👥',
+                question: "Solo or with crew?",
+                key: 'group' as const,
+                options: [
+                  { label: '🙋 Solo', value: 'solo' },
+                  { label: '👫 Date night', value: 'date' },
+                  { label: '👥 Group', value: 'group' },
+                ],
+              },
             ];
-            const slide = slides[onboardingSlide];
-            const isLast = onboardingSlide === slides.length - 1;
-            const dismiss = () => {
+            const q = quizQuestions[quizStep];
+            const isLast = quizStep === quizQuestions.length - 1;
+            const dismiss = (final?: typeof quizSelections) => {
+              const answers = final ?? quizSelections;
               localStorage.setItem('bytspot_onboarding_seen', 'true');
+              localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
               setShowOnboarding(false);
-              // Offer notification permission after onboarding
+              setQuizStep(0);
               if ('Notification' in window && Notification.permission === 'default') {
                 setTimeout(() => setShowNotifPrompt(true), 600);
               }
             };
             return (
               <motion.div
-                key="onboarding"
+                key="onboarding-quiz"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -1148,36 +1218,55 @@ export default function App() {
                 style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}
               >
                 <motion.div
-                  key={onboardingSlide}
+                  key={quizStep}
                   initial={{ opacity: 0, y: 40 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-                  className="w-full max-w-md mx-auto mb-10 rounded-[28px] p-8 flex flex-col items-center gap-5"
+                  className="w-full max-w-md mx-auto mb-10 rounded-[28px] p-8 flex flex-col gap-5"
                   style={{ background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.12)' }}
                 >
-                  <div className="text-6xl">{slide.emoji}</div>
-                  <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{slide.title}</h2>
-                  <p className="text-[15px] text-white/60 text-center leading-relaxed">{slide.body}</p>
-
-                  {/* Dots */}
-                  <div className="flex gap-2 mt-1">
-                    {slides.map((_, i) => (
-                      <div key={i} className="h-2 rounded-full transition-all duration-300"
-                        style={{ width: i === onboardingSlide ? 20 : 8, background: i === onboardingSlide ? '#00BFFF' : 'rgba(255,255,255,0.25)' }} />
+                  {/* Progress dots */}
+                  <div className="flex gap-2">
+                    {quizQuestions.map((_, i) => (
+                      <div key={i} className="h-1.5 rounded-full flex-1 transition-all duration-300"
+                        style={{ background: i <= quizStep ? '#00BFFF' : 'rgba(255,255,255,0.2)' }} />
                     ))}
                   </div>
 
-                  <motion.button
-                    className="w-full rounded-[16px] py-4 text-[16px] text-black mt-2"
-                    style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => isLast ? dismiss() : setOnboardingSlide(s => s + 1)}
-                  >
-                    {isLast ? "Let's go 🚀" : 'Next'}
-                  </motion.button>
+                  <div className="text-5xl text-center">{q.emoji}</div>
+                  <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{q.question}</h2>
 
-                  <button className="text-[13px] text-white/40 mt-1" onClick={dismiss}>Skip</button>
+                  <div className="grid grid-cols-2 gap-3">
+                    {q.options.map((opt) => {
+                      const selected = quizSelections[q.key] === opt.value;
+                      return (
+                        <motion.button
+                          key={opt.value}
+                          className="py-3.5 px-4 rounded-[16px] text-[15px] text-white border-2 transition-all"
+                          style={{
+                            background: selected ? 'rgba(0,191,255,0.18)' : 'rgba(255,255,255,0.06)',
+                            border: selected ? '2px solid #00BFFF' : '2px solid rgba(255,255,255,0.12)',
+                            fontWeight: selected ? 700 : 500,
+                          }}
+                          whileTap={{ scale: 0.96 }}
+                          onClick={() => {
+                            const updated = { ...quizSelections, [q.key]: opt.value };
+                            setQuizSelections(updated);
+                            if (isLast) {
+                              setTimeout(() => dismiss(updated), 300);
+                            } else {
+                              setTimeout(() => setQuizStep(s => s + 1), 300);
+                            }
+                          }}
+                        >
+                          {opt.label}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+
+                  <button className="text-[13px] text-white/40 text-center mt-1" onClick={() => dismiss()}>Skip for now</button>
                 </motion.div>
               </motion.div>
             );

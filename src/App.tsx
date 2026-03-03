@@ -1215,6 +1215,23 @@ export default function App() {
               const answers = final ?? quizSelections;
               localStorage.setItem('bytspot_onboarding_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
+
+              // Map quiz answers → bytspot_preferences so personalization engine picks them up
+              const vibeToInterests: Record<string, string[]> = {
+                drinks: ['bars', 'nightlife', 'cocktails'],
+                coffee: ['coffee', 'cafes', 'brunch'],
+                food: ['dining', 'restaurants', 'food'],
+                fitness: ['fitness', 'gym', 'wellness'],
+              };
+              const interests: string[] = [
+                ...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []),
+                ...(answers.group === 'date' ? ['date night', 'romantic'] : []),
+                ...(answers.group === 'group' ? ['group', 'nightlife'] : []),
+              ];
+              const vibePreferences = answers.vibe ? { selectedVibes: [answers.vibe] } : undefined;
+              const preferences = { interests, vibePreferences };
+              localStorage.setItem('bytspot_preferences', JSON.stringify(preferences));
+
               setShowOnboarding(false);
               setQuizStep(0);
               if ('Notification' in window && Notification.permission === 'default') {

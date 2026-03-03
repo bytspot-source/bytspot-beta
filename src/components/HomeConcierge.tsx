@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, Sparkles, MapPin } from 'lucide-react';
+import { X, Send, Sparkles, MapPin, RotateCcw } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { conciergeApi } from '../utils/api';
 
@@ -129,11 +129,20 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
             <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● GPT-4o-mini · Atlanta Midtown expert</p>
           </div>
         </div>
-        {!tabMode && (
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-            <X className="w-4 h-4 text-white/70" strokeWidth={2.5} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: "Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in Midtown for you." }])}
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
+            title="Clear chat"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-white/60" strokeWidth={2.5} />
           </button>
-        )}
+          {!tabMode && (
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+              <X className="w-4 h-4 text-white/70" strokeWidth={2.5} />
+            </button>
+          )}
+        </div>
       </div>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-hide min-h-0">

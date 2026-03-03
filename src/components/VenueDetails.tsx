@@ -104,6 +104,18 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     }
   }, [venue.slug]);
 
+  // Similar venues
+  const [similarVenues, setSimilarVenues] = useState<Array<{ id: string; name: string; slug: string; category: string; similarity: number }>>([]);
+  useEffect(() => {
+    if (venue.slug) {
+      venuesApi.getSimilar(venue.slug, 4).then((result) => {
+        if (result.success && result.data?.similar?.length) {
+          setSimilarVenues(result.data.similar);
+        }
+      }).catch(() => {});
+    }
+  }, [venue.slug]);
+
   const handleCheckIn = async () => {
     if (checkedIn) return;
     // Generate idempotency key once per tap — retries on this key are no-ops
@@ -694,6 +706,42 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               ))}
             </div>
           </motion.div>
+
+          {/* Similar Venues */}
+          {similarVenues.length > 0 && (
+            <motion.div
+              className="mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7 }}
+            >
+              <h3 className="text-[20px] mb-3 text-white" style={{ fontWeight: 600 }}>Similar Venues</h3>
+              <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                {similarVenues.map((v) => {
+                  const thumb = getVenuePhotos(v.category, v.name, 1)[0];
+                  return (
+                    <div
+                      key={v.id}
+                      className="flex-shrink-0 w-[140px] rounded-[16px] overflow-hidden bg-[#1C1C1E]/80 border border-white/10"
+                    >
+                      <div className="relative h-[90px]">
+                        {thumb ? (
+                          <img src={thumb} alt={v.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-cyan-500/30" />
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[13px] text-white leading-snug" style={{ fontWeight: 600 }}>{v.name}</p>
+                        <p className="text-[11px] text-white/50 capitalize mt-0.5">{v.category}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Fixed Action Menu */}

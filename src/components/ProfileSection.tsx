@@ -386,6 +386,81 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
         </motion.button>
       </motion.div>
 
+      {/* Invite a Friend — referral card */}
+      <motion.div
+        className="px-4 mb-6"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.15 }}
+      >
+        {(() => {
+          // Build personal referral link from stored user ID
+          const userId = (() => {
+            try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}').id || 'guest'; }
+            catch { return 'guest'; }
+          })();
+          const referralUrl = `https://beta.bytspot.com?ref=${userId}`;
+
+          const handleShare = async () => {
+            if (navigator.share) {
+              try {
+                await navigator.share({
+                  title: 'Join me on Bytspot',
+                  text: '🔥 I\'m using Bytspot to navigate Atlanta Midtown like a local — crowd levels, parking, everything. Try it:',
+                  url: referralUrl,
+                });
+              } catch { /* user cancelled */ }
+            } else {
+              navigator.clipboard.writeText(referralUrl).then(() =>
+                toast.success('Link copied!', { description: referralUrl })
+              );
+            }
+          };
+
+          return (
+            <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-fuchsia-500/15 to-cyan-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-28 h-28 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-fuchsia-500 to-cyan-500 flex items-center justify-center shrink-0">
+                  <Share2 className="w-5 h-5 text-white" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Invite a Friend</p>
+                  <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Share your personal Bytspot link</p>
+                </div>
+              </div>
+
+              {/* Referral URL pill */}
+              <div className="flex items-center gap-2 mb-4 px-3 py-2.5 rounded-[14px] bg-black/30 border border-white/20">
+                <p className="flex-1 text-[12px] text-white/70 truncate" style={{ fontFamily: 'monospace' }}>
+                  {referralUrl}
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(referralUrl);
+                    toast.success('Copied!');
+                  }}
+                  className="shrink-0 text-[11px] text-fuchsia-300 border border-fuchsia-500/40 rounded-full px-2.5 py-1 tap-target"
+                  style={{ fontWeight: 600 }}
+                >
+                  Copy
+                </button>
+              </div>
+
+              <motion.button
+                onClick={handleShare}
+                className="w-full py-3 rounded-[16px] bg-gradient-to-r from-fuchsia-600 to-cyan-600 flex items-center justify-center gap-2 shadow-lg tap-target"
+                whileTap={{ scale: 0.97 }}
+                transition={springConfig}
+              >
+                <Share2 className="w-4 h-4 text-white" strokeWidth={2.5} />
+                <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>Share Invite Link</span>
+              </motion.button>
+            </div>
+          );
+        })()}
+      </motion.div>
+
       {/* Menu Sections */}
       <div className="px-4 space-y-6">
         {menuSections.map((section, sectionIndex) => (

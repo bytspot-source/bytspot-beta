@@ -8,6 +8,7 @@ import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';
+import { getVenuePhotos } from '../utils/venuePhoto';
 
 interface VenueDetailsProps {
   venue: any;
@@ -52,12 +53,7 @@ const sampleReviews = [
   },
 ];
 
-const galleryImages = [
-  'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800',
-  'https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=800',
-  'https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=800',
-  'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800',
-];
+// galleryImages now computed per-venue inside the component
 
 const menuItems = [
   { name: 'Signature Cocktails', price: '$14-18', available: true },
@@ -69,6 +65,12 @@ const menuItems = [
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
+  // Dynamic gallery — deterministic per venue name + category
+  const venueCategory = venue.category || venue.type || 'venue';
+  const galleryImages = venue.image
+    ? [venue.image, ...getVenuePhotos(venueCategory, venue.name, 3)]
+    : getVenuePhotos(venueCategory, venue.name, 4);
+
   // Use real API crowd data from venue prop
   const liveVibe = venue.vibe ?? 7;
   const crowdLevel = venue.availability && venue.availability !== 'Unknown' ? venue.availability : null;

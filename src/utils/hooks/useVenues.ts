@@ -6,19 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { venuesApi, type ApiVenue, API_BASE_URL } from '../api';
 import type { DiscoverCard, CardType } from '../mockData';
-
-// Category images (Unsplash fallbacks when API imageUrl is null)
-const CATEGORY_IMAGES: Record<string, string> = {
-  restaurant: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
-  bar: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800',
-  entertainment: 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800',
-  shopping: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800',
-  park: 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?w=800',
-  fitness: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800',
-  coffee: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800',
-  nightlife: 'https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=800',
-  default: 'https://images.unsplash.com/photo-1496568816309-51d7c20e3b21?w=800',
-};
+import { getVenuePrimaryPhoto } from '../venuePhoto';
 
 /** Map API category → CardType */
 function mapCategory(category: string): CardType {
@@ -50,7 +38,7 @@ function crowdToAvailability(crowd: ApiVenue['crowd']): string {
 /** Convert an ApiVenue → DiscoverCard */
 export function venueToCard(v: ApiVenue, index: number): DiscoverCard {
   const cardType = mapCategory(v.category);
-  const image = v.imageUrl || CATEGORY_IMAGES[v.category] || CATEGORY_IMAGES.default;
+  const image = v.imageUrl || getVenuePrimaryPhoto(v.category, v.name);
 
   return {
     id: index + 1,

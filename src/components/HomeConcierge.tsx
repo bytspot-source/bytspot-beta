@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles, MapPin } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { conciergeApi } from '../utils/api';
 
 interface Venue {
   id?: string;
@@ -32,61 +33,13 @@ interface Message {
 
 const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
-function matchVenues(query: string, venues: Venue[]): Venue[] {
-  const q = query.toLowerCase();
-
-  // Crowd mood filters
-  const wantsChill = /chill|quiet|low.?key|relaxed|calm/.test(q);
-  const wantsBusy  = /busy|packed|lit|poppin|hype|energy|vibe/.test(q);
-
-  // Category keywords
-  const catMap: Record<string, string[]> = {
-    coffee:        ['coffee', 'cafe', 'latte', 'espresso', 'study'],
-    bar:           ['bar', 'drink', 'cocktail', 'happy hour', 'beer'],
-    restaurant:    ['food', 'eat', 'dinner', 'lunch', 'restaurant', 'hungry'],
-    nightlife:     ['night', 'club', 'dance', 'dj', 'nightlife'],
-    shopping:      ['shop', 'store', 'buy', 'retail', 'mall'],
-    fitness:       ['gym', 'workout', 'fitness', 'exercise'],
-    entertainment: ['event', 'show', 'entertainment', 'fun', 'activity'],
-  };
-
-  const matchedCats = Object.entries(catMap)
-    .filter(([, keywords]) => keywords.some(k => q.includes(k)))
-    .map(([cat]) => cat);
-
-  let filtered = venues;
-
-  // Filter by category if any matched
-  if (matchedCats.length > 0) {
-    filtered = filtered.filter(v =>
-      matchedCats.includes(v.category ?? '') || matchedCats.includes(v.type ?? '')
-    );
-  }
-
-  // Filter by crowd mood
-  if (wantsChill) {
-    filtered = [...filtered].sort((a, b) => (a.crowd?.level ?? 2) - (b.crowd?.level ?? 2));
-  } else if (wantsBusy) {
-    filtered = [...filtered].sort((a, b) => (b.crowd?.level ?? 2) - (a.crowd?.level ?? 2));
-  }
-
-  // Fallback: return any 3
-  return (filtered.length > 0 ? filtered : venues).slice(0, 3);
-}
-
-function buildReply(query: string, results: Venue[]): string {
-  const q = query.toLowerCase();
-  if (/chill|quiet|relaxed/.test(q)) return `Here are some chill spots right now 😌`;
-  if (/busy|packed|lit|hype/.test(q)) return `These places are buzzing right now 🔥`;
-  if (/coffee|cafe/.test(q)) return `Great coffee spots nearby ☕`;
-  if (/bar|drink|cocktail/.test(q)) return `Top bar picks for you 🍸`;
-  if (/food|eat|hungry/.test(q)) return `Good eats in Midtown 🍽️`;
-  if (/night|club|dance/.test(q)) return `Nightlife picks for tonight 🎶`;
-  if (results.length > 0) return `Here are some spots that match what you're looking for 📍`;
-  return `I found a few places you might like 👇`;
-}
-
-const SUGGESTIONS = ['Find me something chill', 'Where is it busy tonight?', 'Best coffee spots', 'Good food nearby', 'Bars open now'];
+const SUGGESTIONS = [
+  "What's chill right now?",
+  'Best spot for drinks tonight',
+  'Good food nearby',
+  "Where's it most lit?",
+  'Coffee with good vibes',
+];
 
 export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false }: HomeConciergeProps) {
   const [messages, setMessages] = useState<Message[]>([
@@ -98,18 +51,63 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  const handleSend = (text?: string) => {
+  const handleSend = async (text?: string) => {
     const query = (text ?? input).trim();
-    if (!query) return;
-    setMessages(prev => [...prev, { id: Date.now(), sender: 'user', text: query }]);
+    if (!query || isTyping) return;
+
+    const userMsg: Message = { id: Date.now(), sender: 'user', text: query };
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
-    setTimeout(() => {
-      const results = matchVenues(query, venues);
-      const reply = buildReply(query, results);
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'ai', text: reply, venues: results }]);
+
+    // Build message history for AI context (last 10 turns)
+    const history = [...messages, userMsg].map(m => ({
+      role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: m.text,
+    }));
+
+    // Slim venue payload — only what the AI needs
+    const venueContext = venues.map(v => ({
+      id: String(v.id ?? v.name),
+      name: v.name,
+      category: v.category ?? v.type ?? 'venue',
+      crowd: v.crowd,
+      address: v.address,
+    }));
+
+    // Quiz answers from localStorage
+    let quizAnswers: Record<string, string> | undefined;
+    try {
+      const raw = localStorage.getItem('bytspot_quiz_answers');
+      if (raw) quizAnswers = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    try {
+      const result = await conciergeApi.chat(history, venueContext, quizAnswers);
+      if (result.success) {
+        const { reply, venueIds } = result.data;
+        // Map returned IDs back to full venue objects for the card UI
+        const venueCards = (venueIds ?? [])
+          .map(id => venues.find(v => String(v.id ?? v.name) === id))
+          .filter((v): v is Venue => Boolean(v));
+        setMessages(prev => [
+          ...prev,
+          { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards },
+        ]);
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { id: Date.now() + 1, sender: 'ai', text: "I'm having trouble right now — try again in a sec 🔄" },
+        ]);
+      }
+    } catch {
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: 'ai', text: "Connection issue — try again in a moment 🔄" },
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 700 + Math.random() * 600);
+    }
   };
 
   const crowdColor = (v: Venue) => {
@@ -128,7 +126,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
           </div>
           <div>
             <p className="text-white text-[15px]" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
-            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● Online · Ask me anything</p>
+            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● GPT-4o · Atlanta Midtown expert</p>
           </div>
         </div>
         {!tabMode && (

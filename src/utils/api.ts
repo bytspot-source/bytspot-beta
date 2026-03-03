@@ -333,6 +333,33 @@ export const paymentsApi = {
     }),
 };
 
+// CONCIERGE AI
+export interface ConciergeMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ConciergeVenue {
+  id: string;
+  name: string;
+  category: string;
+  crowd?: { level: number; label: string; waitMins?: number };
+  address?: string;
+}
+
+export const conciergeApi = {
+  /** POST /concierge/chat — GPT-4o-mini powered Midtown guide */
+  chat: (
+    messages: ConciergeMessage[],
+    venues: ConciergeVenue[],
+    quizAnswers?: Record<string, string>
+  ) =>
+    apiRequest<{ reply: string; venueIds: string[] }>('/concierge/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages, venues, quizAnswers }),
+    }),
+};
+
 /**
  * Error handling helper
  */

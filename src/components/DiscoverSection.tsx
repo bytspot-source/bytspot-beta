@@ -4,7 +4,8 @@ import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart } from 'lucid
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
-import { type DiscoverCard, type CardType } from '../utils/mockData';
+import { ValetFlow } from './ValetFlow';
+import { discoverCards, type DiscoverCard, type CardType } from '../utils/mockData';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { useVenues } from '../utils/hooks/useVenues';
 
@@ -219,14 +220,19 @@ interface DiscoverSectionProps {
 }
 
 export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter }: DiscoverSectionProps) {
-  // Beta MVP: Live API data instead of mock
-  const { cards, loading, error, refresh } = useVenues();
+  // Beta MVP: Live API data merged with mock parking + valet cards
+  const { cards: apiCards, loading, error, refresh } = useVenues();
+  // Parking and valet services don't come from the venue API — inject the
+  // curated mock entries so those filter tabs always show results.
+  const mockStaticCards = discoverCards.filter(c => c.type === 'parking' || c.type === 'valet');
+  const cards = [...apiCards, ...mockStaticCards];
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<DiscoverCard | null>(null);
   const [selectedParkingSpot, setSelectedParkingSpot] = useState<any>(null);
+  const [selectedValetService, setSelectedValetService] = useState<any>(null);
   const [showHint, setShowHint] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -397,8 +403,26 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         lastUpdate: new Date(),
       };
       setSelectedParkingSpot(parkingSpot);
+    } else if (card.type === 'valet') {
+      // Convert DiscoverCard to ValetService format
+      const baseRate = parseInt(
+        (card.price || '$25/hour').replace('$', '').replace(/\/hour.*/, '').replace(/\/hr.*/, '').trim()
+      ) || 25;
+      const valetService = {
+        id: card.id.toString(),
+        name: card.name,
+        photo: card.image,
+        rating: card.rating || 4.7,
+        totalServices: card.totalServices || card.reviews || 100,
+        baseRate,
+        responseTime: card.response || card.responseTime || '< 5 min',
+        serviceArea: card.serviceArea || card.location || 'Midtown Atlanta',
+        certifications: card.certifications || card.features || [],
+        bio: card.bio || card.description || 'Professional valet service provider.',
+      };
+      setSelectedValetService(valetService);
     } else if (card.type === 'venue' || card.type === 'coffee' || card.type === 'dining' ||
-               card.type === 'shopping' || card.type === 'nightlife' || card.type === 'entertainment' || 
+               card.type === 'shopping' || card.type === 'nightlife' || card.type === 'entertainment' ||
                card.type === 'fitness') {
       // Show venue details
       setSelectedVenue(card);
@@ -488,6 +512,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
             { label: '🛍️ Shopping',     value: 'shopping' },
             { label: '🎭 Events',        value: 'entertainment' },
             { label: '💪 Fitness',       value: 'fitness' },
+            { label: '🚕 Valet',          value: 'valet' },
             { label: '🅿️ Parking',      value: 'parking' },
           ] as { label: string; value: CardType | null }[]).map((cat) => {
             const active = appliedFilter === cat.value;
@@ -638,6 +663,15 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {selectedValetService && (
+          <ValetFlow
+            service={selectedValetService}
+            isDarkMode={true}
+            onClose={() => setSelectedValetService(null)}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

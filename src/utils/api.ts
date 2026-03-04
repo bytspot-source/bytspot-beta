@@ -79,6 +79,9 @@ export async function apiRequest<T>(
   options: RequestInit = {},
   retryCount = 0
 ): Promise<ApiResponse<T>> {
+  // Only GET requests are safe to retry — POST/PUT/PATCH/DELETE mutations are not idempotent
+  const isReadOnly = !options.method || options.method.toUpperCase() === 'GET';
+
   // Check offline status
   if (!navigator.onLine) {
     return {
@@ -121,8 +124,8 @@ export async function apiRequest<T>(
         retryable: isRetryableError(response.status),
       };
 
-      // Retry if retryable and not exceeded max attempts
-      if (apiError.retryable && retryCount < RETRY_CONFIG.maxAttempts) {
+      // Only retry GET requests — mutations must not be retried (not idempotent)
+      if (isReadOnly && apiError.retryable && retryCount < RETRY_CONFIG.maxAttempts) {
         const delay = RETRY_CONFIG.delayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, retryCount);
         await wait(delay);
         return apiRequest<T>(endpoint, options, retryCount + 1);
@@ -156,8 +159,8 @@ export async function apiRequest<T>(
       };
     }
 
-    // Retry network errors
-    if (retryCount < RETRY_CONFIG.maxAttempts) {
+    // Only retry network errors for GET requests — mutations must not be retried
+    if (isReadOnly && retryCount < RETRY_CONFIG.maxAttempts) {
       const delay = RETRY_CONFIG.delayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, retryCount);
       await wait(delay);
       return apiRequest<T>(endpoint, options, retryCount + 1);
@@ -293,10 +296,10 @@ export const ridesApi = {
 
 // AUTH
 export const authApi = {
-  signup: (email: string, password: string, name: string) =>
+  signup: (email: string, password: string, name: string, ref?: string) =>
     apiRequest<{ token: string; user: any }>('/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, ref }),
     }),
 
   login: (email: string, password: string) =>

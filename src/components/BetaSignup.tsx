@@ -27,9 +27,9 @@ import { Toaster } from './ui/sonner';
  *   - Emails are NOT saved anywhere
  *   - Use this only for previewing the UI
  */
-const BACKEND_PROVIDER: 'formspree' | 'custom' | 'mock' = 'mock';
-const FORMSPREE_FORM_ID = 'YOUR_FORM_ID_HERE'; // e.g. "xpzvqkdl"
-const CUSTOM_API_URL = 'https://your-api.example.com/beta-signup';
+const BACKEND_PROVIDER: 'formspree' | 'custom' | 'mock' = 'formspree';
+const FORMSPREE_FORM_ID = 'xqedgrzv';
+const CUSTOM_API_URL = 'https://bytspot-api.onrender.com/beta-signup';
 
 // ============================================================
 

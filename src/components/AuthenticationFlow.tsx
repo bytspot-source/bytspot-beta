@@ -33,18 +33,8 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '' }
     setError('');
     setLoading(true);
     try {
-      // Validate invite code on signup (only if a code was entered or if it's required)
-      if (mode === 'signup' && inviteCode.trim()) {
-        const inv = await authApi.validateInvite(inviteCode.trim().toUpperCase());
-        if (!inv.success || inv.data?.valid === false) {
-          setError(inv.data?.error || 'Invalid invite code. Check your code and try again.');
-          setLoading(false);
-          return;
-        }
-      }
-
       const res = mode === 'signup'
-        ? await authApi.signup(email.trim(), password, name.trim())
+        ? await authApi.signup(email.trim(), password, name.trim(), inviteCode.trim().toUpperCase() || undefined)
         : await authApi.login(email.trim(), password);
 
       if (res.success && res.data?.token) {

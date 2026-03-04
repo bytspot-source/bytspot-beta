@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Star, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
@@ -74,13 +74,6 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
       items: [
         { icon: <MapPin className="w-5 h-5" />, label: 'Location & Privacy', badge: null, screen: 'location-settings' as ProfileScreen },
         { icon: <Settings className="w-5 h-5" />, label: 'General', badge: null, screen: null },
-      ],
-    },
-    {
-      title: 'Rewards',
-      items: [
-        { icon: <Star className="w-5 h-5" />, label: 'Bytspot Points', badge: userPoints.total.toLocaleString(), screen: 'points' as ProfileScreen },
-        { icon: <Award className="w-5 h-5" />, label: 'Achievements', badge: `${achievementStats.unlocked}/${achievementStats.total}`, screen: 'points' as ProfileScreen },
       ],
     },
   ];
@@ -560,34 +553,6 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
             </motion.button>
           </motion.div>
         )}
-
-        {/* Share Button */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.25 }}
-        >
-          <motion.button
-            className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-r from-purple-500/30 to-pink-500/30 hover:from-purple-500/40 hover:to-pink-500/40 shadow-xl"
-            whileTap={{ scale: 0.98 }}
-            transition={springConfig}
-            onClick={() => {
-              if (navigator.share) {
-                navigator.share({
-                  title: 'Bytspot',
-                  text: 'Check out Bytspot — live crowd levels, parking & rides in Atlanta Midtown',
-                  url: 'https://beta.bytspot.com',
-                }).catch(() => {});
-              } else {
-                navigator.clipboard.writeText('https://beta.bytspot.com');
-                toast.success('Link Copied', { description: 'Share link copied to clipboard' });
-              }
-            }}
-          >
-            <Share2 className="w-5 h-5 text-white" strokeWidth={2.5} />
-            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>Share Bytspot</span>
-          </motion.button>
-        </motion.div>
 
         {/* Logout Button */}
         <motion.div

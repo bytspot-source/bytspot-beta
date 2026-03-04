@@ -185,7 +185,7 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] bg-[#000000]"
+      className="fixed inset-0 z-[9999] bg-[#000000]"
       initial={{ y: '100%' }}
       animate={{ y: 0 }}
       exit={{ y: '100%' }}

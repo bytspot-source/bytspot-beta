@@ -2,11 +2,30 @@
  * useVenues — fetches real venue data from bytspot-api.onrender.com
  * Uses SSE for real-time crowd updates, falls back to 60s polling
  * Maps API response → DiscoverCard format for existing UI components
+ * Enriches each card with real GPS distance when location is available
  */
 import { useState, useEffect, useRef } from 'react';
 import { venuesApi, type ApiVenue, API_BASE_URL } from '../api';
 import type { DiscoverCard, CardType } from '../mockData';
 import { getVenuePrimaryPhoto } from '../venuePhoto';
+
+/** Haversine — returns distance in miles between two lat/lng points */
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(miles: number): string {
+  if (miles < 0.1) return `${Math.round(miles * 5280)} ft`;
+  return `${miles.toFixed(1)} mi`;
+}
 
 /** Map API category → CardType */
 function mapCategory(category: string): CardType {
@@ -35,17 +54,23 @@ function crowdToAvailability(crowd: ApiVenue['crowd']): string {
   return crowd.label || 'Unknown';
 }
 
-/** Convert an ApiVenue → DiscoverCard */
-export function venueToCard(v: ApiVenue, index: number): DiscoverCard {
+/** Convert an ApiVenue → DiscoverCard. Pass userCoords to get a real distance string. */
+export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: number; lng: number }): DiscoverCard {
   const cardType = mapCategory(v.category);
   const image = v.imageUrl || getVenuePrimaryPhoto(v.category, v.name);
+
+  let distance = '—';
+  if (userCoords && typeof v.lat === 'number' && typeof v.lng === 'number') {
+    const miles = haversineMiles(userCoords.lat, userCoords.lng, v.lat, v.lng);
+    distance = formatDistance(miles);
+  }
 
   return {
     id: index + 1,
     type: cardType,
     name: v.name,
     image,
-    distance: '—', // will be enriched by nearby endpoint
+    distance,
     rating: 4.5 + Math.random() * 0.5, // placeholder until reviews exist
     availability: crowdToAvailability(v.crowd),
     vibe: v.crowd ? Math.round((5 - v.crowd.level) * 2.5) : undefined, // level 1→10, 2→8, 3→5, 4→3
@@ -70,6 +95,7 @@ interface UseVenuesResult {
   loading: boolean;
   error: string | null;
   refresh: () => void;
+  userCoords: { lat: number; lng: number } | null;
 }
 
 export function useVenues(): UseVenuesResult {
@@ -77,8 +103,29 @@ export function useVenues(): UseVenuesResult {
   const [cards, setCards] = useState<DiscoverCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const fetchedRef = useRef(false);
   const venuesRef = useRef<ApiVenue[]>([]);
+  const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  // ── GPS location ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        userCoordsRef.current = coords;
+        setUserCoords(coords);
+        // Re-enrich existing cards with fresh distances
+        if (venuesRef.current.length > 0) {
+          setCards(venuesRef.current.map((v, i) => venueToCard(v, i, coords)));
+        }
+      },
+      () => { /* permission denied or unavailable — keep '—' */ },
+      { enableHighAccuracy: false, maximumAge: 30_000, timeout: 10_000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   const fetchVenues = async () => {
     setLoading(true);
@@ -87,7 +134,7 @@ export function useVenues(): UseVenuesResult {
     if (res.success && res.data?.venues) {
       venuesRef.current = res.data.venues;
       setVenues(res.data.venues);
-      setCards(res.data.venues.map((v, i) => venueToCard(v, i)));
+      setCards(res.data.venues.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
     } else {
       setError(res.error?.message || 'Failed to load venues');
     }
@@ -119,7 +166,7 @@ export function useVenues(): UseVenuesResult {
                 return snap ? { ...v, crowd: snap.crowd } : v;
               });
               venuesRef.current = updated;
-              setCards(updated.map((v, i) => venueToCard(v, i)));
+              setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
               return updated;
             });
           } else if (msg.type === 'update') {
@@ -128,7 +175,7 @@ export function useVenues(): UseVenuesResult {
                 v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
               );
               venuesRef.current = updated;
-              setCards(updated.map((v, i) => venueToCard(v, i)));
+              setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
               return updated;
             });
           }
@@ -154,6 +201,6 @@ export function useVenues(): UseVenuesResult {
     };
   }, []);
 
-  return { venues, cards, loading, error, refresh: fetchVenues };
+  return { venues, cards, loading, error, refresh: fetchVenues, userCoords };
 }
 

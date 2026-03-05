@@ -26,6 +26,27 @@ function getTypeColor(type: CardType): string {
   }
 }
 
+function normalizeCardType(type: string | null | undefined): CardType | null {
+  const normalized = type?.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const validTypes: CardType[] = [
+    'parking',
+    'venue',
+    'valet',
+    'coffee',
+    'dining',
+    'shopping',
+    'nightlife',
+    'entertainment',
+    'fitness',
+  ];
+
+  return validTypes.includes(normalized as CardType)
+    ? (normalized as CardType)
+    : null;
+}
+
 interface SwipeableCardProps {
   card: DiscoverCard;
   onSwipe: (direction: 'left' | 'right') => void;
@@ -224,7 +245,12 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
   const { cards: apiCards, loading, error, refresh } = useVenues();
   // Parking and valet services don't come from the venue API — inject the
   // curated mock entries so those filter tabs always show results.
-  const mockStaticCards = discoverCards.filter(c => c.type === 'parking' || c.type === 'valet');
+  const mockStaticCards = discoverCards
+    .filter(c => c.type === 'parking' || c.type === 'valet')
+    .map((card, index) => ({
+      ...card,
+      id: 10_000 + index,
+    }));
   const cards = [...apiCards, ...mockStaticCards];
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
@@ -248,7 +274,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
 
   // 1. Category filter
   let filteredCards = appliedFilter
-    ? cards.filter(card => card.type === appliedFilter)
+    ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
     : cards;
 
   // 2. Saved-only filter
@@ -277,12 +303,17 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
   });
 
   // Use filtered cards for current card display
-  const currentCard = filteredCards[currentIndex % Math.max(filteredCards.length, 1)];
+  const safeCurrentIndex = filteredCards.length
+    ? Math.min(currentIndex, filteredCards.length - 1)
+    : 0;
+  const currentCard = filteredCards[safeCurrentIndex] ?? null;
+  const nextCard = filteredCards.length > 1
+    ? filteredCards[(safeCurrentIndex + 1) % filteredCards.length]
+    : null;
 
   const handleNext = () => {
-    if (currentIndex < filteredCards.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
+    if (!filteredCards.length) return;
+    setCurrentIndex(prev => (prev + 1) % filteredCards.length);
   };
 
   const handlePrevious = () => {
@@ -293,6 +324,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
 
   const handleSwipe = (direction: 'left' | 'right') => {
     const card = currentCard;
+    if (!card) return;
     
     if (direction === 'right') {
       // Swipe right - open card details
@@ -334,10 +366,24 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
 
   // Sync initial filter from props
   useEffect(() => {
-    if (initialFilter) {
-      setAppliedFilter(initialFilter);
-    }
+    setAppliedFilter(initialFilter ?? null);
+    setCurrentIndex(0);
   }, [initialFilter]);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [appliedFilter, showSavedOnly]);
+
+  useEffect(() => {
+    if (!filteredCards.length) {
+      setCurrentIndex(0);
+      return;
+    }
+
+    if (currentIndex > filteredCards.length - 1) {
+      setCurrentIndex(0);
+    }
+  }, [currentIndex, filteredCards.length]);
 
   useEffect(() => {
     // Show hint for 3 seconds
@@ -624,13 +670,13 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         }}
       >
         {/* Background card — depth/stack effect */}
-        {filteredCards.length > 1 && (
+        {nextCard && (
           <div
             className="absolute inset-4 rounded-[32px] bg-[#1C1C1E] border-4 border-white/15 shadow-lg overflow-hidden"
             style={{ transform: 'scale(0.94) translateY(12px)', zIndex: 0, opacity: 0.6 }}
           >
             <img
-              src={filteredCards[(currentIndex + 1) % filteredCards.length].image}
+              src={nextCard.image}
               alt=""
               className="w-full h-full object-cover"
               loading="lazy"
@@ -640,9 +686,9 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         )}
 
         <AnimatePresence mode="popLayout" initial={false}>
-          {filteredCards.length > 0 && (
+          {currentCard && (
             <SwipeableCard
-              key={currentCard.id}
+              key={`${appliedFilter ?? 'all'}-${currentCard.type}-${currentCard.id}-${safeCurrentIndex}`}
               card={currentCard}
               onSwipe={handleSwipe}
               onShowBottomNav={onShowBottomNav}

@@ -517,7 +517,7 @@ export default function App() {
 
         {/* Smart Search Bar - Only on Home */}
         {activeTab === 'home' && (
-          <div className="px-4 mb-6">
+          <div className="px-4 mb-4">
             <SmartSearchBar
               value={searchValue}
               onChange={setSearchValue}
@@ -568,18 +568,18 @@ export default function App() {
                   const imgUrl = v.imageUrl || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
                   return (
                     <motion.div
-                      className="px-4 mb-5 pt-4"
+                      className="px-4 mb-4 pt-3"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ ...springConfig, delay: 0.05 }}
                     >
-                      <div className="mb-2.5 flex items-center gap-2">
+                      <div className="mb-2 flex items-center gap-2">
                         <span className="text-[11px] text-[#A855F7]" style={{ fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>✨ Tonight's Pick</span>
                         <div className="flex-1 h-px bg-white/10" />
                       </div>
                       <motion.button
                         className="relative w-full rounded-2xl overflow-hidden text-left"
-                        style={{ height: 148 }}
+                        style={{ height: 142 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => setSelectedSearchVenue(v)}
                       >
@@ -593,10 +593,10 @@ export default function App() {
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-                        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
+                        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
                           <div>
-                            <div className="text-xl mb-0.5">{icon}</div>
-                            <h3 className="text-white text-[17px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
+                            <div className="text-[18px] mb-0.5">{icon}</div>
+                            <h3 className="text-white text-[16px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
                             {v.address && <p className="text-white/60 text-[12px] mt-0.5 truncate">{v.address}</p>}
                           </div>
                           <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>

@@ -88,27 +88,27 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
     >
       {/* Status Bar - Enhanced */}
       <motion.div 
-        className="px-4 mb-3"
+        className="px-4 mb-2.5"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
         <div 
-          className="rounded-[20px] overflow-hidden border-2 border-white/30 shadow-2xl"
+          className="rounded-[20px] overflow-hidden border border-white/20 shadow-2xl"
           style={{
             backdropFilter: `blur(${headerBlur}px)`,
             WebkitBackdropFilter: `blur(${headerBlur}px)`,
           }}
         >
           {/* Main Status Row */}
-          <div className="px-4 py-3 bg-[#1C1C1E]/85 backdrop-blur-xl">
+          <div className="px-3.5 py-2.5 bg-[#1C1C1E]/85 backdrop-blur-xl">
             <div className="flex items-center justify-between">
               {/* Left: Time-sensitive info */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 {/* Weather */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   {getWeatherIcon()}
-                  <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
+                  <span className="text-[14px] text-white" style={{ fontWeight: 600 }}>
                     72°
                   </span>
                 </div>
@@ -119,7 +119,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 {/* Time */}
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-[14px] h-[14px] text-white/80" strokeWidth={2.5} />
-                  <span className="text-[13px] text-white/90" style={{ fontWeight: 500 }}>
+                  <span className="text-[12px] text-white/90" style={{ fontWeight: 500 }}>
                     {currentTime.toLocaleTimeString('en-US', { 
                       hour: 'numeric', 
                       minute: '2-digit',
@@ -130,7 +130,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
               </div>
 
               {/* Right: Location & Profile */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 {/* Zone Activity */}
                 <ZoneUserCount compact={true} />
                 
@@ -138,9 +138,9 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 <div className="w-px h-4 bg-white/20" />
                 
                 {/* Location */}
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#00BFFF]/15 border border-[#00BFFF]/30">
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00BFFF]/15 border border-[#00BFFF]/30">
                   <MapPin className="w-[13px] h-[13px] text-[#00BFFF]" strokeWidth={2.5} />
-                  <span className="text-[12px] text-[#00BFFF]" style={{ fontWeight: 600 }}>
+                  <span className="text-[11px] text-[#00BFFF]" style={{ fontWeight: 600 }}>
                     ATL
                   </span>
                 </div>
@@ -148,7 +148,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 {/* Profile Menu Button */}
                 <motion.button
                   onClick={onProfileClick}
-                  className="w-9 h-9 rounded-full flex items-center justify-center bg-gradient-to-br from-[#A855F7]/50 to-[#00BFFF]/50 border-2 border-white/40 shadow-lg tap-target relative overflow-hidden"
+                  className="w-[34px] h-[34px] rounded-full flex items-center justify-center bg-gradient-to-br from-[#A855F7]/50 to-[#00BFFF]/50 border border-white/30 shadow-lg tap-target relative overflow-hidden"
                   whileTap={{ scale: 0.9 }}
                   transition={springConfig}
                 >
@@ -164,7 +164,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                       ease: "linear",
                     }}
                   />
-                  <Menu className="w-[18px] h-[18px] text-white relative z-10" strokeWidth={2.5} />
+                  <Menu className="w-[16px] h-[16px] text-white relative z-10" strokeWidth={2.5} />
                 </motion.button>
               </div>
             </div>
@@ -172,7 +172,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
 
           {/* Quick Stats Bar - Glassmorphism */}
           <motion.div 
-            className="px-4 py-2 bg-gradient-to-r from-[#00BFFF]/10 via-[#A855F7]/10 to-[#FF00FF]/10 backdrop-blur-sm border-t border-white/10"
+            className="px-3.5 py-1.5 bg-gradient-to-r from-[#00BFFF]/10 via-[#A855F7]/10 to-[#FF00FF]/10 backdrop-blur-sm border-t border-white/10"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             transition={{ delay: 0.2 }}
@@ -214,11 +214,11 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
 
       {/* Greeting - Compact */}
       <motion.div
-        className="px-4 pt-3 pb-2"
+        className="px-4 pt-2.5 pb-1.5"
         style={{ scale: titleScale, opacity: titleOpacity }}
       >
         <motion.p
-          className="text-[15px] text-white/80"
+          className="text-[14px] text-white/80"
           style={{ fontWeight: 500 }}
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
@@ -240,7 +240,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
           if (!userName) return null;
           return (
             <motion.p
-              className="text-[12px] text-white/50 mt-0.5"
+              className="text-[11px] text-white/50 mt-0.5"
               style={{ fontWeight: 400 }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

@@ -78,7 +78,7 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, dest
               <div className="w-12 h-1.5 rounded-full bg-white/20" />
             </div>
 
-            <div className="p-6 pb-12 space-y-6">
+            <div className="p-6 pb-12 space-y-6 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 56px)' }}>
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-[22px] text-white mb-1" style={{ fontWeight: 700 }}>

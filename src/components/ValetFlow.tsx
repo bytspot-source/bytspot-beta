@@ -236,7 +236,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] bg-[#000000]"
+      className="fixed inset-0 z-[9999] bg-[#000000]"
       initial={{ y: '100%' }}
       animate={{ y: 0 }}
       exit={{ y: '100%' }}
@@ -248,7 +248,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
           <div className="max-w-[393px] mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {currentStep !== 'overview' && (
+                {currentStep !== 'overview' && !['tracking', 'retrieval', 'completion'].includes(currentStep) && (
                   <motion.button
                     onClick={() => {
                       const steps: FlowStep[] = ['overview', 'booking', 'payment', 'tracking', 'retrieval', 'completion'];

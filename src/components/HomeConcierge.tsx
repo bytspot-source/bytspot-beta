@@ -151,7 +151,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
             <div className={`max-w-[82%] ${m.sender === 'user'
               ? 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white'
               : 'bg-[#1C1C1E] border border-white/10 text-white'} rounded-[18px] px-4 py-3`}>
-              <p className="text-[14px] leading-relaxed" style={{ fontWeight: 400 }}>{m.text}</p>
+              <p className="text-[14px] leading-relaxed whitespace-pre-wrap" style={{ fontWeight: 400 }}>{m.text}</p>
               {m.venues && m.venues.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {m.venues.map(v => (

@@ -106,7 +106,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
           whileTap={{ scale: 0.98 }}
         >
           <div className="relative flex-shrink-0" style={{ height: '240px' }}>
-            <img src={card.image} alt={card.name} className="w-full h-full object-cover" />
+            <img src={card.image} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
             <AnimatePresence>
               {isDragging && (Math.abs(dragX) > 30 || Math.abs(dragY) > 30) && (
@@ -594,15 +594,51 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         </div>
       )}
 
+      {/* Empty state — filter returned zero results */}
+      {!loading && !showSavedOnly && filteredCards.length === 0 && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 px-6">
+          <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center mb-1">
+            <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />
+          </div>
+          <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
+            No spots match this filter.<br />Try a different category.
+          </p>
+          <motion.button
+            onClick={() => { setAppliedFilter(null); setCurrentIndex(0); }}
+            className="px-5 py-2 rounded-full bg-cyan-600 text-white text-[14px]"
+            style={{ fontWeight: 600 }}
+            whileTap={{ scale: 0.96 }}
+          >
+            Show All
+          </motion.button>
+        </div>
+      )}
+
       {/* Swipeable Cards */}
-      <div 
-        className="relative flex-shrink-0" 
-        style={{ 
+      <div
+        className="relative flex-shrink-0"
+        style={{
           minHeight: '480px',
           maxHeight: 'calc(100vh - 280px)',
           height: 'auto'
         }}
       >
+        {/* Background card — depth/stack effect */}
+        {filteredCards.length > 1 && (
+          <div
+            className="absolute inset-4 rounded-[32px] bg-[#1C1C1E] border-4 border-white/15 shadow-lg overflow-hidden"
+            style={{ transform: 'scale(0.94) translateY(12px)', zIndex: 0, opacity: 0.6 }}
+          >
+            <img
+              src={filteredCards[(currentIndex + 1) % filteredCards.length].image}
+              alt=""
+              className="w-full h-full object-cover"
+              loading="lazy"
+              aria-hidden="true"
+            />
+          </div>
+        )}
+
         <AnimatePresence mode="popLayout" initial={false}>
           {filteredCards.length > 0 && (
             <SwipeableCard

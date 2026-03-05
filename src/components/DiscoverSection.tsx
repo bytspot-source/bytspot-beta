@@ -241,17 +241,26 @@ interface DiscoverSectionProps {
 }
 
 export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter }: DiscoverSectionProps) {
-  // Beta MVP: Live API data merged with mock parking + valet cards
+  // Beta MVP: prefer live API data, but fall back to mock parking/valet cards
+  // until those vendor categories exist in the backend.
   const { cards: apiCards, loading, error, refresh } = useVenues();
-  // Parking and valet services don't come from the venue API — inject the
-  // curated mock entries so those filter tabs always show results.
-  const mockStaticCards = discoverCards
-    .filter(c => c.type === 'parking' || c.type === 'valet')
+  const apiCardTypes = new Set(
+    apiCards
+      .map(card => normalizeCardType(card.type))
+      .filter((type): type is CardType => type !== null)
+  );
+
+  const fallbackStaticCards = discoverCards
+    .filter(card => {
+      if (card.type !== 'parking' && card.type !== 'valet') return false;
+      return !apiCardTypes.has(card.type);
+    })
     .map((card, index) => ({
       ...card,
       id: 10_000 + index,
     }));
-  const cards = [...apiCards, ...mockStaticCards];
+
+  const cards = [...apiCards, ...fallbackStaticCards];
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');

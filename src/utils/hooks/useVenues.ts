@@ -29,6 +29,7 @@ function formatDistance(miles: number): string {
 
 /** Map API category → CardType */
 function mapCategory(category: string): CardType {
+  const normalized = category.trim().toLowerCase();
   const map: Record<string, CardType> = {
     restaurant: 'dining',
     food: 'dining',
@@ -38,13 +39,24 @@ function mapCategory(category: string): CardType {
     entertainment: 'entertainment',
     shopping: 'shopping',
     market: 'shopping',
+    valet: 'valet',
+    'valet service': 'valet',
+    valet_service: 'valet',
+    'valet-service': 'valet',
+    parking: 'parking',
+    garage: 'parking',
+    lot: 'parking',
+    parking_lot: 'parking',
+    'parking lot': 'parking',
+    parking_garage: 'parking',
+    'parking garage': 'parking',
     park: 'venue',
     fitness: 'fitness',
     gym: 'fitness',
     coffee: 'coffee',
     cafe: 'coffee',
   };
-  return map[category] || 'venue';
+  return map[normalized] || 'venue';
 }
 
 /** Map API crowd label → human-friendly availability (level is 1-4) */

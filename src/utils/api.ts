@@ -81,9 +81,11 @@ export async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   // Only GET requests are safe to retry — POST/PUT/PATCH/DELETE mutations are not idempotent
   const isReadOnly = !options.method || options.method.toUpperCase() === 'GET';
+  const reportedOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  // Check offline status
-  if (!navigator.onLine) {
+  // navigator.onLine can be unreliable in PWAs/mobile browsers.
+  // For safe read-only requests, still attempt the fetch and let the real network result decide.
+  if (reportedOffline && !isReadOnly) {
     return {
       data: null as any,
       success: false,
@@ -170,8 +172,8 @@ export async function apiRequest<T>(
       data: null as any,
       success: false,
       error: {
-        message: error.message || 'An unexpected error occurred',
-        code: 'NETWORK_ERROR',
+        message: reportedOffline ? 'No internet connection. Please check your network.' : (error.message || 'An unexpected error occurred'),
+        code: reportedOffline ? 'OFFLINE' : 'NETWORK_ERROR',
         status: 0,
         retryable: true,
       },

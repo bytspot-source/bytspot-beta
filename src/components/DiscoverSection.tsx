@@ -7,7 +7,6 @@ import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { ValetFlow } from './ValetFlow';
 import { discoverCards, type DiscoverCard, type CardType } from '../utils/mockData';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
-import { useVenues } from '../utils/hooks/useVenues';
 
 
 // Pure helper — no state deps, safe at module level
@@ -238,12 +237,15 @@ interface DiscoverSectionProps {
   onTouch?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
   initialFilter?: CardType;
+  apiCards: DiscoverCard[];
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
 }
 
-export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter }: DiscoverSectionProps) {
+export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh }: DiscoverSectionProps) {
   // Beta MVP: prefer live API data, but fall back to mock parking/valet cards
   // until those vendor categories exist in the backend.
-  const { cards: apiCards, loading, error, refresh } = useVenues();
   const apiCardTypes = new Set(
     apiCards
       .map(card => normalizeCardType(card.type))
@@ -261,6 +263,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
     }));
 
   const cards = [...apiCards, ...fallbackStaticCards];
+  const hasLiveVenueCards = apiCards.length > 0;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
@@ -279,6 +282,28 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
     stiffness: 320,
     damping: 30,
     mass: 0.8,
+  };
+
+  const handleRefresh = async (showToast = false) => {
+    if (isRefreshing || loading) return;
+
+    setIsRefreshing(true);
+
+    if (showToast) {
+      toast.success('Refreshing discover feed...', {
+        description: 'Finding new spots for you',
+        duration: 2000,
+      });
+    }
+
+    try {
+      await refresh();
+      setCurrentIndex(0);
+    } finally {
+      setIsRefreshing(false);
+      setPullDistance(0);
+      setStartY(0);
+    }
   };
 
   // 1. Category filter
@@ -420,18 +445,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
 
   const handleTouchEnd = () => {
     if (pullDistance > 60 && !isRefreshing) {
-      setIsRefreshing(true);
-      toast.success('Refreshing discover feed...', {
-        description: 'Finding new spots for you',
-        duration: 2000,
-      });
-      
-      setTimeout(() => {
-        setIsRefreshing(false);
-        setPullDistance(0);
-        setStartY(0);
-        setCurrentIndex(0);
-      }, 1500);
+      void handleRefresh(true);
     } else {
       setPullDistance(0);
       setStartY(0);
@@ -542,14 +556,19 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
       )}
 
       {/* Error state */}
-      {error && !loading && (
+      {error && !loading && !hasLiveVenueCards && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 py-20 px-6">
           <p className="text-red-400 text-sm text-center">{error}</p>
           <button
-            onClick={refresh}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleRefresh();
+            }}
+            disabled={isRefreshing}
             className="px-4 py-2 bg-purple-600 text-white rounded-full text-sm font-medium"
           >
-            Retry
+            {isRefreshing ? 'Retrying…' : 'Retry'}
           </button>
         </div>
       )}

@@ -106,7 +106,7 @@ interface UseVenuesResult {
   cards: DiscoverCard[];
   loading: boolean;
   error: string | null;
-  refresh: () => void;
+  refresh: () => Promise<void>;
   userCoords: { lat: number; lng: number } | null;
 }
 
@@ -117,6 +117,8 @@ export function useVenues(): UseVenuesResult {
   const [error, setError] = useState<string | null>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const latestRequestIdRef = useRef(0);
   const venuesRef = useRef<ApiVenue[]>([]);
   const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
@@ -140,20 +142,31 @@ export function useVenues(): UseVenuesResult {
   }, []);
 
   const fetchVenues = async () => {
+    const requestId = ++latestRequestIdRef.current;
     setLoading(true);
     setError(null);
+
     const res = await venuesApi.getAll();
+
+    if (!isMountedRef.current || requestId !== latestRequestIdRef.current) {
+      return;
+    }
+
     if (res.success && res.data?.venues) {
       venuesRef.current = res.data.venues;
       setVenues(res.data.venues);
       setCards(res.data.venues.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+      setError(null);
     } else {
       setError(res.error?.message || 'Failed to load venues');
     }
+
     setLoading(false);
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       fetchVenues();
@@ -208,6 +221,7 @@ export function useVenues(): UseVenuesResult {
     }
 
     return () => {
+      isMountedRef.current = false;
       es?.close();
       if (pollInterval) clearInterval(pollInterval);
     };

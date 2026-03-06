@@ -157,13 +157,13 @@ export function SmartSearchBar({
         <motion.div
           className="relative"
           animate={{
-            scale: isFocused ? 1.005 : 1,
+            scale: isFocused ? 1.01 : 1,
           }}
           transition={springConfig}
         >
           {/* Search Input */}
-          <div className="relative rounded-[18px] overflow-hidden border border-white/20 shadow-2xl bg-[#1C1C1E]/85 backdrop-blur-xl">
-            <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+          <div className="relative rounded-[20px] overflow-hidden border-2 border-white/30 shadow-2xl bg-[#1C1C1E]/85 backdrop-blur-xl">
+            <div className="flex items-center gap-3 px-4 py-3">
               {/* Search Icon */}
               <motion.div
                 animate={{
@@ -172,7 +172,7 @@ export function SmartSearchBar({
                 }}
                 transition={springConfig}
               >
-                <Search className="w-[17px] h-[17px] flex-shrink-0 text-white/90" strokeWidth={2.5} />
+                <Search className="w-[18px] h-[18px] flex-shrink-0 text-white/90" strokeWidth={2.5} />
               </motion.div>
               
               {/* Input Field */}
@@ -190,7 +190,7 @@ export function SmartSearchBar({
                     // Delay to allow suggestion clicks
                     setTimeout(() => setIsFocused(false), 200);
                   }}
-                  className={`w-full bg-transparent text-[15px] outline-none text-white placeholder:text-white/50 ${
+                  className={`w-full bg-transparent text-[16px] outline-none text-white placeholder:text-white/50 ${
                     value === '' && !isFocused ? 'opacity-0' : 'opacity-100'
                   }`}
                   style={{ fontWeight: 500 }}
@@ -222,7 +222,7 @@ export function SmartSearchBar({
                 <motion.button
                   type="button"
                   onClick={handleVoiceInput}
-                  className={`w-[34px] h-[34px] rounded-full flex items-center justify-center tap-target ${
+                  className={`w-9 h-9 rounded-full flex items-center justify-center tap-target ${
                     isListening 
                       ? 'bg-gradient-to-br from-red-500 to-pink-500' 
                       : 'bg-gradient-to-br from-[#A855F7]/50 to-[#D946EF]/50'
@@ -237,7 +237,7 @@ export function SmartSearchBar({
                     ease: "easeInOut",
                   } : springConfig}
                 >
-                  <Mic className={`w-[17px] h-[17px] ${
+                  <Mic className={`w-[18px] h-[18px] ${
                     isListening ? 'text-white' : 'text-[#E879F9]'
                   }`} strokeWidth={2.5} />
                 </motion.button>
@@ -265,18 +265,18 @@ export function SmartSearchBar({
       <AnimatePresence>
         {showSuggestions && (
           <motion.div
-            className="absolute top-full left-0 right-0 mt-1.5 rounded-[18px] overflow-hidden border border-white/20 shadow-2xl bg-[#1C1C1E]/95 backdrop-blur-xl z-50 max-h-[300px] overflow-y-auto"
+            className="absolute top-full left-0 right-0 mt-2 rounded-[20px] overflow-hidden border-2 border-white/30 shadow-2xl bg-[#1C1C1E]/95 backdrop-blur-xl z-50 max-h-[320px] overflow-y-auto"
             initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={springConfig}
           >
-            <div className="p-1.5">
+            <div className="p-2">
 
               {/* Live Venue Results — shown first when typing */}
               {venueMatches.length > 0 && (
                 <>
-                  <div className="px-3 py-1.5 flex items-center gap-1.5">
+                  <div className="px-3 py-2 flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                     <span className="text-[11px] text-green-300" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Live Results
@@ -288,7 +288,7 @@ export function SmartSearchBar({
                       <motion.button
                         key={venue.id || index}
                         onClick={() => { onVenueClick?.(venue); setShowSuggestions(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-[12px] hover:bg-white/10 transition-colors text-left"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[12px] hover:bg-white/10 transition-colors text-left"
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.03 }}
@@ -298,8 +298,8 @@ export function SmartSearchBar({
                           {venue.category === 'dining' ? '🍽️' : venue.category === 'nightlife' ? '🍸' : venue.category === 'coffee' ? '☕' : venue.category === 'shopping' ? '🛍️' : venue.category === 'entertainment' ? '🎶' : venue.category === 'fitness' ? '💪' : '📍'}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <span className="block text-[14px] text-white truncate" style={{ fontWeight: 500 }}>{venue.name}</span>
-                          <span className="text-[11px] text-white/50 capitalize">{venue.category}{crowdEmoji ? ` · ${crowdEmoji} ${venue.crowd?.label}` : ''}</span>
+                          <span className="block text-[15px] text-white truncate" style={{ fontWeight: 500 }}>{venue.name}</span>
+                          <span className="text-[12px] text-white/50 capitalize">{venue.category}{crowdEmoji ? ` · ${crowdEmoji} ${venue.crowd?.label}` : ''}</span>
                         </div>
                         <Navigation className="w-4 h-4 text-white/40 flex-shrink-0" strokeWidth={2} />
                       </motion.button>
@@ -454,7 +454,7 @@ function SuggestionItem({
   return (
     <motion.button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-3 py-2 rounded-[12px] hover:bg-white/10 transition-colors text-left"
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[12px] hover:bg-white/10 transition-colors text-left"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay }}
@@ -463,7 +463,7 @@ function SuggestionItem({
       <div className="flex-shrink-0">
         {suggestion.icon}
       </div>
-      <span className="flex-1 text-[14px] text-white" style={{ fontWeight: 500 }}>
+      <span className="flex-1 text-[15px] text-white" style={{ fontWeight: 500 }}>
         {suggestion.text}
       </span>
       <Navigation className="w-4 h-4 text-white/40 flex-shrink-0" strokeWidth={2} />

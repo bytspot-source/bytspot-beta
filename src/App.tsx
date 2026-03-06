@@ -53,7 +53,13 @@ export default function App() {
   const isDarkMode = true; // Fixed to dark mode
 
   const { isOnline, isOffline } = useOffline();
-  const { venues: apiVenues } = useVenues();
+  const {
+    venues: apiVenues,
+    cards: discoverApiCards,
+    loading: venuesLoading,
+    error: venuesError,
+    refresh: refreshVenues,
+  } = useVenues();
   const [searchValue, setSearchValue] = useState('');
   const [showMapMenu, setShowMapMenu] = useState(false);
   const [selectedMapFunction, setSelectedMapFunction] = useState<MapFunction | undefined>();
@@ -1061,6 +1067,10 @@ export default function App() {
                     onShowBottomNav={() => setShowBottomNav(true)}
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
+                    apiCards={discoverApiCards}
+                    loading={venuesLoading}
+                    error={venuesError}
+                    refresh={refreshVenues}
                     onBookRide={(v) => {
                       if (v) setRideDestination(v);
                       setShowRideSelection(true);

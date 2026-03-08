@@ -285,7 +285,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
   };
 
   const handleRefresh = async (showToast = false) => {
-    if (isRefreshing || loading) return;
+    if (isRefreshing) return;
 
     setIsRefreshing(true);
 

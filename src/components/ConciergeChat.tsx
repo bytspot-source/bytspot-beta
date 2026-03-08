@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles, Clock, MapPin, DollarSign, Users } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { conciergeApi, type ConciergeMessage, type ConciergeVenue } from '../utils/api';
 
 interface ConciergeChatProps {
   venue: any;
@@ -58,42 +59,14 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
     scrollToBottom();
   }, [messages]);
 
-  const getAIResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.includes('reservation') || lowerMessage.includes('book')) {
-      return `I can help you make a reservation at ${venue.name}! We have availability for:\n\n• Tonight at 7:00 PM (2 available)\n• Tomorrow at 6:30 PM (4 available)\n• Friday at 8:00 PM (3 available)\n\nHow many people will be in your party?`;
-    }
-    
-    if (lowerMessage.includes('parking')) {
-      return `Great question! For ${venue.name}, I recommend:\n\n🅿️ Downtown Plaza Garage - 0.3 mi away, $8/hr\n🚗 Valet Service - Available at venue, $25 flat rate\n🅿️ Street parking - Limited, metered until 10 PM\n\nThe garage is your best bet. Should I reserve a spot for you?`;
-    }
-    
-    if (lowerMessage.includes('dress code') || lowerMessage.includes('what to wear')) {
-      return `${venue.name} has a smart casual to upscale dress code:\n\n✓ Collared shirts, dress shoes\n✓ Cocktail dresses, heels\n✓ Business casual attire\n\n✗ Athletic wear, flip-flops\n✗ Overly casual attire\n\nWeekends tend to be more dressed up!`;
-    }
-    
-    if (lowerMessage.includes('time') || lowerMessage.includes('when')) {
-      return `Best times to visit ${venue.name}:\n\n🌅 Happy Hour (5-7 PM): Great deals, moderate crowd\n🌆 Sunset (7-8 PM): Best views, getting busy\n🌃 Peak (9-11 PM): Full energy, DJ, crowded\n🌙 Late Night (11 PM+): Winding down, last call 1:30 AM\n\nI'd recommend arriving around 7 PM for the perfect balance!`;
-    }
-    
-    if (lowerMessage.includes('menu') || lowerMessage.includes('food') || lowerMessage.includes('drink')) {
-      return `${venue.name} is known for:\n\n🍸 Signature cocktails ($14-18) - Try the Sunset Sour!\n🥂 Premium spirits selection\n🍽️ Small plates & tapas ($10-16)\n🍺 Craft beer on tap ($8-12)\n\nHappy hour is 5-7 PM with $2 off cocktails. Would you like to see the full menu?`;
-    }
-    
-    if (lowerMessage.includes('price') || lowerMessage.includes('cost') || lowerMessage.includes('expensive')) {
-      return `${venue.name} pricing:\n\n💰 Average spend: $40-60 per person\n🍸 Cocktails: $14-18\n🍷 Wine: $12-20/glass\n🍽️ Small plates: $10-16\n\nIt's moderately priced for the quality and location. Worth it for the views!`;
-    }
-    
-    return `I can help you with that! Here are some things I can assist with:\n\n• Making reservations\n• Parking and valet info\n• Menu recommendations\n• Dress code and ambiance\n• Best times to visit\n• Special events\n\nWhat would you like to know more about?`;
-  };
-
   const handleSend = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isTyping) return;
+
+    const userText = inputValue.trim();
 
     const userMessage: Message = {
-      id: messages.length + 1,
-      text: inputValue,
+      id: Date.now(),
+      text: userText,
       sender: 'user',
       timestamp: new Date(),
     };
@@ -102,18 +75,52 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
     setInputValue('');
     setIsTyping(true);
 
-    // Simulate AI thinking time
-    setTimeout(() => {
+    try {
+      // Build conversation history for the API (skip the welcome message at id=1)
+      const history: ConciergeMessage[] = [
+        ...messages
+          .filter((m) => m.id !== 1)
+          .map((m) => ({
+            role: (m.sender === 'user' ? 'user' : 'assistant') as ConciergeMessage['role'],
+            content: m.text,
+          })),
+        { role: 'user' as const, content: userText },
+      ];
+
+      const venueContext: ConciergeVenue = {
+        id: String(venue.id ?? venue._slug ?? venue.name),
+        name: venue.name,
+        category: venue.type ?? venue.category ?? 'venue',
+        address: venue.location ?? venue.address ?? venue.description,
+        crowd: venue.crowd,
+      };
+
+      const res = await conciergeApi.chat(history, [venueContext]);
+
+      const aiText =
+        res.success && res.data?.reply
+          ? res.data.reply
+          : "Sorry, I'm having a little trouble right now. Please try again!";
+
       const aiResponse: Message = {
-        id: messages.length + 2,
-        text: getAIResponse(inputValue),
+        id: Date.now() + 1,
+        text: aiText,
         sender: 'ai',
         timestamp: new Date(),
       };
-      
+
       setMessages((prev) => [...prev, aiResponse]);
+    } catch {
+      const errorResponse: Message = {
+        id: Date.now() + 1,
+        text: "I'm unable to connect right now. Please check your connection and try again.",
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorResponse]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000);
+    }
   };
 
   const handleSuggestionClick = (suggestion: string) => {

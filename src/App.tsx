@@ -14,6 +14,8 @@ const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
+const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
@@ -41,15 +43,16 @@ import {
   type CategorySuggestion,
   type NearbyLocation
 } from './utils/personalization';
+import { providerApi } from './utils/api';
 
 // Beta MVP: Simplified screen flow
-type AppScreen = 'splash' | 'landing' | 'auth' | 'main';
-
-
+type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('splash');
   const [activeTab, setActiveTab] = useState('home');
+  const [isHost, setIsHost] = useState(false);
+  const [isValet, setIsValet] = useState(false);
   const isDarkMode = true; // Fixed to dark mode
 
   const { isOnline, isOffline } = useOffline();
@@ -433,11 +436,20 @@ export default function App() {
     };
   }, []);
 
-  // Check if user already authenticated
+  // Check if user already authenticated + fetch provider status
   useEffect(() => {
     const authToken = localStorage.getItem('bytspot_auth_token');
     if (authToken) {
       setCurrentScreen('main');
+      // Fetch provider status to populate isHost / isValet flags
+      providerApi.getStatus().then((res) => {
+        if (res.success && res.data) {
+          setIsHost(
+            res.data.host?.status === 'approved' || res.data.host?.status === 'pending'
+          );
+          setIsValet(res.data.valet?.status === 'active');
+        }
+      });
     }
   }, []);
 
@@ -477,14 +489,47 @@ export default function App() {
         isDarkMode={isDarkMode}
         initialEmail={prefillEmail}
         onComplete={() => {
-          localStorage.setItem('bytspot_auth_token', 'beta_user');
+          // Token is already stored by AuthenticationFlow — no override needed
           setCurrentScreen('main');
+          // Refresh provider status after login
+          providerApi.getStatus().then((res) => {
+            if (res.success && res.data) {
+              setIsHost(
+                res.data.host?.status === 'approved' || res.data.host?.status === 'pending'
+              );
+              setIsValet(res.data.valet?.status === 'active');
+            }
+          });
           if (!localStorage.getItem('bytspot_onboarding_seen')) {
             setOnboardingSlide(0);
             setShowOnboarding(true);
           }
         }}
       />
+      </Suspense>
+    );
+  }
+
+  // ── Host App ─────────────────────────────────────────
+  if (currentScreen === 'host') {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+        <HostApp
+          isDarkMode={isDarkMode}
+          onBackToMain={() => setCurrentScreen('main')}
+        />
+      </Suspense>
+    );
+  }
+
+  // ── Valet App ────────────────────────────────────────
+  if (currentScreen === 'valet') {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+        <ValetApp
+          isDarkMode={isDarkMode}
+          onBackToMain={() => setCurrentScreen('main')}
+        />
       </Suspense>
     );
   }
@@ -1156,7 +1201,16 @@ export default function App() {
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
                     <ProfileSection
                       isDarkMode={isDarkMode}
+                      isHost={isHost}
+                      isValet={isValet}
+                      onBecomeHost={() => setCurrentScreen('host')}
+                      onBecomeValet={() => setCurrentScreen('valet')}
                       onLogout={() => {
+                        localStorage.removeItem('bytspot_auth_token');
+                        localStorage.removeItem('bytspot_user');
+                        localStorage.removeItem('bytspot_user_name');
+                        setIsHost(false);
+                        setIsValet(false);
                         setCurrentScreen('auth');
                         setActiveTab('home');
                       }}

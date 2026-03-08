@@ -365,6 +365,60 @@ export const conciergeApi = {
     }),
 };
 
+// PROVIDERS (Host + Valet)
+export interface HostProfileStatus {
+  id: string;
+  status: 'draft' | 'pending' | 'approved' | 'rejected';
+  currentStep: number;
+  onboardingData: Record<string, unknown> | null;
+  submittedAt: string | null;
+}
+
+export interface ValetProfileStatus {
+  id: string;
+  status: 'draft' | 'active' | 'inactive' | 'suspended';
+  agreementAcceptedAt: string | null;
+}
+
+export interface ProviderStatus {
+  host: HostProfileStatus | null;
+  valet: ValetProfileStatus | null;
+}
+
+export const providerApi = {
+  /** GET /providers/status — returns host + valet profile status for the current user */
+  getStatus: () =>
+    apiRequest<ProviderStatus>('/providers/status'),
+
+  /** POST /providers/host/progress — upsert draft onboarding progress */
+  saveHostProgress: (currentStep: number, onboardingData: Record<string, unknown>) =>
+    apiRequest<{ profile: { id: string; status: string; currentStep: number } }>(
+      '/providers/host/progress',
+      { method: 'POST', body: JSON.stringify({ currentStep, onboardingData }) }
+    ),
+
+  /** POST /providers/host/submit — mark application as pending */
+  submitHostApplication: () =>
+    apiRequest<{ profile: { id: string; status: string; submittedAt: string } }>(
+      '/providers/host/submit',
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  /** POST /providers/host/reset — delete host profile (restart onboarding) */
+  resetHostProfile: () =>
+    apiRequest<{ success: boolean }>(
+      '/providers/host/reset',
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  /** POST /providers/valet/accept-agreement — record acceptance of contractor agreement */
+  acceptValetAgreement: () =>
+    apiRequest<{ profile: { id: string; status: string; agreementAcceptedAt: string } }>(
+      '/providers/valet/accept-agreement',
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+};
+
 /**
  * Error handling helper
  */

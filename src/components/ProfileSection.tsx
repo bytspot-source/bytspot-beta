@@ -18,6 +18,8 @@ import { getFollowedUsers, getSocialFeed, unfollowUser, type SocialFeedEvent, ty
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
+  isHost?: boolean;
+  isValet?: boolean;
   onBecomeHost?: () => void;
   onBecomeValet?: () => void;
   onLogout?: () => void;
@@ -25,7 +27,7 @@ interface ProfileSectionProps {
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends';
 
-export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
+export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const savedSpotsStats = getSavedSpotsStats();
   const checkinHistory = getCheckinHistory();
@@ -509,25 +511,14 @@ export function ProfileSection({ isDarkMode, onBecomeHost, onBecomeValet, onLogo
             transition={{ ...springConfig, delay: 0.25 }}
           >
             <motion.button
-              onClick={() => {
-                // Check if already a host
-                const hostProfile = localStorage.getItem('bytspot_host_profile');
-                if (hostProfile) {
-                  // Already a host - go to dashboard
-                  onBecomeHost();
-                } else {
-                  // New host - clear any partial onboarding and start fresh
-                  localStorage.removeItem('bytspot_host_onboarding');
-                  onBecomeHost();
-                }
-              }}
+              onClick={onBecomeHost}
               className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-r from-purple-500/30 to-cyan-500/30 hover:from-purple-500/40 hover:to-cyan-500/40 shadow-xl"
               whileTap={{ scale: 0.98 }}
               transition={springConfig}
             >
               <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
               <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                {localStorage.getItem('bytspot_host_profile') ? 'Host Dashboard' : 'Become a Host'}
+                {isHost ? 'Host Dashboard' : 'Become a Host'}
               </span>
             </motion.button>
           </motion.div>

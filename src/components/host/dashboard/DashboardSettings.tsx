@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { providerApi } from '../../../utils/api';
 import { 
   User, 
   Building2, 
@@ -356,10 +357,9 @@ export function DashboardSettings({ isDarkMode }: DashboardSettingsProps) {
         </h3>
 
         <motion.button
-          onClick={() => {
-            if (confirm('Are you sure you want to clear your host profile? This will restart the onboarding process.')) {
-              localStorage.removeItem('bytspot_host_profile');
-              localStorage.removeItem('bytspot_host_onboarding');
+          onClick={async () => {
+            if (confirm('Are you sure you want to reset your host profile? This will restart the onboarding process.')) {
+              await providerApi.resetHostProfile();
               window.location.reload();
             }
           }}

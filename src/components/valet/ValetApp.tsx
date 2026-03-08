@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
+import { providerApi } from '../../utils/api';
 import { ValetDashboard } from './ValetDashboard';
 import { IndependentContractorAgreement } from '../legal/IndependentContractorAgreement';
 
@@ -14,12 +15,15 @@ interface ValetAppProps {
 export function ValetApp({ isDarkMode, onBackToMain }: ValetAppProps) {
   const [currentScreen, setCurrentScreen] = useState<ValetScreen>('contractor-agreement');
   
-  // Check if contractor agreement was already accepted
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check provider status from API
   useEffect(() => {
-    const hasAcceptedAgreement = localStorage.getItem('bytspot_valet_contractor_agreement');
-    if (hasAcceptedAgreement === 'accepted') {
-      setCurrentScreen('dashboard');
-    }
+    providerApi.getStatus().then((res) => {
+      if (res.success && res.data?.valet?.status === 'active') {
+        setCurrentScreen('dashboard');
+      }
+    }).finally(() => setIsLoading(false));
   }, []);
   
   const springConfig = {
@@ -28,6 +32,14 @@ export function ValetApp({ isDarkMode, onBackToMain }: ValetAppProps) {
     damping: 30,
     mass: 0.8,
   };
+
+  if (isLoading) {
+    return (
+      <div className="relative min-h-screen overflow-hidden bg-[#000000] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#000000]">
@@ -56,8 +68,8 @@ export function ValetApp({ isDarkMode, onBackToMain }: ValetAppProps) {
               <IndependentContractorAgreement
                 isDarkMode={isDarkMode}
                 serviceType="valet"
-                onAccept={() => {
-                  localStorage.setItem('bytspot_valet_contractor_agreement', 'accepted');
+                onAccept={async () => {
+                  await providerApi.acceptValetAgreement();
                   setCurrentScreen('dashboard');
                 }}
                 onDecline={() => {

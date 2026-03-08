@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { providerApi } from '../../utils/api';
+import { toast } from 'sonner@2.0.3';
 import { Step1AccountCreation } from './onboarding/Step1AccountCreation';
 import { Step2HostType } from './onboarding/Step2HostType';
 import { Step3BusinessInfo } from './onboarding/Step3BusinessInfo';
@@ -123,26 +125,27 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
 
   const totalSteps = 10;
 
-  // Load saved progress from localStorage
+  // Load saved progress from API on mount
   useEffect(() => {
-    const saved = localStorage.getItem('bytspot_host_onboarding');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setOnboardingData(parsed.data || {});
-      setCurrentStep(parsed.step || 1);
-    }
+    providerApi.getStatus().then((res) => {
+      if (res.success && res.data?.host?.onboardingData) {
+        const { currentStep, onboardingData: saved } = res.data.host;
+        setOnboardingData((saved as OnboardingData) || {});
+        // Resume from saved step only if still in draft
+        if (res.data.host.status === 'draft' && currentStep > 1) {
+          setCurrentStep(currentStep);
+        }
+      }
+    });
   }, []);
 
-  // Save progress to localStorage
+  // Save progress to API (fire-and-forget — we don't block the UI)
   const saveProgress = (step: number, data: Partial<OnboardingData>) => {
     const updatedData = { ...onboardingData, ...data };
     setOnboardingData(updatedData);
-    
-    localStorage.setItem('bytspot_host_onboarding', JSON.stringify({
-      step,
-      data: updatedData,
-      updatedAt: new Date().toISOString(),
-    }));
+    providerApi.saveHostProgress(step, updatedData as Record<string, unknown>).catch(() => {
+      // Silently ignore network errors during draft saves
+    });
   };
 
   const handleStepComplete = (data: Partial<OnboardingData>) => {
@@ -160,19 +163,16 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
     }
   };
 
-  const handleSubmit = () => {
-    // Save completed profile
-    const profile = {
-      id: `host_${Date.now()}`,
-      status: 'pending',
-      submittedAt: new Date().toISOString(),
-      data: onboardingData,
-    };
-    
-    localStorage.setItem('bytspot_host_profile', JSON.stringify(profile));
-    localStorage.removeItem('bytspot_host_onboarding'); // Clear onboarding data
-    
-    setCurrentStep(10); // Go to completion screen
+  const handleSubmit = async () => {
+    const res = await providerApi.submitHostApplication();
+    if (res.success) {
+      setCurrentStep(10); // Go to completion screen
+    } else {
+      toast.error('Submission failed', {
+        description: res.error?.message || 'Please try again.',
+        duration: 4000,
+      });
+    }
   };
 
   return (

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { providerApi } from '../../utils/api';
 import { HostLanding } from './HostLanding';
 import { HostOnboarding } from './HostOnboarding';
 import { HostDashboardLayout, type DashboardView } from './dashboard/HostDashboardLayout';
@@ -12,7 +13,6 @@ import { DashboardCalendar } from './dashboard/DashboardCalendar';
 import { DashboardSettings } from './dashboard/DashboardSettings';
 import { DashboardFusionEngine } from './dashboard/DashboardFusionEngine';
 import { DashboardCompliance } from './dashboard/DashboardCompliance';
-import { DashboardFusionEngine } from './dashboard/DashboardFusionEngine';
 import { ArrowLeft } from 'lucide-react';
 
 type HostScreen = 'landing' | 'onboarding' | 'dashboard';
@@ -34,41 +34,36 @@ export function HostApp({ isDarkMode, onBackToMain }: HostAppProps) {
     mass: 0.8,
   };
 
-  // Check if host has already completed onboarding
+  // Check provider status from API to determine initial screen
   useEffect(() => {
     const initializeHostApp = async () => {
       try {
-        // Small delay to ensure DOM is ready
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
         // Check for force-onboarding flag (useful for development/testing)
         const forceOnboarding = new URLSearchParams(window.location.search).get('force-onboarding');
-        
         if (forceOnboarding === 'true') {
-          // Clear host profile to restart onboarding
-          localStorage.removeItem('bytspot_host_profile');
-          localStorage.removeItem('bytspot_host_onboarding');
+          await providerApi.resetHostProfile();
           setCurrentScreen('landing');
           setIsLoading(false);
           return;
         }
-        
-        const hostProfile = localStorage.getItem('bytspot_host_profile');
-        if (hostProfile) {
-          const profile = JSON.parse(hostProfile);
-          if (profile && (profile.status === 'approved' || profile.status === 'pending')) {
+
+        const res = await providerApi.getStatus();
+        if (res.success && res.data?.host) {
+          const { status } = res.data.host;
+          if (status === 'approved' || status === 'pending') {
             setCurrentScreen('dashboard');
+          } else if (status === 'draft') {
+            // Resume onboarding from where they left off
+            setCurrentScreen('onboarding');
           }
         }
       } catch (error) {
-        // If there's any error reading localStorage, just stay on landing
         console.error('Error loading host profile:', error);
-        setCurrentScreen('landing');
       } finally {
         setIsLoading(false);
       }
     };
-    
+
     initializeHostApp();
   }, []);
 

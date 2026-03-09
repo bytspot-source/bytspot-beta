@@ -1,6 +1,7 @@
-import { motion } from 'motion/react';
-import { DollarSign, Shield, Clock, TrendingUp, Users, Sparkles, ArrowLeft } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { DollarSign, Shield, Clock, TrendingUp, Users, BarChart2, ArrowLeft, ChevronDown } from 'lucide-react';
 import { BrandLogo } from '../BrandLogo';
+import { useState } from 'react';
 
 interface HostLandingProps {
   isDarkMode: boolean;
@@ -16,41 +17,54 @@ export function HostLanding({ isDarkMode, onGetStarted, onBackToMain }: HostLand
     mass: 0.8,
   };
 
+  // First card open by default — hooks the host on the income question immediately
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
+
+  const toggleBenefit = (index: number) => {
+    setExpandedIndex(prev => (prev === index ? null : index));
+  };
+
   const benefits = [
     {
       icon: DollarSign,
       title: 'Earn Passive Income',
-      description: 'Average hosts earn $850-1,200/month',
+      teaser: 'Avg. $850–1,200/month',
+      description: 'Your space earns money around the clock — even when you\'re not there. Hosts typically recoup setup costs within the first two weeks and see consistent income month after month. The more prime your location, the higher your earning potential.',
       gradient: 'from-green-500 to-emerald-500',
     },
     {
-      icon: Clock,
-      title: 'Easy Management',
-      description: 'Set your hours and availability',
-      gradient: 'from-blue-500 to-cyan-500',
-    },
-    {
       icon: Shield,
-      title: 'Secure Payments',
-      description: '$1M insurance coverage included',
+      title: 'Zero Financial Risk',
+      teaser: '$1M coverage, instant payouts',
+      description: 'Every booking is backed by $1M in liability insurance at no cost to you. Payments are processed securely and deposited directly to your bank — no chasing invoices, no chargebacks, no surprises.',
       gradient: 'from-purple-500 to-fuchsia-500',
     },
     {
+      icon: Clock,
+      title: 'You\'re in Full Control',
+      teaser: 'Set your own hours & rules',
+      description: 'Open and close your space whenever it suits you — set blackout dates, limit booking windows, or pause listings instantly from your phone. Hosting fits around your schedule, not the other way around.',
+      gradient: 'from-blue-500 to-cyan-500',
+    },
+    {
       icon: TrendingUp,
-      title: 'Smart Pricing',
-      description: 'AI-powered pricing optimization',
+      title: 'AI-Optimized Pricing',
+      teaser: 'Never leave money on the table',
+      description: 'Bytspot\'s pricing engine monitors local demand, events, and competitor rates in real time — automatically adjusting your price to maximize revenue. Hosts who use dynamic pricing earn up to 40% more than those with fixed rates.',
       gradient: 'from-orange-500 to-red-500',
     },
     {
       icon: Users,
-      title: 'Trusted Community',
-      description: 'Join 500+ hosts in San Francisco',
+      title: 'Verified Drivers Only',
+      teaser: '500+ hosts in Atlanta',
+      description: 'Every driver on Bytspot goes through ID verification and a background check before they can book. You\'re not opening your space to strangers — you\'re welcoming vetted members of a trusted local community.',
       gradient: 'from-pink-500 to-rose-500',
     },
     {
-      icon: Sparkles,
-      title: 'Premium Tools',
-      description: 'Analytics, bookings & more',
+      icon: BarChart2,
+      title: 'Live Analytics Dashboard',
+      teaser: 'Know exactly what\'s working',
+      description: 'Your host dashboard gives you a real-time view of bookings, occupancy rates, and earnings trends. Spot your busiest hours, track monthly growth, and export reports — all from one clean mobile interface.',
       gradient: 'from-yellow-500 to-amber-500',
     },
   ];
@@ -110,7 +124,7 @@ export function HostLanding({ isDarkMode, onGetStarted, onBackToMain }: HostLand
             $850-1,200
           </div>
           <div className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-            Based on hosts in San Francisco
+            Based on hosts in Atlanta
           </div>
         </motion.div>
 
@@ -135,31 +149,73 @@ export function HostLanding({ isDarkMode, onGetStarted, onBackToMain }: HostLand
         </motion.div>
       </motion.div>
 
-      {/* Benefits Grid */}
+      {/* Benefits Grid — expandable cards, tap to reveal full description */}
       <div className="px-8 mb-8">
-        <h2 className="text-title-2 text-white mb-4">
+        <h2 className="text-title-2 text-white mb-1">
           Why Host with Bytspot?
         </h2>
-        <div className="grid grid-cols-2 gap-3">
+        <p className="text-[13px] text-white/50 mb-4" style={{ fontWeight: 400 }}>
+          Tap any card to learn more
+        </p>
+        <div className="grid grid-cols-2 gap-3 items-start">
           {benefits.map((benefit, index) => {
             const Icon = benefit.icon;
+            const isExpanded = expandedIndex === index;
             return (
               <motion.div
                 key={benefit.title}
-                className="rounded-[20px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+                className={`rounded-[20px] p-4 border-2 backdrop-blur-xl shadow-xl cursor-pointer select-none transition-colors duration-200 ${
+                  isExpanded
+                    ? 'border-white/50 bg-[#242426]/95'
+                    : 'border-white/20 bg-[#1C1C1E]/80'
+                }`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ ...springConfig, delay: 0.4 + index * 0.05 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => toggleBenefit(index)}
               >
-                <div className={`w-12 h-12 rounded-[14px] bg-gradient-to-br ${benefit.gradient} opacity-90 flex items-center justify-center mb-3 shadow-lg`}>
-                  <Icon className="w-6 h-6 text-white" strokeWidth={2.5} />
+                {/* Icon row + chevron */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className={`w-11 h-11 rounded-[13px] bg-gradient-to-br ${benefit.gradient} opacity-90 flex items-center justify-center shadow-lg flex-shrink-0`}>
+                    <Icon className="w-5 h-5 text-white" strokeWidth={2.5} />
+                  </div>
+                  <motion.div
+                    animate={{ rotate: isExpanded ? 180 : 0 }}
+                    transition={{ duration: 0.22, ease: 'easeInOut' }}
+                    className="mt-0.5"
+                  >
+                    <ChevronDown className="w-4 h-4 text-white/40" strokeWidth={2} />
+                  </motion.div>
                 </div>
-                <h3 className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
+
+                {/* Title */}
+                <h3 className="text-[14px] text-white mb-1 leading-snug" style={{ fontWeight: 600 }}>
                   {benefit.title}
                 </h3>
-                <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                  {benefit.description}
+
+                {/* Teaser — always visible */}
+                <p className="text-[12px] text-white/50 mb-0" style={{ fontWeight: 500 }}>
+                  {benefit.teaser}
                 </p>
+
+                {/* Expanded description */}
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      key="desc"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <p className="text-[12px] text-white/70 mt-2 leading-relaxed" style={{ fontWeight: 400 }}>
+                        {benefit.description}
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             );
           })}

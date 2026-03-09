@@ -2,6 +2,8 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { Sun, Cloud, CloudRain, MapPin, Menu, Zap, TrendingUp, Clock } from 'lucide-react';
 import { ZoneUserCount } from './ZoneUserCount';
 import { useRef, useEffect, useState } from 'react';
+import { statsApi } from '../utils/api';
+import { getPersonalizedCategories, getUserPreferences, getUserBehavior } from '../utils/personalization';
 
 interface EnhancedHeaderProps {
   onProfileClick: () => void;
@@ -11,7 +13,26 @@ interface EnhancedHeaderProps {
 export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [greeting, setGreeting] = useState('');
+  const [spotsNearby, setSpotsNearby] = useState(12);
+  const [aiRecs, setAiRecs] = useState(8);
   const headerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch live stats + derive AI recs count on mount
+  useEffect(() => {
+    statsApi.get().then(res => {
+      if (res.success) {
+        setSpotsNearby(res.data.venueCount);
+        // Derive AI recs: count personalized categories that are high-priority
+        const prefs = getUserPreferences();
+        const behavior = getUserBehavior();
+        const categories = getPersonalizedCategories(prefs, behavior);
+        const highPriority = categories.filter(c => c.priority >= 50).length;
+        // Scale recs by venue count — at least 1, at most total venues
+        const recs = Math.max(1, Math.min(res.data.venueCount, Math.round(res.data.venueCount * (highPriority / Math.max(1, categories.length)))));
+        setAiRecs(recs > 0 ? recs : Math.round(res.data.venueCount * 0.6));
+      }
+    }).catch(() => { /* keep fallback values */ });
+  }, []);
 
   // Update time every minute
   useEffect(() => {
@@ -182,7 +203,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                 <span className="text-white/80" style={{ fontWeight: 500 }}>
-                  <span className="text-green-400" style={{ fontWeight: 700 }}>342</span> spots nearby
+                  <span className="text-green-400" style={{ fontWeight: 700 }}>{spotsNearby}</span> spots nearby
                 </span>
               </div>
               
@@ -204,7 +225,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
               <div className="flex items-center gap-1.5">
                 <Zap className="w-3 h-3 text-[#A855F7]" strokeWidth={2.5} />
                 <span className="text-white/80" style={{ fontWeight: 500 }}>
-                  <span className="text-[#A855F7]" style={{ fontWeight: 700 }}>8</span> for you
+                  <span className="text-[#A855F7]" style={{ fontWeight: 700 }}>{aiRecs}</span> for you
                 </span>
               </div>
             </div>

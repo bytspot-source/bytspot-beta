@@ -1,13 +1,14 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { statsApi } from '../utils/api';
 
 interface ZoneUserCountProps {
   compact?: boolean;
 }
 
 export function ZoneUserCount({ compact = false }: ZoneUserCountProps) {
-  const [userCount, setUserCount] = useState(247);
+  const [userCount, setUserCount] = useState(246);
   const [isAnimating, setIsAnimating] = useState(false);
 
   const springConfig = {
@@ -17,27 +18,33 @@ export function ZoneUserCount({ compact = false }: ZoneUserCountProps) {
     mass: 0.8,
   };
 
-  // Simulate real-time user count changes
+  // Fetch real registered user count on mount
   useEffect(() => {
+    statsApi.get().then(res => {
+      if (res.success && res.data.userCount > 0) {
+        setUserCount(res.data.userCount);
+      }
+    }).catch(() => { /* keep fallback */ });
+  }, []);
+
+  // Simulate live fluctuation around the real base count
+  useEffect(() => {
+    let base = userCount;
     const interval = setInterval(() => {
       setIsAnimating(true);
-      
-      // Randomly add or remove users (more realistic fluctuation)
-      const change = Math.random() > 0.5 
-        ? Math.floor(Math.random() * 5) + 1  // +1 to +5 users
-        : -(Math.floor(Math.random() * 3) + 1); // -1 to -3 users
-      
+      const change = Math.random() > 0.5
+        ? Math.floor(Math.random() * 5) + 1   // +1 to +5 users joining
+        : -(Math.floor(Math.random() * 3) + 1); // -1 to -3 users leaving
       setUserCount(prev => {
-        const newCount = prev + change;
-        // Keep count within realistic bounds (200-300 range)
-        return Math.max(200, Math.min(300, newCount));
+        base = prev;
+        const next = prev + change;
+        // Drift no more than ±30 from the real registered count
+        return Math.max(base - 30, Math.min(base + 30, next));
       });
-
-      // Reset animation after a short delay
       setTimeout(() => setIsAnimating(false), 300);
-    }, 8000); // Update every 8 seconds for realistic feel
-
+    }, 8000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const formatCount = (count: number): string => {

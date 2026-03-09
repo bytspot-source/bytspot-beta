@@ -322,6 +322,17 @@ export const healthApi = {
   check: () => apiRequest<{ status: string; uptime: number }>('/health'),
 };
 
+// STATS — public counts for home screen display
+export interface AppStats {
+  userCount: number;
+  venueCount: number;
+}
+
+export const statsApi = {
+  /** GET /stats — registered user count + venue count (no auth required) */
+  get: () => apiRequest<AppStats>('/stats'),
+};
+
 // PAYMENTS (Stripe)
 export const paymentsApi = {
   /** POST /payments/checkout — creates a Stripe Checkout session for parking */

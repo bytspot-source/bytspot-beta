@@ -3,7 +3,15 @@ import { Sun, Cloud, CloudRain, MapPin, Menu, Zap, TrendingUp, Clock } from 'luc
 import { ZoneUserCount } from './ZoneUserCount';
 import { useRef, useEffect, useState } from 'react';
 import { statsApi } from '../utils/api';
-import { getPersonalizedCategories, getUserPreferences, getUserBehavior } from '../utils/personalization';
+import {
+  getPersonalizedCategories,
+  getUserPreferences,
+  getUserBehavior,
+  inferCulturalContext,
+  saveCulturalContext,
+  getCulturalContext,
+  trackFrequentLocation,
+} from '../utils/personalization';
 
 interface EnhancedHeaderProps {
   onProfileClick: () => void;
@@ -17,18 +25,42 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
   const [aiRecs, setAiRecs] = useState(8);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch live stats + derive AI recs count on mount
+  // 1. Request geolocation on mount (with user consent) and infer cultural context
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        // Infer cultural context from coords (client-side only — coords never leave device)
+        const context = inferCulturalContext(latitude, longitude);
+        saveCulturalContext(context);
+        trackFrequentLocation(latitude, longitude);
+      },
+      () => { /* permission denied or unavailable — use cached context if any */ },
+      { timeout: 5000, maximumAge: 3600000 } // cache geo for 1 hour
+    );
+  }, []);
+
+  // 2. Fetch live stats + derive AI recs count (uses cultural context if available)
   useEffect(() => {
     statsApi.get().then(res => {
       if (res.success) {
         setSpotsNearby(res.data.venueCount);
-        // Derive AI recs: count personalized categories that are high-priority
+        // Derive AI recs using cultural context
         const prefs = getUserPreferences();
         const behavior = getUserBehavior();
-        const categories = getPersonalizedCategories(prefs, behavior);
+        const cultural = getCulturalContext(); // may be null on first load
+        const categories = getPersonalizedCategories(prefs, behavior, cultural);
         const highPriority = categories.filter(c => c.priority >= 50).length;
         // Scale recs by venue count — at least 1, at most total venues
-        const recs = Math.max(1, Math.min(res.data.venueCount, Math.round(res.data.venueCount * (highPriority / Math.max(1, categories.length)))));
+        const recs = Math.max(
+          1,
+          Math.min(
+            res.data.venueCount,
+            Math.round(res.data.venueCount * (highPriority / Math.max(1, categories.length)))
+          )
+        );
         setAiRecs(recs > 0 ? recs : Math.round(res.data.venueCount * 0.6));
       }
     }).catch(() => { /* keep fallback values */ });

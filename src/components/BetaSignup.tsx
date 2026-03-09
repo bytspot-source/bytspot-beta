@@ -27,7 +27,7 @@ import { Toaster } from './ui/sonner';
  *   - Emails are NOT saved anywhere
  *   - Use this only for previewing the UI
  */
-const BACKEND_PROVIDER: 'formspree' | 'custom' | 'mock' = 'formspree';
+const BACKEND_PROVIDER: 'formspree' | 'custom' | 'mock' = 'custom';
 const FORMSPREE_FORM_ID = 'xqedgrzv';
 const CUSTOM_API_URL = 'https://bytspot-api.onrender.com/beta-signup';
 
@@ -40,13 +40,13 @@ interface BetaSignupProps {
   standalone?: boolean;
 }
 
-async function submitEmail(email: string): Promise<{ ok: boolean; message?: string }> {
+async function submitEmail(email: string, name?: string): Promise<{ ok: boolean; alreadyRegistered?: boolean; message?: string }> {
   switch (BACKEND_PROVIDER) {
     case 'formspree': {
       const res = await fetch(`https://formspree.io/f/${FORMSPREE_FORM_ID}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email, _subject: 'Bytspot Beta Signup', source: 'beta-funnel' }),
+        body: JSON.stringify({ email, name, _subject: 'Bytspot Beta Signup', source: 'bytspot-beta' }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -58,16 +58,16 @@ async function submitEmail(email: string): Promise<{ ok: boolean; message?: stri
       const res = await fetch(CUSTOM_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, timestamp: new Date().toISOString(), source: 'beta-funnel' }),
+        body: JSON.stringify({ email, name, source: 'bytspot-beta' }),
       });
       if (!res.ok) {
         return { ok: false, message: 'Signup failed. Please try again.' };
       }
-      return { ok: true };
+      const data = await res.json().catch(() => ({}));
+      return { ok: true, alreadyRegistered: data?.alreadyRegistered ?? false };
     }
     case 'mock':
     default: {
-      // Simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return { ok: true };
     }
@@ -76,6 +76,7 @@ async function submitEmail(email: string): Promise<{ ok: boolean; message?: stri
 
 export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }: BetaSignupProps) {
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [spotsLeft] = useState(27);
@@ -97,7 +98,6 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
       return;
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       toast.error('Please enter a valid email address');
@@ -107,24 +107,29 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
     setIsSubmitting(true);
 
     try {
-      const result = await submitEmail(email);
+      const result = await submitEmail(email, name.trim() || undefined);
 
       if (result.ok) {
         setIsSuccess(true);
         localStorage.setItem('bytspot_beta_signed_up', 'true');
         localStorage.setItem('bytspot_beta_email', email);
-        toast.success('Welcome to the Inner Circle!', {
-          description: "You've secured your spot for the Midtown Beta.",
-        });
 
-        // Auto-advance after success animation (only when embedded in main app)
+        if (result.alreadyRegistered) {
+          toast.success("You're already on the list!", { description: 'Check your inbox for the welcome email.' });
+        } else {
+          const firstName = name.split(' ')[0].trim();
+          toast.success(firstName ? `Welcome, ${firstName}! 🎯` : 'Welcome to the Inner Circle!', {
+            description: "You've secured your spot. Check your inbox — your welcome email is on the way.",
+          });
+        }
+
         if (onComplete) {
           setTimeout(() => onComplete(), 2500);
         }
       } else {
         toast.error(result.message || 'Something went wrong. Please try again.');
       }
-    } catch (err) {
+    } catch {
       toast.error('Network error. Please check your connection and try again.');
     } finally {
       setIsSubmitting(false);
@@ -297,6 +302,23 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
               {/* 3. Form & CTA */}
               <form onSubmit={handleSubmit} className="space-y-3">
                 <div className="space-y-3">
+                  {/* First Name Input */}
+                  <div
+                    className={`group relative rounded-xl transition-all duration-300 ${
+                      isDarkMode
+                        ? 'bg-white/5 border border-white/10 focus-within:bg-white/10 focus-within:border-white/20'
+                        : 'bg-white/80 border border-black/10'
+                    }`}
+                  >
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="First name (optional)"
+                      className="w-full bg-transparent p-4 text-white placeholder:text-white/30 focus:outline-none text-[16px]"
+                      autoComplete="given-name"
+                    />
+                  </div>
                   {/* Email Input */}
                   <div
                     className={`group relative rounded-xl transition-all duration-300 ${
@@ -315,6 +337,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                       placeholder="Enter your email"
                       className="w-full bg-transparent p-4 pl-12 text-white placeholder:text-white/30 focus:outline-none text-[16px]"
                       required
+                      autoComplete="email"
                     />
                   </div>
 
@@ -383,18 +406,33 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
 
               <div className="space-y-2">
                 <h2 className="text-2xl font-bold text-white">
-                  {alreadySignedUp ? "You're already on the list!" : "You're on the list."}
+                  {alreadySignedUp ? "You're already on the list! 🎉" : "You're in! 🎯"}
                 </h2>
                 <p className="text-white/70">
-                  Keep an eye on your inbox.
-                  <br />
-                  We'll notify you when your spot is ready.
+                  {alreadySignedUp
+                    ? "Check your inbox — your welcome email is waiting."
+                    : <>Welcome to Bytspot early access.<br />Your welcome email is on its way.</>}
                 </p>
               </div>
 
-              <div className="pt-4">
+              {!onComplete && (
+                <motion.a
+                  href="https://beta.bytspot.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl bg-gradient-to-r from-purple-600 to-cyan-600 text-white font-bold text-lg shadow-lg shadow-purple-500/30"
+                >
+                  <span>Open Beta App</span>
+                  <ArrowRight className="w-5 h-5" />
+                </motion.a>
+              )}
+
+              <div className="pt-1">
                 <div className="text-sm font-medium text-purple-400 bg-purple-400/10 py-2 px-4 rounded-lg inline-block">
-                  {onComplete ? 'Entering Bytspot Preview...' : "We'll be in touch soon."}
+                  {onComplete ? 'Entering Bytspot Preview...' : 'Live crowd data · Smart parking · Ride ETAs'}
                 </div>
               </div>
 

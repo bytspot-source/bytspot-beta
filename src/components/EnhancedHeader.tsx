@@ -11,6 +11,9 @@ import {
   saveCulturalContext,
   getCulturalContext,
   trackFrequentLocation,
+  resolveCulturalContext,
+  inferCountryFromAffinities,
+  saveCulturalIdentity,
 } from '../utils/personalization';
 
 interface EnhancedHeaderProps {
@@ -25,35 +28,50 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
   const [aiRecs, setAiRecs] = useState(8);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Request geolocation on mount (with user consent) and infer cultural context
+  // 1. GPS geolocation on mount — stored as LOCATION context (Tier 2 fallback only).
+  //    A user's cultural identity (cuisineAffinities / culturalIdentity in prefs)
+  //    always takes priority over GPS in resolveCulturalContext().
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        // Infer cultural context from coords (client-side only — coords never leave device)
-        const context = inferCulturalContext(latitude, longitude);
-        saveCulturalContext(context);
+        // Store GPS-inferred context as location signal (NOT identity)
+        const gpsCtx = inferCulturalContext(latitude, longitude);
+        saveCulturalContext(gpsCtx);
         trackFrequentLocation(latitude, longitude);
+
+        // If user has cuisine affinities, persist their derived identity so
+        // the next cold-start resolves identity-first without needing GPS.
+        const prefs = getUserPreferences();
+        if (prefs?.cuisineAffinities?.length) {
+          const { inferCountryFromAffinities: infer } = { inferCountryFromAffinities: inferCountryFromAffinities };
+          const country = infer(prefs.cuisineAffinities);
+          if (country) saveCulturalIdentity(country);
+        }
       },
       () => { /* permission denied or unavailable — use cached context if any */ },
-      { timeout: 5000, maximumAge: 3600000 } // cache geo for 1 hour
+      { timeout: 5000, maximumAge: 3600000 } // cache geo result for 1 hour
     );
   }, []);
 
-  // 2. Fetch live stats + derive AI recs count (uses cultural context if available)
+  // 2. Fetch live stats + derive AI recs using identity-first context resolution.
+  //    resolveCulturalContext() inside getPersonalizedCategories() ensures:
+  //    - Ghanaian user in Atlanta → Ghanaian recommendations (identity wins)
+  //    - New user with no prefs in Atlanta → Atlanta/USA recommendations (GPS fallback)
   useEffect(() => {
     statsApi.get().then(res => {
       if (res.success) {
         setSpotsNearby(res.data.venueCount);
-        // Derive AI recs using cultural context
+
         const prefs = getUserPreferences();
         const behavior = getUserBehavior();
-        const cultural = getCulturalContext(); // may be null on first load
-        const categories = getPersonalizedCategories(prefs, behavior, cultural);
+        // Pass the GPS context — getPersonalizedCategories internally calls
+        // resolveCulturalContext(prefs, gpsCtx) and identity preferences win.
+        const gpsCtx = getCulturalContext();
+        const categories = getPersonalizedCategories(prefs, behavior, gpsCtx);
         const highPriority = categories.filter(c => c.priority >= 50).length;
-        // Scale recs by venue count — at least 1, at most total venues
         const recs = Math.max(
           1,
           Math.min(

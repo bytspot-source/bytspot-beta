@@ -44,7 +44,20 @@ export interface UserPreferences {
   vibePreferences?: {
     selectedVibes: string[];
   };
-  /** Inferred from geolocation — user can override in settings */
+  /**
+   * User's cuisine/food affinities — the primary cultural identity signal.
+   * Collected during onboarding via "What cuisines do you love?" picker.
+   * Examples: ["west african", "jollof", "fufu"] → resolves to Ghana cultural profile.
+   * Intentionally framed around food, not nationality, to avoid friction.
+   */
+  cuisineAffinities?: string[];
+  /**
+   * Explicit cultural identity override — a country key (e.g., "Ghana", "Nigeria").
+   * Set programmatically from cuisineAffinities inference, or manually in Profile settings.
+   * Takes highest priority in the cultural context resolution chain.
+   */
+  culturalIdentity?: string;
+  /** @deprecated Use cuisineAffinities + culturalIdentity instead. Kept for backward compat. */
   culturalContext?: CulturalContext;
 }
 
@@ -198,9 +211,174 @@ const DEFAULT_CULTURAL_MAPPING: CulturalMapping = {
   categoryBoosts: {},
 };
 
+// ─── Identity → Culture Map ───────────────────────────────────────────────────
+// Maps lowercase cuisine labels, dish names, and music vibes → canonical country key.
+// Used by inferCountryFromAffinities() to turn food/vibe picks into cultural identity.
+// Two-weight system: broad category labels score 2 pts, individual dishes score 1 pt.
+
+const AFFINITY_CULTURE_MAP: Record<string, { country: string; weight: 1 | 2 }> = {
+  // ── Broad labels (weight 2) ─────────────────────────────────────────────────
+  'west african':    { country: 'Ghana',        weight: 2 },
+  'ghanaian':        { country: 'Ghana',        weight: 2 },
+  'nigerian':        { country: 'Nigeria',      weight: 2 },
+  'ivorian':         { country: 'Ivory Coast',  weight: 2 },
+  'senegalese':      { country: 'Senegal',      weight: 2 },
+  'east african':    { country: 'Kenya',        weight: 2 },
+  'kenyan':          { country: 'Kenya',        weight: 2 },
+  'ethiopian':       { country: 'Ethiopia',     weight: 2 },
+  'south african':   { country: 'South Africa', weight: 2 },
+  'north african':   { country: 'Egypt',        weight: 2 },
+  'british':         { country: 'UK',           weight: 2 },
+  'french':          { country: 'France',       weight: 2 },
+  'german':          { country: 'Germany',      weight: 2 },
+  'dutch':           { country: 'Netherlands',  weight: 2 },
+  'spanish':         { country: 'Spain',        weight: 2 },
+  'italian':         { country: 'Italy',        weight: 2 },
+  'american':        { country: 'USA',          weight: 2 },
+  'canadian':        { country: 'Canada',       weight: 2 },
+  'brazilian':       { country: 'Brazil',       weight: 2 },
+  'mexican':         { country: 'Mexico',       weight: 2 },
+  'indian':          { country: 'India',        weight: 2 },
+  'chinese':         { country: 'China',        weight: 2 },
+  'japanese':        { country: 'Japan',        weight: 2 },
+  'australian':      { country: 'Australia',    weight: 2 },
+  'middle eastern':  { country: 'UAE',          weight: 2 },
+  'arabic':          { country: 'UAE',          weight: 2 },
+  // ── Ghanaian dishes (weight 1) ──────────────────────────────────────────────
+  'jollof':          { country: 'Ghana',        weight: 1 },
+  'fufu':            { country: 'Ghana',        weight: 1 },
+  'waakye':          { country: 'Ghana',        weight: 1 },
+  'kenkey':          { country: 'Ghana',        weight: 1 },
+  'kelewele':        { country: 'Ghana',        weight: 1 },
+  'banku':           { country: 'Ghana',        weight: 1 },
+  'highlife':        { country: 'Ghana',        weight: 1 },
+  'hiplife':         { country: 'Ghana',        weight: 1 },
+  'azonto':          { country: 'Ghana',        weight: 1 },
+  // ── Nigerian dishes + vibes (weight 1) ─────────────────────────────────────
+  'suya':            { country: 'Nigeria',      weight: 1 },
+  'egusi':           { country: 'Nigeria',      weight: 1 },
+  'pepper soup':     { country: 'Nigeria',      weight: 1 },
+  'afropop':         { country: 'Nigeria',      weight: 1 },
+  'fuji':            { country: 'Nigeria',      weight: 1 },
+  // ── Shared West Africa vibe (resolves to Ghana as primary market) ───────────
+  'afrobeats':       { country: 'Ghana',        weight: 1 },
+  'amapiano':        { country: 'South Africa', weight: 1 },
+  // ── South African (weight 1) ────────────────────────────────────────────────
+  'braai':           { country: 'South Africa', weight: 1 },
+  'bunny chow':      { country: 'South Africa', weight: 1 },
+  'biltong':         { country: 'South Africa', weight: 1 },
+  'kwaito':          { country: 'South Africa', weight: 1 },
+  // ── Japanese (weight 1) ─────────────────────────────────────────────────────
+  'ramen':           { country: 'Japan',        weight: 1 },
+  'sushi':           { country: 'Japan',        weight: 1 },
+  'j-pop':           { country: 'Japan',        weight: 1 },
+  // ── Indian (weight 1) ───────────────────────────────────────────────────────
+  'biryani':         { country: 'India',        weight: 1 },
+  'curry':           { country: 'India',        weight: 1 },
+  'bollywood':       { country: 'India',        weight: 1 },
+  'bhangra':         { country: 'India',        weight: 1 },
+  // ── German (weight 1) ───────────────────────────────────────────────────────
+  'bratwurst':       { country: 'Germany',      weight: 1 },
+  'schnitzel':       { country: 'Germany',      weight: 1 },
+  'techno':          { country: 'Germany',      weight: 1 },
+  // ── British (weight 1) ──────────────────────────────────────────────────────
+  'fish and chips':  { country: 'UK',           weight: 1 },
+  'grime':           { country: 'UK',           weight: 1 },
+  // ── American (weight 1) ─────────────────────────────────────────────────────
+  'bbq':             { country: 'USA',          weight: 1 },
+  'brunch':          { country: 'USA',          weight: 1 },
+  // ── Emirati/Middle East (weight 1) ──────────────────────────────────────────
+  'shawarma':        { country: 'UAE',          weight: 1 },
+  'mandi':           { country: 'UAE',          weight: 1 },
+};
+
+// ─── Identity Resolution Functions ───────────────────────────────────────────
+
+/**
+ * Build a full CulturalContext from a canonical country key.
+ * Used to construct context from user-declared identity.
+ */
+export function buildContextFromCountry(country: string): CulturalContext {
+  const regionEntry = REGION_MAP.find(r => r.country === country);
+  const mapping = CULTURAL_MAPPINGS[country] ?? DEFAULT_CULTURAL_MAPPING;
+  return {
+    country,
+    region: regionEntry?.region ?? 'Global',
+    inferredCuisinePreferences: mapping.cuisine,
+    inferredVibePreferences: mapping.vibes,
+  };
+}
+
+/**
+ * Infer the most likely country from a list of cuisine/vibe affinity strings.
+ * Uses a weighted voting system — the country with the most votes wins.
+ * Returns null if no affinities match known cultures.
+ */
+export function inferCountryFromAffinities(affinities: string[]): string | null {
+  if (!affinities.length) return null;
+
+  const votes: Record<string, number> = {};
+  for (const affinity of affinities) {
+    const normalized = affinity.toLowerCase().trim();
+    const entry = AFFINITY_CULTURE_MAP[normalized];
+    if (entry) {
+      votes[entry.country] = (votes[entry.country] ?? 0) + entry.weight;
+    }
+  }
+
+  const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
+  return ranked.length > 0 ? ranked[0][0] : null;
+}
+
+/**
+ * Resolve the authoritative cultural context using a 3-tier priority chain.
+ *
+ * Tier 1 — IDENTITY (who the user IS):
+ *   1a. Explicit `culturalIdentity` country key set in preferences/settings
+ *   1b. Inferred from `cuisineAffinities` (food picks from onboarding)
+ *   1c. Inferred from `vibePreferences.selectedVibes` (music picks)
+ *
+ * Tier 2 — LOCATION (where the user IS right now):
+ *   GPS-inferred context from bounding-box geocoding
+ *
+ * Tier 3 — Nothing available: returns null
+ *
+ * This ensures a Ghanaian in Atlanta gets Ghanaian recommendations,
+ * not American ones, as long as they picked their food/vibe preferences.
+ */
+export function resolveCulturalContext(
+  preferences?: UserPreferences,
+  gpsContext?: CulturalContext | null
+): CulturalContext | null {
+  // Tier 1a: Explicit country key set by user in settings or onboarding
+  if (preferences?.culturalIdentity) {
+    return buildContextFromCountry(preferences.culturalIdentity);
+  }
+
+  // Tier 1b: Infer from cuisine affinities (food picks)
+  if (preferences?.cuisineAffinities?.length) {
+    const country = inferCountryFromAffinities(preferences.cuisineAffinities);
+    if (country) return buildContextFromCountry(country);
+  }
+
+  // Tier 1c: Infer from vibe/music preferences
+  if (preferences?.vibePreferences?.selectedVibes?.length) {
+    const country = inferCountryFromAffinities(preferences.vibePreferences.selectedVibes);
+    if (country) return buildContextFromCountry(country);
+  }
+
+  // Tier 2: GPS-inferred location (fallback for users who haven't declared identity)
+  if (gpsContext && gpsContext.country !== 'Unknown') return gpsContext;
+
+  // Tier 3: No context available
+  return null;
+}
+
 // ─── Inference Functions ──────────────────────────────────────────────────────
 
 const LOCATION_CONTEXT_KEY = 'bytspot_user_location_context';
+/** Separate key for user-declared cultural identity — kept distinct from GPS context */
+const CULTURAL_IDENTITY_KEY = 'bytspot_cultural_identity';
 
 /**
  * Infer cultural context from lat/lng using local bounding box lookup.
@@ -227,19 +405,37 @@ export function inferCulturalContext(lat: number, lng: number): CulturalContext 
 }
 
 /**
- * Save inferred cultural context to localStorage (city/region level only, no precise coords).
+ * Save GPS-inferred cultural context to localStorage (city/region level only, no precise coords).
+ * This is LOCATION context — separate from the user's cultural identity.
  */
 export function saveCulturalContext(context: CulturalContext): void {
   localStorage.setItem(LOCATION_CONTEXT_KEY, JSON.stringify(context));
 }
 
 /**
- * Load previously saved cultural context.
+ * Load GPS-inferred cultural context (location context only).
+ * Use resolveCulturalContext() to get the full priority-resolved context instead.
  */
 export function getCulturalContext(): CulturalContext | null {
   const raw = localStorage.getItem(LOCATION_CONTEXT_KEY);
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
+}
+
+/**
+ * Persist the user's declared cultural identity (country key, e.g. "Ghana").
+ * Call this after the user picks their cuisineAffinities in onboarding,
+ * or when they explicitly change their cultural identity in settings.
+ */
+export function saveCulturalIdentity(country: string): void {
+  localStorage.setItem(CULTURAL_IDENTITY_KEY, country);
+}
+
+/**
+ * Load the user's previously declared cultural identity country key.
+ */
+export function getSavedCulturalIdentity(): string | null {
+  return localStorage.getItem(CULTURAL_IDENTITY_KEY);
 }
 
 /**
@@ -292,13 +488,14 @@ export function trackFrequentLocation(lat: number, lng: number): void {
 export function getPersonalizedCategories(
   preferences?: UserPreferences,
   behavior?: UserBehavior,
-  locationContext?: CulturalContext | null
+  /** GPS-inferred location context. Treated as Tier 2 — identity preferences win over GPS. */
+  gpsContext?: CulturalContext | null
 ): CategorySuggestion[] {
-  // Resolve cultural context: explicit param > stored in prefs > localStorage
-  const cultural =
-    locationContext ??
-    preferences?.culturalContext ??
-    getCulturalContext();
+  // ── Priority chain: identity > GPS location > null ──────────────────────────
+  // resolveCulturalContext ensures a Ghanaian user in Atlanta gets Ghanaian
+  // recommendations because their cuisineAffinities / culturalIdentity rank
+  // higher than the GPS-inferred USA context.
+  const cultural = resolveCulturalContext(preferences, gpsContext ?? getCulturalContext());
 
   // Create cache keys
   const prefsKey = JSON.stringify(preferences || {});

@@ -55,9 +55,9 @@ export function HostLanding({ isDarkMode, onGetStarted, onBackToMain }: HostLand
     },
     {
       icon: Users,
-      title: 'Verified Drivers Only',
+      title: 'Verified Valet Drivers and Vendors Only',
       teaser: '500+ hosts in Atlanta',
-      description: 'Every driver on Bytspot goes through ID verification and a background check before they can book. You\'re not opening your space to strangers — you\'re welcoming vetted members of a trusted local community.',
+      description: 'Every valet driver and vendor on Bytspot goes through ID verification and a background check before they can book. You\'re not opening your space to strangers — you\'re welcoming vetted members of a trusted local community.',
       gradient: 'from-pink-500 to-rose-500',
     },
     {

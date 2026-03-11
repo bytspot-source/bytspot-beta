@@ -1,7 +1,45 @@
 // Mock data for Valet Driver App
 
-export type JobStatus = 'pending' | 'accepted' | 'en_route_pickup' | 'picked_up' | 'en_route_delivery' | 'delivered' | 'completed' | 'cancelled';
+export type JobStatus =
+  | 'pending'
+  | 'accepted'
+  | 'en_route_pickup'
+  | 'in_inspection'    // driver arrived, taking 360° photos + trunk mat
+  | 'picked_up'
+  | 'en_route_delivery'
+  | 'in_transit'       // vehicle in motion — telematics active
+  | 'parked'           // delivered to spot, waiting for clean-close photos
+  | 'delivered'
+  | 'clean_close'      // driver confirms trunk clean, removes e-bike
+  | 'completed'
+  | 'cancelled';
+
 export type VehicleSize = 'compact' | 'sedan' | 'suv' | 'luxury' | 'sports';
+
+/** Transmission type — determines manual certification requirement */
+export type TransmissionType = 'automatic' | 'manual' | 'ev';
+
+/** Trunk space category — determines e-bike compatibility */
+export type TrunkCategory =
+  | 'full'        // sedan/SUV/truck with ≥12 cu ft
+  | 'compact'     // hatchback / coupe with 7–11 cu ft
+  | 'frunk_only'  // mid-engine sports car (Porsche 911, McLaren) — frunk only
+  | 'none';       // roadster / open top / motorcycle
+
+/** Driver certifications that can be required per job */
+export type DriverCertification = 'manual_transmission' | 'ev_specialist' | 'luxury_handling' | 'etiquette_gold';
+
+/** Driver's registered e-bike gear */
+export interface EBikeSpec {
+  brand: string;
+  model: string;
+  foldedLengthCm: number;
+  foldedWidthCm: number;
+  foldedHeightCm: number;
+  weightKg: number;
+  /** Compact = folded length ≤ 80 cm; fits in most car trunks */
+  sizeClass: 'compact' | 'standard' | 'large';
+}
 
 export interface AddonService {
   id: string;
@@ -22,6 +60,12 @@ export interface ValetJob {
     color: string;
     plate: string;
     size: VehicleSize;
+    /** Transmission type — flags manual certification gate */
+    transmissionType: TransmissionType;
+    /** Available trunk space category — gates e-bike fit check */
+    trunkCategory: TrunkCategory;
+    /** True if vehicle is pure-EV requiring EV specialist cert */
+    requiresEVSpecialist: boolean;
   };
   pickupLocation: {
     name: string;
@@ -62,6 +106,9 @@ export const mockActiveJobs: ValetJob[] = [
       color: 'Midnight Silver',
       plate: 'TSLA 123',
       size: 'luxury',
+      transmissionType: 'ev',
+      trunkCategory: 'full',
+      requiresEVSpecialist: true,
     },
     pickupLocation: {
       name: 'The Ritz-Carlton',
@@ -98,6 +145,9 @@ export const mockActiveJobs: ValetJob[] = [
       color: 'Black Sapphire',
       plate: 'BMW 789',
       size: 'luxury',
+      transmissionType: 'manual',
+      trunkCategory: 'compact',
+      requiresEVSpecialist: false,
     },
     pickupLocation: {
       name: 'Ferry Building',
@@ -133,6 +183,9 @@ export const mockActiveJobs: ValetJob[] = [
       color: 'Obsidian Black',
       plate: 'MERC 456',
       size: 'luxury',
+      transmissionType: 'automatic',
+      trunkCategory: 'full',
+      requiresEVSpecialist: false,
     },
     pickupLocation: {
       name: 'Union Square',
@@ -168,6 +221,9 @@ export const mockCompletedJobs: ValetJob[] = [
       color: 'Guards Red',
       plate: 'POR 911',
       size: 'sports',
+      transmissionType: 'manual',
+      trunkCategory: 'frunk_only',
+      requiresEVSpecialist: false,
     },
     pickupLocation: {
       name: 'Salesforce Tower',
@@ -202,6 +258,9 @@ export const mockCompletedJobs: ValetJob[] = [
       color: 'Glacier White',
       plate: 'AUD 888',
       size: 'luxury',
+      transmissionType: 'automatic',
+      trunkCategory: 'full',
+      requiresEVSpecialist: false,
     },
     pickupLocation: {
       name: 'Moscone Center',
@@ -236,6 +295,9 @@ export const mockCompletedJobs: ValetJob[] = [
       color: 'Atomic Silver',
       plate: 'LEX 500',
       size: 'luxury',
+      transmissionType: 'automatic',
+      trunkCategory: 'full',
+      requiresEVSpecialist: false,
     },
     pickupLocation: {
       name: 'Palace Hotel',
@@ -286,6 +348,20 @@ export const mockDriverProfile = {
     policyNumber: 'BYT-VLT-123456',
     expiryDate: '2026-12-31',
   },
+  /** Active certifications held by this driver */
+  certifications: ['manual_transmission', 'ev_specialist', 'luxury_handling', 'etiquette_gold'] as DriverCertification[],
+  /** Registered e-bike used for last-mile to/from customer */
+  gearRegistry: {
+    brand: 'Brompton',
+    model: 'Electric C Line',
+    foldedLengthCm: 59,
+    foldedWidthCm: 27,
+    foldedHeightCm: 59,
+    weightKg: 16.6,
+    sizeClass: 'compact',
+  } as EBikeSpec,
+  /** Battery percentage — checked before going online; <20% gates new jobs */
+  eBikeBatteryLevel: 87,
   status: 'active' as const,
   onlineStatus: 'available' as const,
 };

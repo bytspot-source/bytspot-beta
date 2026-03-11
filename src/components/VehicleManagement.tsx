@@ -1,7 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Car, Edit, Trash2, Camera, Save, X } from 'lucide-react';
+import { ArrowLeft, Plus, Car, Edit, Trash2, Camera, Save, X, Search, Package } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { toast } from 'sonner@2.0.3';
+import type { TransmissionType, TrunkCategory } from '../utils/valetMockData';
 
 interface VehicleManagementProps {
   isDarkMode: boolean;
@@ -17,18 +18,23 @@ interface Vehicle {
   color: string;
   licensePlate: string;
   photo?: string;
+  vin?: string;
+  transmissionType: TransmissionType;
+  trunkCategory: TrunkCategory;
 }
 
 export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([
     {
       id: '1',
-      type: 'sedan',
+      type: 'ev',
       make: 'Tesla',
       model: 'Model 3',
       year: 2023,
       color: 'Midnight Silver',
       licensePlate: '7ABC123',
+      transmissionType: 'ev',
+      trunkCategory: 'full',
     },
   ]);
 
@@ -37,6 +43,7 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [isLookingUpVin, setIsLookingUpVin] = useState(false);
   const [formData, setFormData] = useState({
     type: 'sedan' as Vehicle['type'],
     make: '',
@@ -45,6 +52,9 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
     color: '',
     licensePlate: '',
     photo: undefined as string | undefined,
+    vin: '',
+    transmissionType: 'automatic' as TransmissionType,
+    trunkCategory: 'full' as TrunkCategory,
   });
 
   const springConfig = {
@@ -64,6 +74,72 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
 
   const getVehicleColor = (type: Vehicle['type']) => {
     return vehicleTypes.find(t => t.value === type)?.color || 'from-gray-500/40 to-gray-700/40';
+  };
+
+  const transmissionOptions: { value: TransmissionType; label: string; icon: string }[] = [
+    { value: 'automatic', label: 'Automatic', icon: '🔄' },
+    { value: 'manual', label: 'Manual', icon: '🔧' },
+    { value: 'ev', label: 'EV / No Clutch', icon: '⚡' },
+  ];
+
+  const trunkOptions: { value: TrunkCategory; label: string; note: string; icon: string }[] = [
+    { value: 'full', label: 'Full Trunk', note: '≥ 12 cu ft — fits standard e-bike', icon: '📦' },
+    { value: 'compact', label: 'Compact Trunk', note: '7–11 cu ft — fits folded compact bike', icon: '🎒' },
+    { value: 'frunk_only', label: 'Frunk Only', note: 'Mid-engine sports (Porsche 911, etc.)', icon: '🏎️' },
+    { value: 'none', label: 'No Trunk', note: 'Roadster / convertible / motorcycle', icon: '🏍️' },
+  ];
+
+  const getTrunkBadge = (trunkCategory: TrunkCategory) => {
+    switch (trunkCategory) {
+      case 'full': return { label: 'Full Trunk', color: 'bg-green-500/20 border-green-400/50 text-green-300' };
+      case 'compact': return { label: 'Compact Trunk', color: 'bg-yellow-500/20 border-yellow-400/50 text-yellow-300' };
+      case 'frunk_only': return { label: 'Frunk Only', color: 'bg-orange-500/20 border-orange-400/50 text-orange-300' };
+      case 'none': return { label: 'No Trunk', color: 'bg-red-500/20 border-red-400/50 text-red-300' };
+    }
+  };
+
+  const getTransmissionBadge = (transmissionType: TransmissionType) => {
+    switch (transmissionType) {
+      case 'manual': return { label: '🔧 Manual', color: 'bg-purple-500/20 border-purple-400/50 text-purple-300' };
+      case 'ev': return { label: '⚡ EV', color: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300' };
+      default: return { label: '🔄 Auto', color: 'bg-white/10 border-white/30 text-white/70' };
+    }
+  };
+
+  /** Stub: calls NHTSA vPIC API to decode VIN and auto-fill make/model/year */
+  const handleVinLookup = async () => {
+    if (!formData.vin || formData.vin.length !== 17) {
+      toast.error('Invalid VIN', { description: 'VIN must be exactly 17 characters' });
+      return;
+    }
+    setIsLookingUpVin(true);
+    try {
+      const res = await fetch(
+        `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${formData.vin}?format=json`
+      );
+      const data = await res.json();
+      const result = data?.Results?.[0];
+      if (result && result.Make) {
+        const year = parseInt(result.ModelYear) || formData.year;
+        const trType = result.TransmissionStyle?.toLowerCase().includes('manual') ? 'manual'
+          : result.FuelTypePrimary?.toLowerCase().includes('electric') ? 'ev'
+          : 'automatic';
+        setFormData(prev => ({
+          ...prev,
+          make: result.Make || prev.make,
+          model: result.Model || prev.model,
+          year,
+          transmissionType: trType as TransmissionType,
+        }));
+        toast.success('VIN decoded', { description: `${year} ${result.Make} ${result.Model}` });
+      } else {
+        toast.error('VIN not found', { description: 'Check the VIN and try again' });
+      }
+    } catch {
+      toast.error('Lookup failed', { description: 'NHTSA API unavailable — fill in manually' });
+    } finally {
+      setIsLookingUpVin(false);
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,6 +179,9 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
       color: '',
       licensePlate: '',
       photo: undefined,
+      vin: '',
+      transmissionType: 'automatic',
+      trunkCategory: 'full',
     });
     setShowAddEdit(true);
   };
@@ -117,6 +196,9 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
       color: vehicle.color,
       licensePlate: vehicle.licensePlate,
       photo: vehicle.photo,
+      vin: vehicle.vin || '',
+      transmissionType: vehicle.transmissionType,
+      trunkCategory: vehicle.trunkCategory,
     });
     setShowAddEdit(true);
   };
@@ -362,6 +444,112 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
                   style={{ fontWeight: 600, letterSpacing: '0.1em' }}
                 />
               </div>
+
+              {/* VIN Lookup */}
+              <div>
+                <label className="text-[13px] text-white/80 mb-2 block" style={{ fontWeight: 500 }}>
+                  VIN (Optional — auto-fills details)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={formData.vin}
+                    onChange={(e) => setFormData({ ...formData, vin: e.target.value.toUpperCase() })}
+                    placeholder="17-character VIN"
+                    maxLength={17}
+                    className="flex-1 rounded-[16px] px-4 py-3 border-2 border-white/30 bg-white/5 text-[13px] outline-none text-white placeholder:text-white/40 uppercase"
+                    style={{ fontWeight: 500, letterSpacing: '0.05em' }}
+                  />
+                  <motion.button
+                    onClick={handleVinLookup}
+                    disabled={isLookingUpVin}
+                    className="px-4 py-3 rounded-[16px] border-2 border-cyan-400/50 bg-cyan-500/20 flex items-center gap-2"
+                    whileTap={{ scale: 0.95 }}
+                    transition={springConfig}
+                  >
+                    {isLookingUpVin
+                      ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <Search className="w-4 h-4 text-cyan-300" strokeWidth={2.5} />}
+                  </motion.button>
+                </div>
+                <p className="text-[11px] text-white/40 mt-1" style={{ fontWeight: 400 }}>
+                  Powered by NHTSA vPIC — decodes make, model, year &amp; transmission
+                </p>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Transmission Type */}
+          <motion.div
+            className="rounded-[24px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.25 }}
+          >
+            <h3 className="text-[17px] mb-1 text-white" style={{ fontWeight: 600 }}>
+              Transmission Type *
+            </h3>
+            <p className="text-[12px] text-white/50 mb-4" style={{ fontWeight: 400 }}>
+              Required for manual-certified driver matching
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {transmissionOptions.map((opt) => (
+                <motion.button
+                  key={opt.value}
+                  onClick={() => setFormData({ ...formData, transmissionType: opt.value })}
+                  className={`rounded-[16px] p-4 border-2 text-center ${
+                    formData.transmissionType === opt.value
+                      ? 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-white/50'
+                      : 'bg-white/5 border-white/30'
+                  }`}
+                  whileTap={{ scale: 0.97 }}
+                  transition={springConfig}
+                >
+                  <div className="text-[24px] mb-1">{opt.icon}</div>
+                  <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>{opt.label}</span>
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Trunk Space */}
+          <motion.div
+            className="rounded-[24px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.3 }}
+          >
+            <h3 className="text-[17px] mb-1 text-white" style={{ fontWeight: 600 }}>
+              Trunk Space *
+            </h3>
+            <p className="text-[12px] text-white/50 mb-4" style={{ fontWeight: 400 }}>
+              Used to match drivers with compatible e-bikes
+            </p>
+            <div className="space-y-2">
+              {trunkOptions.map((opt) => (
+                <motion.button
+                  key={opt.value}
+                  onClick={() => setFormData({ ...formData, trunkCategory: opt.value })}
+                  className={`w-full rounded-[16px] p-4 border-2 flex items-center gap-4 text-left ${
+                    formData.trunkCategory === opt.value
+                      ? 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 border-purple-400/60'
+                      : 'bg-white/5 border-white/30'
+                  }`}
+                  whileTap={{ scale: 0.98 }}
+                  transition={springConfig}
+                >
+                  <span className="text-[28px]">{opt.icon}</span>
+                  <div>
+                    <div className="text-[15px] text-white" style={{ fontWeight: 600 }}>{opt.label}</div>
+                    <div className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>{opt.note}</div>
+                  </div>
+                  {formData.trunkCategory === opt.value && (
+                    <div className="ml-auto w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center">
+                      <Package className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+                    </div>
+                  )}
+                </motion.button>
+              ))}
             </div>
           </motion.div>
 
@@ -445,13 +633,21 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
                   <h3 className="text-[17px] mb-1 text-white truncate" style={{ fontWeight: 600 }}>
                     {vehicle.year} {vehicle.make} {vehicle.model}
                   </h3>
-                  <p className="text-[15px] text-white/80 mb-2" style={{ fontWeight: 400 }}>
+                  <p className="text-[13px] text-white/70 mb-2" style={{ fontWeight: 400 }}>
                     {vehicle.color}
                   </p>
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/10 border border-white/30">
-                    <span className="text-[13px] text-white" style={{ fontWeight: 600, letterSpacing: '0.05em' }}>
-                      {vehicle.licensePlate}
-                    </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/30">
+                      <span className="text-[12px] text-white" style={{ fontWeight: 600, letterSpacing: '0.05em' }}>
+                        {vehicle.licensePlate}
+                      </span>
+                    </div>
+                    <div className={`inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] ${getTransmissionBadge(vehicle.transmissionType).color}`} style={{ fontWeight: 600 }}>
+                      {getTransmissionBadge(vehicle.transmissionType).label}
+                    </div>
+                    <div className={`inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] ${getTrunkBadge(vehicle.trunkCategory).color}`} style={{ fontWeight: 600 }}>
+                      {getTrunkBadge(vehicle.trunkCategory).label}
+                    </div>
                   </div>
                 </div>
 

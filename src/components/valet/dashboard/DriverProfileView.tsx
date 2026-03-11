@@ -1,8 +1,8 @@
 import { motion } from 'motion/react';
-import { 
-  User, 
-  Star, 
-  Briefcase, 
+import {
+  User,
+  Star,
+  Briefcase,
   Calendar,
   Car,
   IdCard,
@@ -12,17 +12,19 @@ import {
   HelpCircle,
   LogOut,
   Award,
-  MapPin
+  MapPin,
+  Bike,
 } from 'lucide-react';
 import { useState } from 'react';
 import { mockDriverProfile } from '../../../utils/valetMockData';
 import { LocationSettings } from '../../LocationSettings';
+import { DriverGearRegistry } from './DriverGearRegistry';
 
 interface DriverProfileViewProps {
   isDarkMode: boolean;
 }
 
-type DriverScreen = 'main' | 'location-settings';
+type DriverScreen = 'main' | 'location-settings' | 'gear-registry';
 
 export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
   const [currentScreen, setCurrentScreen] = useState<DriverScreen>('main');
@@ -38,6 +40,16 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
   if (currentScreen === 'location-settings') {
     return <LocationSettings isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} userRole="driver" />;
   }
+  if (currentScreen === 'gear-registry') {
+    return (
+      <DriverGearRegistry
+        isDarkMode={isDarkMode}
+        onBack={() => setCurrentScreen('main')}
+        initialGear={mockDriverProfile.gearRegistry}
+        initialBattery={mockDriverProfile.eBikeBatteryLevel}
+      />
+    );
+  }
 
   const menuItems = [
     {
@@ -46,6 +58,13 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
       description: 'Required for job tracking and dispatch',
       color: 'text-blue-400',
       screen: 'location-settings' as DriverScreen,
+    },
+    {
+      icon: Bike,
+      label: 'Gear Registry',
+      description: `E-bike specs & battery — ${mockDriverProfile.eBikeBatteryLevel}% charged`,
+      color: 'text-green-400',
+      screen: 'gear-registry' as DriverScreen,
     },
     {
       icon: Settings,

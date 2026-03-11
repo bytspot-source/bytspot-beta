@@ -16,7 +16,7 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { mockActiveJobs, type ValetJob, type AddonService } from '../../../utils/valetMockData';
+import { mockActiveJobs, mockDriverProfile, type ValetJob, type AddonService } from '../../../utils/valetMockData';
 import { useState } from 'react';
 
 interface ActiveJobsViewProps {
@@ -38,6 +38,42 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
     stiffness: 320,
     damping: 30,
     mass: 0.8,
+  };
+
+  const driverProfile = mockDriverProfile;
+  const driverBattery = driverProfile.eBikeBatteryLevel;
+  const driverBikeSize = driverProfile.gearRegistry.sizeClass;
+  const driverCerts = driverProfile.certifications;
+  const batteryGate = driverBattery < 20;
+
+  /**
+   * Returns an array of compatibility warning strings for a job.
+   * Empty array = fully compatible.
+   */
+  const getCompatibilityWarnings = (job: ValetJob): string[] => {
+    const warnings: string[] = [];
+    const v = job.vehicleInfo;
+
+    // 1. Skill gate — manual transmission
+    if (v.transmissionType === 'manual' && !driverCerts.includes('manual_transmission')) {
+      warnings.push('🔧 Manual Transmission Certification Required');
+    }
+
+    // 2. Skill gate — EV specialist
+    if (v.requiresEVSpecialist && !driverCerts.includes('ev_specialist')) {
+      warnings.push('⚡ EV Specialist Certification Required');
+    }
+
+    // 3. Space gate — trunk vs e-bike size
+    if (v.trunkCategory === 'none') {
+      warnings.push('🚫 No Trunk — E-bike transport not possible');
+    } else if (v.trunkCategory === 'frunk_only' && driverBikeSize !== 'compact') {
+      warnings.push('🏎️ Frunk Only — Compact E-Bike Required (yours: ' + driverBikeSize + ')');
+    } else if (v.trunkCategory === 'compact' && driverBikeSize === 'large') {
+      warnings.push('🎒 Compact Trunk — Standard or Compact E-Bike Required');
+    }
+
+    return warnings;
   };
 
   const handleAcceptJob = (jobId: string) => {
@@ -96,6 +132,8 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
   const renderJobCard = (job: ValetJob, index: number) => {
     const isPending = job.status === 'pending';
     const isAccepted = job.status === 'accepted';
+    const compatibilityWarnings = getCompatibilityWarnings(job);
+    const isBlocked = compatibilityWarnings.length > 0 || batteryGate;
 
     return (
       <motion.div
@@ -105,6 +143,52 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: index * 0.1 }}
       >
+        {/* Battery Gate Banner */}
+        {batteryGate && (
+          <div className="flex items-center gap-2 mb-3 p-3 rounded-[12px] bg-red-500/20 border border-red-400/40">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" strokeWidth={2.5} />
+            <span className="text-[13px] text-red-300" style={{ fontWeight: 600 }}>
+              🔋 E-bike battery below 20% — charge before accepting jobs
+            </span>
+          </div>
+        )}
+
+        {/* Compatibility Warnings */}
+        {!batteryGate && compatibilityWarnings.length > 0 && (
+          <div className="mb-3 p-3 rounded-[12px] bg-orange-500/15 border border-orange-400/40 space-y-1">
+            {compatibilityWarnings.map((w, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" strokeWidth={2.5} />
+                <span className="text-[12px] text-orange-300" style={{ fontWeight: 600 }}>{w}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Vehicle Compatibility Badges */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {job.vehicleInfo.transmissionType === 'manual' && (
+            <div className="px-2.5 py-1 rounded-full bg-purple-500/20 border border-purple-400/40">
+              <span className="text-[11px] text-purple-300" style={{ fontWeight: 600 }}>🔧 Manual</span>
+            </div>
+          )}
+          {job.vehicleInfo.transmissionType === 'ev' && (
+            <div className="px-2.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/40">
+              <span className="text-[11px] text-cyan-300" style={{ fontWeight: 600 }}>⚡ EV</span>
+            </div>
+          )}
+          {job.vehicleInfo.trunkCategory === 'frunk_only' && (
+            <div className="px-2.5 py-1 rounded-full bg-orange-500/20 border border-orange-400/40">
+              <span className="text-[11px] text-orange-300" style={{ fontWeight: 600 }}>🏎️ Frunk Only</span>
+            </div>
+          )}
+          {job.vehicleInfo.trunkCategory === 'none' && (
+            <div className="px-2.5 py-1 rounded-full bg-red-500/20 border border-red-400/40">
+              <span className="text-[11px] text-red-300" style={{ fontWeight: 600 }}>🚫 No Trunk</span>
+            </div>
+          )}
+        </div>
+
         {/* Priority Badge */}
         {job.priority !== 'standard' && (
           <div className="flex items-center gap-2 mb-3">
@@ -354,14 +438,19 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
             </motion.button>
 
             <motion.button
-              onClick={() => handleAcceptJob(job.id)}
-              className="px-4 py-3 rounded-[14px] bg-gradient-to-r from-green-500/30 to-emerald-500/30 border-2 border-green-400/50 flex items-center justify-center gap-2"
-              whileTap={{ scale: 0.95 }}
+              onClick={() => !isBlocked && handleAcceptJob(job.id)}
+              disabled={isBlocked}
+              className={`px-4 py-3 rounded-[14px] border-2 flex items-center justify-center gap-2 ${
+                isBlocked
+                  ? 'bg-white/5 border-white/20 opacity-50 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-green-500/30 to-emerald-500/30 border-green-400/50'
+              }`}
+              whileTap={isBlocked ? {} : { scale: 0.95 }}
               transition={springConfig}
             >
-              <CheckCircle className="w-5 h-5 text-green-300" strokeWidth={2.5} />
-              <span className="text-[15px] text-green-200" style={{ fontWeight: 600 }}>
-                Accept
+              <CheckCircle className={`w-5 h-5 ${isBlocked ? 'text-white/40' : 'text-green-300'}`} strokeWidth={2.5} />
+              <span className={`text-[15px] ${isBlocked ? 'text-white/40' : 'text-green-200'}`} style={{ fontWeight: 600 }}>
+                {isBlocked ? 'Not Eligible' : 'Accept'}
               </span>
             </motion.button>
           </div>

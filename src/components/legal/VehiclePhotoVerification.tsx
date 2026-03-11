@@ -19,6 +19,10 @@ interface VehiclePhotoVerificationProps {
     color: string;
     plate: string;
   };
+  /**
+   * - `pickup`  → Pre-service 360° + trunk mat placement (Phase A)
+   * - `delivery` → Post-park confirmation + clean trunk close (Phase C)
+   */
   phase: 'pickup' | 'delivery';
   onComplete: (photos: PhotoRequirement[]) => void;
   onSkip?: () => void;
@@ -31,13 +35,44 @@ export function VehiclePhotoVerification({
   onComplete,
   onSkip
 }: VehiclePhotoVerificationProps) {
-  const [photos, setPhotos] = useState<PhotoRequirement[]>([
+  /** Phase A (pickup): 360° exterior + trunk mat placement */
+  const pickupPhotos: PhotoRequirement[] = [
     { id: 'front', label: 'Front View', description: 'Full front of vehicle including license plate', captured: false },
     { id: 'rear', label: 'Rear View', description: 'Full rear of vehicle including plate', captured: false },
     { id: 'driver_side', label: 'Driver Side', description: 'Full driver side view', captured: false },
     { id: 'passenger_side', label: 'Passenger Side', description: 'Full passenger side view', captured: false },
     { id: 'dashboard', label: 'Dashboard', description: 'Showing mileage and fuel level', captured: false },
-  ]);
+    {
+      id: 'trunk_mat',
+      label: 'Trunk Mat Placed',
+      description: 'Bytspot trunk mat deployed — e-bike fully inside, mat covering trunk floor',
+      captured: false,
+    },
+  ];
+
+  /** Phase C (delivery): parked confirmation + clean trunk close */
+  const deliveryPhotos: PhotoRequirement[] = [
+    { id: 'front', label: 'Front View', description: 'Parked — full front view with spot number visible', captured: false },
+    { id: 'rear', label: 'Rear View', description: 'Parked — full rear view including plate', captured: false },
+    { id: 'driver_side', label: 'Driver Side', description: 'Parked driver side view', captured: false },
+    { id: 'passenger_side', label: 'Passenger Side', description: 'Parked passenger side view', captured: false },
+    {
+      id: 'parked_confirmation',
+      label: 'Spot Confirmation',
+      description: 'Photo of parking sign / spot marker showing the vehicle is correctly parked',
+      captured: false,
+    },
+    {
+      id: 'clean_trunk_post',
+      label: 'Clean Trunk',
+      description: 'Trunk mat removed, trunk empty and clean — e-bike retrieved',
+      captured: false,
+    },
+  ];
+
+  const [photos, setPhotos] = useState<PhotoRequirement[]>(
+    phase === 'pickup' ? pickupPhotos : deliveryPhotos
+  );
 
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
@@ -150,9 +185,18 @@ export function VehiclePhotoVerification({
                 className="space-y-4"
               >
                 {/* Current Photo Requirement */}
-                <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border-2 border-purple-400/40">
+                <div className={`p-4 rounded-[16px] bg-[#1C1C1E]/80 border-2 ${
+                  currentPhoto.id === 'trunk_mat' ? 'border-green-400/60' :
+                  currentPhoto.id === 'clean_trunk_post' ? 'border-emerald-400/60' :
+                  currentPhoto.id === 'parked_confirmation' ? 'border-cyan-400/60' :
+                  'border-purple-400/40'
+                }`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <Camera className="w-5 h-5 text-purple-400" strokeWidth={2.5} />
+                    <Camera className={`w-5 h-5 ${
+                      currentPhoto.id === 'trunk_mat' ? 'text-green-400' :
+                      currentPhoto.id === 'clean_trunk_post' ? 'text-emerald-400' :
+                      'text-purple-400'
+                    }`} strokeWidth={2.5} />
                     <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
                       {currentPhoto.label}
                     </h3>
@@ -161,6 +205,24 @@ export function VehiclePhotoVerification({
                     {currentPhoto.description}
                   </p>
                 </div>
+
+                {/* Trunk Mat special callout */}
+                {currentPhoto.id === 'trunk_mat' && (
+                  <div className="p-3 rounded-[12px] bg-green-500/15 border border-green-400/40">
+                    <p className="text-[12px] text-green-300" style={{ fontWeight: 600 }}>
+                      🛏️ Trunk Mat Protocol: Place the Bytspot protective trunk mat before loading the e-bike. The mat must be visible in the photo. This is mandatory before the vehicle moves.
+                    </p>
+                  </div>
+                )}
+
+                {/* Clean Trunk special callout */}
+                {currentPhoto.id === 'clean_trunk_post' && (
+                  <div className="p-3 rounded-[12px] bg-emerald-500/15 border border-emerald-400/40">
+                    <p className="text-[12px] text-emerald-300" style={{ fontWeight: 600 }}>
+                      ✅ Clean Close: Remove the trunk mat, retrieve your e-bike, and confirm the trunk is empty and clean before closing. The Silent Service standard requires zero trace of your presence.
+                    </p>
+                  </div>
+                )}
 
                 {/* Mock Camera View */}
                 <div className="aspect-[3/4] rounded-[16px] bg-gradient-to-br from-gray-800 to-gray-900 border-2 border-white/30 overflow-hidden relative">
@@ -258,7 +320,7 @@ export function VehiclePhotoVerification({
                 whileTap={{ scale: 0.98 }}
                 transition={springConfig}
               >
-                Continue to Service
+                {phase === 'pickup' ? '🚗 Begin Transit — Telematics Active' : '✅ Close Job — Clean Trunk Confirmed'}
               </motion.button>
             </motion.div>
           )}

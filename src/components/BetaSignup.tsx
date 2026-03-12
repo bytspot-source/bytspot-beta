@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Mail, ArrowRight, MapPin, Check, Car, Users, Clock, KeyRound, Shield, ExternalLink } from 'lucide-react';
+import { Mail, ArrowRight, MapPin, Car, Users, Clock, KeyRound, Shield, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { BrandLogo } from './BrandLogo';
 import { toast } from 'sonner@2.0.3';
@@ -400,44 +400,41 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
               animate={{ scale: 1, opacity: 1 }}
               className="text-center space-y-6 bg-white/5 backdrop-blur-xl p-8 rounded-3xl border border-white/10"
             >
-              <div className="w-20 h-20 bg-gradient-to-br from-green-400 to-emerald-600 rounded-full mx-auto flex items-center justify-center shadow-lg shadow-green-500/20">
-                <Check className="w-10 h-10 text-white" strokeWidth={3} />
-              </div>
+              {/* Inbox icon */}
+              <motion.div
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                className="w-20 h-20 bg-gradient-to-br from-purple-500 to-cyan-500 rounded-full mx-auto flex items-center justify-center shadow-lg shadow-purple-500/30"
+              >
+                <Mail className="w-10 h-10 text-white" strokeWidth={2} />
+              </motion.div>
 
               <div className="space-y-2">
                 <h2 className="text-2xl font-bold text-white">
-                  {alreadySignedUp ? "You're already on the list! 🎉" : "You're in! 🎯"}
+                  {alreadySignedUp ? "You're already on the list!" : "Check your email! 📬"}
                 </h2>
-                <p className="text-white/70">
+                <p className="text-white/70 leading-relaxed">
                   {alreadySignedUp
-                    ? "Check your inbox — your welcome email is waiting."
-                    : <>Welcome to Bytspot early access.<br />Your welcome email is on its way.</>}
+                    ? "We sent your early access link when you first signed up. Check your inbox!"
+                    : <>We just sent your early access link to{' '}<span className="text-cyan-400 font-semibold">{localStorage.getItem('bytspot_beta_email') || 'your inbox'}</span>.<br />Open it to unlock the beta.</>
+                  }
                 </p>
               </div>
 
-              {!onComplete && (
-                <motion.a
-                  href="https://beta.bytspot.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl bg-gradient-to-r from-purple-600 to-cyan-600 text-white font-bold text-lg shadow-lg shadow-purple-500/30"
-                >
-                  <span>Open Beta App</span>
-                  <ArrowRight className="w-5 h-5" />
-                </motion.a>
-              )}
+              {/* Spam hint */}
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="text-[12px] text-white/35 flex items-center justify-center gap-1.5"
+              >
+                <span>📁</span>
+                <span>Don't see it? Check your spam folder.</span>
+              </motion.p>
 
-              <div className="pt-1">
-                <div className="text-sm font-medium text-purple-400 bg-purple-400/10 py-2 px-4 rounded-lg inline-block">
-                  {onComplete ? 'Entering Bytspot Preview...' : 'Live crowd data · Smart parking · Ride ETAs'}
-                </div>
-              </div>
-
-              {/* Social sharing for standalone */}
-              {standalone && !onComplete && (
+              {/* Share actions */}
+              {(standalone || !onComplete) && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -445,7 +442,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                   className="pt-2"
                 >
                   <p className="text-[12px] text-white/40 mb-3">Share with friends in Midtown</p>
-                  <div className="flex items-center justify-center gap-3">
+                  <div className="flex flex-wrap items-center justify-center gap-3">
                     <button
                       onClick={() => {
                         const text = encodeURIComponent(
@@ -454,7 +451,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                         const url = encodeURIComponent(window.location.href);
                         window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
                       }}
-                      className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/70 text-[13px] hover:bg-white/10 transition-colors flex items-center gap-1.5"
+                      className="min-h-[44px] px-5 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/70 text-[13px] hover:bg-white/10 transition-colors flex items-center gap-1.5"
                     >
                       Share on X
                       <ExternalLink className="w-3 h-3" />
@@ -464,7 +461,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                         navigator.clipboard.writeText(window.location.href);
                         toast.success('Link copied!');
                       }}
-                      className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/70 text-[13px] hover:bg-white/10 transition-colors"
+                      className="min-h-[44px] px-5 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/70 text-[13px] hover:bg-white/10 transition-colors"
                     >
                       Copy Link
                     </button>

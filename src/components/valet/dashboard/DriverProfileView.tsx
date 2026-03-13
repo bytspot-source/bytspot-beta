@@ -19,12 +19,15 @@ import { useState } from 'react';
 import { mockDriverProfile } from '../../../utils/valetMockData';
 import { LocationSettings } from '../../LocationSettings';
 import { DriverGearRegistry } from './DriverGearRegistry';
+import { DriverAccountSettings } from './DriverAccountSettings';
+import { DriverHelpSupport } from './DriverHelpSupport';
+import { DriverAchievements } from './DriverAchievements';
 
 interface DriverProfileViewProps {
   isDarkMode: boolean;
 }
 
-type DriverScreen = 'main' | 'location-settings' | 'gear-registry';
+type DriverScreen = 'main' | 'location-settings' | 'gear-registry' | 'account-settings' | 'help-support' | 'achievements';
 
 export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
   const [currentScreen, setCurrentScreen] = useState<DriverScreen>('main');
@@ -50,6 +53,15 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
       />
     );
   }
+  if (currentScreen === 'account-settings') {
+    return <DriverAccountSettings isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'help-support') {
+    return <DriverHelpSupport isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'achievements') {
+    return <DriverAchievements isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
 
   const menuItems = [
     {
@@ -71,21 +83,21 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
       label: 'Account Settings',
       description: 'Manage your account preferences',
       color: 'text-purple-400',
-      screen: null,
+      screen: 'account-settings' as DriverScreen,
     },
     {
       icon: HelpCircle,
       label: 'Help & Support',
       description: 'Get help or contact support',
       color: 'text-cyan-400',
-      screen: null,
+      screen: 'help-support' as DriverScreen,
     },
     {
       icon: Award,
       label: 'Achievements',
       description: 'View your milestones and badges',
       color: 'text-yellow-400',
-      screen: null,
+      screen: 'achievements' as DriverScreen,
     },
   ];
 

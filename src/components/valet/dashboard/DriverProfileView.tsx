@@ -22,12 +22,13 @@ import { DriverGearRegistry } from './DriverGearRegistry';
 import { DriverAccountSettings } from './DriverAccountSettings';
 import { DriverHelpSupport } from './DriverHelpSupport';
 import { DriverAchievements } from './DriverAchievements';
+import { DriverVehicleEdit } from './DriverVehicleEdit';
 
 interface DriverProfileViewProps {
   isDarkMode: boolean;
 }
 
-type DriverScreen = 'main' | 'location-settings' | 'gear-registry' | 'account-settings' | 'help-support' | 'achievements';
+type DriverScreen = 'main' | 'location-settings' | 'gear-registry' | 'account-settings' | 'help-support' | 'achievements' | 'vehicle-info';
 
 export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
   const [currentScreen, setCurrentScreen] = useState<DriverScreen>('main');
@@ -61,6 +62,9 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
   }
   if (currentScreen === 'achievements') {
     return <DriverAchievements isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'vehicle-info') {
+    return <DriverVehicleEdit isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
   }
 
   const menuItems = [
@@ -176,91 +180,63 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
         </div>
       </motion.div>
 
-      {/* Vehicle Information */}
-      <motion.div
-        className="rounded-[16px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl"
+      {/* Vehicle / License / Insurance — tappable, opens edit screen */}
+      <motion.button
+        onClick={() => setCurrentScreen('vehicle-info')}
+        className="w-full text-left rounded-[16px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl hover:bg-white/5 transition-colors"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
+        whileTap={{ scale: 0.98 }}
       >
-        <div className="flex items-center gap-2 mb-4">
-          <Car className="w-5 h-5 text-cyan-400" strokeWidth={2.5} />
-          <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-            Your Vehicle
-          </h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Car className="w-5 h-5 text-cyan-400" strokeWidth={2.5} />
+            <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>Your Vehicle</h3>
+          </div>
+          <ChevronRight className="w-4 h-4 text-white/40" strokeWidth={2.5} />
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 mb-4">
           <div className="flex items-center justify-between">
-            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-              Make & Model
-            </span>
+            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>Make &amp; Model</span>
             <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
               {mockDriverProfile.vehicleInfo.year} {mockDriverProfile.vehicleInfo.make} {mockDriverProfile.vehicleInfo.model}
             </span>
           </div>
-
           <div className="flex items-center justify-between">
-            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-              Color
-            </span>
-            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-              {mockDriverProfile.vehicleInfo.color}
-            </span>
+            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>Color</span>
+            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.vehicleInfo.color}</span>
           </div>
-
           <div className="flex items-center justify-between">
-            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-              License Plate
-            </span>
-            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-              {mockDriverProfile.vehicleInfo.plate}
-            </span>
+            <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>License Plate</span>
+            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.vehicleInfo.plate}</span>
           </div>
         </div>
-      </motion.div>
 
-      {/* License & Insurance */}
-      <div className="grid grid-cols-2 gap-3">
-        <motion.div
-          className="rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.15 }}
-        >
-          <IdCard className="w-5 h-5 text-purple-400 mb-3" strokeWidth={2.5} />
-          <div className="text-[13px] text-white/70 mb-1" style={{ fontWeight: 500 }}>
-            Driver's License
+        <div className="border-t border-white/10 pt-3 grid grid-cols-2 gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <IdCard className="w-4 h-4 text-purple-400" strokeWidth={2.5} />
+              <span className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>Driver's License</span>
+            </div>
+            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.licenseInfo.number}</div>
+            <div className="text-[12px] text-white/50" style={{ fontWeight: 500 }}>
+              Expires {new Date(mockDriverProfile.licenseInfo.expiryDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            </div>
           </div>
-          <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-            {mockDriverProfile.licenseInfo.number}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} />
+              <span className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>Insurance</span>
+            </div>
+            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.insurance.provider}</div>
+            <div className="text-[12px] text-white/50" style={{ fontWeight: 500 }}>
+              Policy {mockDriverProfile.insurance.policyNumber.slice(-6)}
+            </div>
           </div>
-          <div className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>
-            Expires {new Date(mockDriverProfile.licenseInfo.expiryDate).toLocaleDateString('en-US', {
-              month: 'short',
-              year: 'numeric'
-            })}
-          </div>
-        </motion.div>
-
-        <motion.div
-          className="rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.2 }}
-        >
-          <Shield className="w-5 h-5 text-green-400 mb-3" strokeWidth={2.5} />
-          <div className="text-[13px] text-white/70 mb-1" style={{ fontWeight: 500 }}>
-            Insurance
-          </div>
-          <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-            {mockDriverProfile.insurance.provider}
-          </div>
-          <div className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>
-            Policy {mockDriverProfile.insurance.policyNumber.slice(-6)}
-          </div>
-        </motion.div>
-      </div>
+        </div>
+      </motion.button>
 
       {/* Menu Items */}
       <motion.div

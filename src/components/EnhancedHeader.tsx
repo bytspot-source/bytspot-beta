@@ -2,7 +2,7 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { Sun, Cloud, CloudRain, MapPin, Menu, Zap, TrendingUp, Clock } from 'lucide-react';
 import { ZoneUserCount } from './ZoneUserCount';
 import { useRef, useEffect, useState } from 'react';
-import { statsApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 import {
   getPersonalizedCategories,
   getUserPreferences,
@@ -61,9 +61,9 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
   //    - Ghanaian user in Atlanta → Ghanaian recommendations (identity wins)
   //    - New user with no prefs in Atlanta → Atlanta/USA recommendations (GPS fallback)
   useEffect(() => {
-    statsApi.get().then(res => {
-      if (res.success) {
-        setSpotsNearby(res.data.venueCount);
+    trpc.health.stats.query().then(res => {
+      if (res.venueCount) {
+        setSpotsNearby(res.venueCount);
 
         const prefs = getUserPreferences();
         const behavior = getUserBehavior();
@@ -75,11 +75,11 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
         const recs = Math.max(
           1,
           Math.min(
-            res.data.venueCount,
-            Math.round(res.data.venueCount * (highPriority / Math.max(1, categories.length)))
+            res.venueCount,
+            Math.round(res.venueCount * (highPriority / Math.max(1, categories.length)))
           )
         );
-        setAiRecs(recs > 0 ? recs : Math.round(res.data.venueCount * 0.6));
+        setAiRecs(recs > 0 ? recs : Math.round(res.venueCount * 0.6));
       }
     }).catch(() => { /* keep fallback values */ });
   }, []);

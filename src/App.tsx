@@ -24,6 +24,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from 'sonner@2.0.3';
 import { useOffline } from './utils/hooks/useOffline';
 import { useVenues } from './utils/hooks/useVenues';
+import { useCity } from './utils/hooks/useCity';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
@@ -56,12 +57,14 @@ export default function App() {
   const isDarkMode = true; // Fixed to dark mode
 
   const { isOnline, isOffline } = useOffline();
+  const { city: userCity, coords: cityCoords } = useCity();
   const {
     venues: apiVenues,
     cards: discoverApiCards,
     loading: venuesLoading,
     error: venuesError,
     refresh: refreshVenues,
+    userCoords,
   } = useVenues();
   const [searchValue, setSearchValue] = useState('');
   const [showMapMenu, setShowMapMenu] = useState(false);
@@ -84,8 +87,9 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingSlide, setOnboardingSlide] = useState(0);
   const [quizStep, setQuizStep] = useState(0);
-  // Read ?email= URL param set by bytspot.com funnel "Try Beta App" link
+  // Read ?email= and ?ref= URL params (referral link or bytspot.com funnel)
   const prefillEmail = useMemo(() => new URLSearchParams(window.location.search).get('email') ?? '', []);
+  const prefillRef = useMemo(() => new URLSearchParams(window.location.search).get('ref') ?? '', []);
   const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
@@ -290,17 +294,19 @@ export default function App() {
     return [];
   }, [activeTab, currentScreen, userPreferences, userBehavior]);
   
-  // PERFORMANCE: Memoize personalized locations
+  // PERFORMANCE: Memoize personalized locations — use live GPS coords, fall back to Atlanta
+  const activeCoords = userCoords ?? cityCoords ?? { lat: 33.7866, lng: -84.3833 };
   const memoizedLocations = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       return getPersonalizedNearbyLocations(
-        { lat: 33.7866, lng: -84.3833 },
+        activeCoords,
         userPreferences,
         userBehavior
       );
     }
     return [];
-  }, [activeTab, currentScreen, userPreferences, userBehavior]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, currentScreen, userPreferences, userBehavior, activeCoords.lat, activeCoords.lng]);
   
   // Load personalized content on mount and when returning to home
   useEffect(() => {
@@ -488,6 +494,7 @@ export default function App() {
       <AuthenticationFlow
         isDarkMode={isDarkMode}
         initialEmail={prefillEmail}
+        initialRef={prefillRef}
         onComplete={() => {
           // Token is already stored by AuthenticationFlow — no override needed
           setCurrentScreen('main');
@@ -663,7 +670,7 @@ export default function App() {
                 <div className="mb-6 pt-4">
                   <div className="px-4 mb-3 flex items-center justify-between">
                     <h2 className="text-title-2 text-white">What's Happening Tonight</h2>
-                    <span className="text-[11px] text-white/40">Midtown ATL</span>
+                    <span className="text-[11px] text-white/40">{userCity}</span>
                   </div>
                   <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4 pb-2">
                     {TONIGHT_EVENTS.map((evt: AppEvent, i: number) => (
@@ -761,11 +768,11 @@ export default function App() {
                       />
                     </div>
 
-                    {/* ── Right Now in Midtown ── Live Crowd Feed */}
+                    {/* ── Right Now in [City] ── Live Crowd Feed */}
                     {apiVenues.filter(v => v.crowd).length > 0 && (
                       <div className="mb-8">
                         <div className="mb-3 flex items-center justify-between">
-                          <h2 className="text-title-2 text-white">Right Now in Midtown</h2>
+                          <h2 className="text-title-2 text-white">Right Now in {userCity}</h2>
                           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30">
                             <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                             <span className="text-[11px] text-green-300" style={{ fontWeight: 600 }}>Live</span>
@@ -1153,6 +1160,7 @@ export default function App() {
                     selectedFunction={selectedMapFunction}
                     viewMode={mapViewMode}
                     destination={selectedDestination}
+                    userCoords={activeCoords}
                     onBackToHome={() => {
                       setActiveTab('home');
                       setSelectedDestination(undefined);
@@ -1180,6 +1188,7 @@ export default function App() {
                 <HomeConcierge
                   tabMode
                   venues={apiVenues}
+                  cityName={userCity}
                   onVenueSelect={(v) => {
                     setSelectedSearchVenue(v);
                     setActiveTab('home');
@@ -1327,7 +1336,7 @@ export default function App() {
                   <div className="flex flex-col items-center py-6 gap-3">
                     <div className="text-[48px]">🎉</div>
                     <p className="text-[20px] text-white font-semibold">Thanks for the feedback!</p>
-                    <p className="text-[14px] text-white/60 text-center">You're helping shape Bytspot for Atlanta 🏙️</p>
+                    <p className="text-[14px] text-white/60 text-center">You're helping shape Bytspot for {userCity} 🏙️</p>
                     <motion.button
                       className="mt-4 px-8 py-3 rounded-[14px] bg-white/10 border border-white/20 text-white text-[15px] font-semibold"
                       whileTap={{ scale: 0.97 }}
@@ -1463,11 +1472,11 @@ export default function App() {
                   </div>
 
                   {isConfirmation ? (
-                    /* ── Confirmation: Here's your Midtown ── */
+                    /* ── Confirmation: Here's your city ── */
                     <>
                       <div className="text-center">
                         <div className="text-4xl mb-2">🗺️</div>
-                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Here's your Midtown</h2>
+                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Here's your {userCity}</h2>
                         <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 400 }}>Tonight's top picks, just for you</p>
                       </div>
                       <div className="flex flex-col gap-2.5">

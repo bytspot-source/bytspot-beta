@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
 import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { trpc } from '../utils/trpc';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
 import { VehicleManagement } from './VehicleManagement';
 import { PaymentMethods } from './PaymentMethods';
@@ -43,6 +44,14 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const userPoints = getUserPoints();
   const userTier = getUserTier(userPoints.total);
   const achievementStats = getAchievementStats();
+
+  // Fetch referral count from backend via tRPC (end-to-end type-safe)
+  const [referralCount, setReferralCount] = useState<number | null>(null);
+  useEffect(() => {
+    trpc.auth.me.query().then((data) => {
+      setReferralCount(data.referralCount);
+    }).catch(() => { /* offline or API sleeping — show nothing */ });
+  }, []);
 
   const springConfig = {
     type: "spring" as const,
@@ -394,14 +403,14 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}').id || 'guest'; }
             catch { return 'guest'; }
           })();
-          const referralUrl = `https://beta.bytspot.com?ref=${userId}`;
+          const referralUrl = `https://bytspot-beta-app.onrender.com?ref=${userId}`;
 
           const handleShare = async () => {
             if (navigator.share) {
               try {
                 await navigator.share({
                   title: 'Join me on Bytspot',
-                  text: '🔥 I\'m using Bytspot to navigate Atlanta Midtown like a local — crowd levels, parking, everything. Try it:',
+                  text: '🔥 I\'m using Bytspot to find the best spots in the city — live crowds, parking, everything. Use my link:',
                   url: referralUrl,
                 });
               } catch { /* user cancelled */ }
@@ -415,14 +424,23 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           return (
             <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-fuchsia-500/15 to-cyan-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
               <div className="absolute top-0 right-0 w-28 h-28 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-3">
                 <div className="w-11 h-11 rounded-full bg-gradient-to-br from-fuchsia-500 to-cyan-500 flex items-center justify-center shrink-0">
                   <Share2 className="w-5 h-5 text-white" strokeWidth={2.5} />
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Invite a Friend</p>
                   <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Share your personal Bytspot link</p>
                 </div>
+                {/* Live referral count badge */}
+                {referralCount !== null && (
+                  <div className="flex flex-col items-center px-3 py-1.5 rounded-[12px] bg-fuchsia-500/20 border border-fuchsia-400/30">
+                    <span className="text-[18px] text-white" style={{ fontWeight: 700 }}>{referralCount}</span>
+                    <span className="text-[10px] text-fuchsia-200/80" style={{ fontWeight: 600 }}>
+                      {referralCount === 1 ? 'invite' : 'invites'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Referral URL pill */}

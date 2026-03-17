@@ -315,6 +315,10 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ code }),
     }),
+
+  /** GET /auth/me — current user profile + referral count (requires auth token) */
+  me: () =>
+    apiRequest<{ user: { id: string; email: string; name: string | null; ref: string | null; createdAt: string }; referralCount: number }>('/auth/me'),
 };
 
 // HEALTH

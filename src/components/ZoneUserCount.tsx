@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { statsApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 
 interface ZoneUserCountProps {
   compact?: boolean;
@@ -20,9 +20,9 @@ export function ZoneUserCount({ compact = false }: ZoneUserCountProps) {
 
   // Fetch real registered user count on mount
   useEffect(() => {
-    statsApi.get().then(res => {
-      if (res.success && res.data.userCount > 0) {
-        setUserCount(res.data.userCount);
+    trpc.health.stats.query().then(res => {
+      if (res.userCount > 0) {
+        setUserCount(res.userCount);
       }
     }).catch(() => { /* keep fallback */ });
   }, []);

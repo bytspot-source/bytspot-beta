@@ -69,8 +69,8 @@ export class GeofencingService {
   private monitoringInterval?: number;
   private isMonitoring = false;
   
-  // Current sensor data (from SensorManager)
-  private currentLocation: { lat: number; lng: number } = { lat: 37.7749, lng: -122.4194 };
+  // Current sensor data (from SensorManager) — starts at 0,0 until updateLocation() is called
+  private currentLocation: { lat: number; lng: number } = { lat: 0, lng: 0 };
   private currentBleBeacons: string[] = [];
   private currentWifiNetworks: string[] = [];
   
@@ -385,52 +385,8 @@ export class GeofencingService {
   }
   
   private loadDefaultZones(): void {
-    // Example: Downtown Plaza Garage
-    this.addZone({
-      id: 'downtown-plaza-garage',
-      name: 'Downtown Plaza Garage',
-      type: 'parking',
-      priority: 8,
-      location: {
-        latitude: 37.7749,
-        longitude: -122.4194,
-        radiusMeters: 100,
-      },
-      bluetooth: {
-        beaconUUIDs: ['f7826da6-4fa2-4e98-8024-bc5b71e0893e'],
-        triggerDistance: 20,
-      },
-      wifi: {
-        networkSSIDs: ['BytspotParking-5G', 'Downtown-Plaza-WiFi'],
-        signalThreshold: -70,
-      },
-      metadata: {
-        address: '123 Market St, San Francisco, CA',
-        notes: 'Multi-level parking garage',
-      },
-    });
-    
-    // Example: Valet Service Zone
-    this.addZone({
-      id: 'valet-service-zone',
-      name: 'Premium Valet Service',
-      type: 'valet',
-      priority: 10,
-      location: {
-        latitude: 37.7858,
-        longitude: -122.4064,
-        radiusMeters: 50,
-      },
-      bluetooth: {
-        beaconUUIDs: ['a1b2c3d4-e5f6-7890-abcd-ef1234567890'],
-        triggerDistance: 15,
-      },
-      metadata: {
-        address: 'Luxury Hotel, San Francisco, CA',
-        notes: '24/7 valet service available',
-        price: 25,
-      },
-    });
+    // No default zones — users create real zones via the app.
+    // Previously contained hardcoded San Francisco demo data.
   }
   
   // Quick zone creation helpers

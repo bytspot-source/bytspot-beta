@@ -19,6 +19,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      "@bytspot-api/*": ["../bytspot-api/src/*"],
       "vaul@1.1.2": ["./node_modules/vaul"],
       "sonner@2.0.3": ["./node_modules/sonner"],
       "recharts@2.15.2": ["./node_modules/recharts"],

@@ -1,18 +1,20 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, User, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { useState } from 'react';
-import { authApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 
 interface AuthenticationFlowProps {
   isDarkMode: boolean;
   onComplete: () => void;
   initialEmail?: string;
+  /** Pre-filled referral user ID from ?ref= URL param */
+  initialRef?: string;
 }
 
 type AuthMode = 'signup' | 'login';
 
-export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '' }: AuthenticationFlowProps) {
+export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', initialRef = '' }: AuthenticationFlowProps) {
   const [mode, setMode] = useState<AuthMode>('signup');
   const [name, setName] = useState('');
   const [email, setEmail] = useState(initialEmail);
@@ -33,23 +35,25 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '' }
     setError('');
     setLoading(true);
     try {
+      // Use invite code if entered; otherwise fall back to URL ?ref= param (referral user ID)
+      const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
       const res = mode === 'signup'
-        ? await authApi.signup(email.trim(), password, name.trim(), inviteCode.trim().toUpperCase() || undefined)
-        : await authApi.login(email.trim(), password);
+        ? await trpc.auth.signup.mutate({ email: email.trim(), password, name: name.trim(), ref: refValue })
+        : await trpc.auth.login.mutate({ email: email.trim(), password });
 
-      if (res.success && res.data?.token) {
-        localStorage.setItem('bytspot_auth_token', res.data.token);
-        localStorage.setItem('bytspot_user', JSON.stringify(res.data.user));
-        if (res.data.user?.name) {
-          localStorage.setItem('bytspot_user_name', res.data.user.name.split(' ')[0]);
+      if (res.token) {
+        localStorage.setItem('bytspot_auth_token', res.token);
+        localStorage.setItem('bytspot_user', JSON.stringify(res.user));
+        if (res.user?.name) {
+          localStorage.setItem('bytspot_user_name', res.user.name.split(' ')[0]);
         }
         toast.success(mode === 'signup' ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
         onComplete();
       } else {
-        setError(res.error?.message || 'Something went wrong. Please try again.');
+        setError('Something went wrong. Please try again.');
       }
-    } catch {
-      setError('Connection error. Please try again.');
+    } catch (err: any) {
+      setError(err?.message || 'Connection error. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -22,6 +22,8 @@ interface HomeConciergeProps {
   onVenueSelect: (venue: Venue) => void;
   /** When true, renders as a full-height tab instead of a bottom-sheet modal */
   tabMode?: boolean;
+  /** Dynamic city name — defaults to 'Midtown' for backward compat */
+  cityName?: string;
 }
 
 interface Message {
@@ -41,9 +43,9 @@ const SUGGESTIONS = [
   'Coffee with good vibes',
 ];
 
-export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false }: HomeConciergeProps) {
+export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false, cityName = 'Midtown' }: HomeConciergeProps) {
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, sender: 'ai', text: "Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in Midtown for you." },
+    { id: 1, sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in ${cityName} for you.` },
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -126,12 +128,12 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
           </div>
           <div>
             <p className="text-white text-[15px]" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
-            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● Live · Midtown Atlanta</p>
+            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● Live · {cityName}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: "Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in Midtown for you." }])}
+            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in ${cityName} for you.` }])}
             className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
             title="Clear chat"
           >

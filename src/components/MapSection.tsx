@@ -24,6 +24,8 @@ interface MapSectionProps {
   destination?: string;
   onBackToHome?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
+  /** Live user coordinates — map centers here instead of hardcoded Atlanta */
+  userCoords?: { lat: number; lng: number };
 }
 
 type AvailabilityStatus = 'available' | 'limited' | 'full';
@@ -64,7 +66,8 @@ interface FilterState {
   showPremiumOnly: boolean;
 }
 
-// Atlanta Midtown real parking data
+// ⚠️ PLACEHOLDER: Hardcoded Atlanta Midtown parking demo data.
+// TODO: Replace with real parking API data when backend parking endpoints exist.
 const ATLANTA_PARKING: ParkingSpot[] = [
   {
     id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage',
@@ -120,18 +123,23 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
+// Default center fallback — used only when no GPS coords are available
+const DEFAULT_MAP_CENTER: [number, number] = [33.7866, -84.3833];
+
 // Single controller inside MapContainer — handles recenter + zoom via state signals
 function MapInteractionController({
   shouldRecenter, onRecentered,
   zoomDirection, onZoomed,
+  center,
 }: {
   shouldRecenter: boolean; onRecentered: () => void;
   zoomDirection: number; onZoomed: () => void;
+  center: [number, number];
 }) {
   const map = useMap();
   useEffect(() => {
-    if (shouldRecenter) { map.setView([33.7866, -84.3833], 14); onRecentered(); }
-  }, [shouldRecenter, map, onRecentered]);
+    if (shouldRecenter) { map.setView(center, 14); onRecentered(); }
+  }, [shouldRecenter, map, onRecentered, center]);
   useEffect(() => {
     if (zoomDirection === 1) { map.zoomIn(); onZoomed(); }
     else if (zoomDirection === -1) { map.zoomOut(); onZoomed(); }
@@ -160,7 +168,8 @@ function createVenueIcon(): L.DivIcon {
   });
 }
 
-export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide }: MapSectionProps) {
+export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, userCoords }: MapSectionProps) {
+  const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
@@ -285,7 +294,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     <div className="relative w-full h-full" style={{ zIndex: 0 }}>
       {/* Real Leaflet Map */}
       <MapContainer
-        center={[33.7866, -84.3833]}
+        center={mapCenter}
         zoom={14}
         className="absolute inset-0 w-full h-full"
         style={{ zIndex: 0 }}
@@ -300,6 +309,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         <MapInteractionController
           shouldRecenter={shouldRecenter} onRecentered={() => setShouldRecenter(false)}
           zoomDirection={zoomDirection} onZoomed={() => setZoomDirection(0)}
+          center={mapCenter}
         />
 
         {/* Parking Markers */}

@@ -1,0 +1,4 @@
+app_identifier("com.bytspot.app")
+apple_dev_portal_id(ENV["APPLE_TEAM_ID"])
+itc_team_id(ENV["APPLE_TEAM_ID"])
+

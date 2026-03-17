@@ -1,0 +1,47 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build and upload a new beta to TestFlight"
+  lane :beta do
+    # Authenticate with App Store Connect API (no 2FA issues in CI)
+    api_key = app_store_connect_api_key(
+      key_id:        ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id:     ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content:   ENV["APP_STORE_CONNECT_KEY_CONTENT"],
+      is_key_content_base64: false
+    )
+
+    # Auto-increment build number using the GitHub Actions run number
+    increment_build_number(
+      xcodeproj:    "App.xcodeproj",
+      build_number: ENV.fetch("GITHUB_RUN_NUMBER", "1")
+    )
+
+    # Build the signed .ipa
+    build_app(
+      project:       "App.xcodeproj",
+      scheme:        "App",
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: {
+        signingStyle:          "manual",
+        teamID:                ENV["APPLE_TEAM_ID"],
+        provisioningProfiles:  {
+          "com.bytspot.app" => ENV["PROVISIONING_PROFILE_UUID"]
+        }
+      },
+      output_directory: "./build",
+      output_name:      "Bytspot.ipa",
+      clean:            true
+    )
+
+    # Upload to TestFlight
+    upload_to_testflight(
+      api_key:                          api_key,
+      ipa:                              "./build/Bytspot.ipa",
+      skip_waiting_for_build_processing: true,
+      changelog:                        "Automated build from GitHub Actions"
+    )
+  end
+end
+

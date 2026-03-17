@@ -58,11 +58,29 @@ export function PromotionalFlyer() {
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, color: BRAND.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.12em', marginTop: 10, marginBottom: 28 }}>📍 Atlanta Beta · Now Live</div>
         <h1 style={{ fontSize: 38, fontWeight: 800, textAlign: 'center', lineHeight: 1.15, marginBottom: 12, letterSpacing: '-0.02em' }}>Know{' '}<span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Before</span>{' '}You Go.</h1>
         <p style={{ fontSize: 17, color: BRAND.textSecondary, textAlign: 'center', maxWidth: 420, lineHeight: 1.5, marginBottom: 32 }}>Live crowd levels, real-time parking, and ride comparison — all in one app for Atlanta's best venues.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 460, marginBottom: 32 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 460, marginBottom: 24 }}>
           <FeaturePill emoji="📊" label="Live Crowd Levels" />
           <FeaturePill emoji="🅿️" label="Real-Time Parking" />
           <FeaturePill emoji="🚗" label="Uber vs Lyft Compare" />
           <FeaturePill emoji="🗺️" label="Venue Discovery" />
+        </div>
+        {/* How It Works */}
+        <div style={{ width: '100%', maxWidth: 460, marginBottom: 24 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, textAlign: 'center', marginBottom: 14, background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>How It Works</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            {[
+              { num: 1, emoji: '📱', label: 'Open Bytspot' },
+              { num: 2, emoji: '📍', label: 'Pick a Venue' },
+              { num: 3, emoji: '📊', label: 'See Live Data' },
+              { num: 4, emoji: '✅', label: 'Go with Confidence' },
+            ].map((step) => (
+              <div key={step.num} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 4px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: BRAND.cyan, marginBottom: 2 }}>Step {step.num}</div>
+                <div style={{ fontSize: 22 }}>{step.emoji}</div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: BRAND.textPrimary, textAlign: 'center', lineHeight: 1.3 }}>{step.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, padding: '24px 28px', borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', width: '100%', maxWidth: 460 }}>

@@ -766,7 +766,6 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
         {selectedParkingSpot && (
           <ParkingReservationFlow
             spot={selectedParkingSpot}
-            isOpen={!!selectedParkingSpot}
             onClose={() => setSelectedParkingSpot(null)}
             isDarkMode={true}
           />

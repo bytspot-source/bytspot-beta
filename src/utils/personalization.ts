@@ -448,7 +448,7 @@ export function trackFrequentLocation(lat: number, lng: number): void {
 
   const behaviorKey = 'bytspot_user_behavior';
   const stored = localStorage.getItem(behaviorKey);
-  let behavior: UserBehavior = stored
+  const behavior: UserBehavior = stored
     ? JSON.parse(stored)
     : { categoryClicks: {}, locationVisits: {}, searchHistory: [], lastActive: new Date().toISOString() };
 
@@ -864,8 +864,8 @@ export function trackCategoryClick(category: string): void {
   const behaviorKey = 'bytspot_user_behavior';
   const stored = localStorage.getItem(behaviorKey);
   
-  let behavior: UserBehavior = stored 
-    ? JSON.parse(stored) 
+  const behavior: UserBehavior = stored
+    ? JSON.parse(stored)
     : { categoryClicks: {}, locationVisits: {}, searchHistory: [], lastActive: new Date().toISOString() };
 
   // Increment category click count
@@ -883,8 +883,8 @@ export function trackLocationVisit(locationName: string): void {
   const behaviorKey = 'bytspot_user_behavior';
   const stored = localStorage.getItem(behaviorKey);
   
-  let behavior: UserBehavior = stored 
-    ? JSON.parse(stored) 
+  const behavior: UserBehavior = stored
+    ? JSON.parse(stored)
     : { categoryClicks: {}, locationVisits: {}, searchHistory: [], lastActive: new Date().toISOString() };
 
   // Increment location visit count

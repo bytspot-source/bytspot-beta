@@ -349,7 +349,7 @@ export function addPoints(action: keyof typeof POINT_ACTIONS, bonus: number = 0)
   const actionConfig = POINT_ACTIONS[action];
   
   // Check if one-time action already completed
-  if (actionConfig.oneTime) {
+  if ('oneTime' in actionConfig && actionConfig.oneTime) {
     const completedActions = JSON.parse(localStorage.getItem(STORAGE_KEYS.ONE_TIME_ACTIONS) || '[]');
     if (completedActions.includes(action)) {
       return false; // Already claimed
@@ -357,18 +357,18 @@ export function addPoints(action: keyof typeof POINT_ACTIONS, bonus: number = 0)
     completedActions.push(action);
     localStorage.setItem(STORAGE_KEYS.ONE_TIME_ACTIONS, JSON.stringify(completedActions));
   }
-  
+
   // Check daily limits
-  if (actionConfig.limit) {
+  if ('limit' in actionConfig && actionConfig.limit) {
     const today = new Date().toDateString();
     const dailyLimits = JSON.parse(localStorage.getItem(STORAGE_KEYS.DAILY_LIMITS) || '{}');
-    
+
     if (!dailyLimits[today]) {
       dailyLimits[today] = {};
     }
-    
+
     const currentCount = dailyLimits[today][action] || 0;
-    if (currentCount >= actionConfig.limit) {
+    if (currentCount >= (actionConfig.limit as number)) {
       return false; // Daily limit reached
     }
     

@@ -50,7 +50,7 @@ export function EphemeralPostCreator({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const springConfig = {
     type: "spring" as const,

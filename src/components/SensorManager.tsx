@@ -171,7 +171,7 @@ export class SensorManager {
         );
       } catch (error) {
         // Geolocation API not supported or blocked
-        if (process.env.NODE_ENV === 'development') {
+        if (import.meta.env.DEV) {
           console.debug('Geolocation not available, using default location');
         }
       }
@@ -249,7 +249,7 @@ export class SensorManager {
     };
     
     // Only log in development, not in production
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.debug('Location service:', errorMessages[error.code] || 'Unknown error');
     }
     

@@ -1,9 +1,9 @@
 import { motion } from 'motion/react';
-import { 
-  MapPin, 
-  Navigation, 
-  Clock, 
-  DollarSign, 
+import {
+  MapPin,
+  Navigation,
+  Clock,
+  DollarSign,
   Car,
   CheckCircle,
   XCircle,
@@ -14,7 +14,8 @@ import {
   Package,
   Fuel,
   Check,
-  X
+  X,
+  Briefcase
 } from 'lucide-react';
 import { mockActiveJobs, mockDriverProfile, type ValetJob, type AddonService } from '../../../utils/valetMockData';
 import { useState } from 'react';

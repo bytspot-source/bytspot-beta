@@ -70,8 +70,8 @@ export default function App() {
   const [showBottomNav, setShowBottomNav] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
-  const navHideTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const navHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discoverFilter, setDiscoverFilter] = useState<'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | undefined>(undefined);
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
@@ -1275,11 +1275,7 @@ export default function App() {
               color: '#fff',
             },
             // ACCESSIBILITY: Ensure toasts are announced to screen readers
-            ariaProps: {
-              role: 'status',
-              'aria-live': 'polite',
-              'aria-atomic': 'true',
-            },
+
           }}
         />
 
@@ -1381,7 +1377,7 @@ export default function App() {
                         try {
                           const existing = JSON.parse(localStorage.getItem('bytspot_feedback') || '[]');
                           localStorage.setItem('bytspot_feedback', JSON.stringify([...existing, entry]));
-                        } catch {}
+                        } catch (_e) { /* ignore localStorage errors */ }
                         setFeedbackSubmitted(true);
                       }}
                     >Submit Feedback</motion.button>

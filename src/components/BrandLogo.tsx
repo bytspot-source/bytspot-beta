@@ -14,7 +14,7 @@ export function BrandLogo({ size = 120, animated = false, showGlow = false }: Br
     transition: {
       duration: 20,
       repeat: Infinity,
-      ease: "linear",
+      ease: "linear" as const,
     }
   } : {};
 

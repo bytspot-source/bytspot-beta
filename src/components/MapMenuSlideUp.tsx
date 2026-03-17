@@ -16,12 +16,13 @@ interface MapMenuSlideUpProps {
   isDarkMode: boolean;
 }
 
-export type MapFunction = 
-  | 'trending-hotspots' 
-  | 'live-venue-data' 
-  | 'smart-parking' 
-  | 'ai-navigation' 
-  | 'spot-radar' 
+export type MapFunction =
+  | 'trending-hotspots'
+  | 'live-venue-data'
+  | 'smart-parking'
+  | 'ai-navigation'
+  | 'spot-radar'
+  | 'route'
   | 'traffic-intelligence';
 
 export type MapViewMode = 'standard' | 'satellite';
@@ -119,6 +120,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
         'ai-navigation': '🧠 Calculating optimal route...',
         'spot-radar': '📡 Scanning for hidden gems...',
         'traffic-intelligence': '🚦 Analyzing traffic patterns...',
+        'route': '🗺️ Setting route...',
       };
       
       toast.success(func.title, {

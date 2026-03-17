@@ -194,7 +194,7 @@ export function waitForOnline(timeout?: number): Promise<void> {
     
     window.addEventListener('online', handleOnline);
     
-    let timeoutId: NodeJS.Timeout | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (timeout) {
       timeoutId = setTimeout(() => {
         cleanup();

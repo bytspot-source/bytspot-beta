@@ -32,7 +32,7 @@ const DEFAULT_CONFIG: AnalyticsConfig = {
 // Event queue for batching
 let eventQueue: AnalyticsEvent[] = [];
 let sessionId: string = generateSessionId();
-let flushTimer: NodeJS.Timeout | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Generate a unique session ID

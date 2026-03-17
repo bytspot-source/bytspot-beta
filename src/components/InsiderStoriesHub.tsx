@@ -659,7 +659,7 @@ export function InsiderStoriesHub({ isDarkMode }: InsiderStoriesHubProps) {
                   <p className="text-[10px] text-white truncate" style={{ fontWeight: 600 }}>
                     {group.name}
                   </p>
-                  {group.venue && (
+                  {group.venueId && (
                     <p className="text-[8px] text-white/80" style={{ fontWeight: 500 }}>
                       {group.stories.length} {group.stories.length === 1 ? 'story' : 'stories'}
                     </p>

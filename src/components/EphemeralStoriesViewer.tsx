@@ -63,7 +63,7 @@ export function EphemeralStoriesViewer({
   const [replyText, setReplyText] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const springConfig = {
     type: "spring" as const,

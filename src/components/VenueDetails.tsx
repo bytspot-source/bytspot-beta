@@ -98,7 +98,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     if (venue.slug) {
       trpc.venues.getBySlug.query({ slug: venue.slug }).then((result) => {
         if (result?.crowd?.history?.length) {
-          setCrowdHistory(result.crowd.history);
+          setCrowdHistory(result.crowd.history.filter((h): h is { level: number; label: string; recordedAt: string } => typeof h.level === 'number' && typeof h.label === 'string' && typeof h.recordedAt === 'string'));
         }
       }).catch(() => {});
     }

@@ -126,7 +126,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
           </div>
           <div>
             <p className="text-white text-[15px]" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
-            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● GPT-4o-mini · Atlanta Midtown expert</p>
+            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● Live · Midtown Atlanta</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -364,7 +364,7 @@ export interface ConciergeVenue {
 }
 
 export const conciergeApi = {
-  /** POST /concierge/chat — GPT-4o-mini powered Midtown guide */
+  /** POST /concierge/chat — AI-powered Midtown guide */
   chat: (
     messages: ConciergeMessage[],
     venues: ConciergeVenue[],

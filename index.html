@@ -18,6 +18,16 @@
 
     <body>
       <div id="root"></div>
+      <!-- SPA path restore: must run before React so pathname is correct -->
+      <script>
+        (function () {
+          var redirect = sessionStorage.getItem('spa_redirect');
+          if (redirect) {
+            sessionStorage.removeItem('spa_redirect');
+            window.history.replaceState(null, '', redirect);
+          }
+        })();
+      </script>
       <script type="module" src="/src/main.tsx"></script>
       <script>
         if ('serviceWorker' in navigator) {

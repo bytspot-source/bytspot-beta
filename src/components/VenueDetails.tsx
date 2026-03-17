@@ -3,7 +3,7 @@ import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock,
 import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
 import { addPoints } from '../utils/gamification';
-import { venuesApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
@@ -96,9 +96,9 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
   useEffect(() => {
     if (venue.slug) {
-      venuesApi.getBySlug(venue.slug).then((result) => {
-        if (result.success && result.data?.crowd?.history?.length) {
-          setCrowdHistory(result.data.crowd.history);
+      trpc.venues.getBySlug.query({ slug: venue.slug }).then((result) => {
+        if (result?.crowd?.history?.length) {
+          setCrowdHistory(result.crowd.history);
         }
       }).catch(() => {});
     }
@@ -108,9 +108,9 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const [similarVenues, setSimilarVenues] = useState<Array<{ id: string; name: string; slug: string; category: string; similarity: number }>>([]);
   useEffect(() => {
     if (venue.slug) {
-      venuesApi.getSimilar(venue.slug, 4).then((result) => {
-        if (result.success && result.data?.similar?.length) {
-          setSimilarVenues(result.data.similar);
+      trpc.venues.getSimilar.query({ slug: venue.slug, limit: 4 }).then((result) => {
+        if (result?.similar?.length) {
+          setSimilarVenues(result.similar);
         }
       }).catch(() => {});
     }
@@ -129,8 +129,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     try {
       const venueId = venue.id || venue.apiId;
       if (venueId) {
-        const result = await venuesApi.checkin(venueId, idempotencyKey);
-        const lvl = result.success ? result.data?.newCrowdLevel : null;
+        const result = await trpc.venues.checkin.mutate({ venueId, idempotencyKey });
+        const lvl = result?.newCrowdLevel ?? null;
         const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
         const finalLevel = lvl ?? currentLevel;
         const finalLabel = lvl ? (lvlLabels[lvl] ?? currentLabel) : currentLabel;

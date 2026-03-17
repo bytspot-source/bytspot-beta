@@ -459,7 +459,18 @@ export default function App() {
     }
   }, []);
 
+  // Marketing assets — accessible at /marketing for print preview
+  if (typeof window !== 'undefined' && window.location.pathname === '/marketing') {
+    const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));
+    return (
+      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+        <PrintableMarketingAssets />
+      </Suspense>
+    );
+  }
+
   // Admin dashboard — accessible at /admin regardless of auth state
+
   if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
     return (
       <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>

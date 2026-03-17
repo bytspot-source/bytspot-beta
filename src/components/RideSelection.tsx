@@ -2,7 +2,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { X, Star, Navigation, ArrowRight, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { ridesApi, type ApiRidesResponse } from '../utils/api';
+import { type ApiRidesResponse } from '../utils/api';
+import { trpc } from '../utils/trpc';
 
 interface RideSelectionProps {
   isOpen: boolean;
@@ -19,8 +20,8 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, dest
 
   useEffect(() => {
     if (isOpen) {
-      ridesApi.get(lat, lng).then(res => {
-        if (res.success) setRides(res.data);
+      trpc.rides.get.query({ lat, lng }).then(res => {
+        setRides(res);
       });
     }
   }, [isOpen, lat, lng]);

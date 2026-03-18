@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { providerApi } from '../../utils/api';
+import { trpc } from '../../utils/trpc';
 import { HostLanding } from './HostLanding';
 import { HostOnboarding } from './HostOnboarding';
 import { HostDashboardLayout, type DashboardView } from './dashboard/HostDashboardLayout';
@@ -41,15 +41,15 @@ export function HostApp({ isDarkMode, onBackToMain }: HostAppProps) {
         // Check for force-onboarding flag (useful for development/testing)
         const forceOnboarding = new URLSearchParams(window.location.search).get('force-onboarding');
         if (forceOnboarding === 'true') {
-          await providerApi.resetHostProfile();
+          await trpc.providers.resetHostProfile.mutate();
           setCurrentScreen('landing');
           setIsLoading(false);
           return;
         }
 
-        const res = await providerApi.getStatus();
-        if (res.success && res.data?.host) {
-          const { status } = res.data.host;
+        const res = await trpc.providers.getStatus.query();
+        if (res.host) {
+          const { status } = res.host;
           if (status === 'approved' || status === 'pending') {
             setCurrentScreen('dashboard');
           } else if (status === 'draft') {

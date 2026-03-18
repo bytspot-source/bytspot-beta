@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { providerApi } from '../../utils/api';
+import { trpc } from '../../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { Step1AccountCreation } from './onboarding/Step1AccountCreation';
 import { Step2HostType } from './onboarding/Step2HostType';
@@ -127,12 +127,12 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
 
   // Load saved progress from API on mount
   useEffect(() => {
-    providerApi.getStatus().then((res) => {
-      if (res.success && res.data?.host?.onboardingData) {
-        const { currentStep, onboardingData: saved } = res.data.host;
+    trpc.providers.getStatus.query().then((res) => {
+      if (res.host?.onboardingData) {
+        const { currentStep, onboardingData: saved } = res.host;
         setOnboardingData((saved as OnboardingData) || {});
         // Resume from saved step only if still in draft
-        if (res.data.host.status === 'draft' && currentStep > 1) {
+        if (res.host.status === 'draft' && currentStep > 1) {
           setCurrentStep(currentStep);
         }
       }
@@ -143,7 +143,7 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
   const saveProgress = (step: number, data: Partial<OnboardingData>) => {
     const updatedData = { ...onboardingData, ...data };
     setOnboardingData(updatedData);
-    providerApi.saveHostProgress(step, updatedData as Record<string, unknown>).catch(() => {
+    trpc.providers.saveHostProgress.mutate({ currentStep: step, onboardingData: updatedData as Record<string, unknown> }).catch(() => {
       // Silently ignore network errors during draft saves
     });
   };
@@ -164,12 +164,12 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
   };
 
   const handleSubmit = async () => {
-    const res = await providerApi.submitHostApplication();
-    if (res.success) {
+    try {
+      await trpc.providers.submitHostApplication.mutate();
       setCurrentStep(10); // Go to completion screen
-    } else {
+    } catch (err: any) {
       toast.error('Submission failed', {
-        description: res.error?.message || 'Please try again.',
+        description: err?.message || 'Please try again.',
         duration: 4000,
       });
     }

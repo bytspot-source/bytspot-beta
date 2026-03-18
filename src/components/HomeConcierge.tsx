@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles, MapPin, RotateCcw } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { conciergeApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 
 interface Venue {
   id?: string;
@@ -85,23 +85,16 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     } catch { /* ignore */ }
 
     try {
-      const result = await conciergeApi.chat(history, venueContext, quizAnswers);
-      if (result.success) {
-        const { reply, venueIds } = result.data;
-        // Map returned IDs back to full venue objects for the card UI
-        const venueCards = (venueIds ?? [])
-          .map(id => venues.find(v => String(v.id ?? v.name) === id))
-          .filter((v): v is Venue => Boolean(v));
-        setMessages(prev => [
-          ...prev,
-          { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards },
-        ]);
-      } else {
-        setMessages(prev => [
-          ...prev,
-          { id: Date.now() + 1, sender: 'ai', text: "I'm having trouble right now — try again in a sec 🔄" },
-        ]);
-      }
+      const result = await trpc.concierge.chat.mutate({ messages: history, venues: venueContext, quizAnswers });
+      const { reply, venueIds } = result;
+      // Map returned IDs back to full venue objects for the card UI
+      const venueCards = (venueIds ?? [])
+        .map(id => venues.find(v => String(v.id ?? v.name) === id))
+        .filter((v): v is Venue => Boolean(v));
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards },
+      ]);
     } catch {
       setMessages(prev => [
         ...prev,

@@ -44,7 +44,7 @@ import {
   type CategorySuggestion,
   type NearbyLocation
 } from './utils/personalization';
-import { providerApi } from './utils/api';
+import { trpc } from './utils/trpc';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -448,14 +448,12 @@ export default function App() {
     if (authToken) {
       setCurrentScreen('main');
       // Fetch provider status to populate isHost / isValet flags
-      providerApi.getStatus().then((res) => {
-        if (res.success && res.data) {
-          setIsHost(
-            res.data.host?.status === 'approved' || res.data.host?.status === 'pending'
-          );
-          setIsValet(res.data.valet?.status === 'active');
-        }
-      });
+      trpc.providers.getStatus.query().then((res) => {
+        setIsHost(
+          res.host?.status === 'approved' || res.host?.status === 'pending'
+        );
+        setIsValet(res.valet?.status === 'active');
+      }).catch(() => { /* silently ignore — user may not be a provider */ });
     }
   }, []);
 
@@ -510,14 +508,12 @@ export default function App() {
           // Token is already stored by AuthenticationFlow — no override needed
           setCurrentScreen('main');
           // Refresh provider status after login
-          providerApi.getStatus().then((res) => {
-            if (res.success && res.data) {
-              setIsHost(
-                res.data.host?.status === 'approved' || res.data.host?.status === 'pending'
-              );
-              setIsValet(res.data.valet?.status === 'active');
-            }
-          });
+          trpc.providers.getStatus.query().then((res) => {
+            setIsHost(
+              res.host?.status === 'approved' || res.host?.status === 'pending'
+            );
+            setIsValet(res.valet?.status === 'active');
+          }).catch(() => { /* ignore */ });
           if (!localStorage.getItem('bytspot_onboarding_seen')) {
             setOnboardingSlide(0);
             setShowOnboarding(true);

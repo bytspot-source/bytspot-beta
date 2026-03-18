@@ -6,7 +6,7 @@ import {
   WifiOff, Wifi, Circle, Timer, CreditCard
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
-import { paymentsApi } from '../utils/api';
+import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 
 interface ParkingSpot {
@@ -155,19 +155,19 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
   const handleReserve = async () => {
     setIsReserving(true);
     try {
-      const result = await paymentsApi.createCheckout({
+      const result = await trpc.payments.checkout.mutate({
         spotId: selectedSpot.id,
         spotName: selectedSpot.name,
         address: selectedSpot.address,
         duration,
         totalCost,
       });
-      if (result.data?.url) {
+      if (result.url) {
         // Real Stripe Checkout — redirect to hosted payment page
-        window.location.href = result.data.url;
+        window.location.href = result.url;
         return;
       }
-      if (result.data?.demoMode) {
+      if (result.demoMode) {
         // Stripe not configured yet — fall through to demo confirmation
         toast('Stripe not configured — using demo mode', { description: 'Set STRIPE_SECRET_KEY on Render to enable real payments' });
       }

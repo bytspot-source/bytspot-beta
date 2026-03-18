@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles, Clock, MapPin, DollarSign, Users } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { conciergeApi, type ConciergeMessage, type ConciergeVenue } from '../utils/api';
+import { trpc } from '../utils/trpc';
 
 interface ConciergeChatProps {
   venue: any;
@@ -77,17 +77,17 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
 
     try {
       // Build conversation history for the API (skip the welcome message at id=1)
-      const history: ConciergeMessage[] = [
+      const history: { role: 'user' | 'assistant'; content: string }[] = [
         ...messages
           .filter((m) => m.id !== 1)
           .map((m) => ({
-            role: (m.sender === 'user' ? 'user' : 'assistant') as ConciergeMessage['role'],
+            role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
             content: m.text,
           })),
         { role: 'user' as const, content: userText },
       ];
 
-      const venueContext: ConciergeVenue = {
+      const venueContext = {
         id: String(venue.id ?? venue._slug ?? venue.name),
         name: venue.name,
         category: venue.type ?? venue.category ?? 'venue',
@@ -95,11 +95,10 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
         crowd: venue.crowd,
       };
 
-      const res = await conciergeApi.chat(history, [venueContext]);
+      const res = await trpc.concierge.chat.mutate({ messages: history, venues: [venueContext] });
 
-      const aiText =
-        res.success && res.data?.reply
-          ? res.data.reply
+      const aiText = res?.reply
+          ? res.reply
           : "Sorry, I'm having a little trouble right now. Please try again!";
 
       const aiResponse: Message = {

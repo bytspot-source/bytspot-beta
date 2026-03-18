@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
-import { providerApi } from '../../utils/api';
+import { trpc } from '../../utils/trpc';
 import { ValetDashboard } from './ValetDashboard';
 import { IndependentContractorAgreement } from '../legal/IndependentContractorAgreement';
 
@@ -19,8 +19,8 @@ export function ValetApp({ isDarkMode, onBackToMain }: ValetAppProps) {
 
   // Check provider status from API
   useEffect(() => {
-    providerApi.getStatus().then((res) => {
-      if (res.success && res.data?.valet?.status === 'active') {
+    trpc.providers.getStatus.query().then((res) => {
+      if (res?.valet?.status === 'active') {
         setCurrentScreen('dashboard');
       }
     }).finally(() => setIsLoading(false));
@@ -69,7 +69,7 @@ export function ValetApp({ isDarkMode, onBackToMain }: ValetAppProps) {
                 isDarkMode={isDarkMode}
                 serviceType="valet"
                 onAccept={async () => {
-                  await providerApi.acceptValetAgreement();
+                  await trpc.providers.acceptValetAgreement.mutate();
                   setCurrentScreen('dashboard');
                 }}
                 onDecline={() => {

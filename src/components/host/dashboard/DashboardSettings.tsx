@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { providerApi } from '../../../utils/api';
+import { trpc } from '../../../utils/trpc';
 import { 
   User, 
   Building2, 
@@ -359,7 +359,7 @@ export function DashboardSettings({ isDarkMode }: DashboardSettingsProps) {
         <motion.button
           onClick={async () => {
             if (confirm('Are you sure you want to reset your host profile? This will restart the onboarding process.')) {
-              await providerApi.resetHostProfile();
+              await trpc.providers.resetHostProfile.mutate();
               window.location.reload();
             }
           }}

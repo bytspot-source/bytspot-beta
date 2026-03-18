@@ -355,15 +355,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                   <p className="text-[11px] text-white/30">Launching in select Midtown venues.</p>
                 </div>
 
-                {/* Backend mode indicator (dev only — remove before production) */}
-                {BACKEND_PROVIDER === 'mock' && (
-                  <div className="flex items-center justify-center gap-1.5 pt-2">
-                    <Shield className="w-3 h-3 text-yellow-500/60" />
-                    <span className="text-[10px] text-yellow-500/60">
-                      Preview mode — emails not saved. Connect Formspree to go live.
-                    </span>
-                  </div>
-                )}
+
               </form>
             </>
           ) : (

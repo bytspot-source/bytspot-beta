@@ -5,7 +5,7 @@
  * Enriches each card with real GPS distance when location is available
  */
 import { useState, useEffect, useRef } from 'react';
-import { venuesApi, type ApiVenue, API_BASE_URL } from '../api';
+import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { getVenuePrimaryPhoto } from '../venuePhoto';
 
@@ -146,19 +146,20 @@ export function useVenues(): UseVenuesResult {
     setLoading(true);
     setError(null);
 
-    const res = await venuesApi.getAll();
+    try {
+      const res = await trpc.venues.list.query();
 
-    if (!isMountedRef.current || requestId !== latestRequestIdRef.current) {
-      return;
-    }
+      if (!isMountedRef.current || requestId !== latestRequestIdRef.current) {
+        return;
+      }
 
-    if (res.success && res.data?.venues) {
-      venuesRef.current = res.data.venues;
-      setVenues(res.data.venues);
-      setCards(res.data.venues.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+      venuesRef.current = res.venues;
+      setVenues(res.venues);
+      setCards(res.venues.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
       setError(null);
-    } else {
-      setError(res.error?.message || 'Failed to load venues');
+    } catch (err: any) {
+      if (!isMountedRef.current || requestId !== latestRequestIdRef.current) return;
+      setError(err?.message || 'Failed to load venues');
     }
 
     setLoading(false);

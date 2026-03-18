@@ -176,16 +176,20 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   };
 
   const handleNavigate = () => {
+    // Prefer in-app map routing when available
+    if (onNavigateToMap) {
+      onNavigateToMap();
+      return;
+    }
+    // Fallback: open external maps app
     const lat = venue._lat ?? venue.lat ?? 33.7866;
     const lng = venue._lng ?? venue.lng ?? -84.3833;
     const name = encodeURIComponent(venue.name || 'Venue');
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
     if (isIOS) {
-      // Try Apple Maps first; falls back to Google Maps web if not installed
       window.open(`maps://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`, '_self');
     } else {
-      // Google Maps with real-time driving directions
       window.open(
         `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${name}&travelmode=driving`,
         '_blank'

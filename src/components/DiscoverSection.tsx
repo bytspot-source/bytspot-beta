@@ -51,12 +51,13 @@ interface SwipeableCardProps {
   onSwipe: (direction: 'left' | 'right') => void;
   onShowBottomNav?: () => void;
   onTouch?: () => void;
+  onCardTap?: (card: DiscoverCard) => void;
   onSaveSpot: (card: DiscoverCard) => void;
 }
 
 
 const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
-  ({ card, onSwipe, onShowBottomNav, onTouch, onSaveSpot }, ref) => {
+  ({ card, onSwipe, onShowBottomNav, onTouch, onCardTap, onSaveSpot }, ref) => {
     const [dragX, setDragX] = useState(0);
     const [dragY, setDragY] = useState(0);
     const [exitX, setExitX] = useState<number | null>(null);
@@ -95,10 +96,14 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     };
 
     const handleCardTap = () => {
+      // If onPanStart never fired (pure tap with no movement), dragStartTimeRef stays at 0.
+      // In that case, treat it as a valid tap since no drag occurred.
+      const isPureTap = dragStartTimeRef.current === 0;
       const tapDuration = Date.now() - dragStartTimeRef.current;
-      if (!hasDraggedRef.current && tapDuration < 300) {
+      if (!hasDraggedRef.current && (isPureTap || tapDuration < 300)) {
         onShowBottomNav?.();
         onTouch?.();
+        onCardTap?.(card);
       }
     };
 
@@ -232,7 +237,7 @@ SwipeableCard.displayName = 'SwipeableCard';
 
 interface DiscoverSectionProps {
   isDarkMode: boolean;
-  onNavigateToMap?: () => void;
+  onNavigateToMap?: (venueName?: string) => void;
   onShowBottomNav?: () => void;
   onTouch?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
@@ -243,7 +248,7 @@ interface DiscoverSectionProps {
   refresh: () => Promise<void>;
 }
 
-export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh }: DiscoverSectionProps) {
+export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh }: DiscoverSectionProps) {
   // Beta MVP: prefer live API data, but fall back to mock parking/valet cards
   // until those vendor categories exist in the backend.
   const apiCardTypes = new Set(
@@ -721,6 +726,7 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
               onSwipe={handleSwipe}
               onShowBottomNav={onShowBottomNav}
               onTouch={onTouch}
+              onCardTap={handleCardClick}
               onSaveSpot={handleSaveSpot}
             />
           )}
@@ -752,6 +758,10 @@ export function DiscoverSection({ isDarkMode, onShowBottomNav, onTouch, onBookRi
           <VenueDetails
             venue={selectedVenue}
             onClose={() => setSelectedVenue(null)}
+            onNavigateToMap={() => {
+              onNavigateToMap?.(selectedVenue?.name);
+              setSelectedVenue(null);
+            }}
             onBookRide={() => onBookRide?.({
               name: selectedVenue?.name,
               lat: selectedVenue?._lat,

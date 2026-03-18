@@ -8,8 +8,10 @@
  */
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { AppRouter } from '@bytspot-api/trpc/router';
+import type { inferRouterOutputs } from '@trpc/server';
 
-import { API_BASE_URL } from './api';
+/** API base URL — single source of truth (also used for SSE stream) */
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://bytspot-api.onrender.com';
 
 export const trpc = createTRPCClient<AppRouter>({
   links: [
@@ -25,4 +27,13 @@ export const trpc = createTRPCClient<AppRouter>({
 
 /** Re-export the AppRouter type so other files can reference it */
 export type { AppRouter };
+
+/** Inferred output types from the tRPC router */
+type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+/** A single venue from venues.list */
+export type ApiVenue = RouterOutputs['venues']['list']['venues'][number];
+
+/** Response shape from rides.get */
+export type ApiRidesResponse = RouterOutputs['rides']['get'];
 

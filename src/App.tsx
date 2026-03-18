@@ -1122,7 +1122,17 @@ export default function App() {
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
                   <DiscoverSection
                     isDarkMode={isDarkMode}
-                    onNavigateToMap={() => setActiveTab('map')}
+                    onNavigateToMap={(venueName) => {
+                      if (venueName) {
+                        setSelectedDestination(venueName);
+                        setSelectedMapFunction('route');
+                        toast.success('Navigation', {
+                          description: `Setting route to ${venueName}`,
+                          duration: 2000,
+                        });
+                      }
+                      setActiveTab('map');
+                    }}
                     onShowBottomNav={() => setShowBottomNav(true)}
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
@@ -1194,7 +1204,7 @@ export default function App() {
               >
                 <HomeConcierge
                   tabMode
-                  venues={apiVenues}
+                  venues={apiVenues as any[]}
                   cityName={userCity}
                   onVenueSelect={(v) => {
                     setSelectedSearchVenue(v);
@@ -1267,6 +1277,17 @@ export default function App() {
             <VenueDetails
               venue={selectedSearchVenue}
               onClose={() => setSelectedSearchVenue(null)}
+              onNavigateToMap={() => {
+                const venueName = selectedSearchVenue?.name || 'Destination';
+                setSelectedDestination(venueName);
+                setSelectedMapFunction('route');
+                setActiveTab('map');
+                setSelectedSearchVenue(null);
+                toast.success('Navigation', {
+                  description: `Setting route to ${venueName}`,
+                  duration: 2000,
+                });
+              }}
               onBookRide={() => {
                 setRideDestination({
                   name: selectedSearchVenue?.name || 'Destination',

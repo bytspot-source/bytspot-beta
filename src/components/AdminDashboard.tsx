@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-
-const API_BASE = 'https://bytspot-api.onrender.com';
+import { trpc } from '../utils/trpc';
 
 interface AdminStats {
   totalUsers: number;
@@ -26,14 +25,12 @@ export function AdminDashboard() {
   const fetchStats = useCallback(async (password: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/stats`, {
-        headers: { 'X-Admin-Password': password },
-      });
-      if (res.status === 401) { toast.error('Wrong password'); setAuthed(false); return; }
-      const data = await res.json();
+      const data = await trpc.admin.stats.query({ adminPassword: password });
       setStats(data);
-    } catch { toast.error('Could not reach API'); }
-    finally { setLoading(false); }
+    } catch (err: any) {
+      if (err?.data?.code === 'UNAUTHORIZED') { toast.error('Wrong password'); setAuthed(false); return; }
+      toast.error('Could not reach API');
+    } finally { setLoading(false); }
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -57,12 +54,7 @@ export function AdminDashboard() {
 
   const generateInvites = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/generate-invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Password': pw },
-        body: JSON.stringify({ count: genCount }),
-      });
-      const data = await res.json();
+      const data = await trpc.admin.generateInvite.mutate({ adminPassword: pw, count: genCount });
       setInviteCodes(data.codes || []);
       toast.success(`Generated ${data.codes?.length} invite code(s)`);
     } catch { toast.error('Failed to generate codes'); }

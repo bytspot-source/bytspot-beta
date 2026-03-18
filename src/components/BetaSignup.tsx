@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { BrandLogo } from './BrandLogo';
 import { toast } from 'sonner@2.0.3';
 import { Toaster } from './ui/sonner';
+import { trpc } from '../utils/trpc';
 
 // ============================================================
 // CONFIGURATION — Update these before deploying to production
@@ -27,10 +28,6 @@ import { Toaster } from './ui/sonner';
  *   - Emails are NOT saved anywhere
  *   - Use this only for previewing the UI
  */
-const BACKEND_PROVIDER: 'formspree' | 'custom' | 'mock' = 'custom';
-const FORMSPREE_FORM_ID = 'xqedgrzv';
-const CUSTOM_API_URL = 'https://bytspot-api.onrender.com/beta-signup';
-
 // ============================================================
 
 interface BetaSignupProps {
@@ -41,36 +38,11 @@ interface BetaSignupProps {
 }
 
 async function submitEmail(email: string, name?: string): Promise<{ ok: boolean; alreadyRegistered?: boolean; message?: string }> {
-  switch (BACKEND_PROVIDER) {
-    case 'formspree': {
-      const res = await fetch(`https://formspree.io/f/${FORMSPREE_FORM_ID}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email, name, _subject: 'Bytspot Beta Signup', source: 'bytspot-beta' }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return { ok: false, message: data?.error || 'Signup failed. Please try again.' };
-      }
-      return { ok: true };
-    }
-    case 'custom': {
-      const res = await fetch(CUSTOM_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, source: 'bytspot-beta' }),
-      });
-      if (!res.ok) {
-        return { ok: false, message: 'Signup failed. Please try again.' };
-      }
-      const data = await res.json().catch(() => ({}));
-      return { ok: true, alreadyRegistered: data?.alreadyRegistered ?? false };
-    }
-    case 'mock':
-    default: {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return { ok: true };
-    }
+  try {
+    const result = await trpc.betaSignup.signup.mutate({ email, name, source: 'bytspot-beta' });
+    return { ok: result.ok, alreadyRegistered: result.alreadyRegistered };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Signup failed. Please try again.' };
   }
 }
 

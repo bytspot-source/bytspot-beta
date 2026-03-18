@@ -3,7 +3,7 @@
  * Subscribes the user to Web Push notifications using the backend VAPID public key.
  */
 
-import { API_BASE_URL } from './api';
+import { trpc } from './trpc';
 
 const STORAGE_KEY = 'bytspot_push_subscribed';
 
@@ -38,9 +38,8 @@ export async function subscribeToPush(): Promise<boolean> {
 
     const registration = await navigator.serviceWorker.ready;
 
-    // Fetch VAPID public key from backend
-    const keyRes = await fetch(`${API_BASE_URL}/push/vapid-public-key`);
-    const { key } = await keyRes.json();
+    // Fetch VAPID public key from backend via tRPC
+    const { key } = await trpc.push.vapidPublicKey.query();
     const applicationServerKey = urlBase64ToUint8Array(key);
 
     const subscription = await registration.pushManager.subscribe({
@@ -48,12 +47,8 @@ export async function subscribeToPush(): Promise<boolean> {
       applicationServerKey,
     });
 
-    // Send subscription to backend
-    await fetch(`${API_BASE_URL}/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription }),
-    });
+    // Send subscription to backend via tRPC
+    await trpc.push.subscribe.mutate({ subscription: subscription.toJSON() as any });
 
     localStorage.setItem(STORAGE_KEY, 'true');
     return true;

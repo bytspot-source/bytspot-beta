@@ -137,6 +137,33 @@ export default function App() {
   useEffect(() => {
     initAnalytics();
     ensurePushSubscribed(); // silently re-subscribes if previously granted
+
+    // ─── Capacitor Deep Links ─────────────────────────────────────────────
+    // When the native app is opened via bytspot:// or a universal link,
+    // route to the correct in-app screen.
+    (async () => {
+      try {
+        const { App: CapApp } = await import('@capacitor/app');
+        CapApp.addListener('appUrlOpen', ({ url }) => {
+          console.log('[deeplink]', url);
+          try {
+            const parsed = new URL(url);
+            const path = parsed.pathname.replace(/^\/+/, '');
+
+            if (path.startsWith('venue/')) {
+              // bytspot://venue/<id> → open venue details via discover tab
+              setActiveTab('discover');
+            } else if (path === 'map') {
+              setActiveTab('map');
+            } else if (path === 'profile') {
+              setActiveTab('profile');
+            }
+          } catch { /* ignore malformed URLs */ }
+        });
+      } catch {
+        // @capacitor/app not installed → running in browser, skip
+      }
+    })();
   }, []);
 
   // ─── "Near me now" push alerts ───────────────────────────────────────────
@@ -569,8 +596,8 @@ export default function App() {
 
       {/* Main Content */}
       <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col">
-        {/* Status Bar Space */}
-        <div className="h-12" />
+        {/* Status Bar Space — respects iOS notch / Dynamic Island */}
+        <div style={{ height: 'max(3rem, var(--safe-area-top, 0px))' }} />
 
         {/* Enhanced Header - Only on Home */}
         {activeTab === 'home' && (
@@ -598,10 +625,10 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab Content */}
-        <div 
-          className="flex-1 pb-24 relative" 
-          style={{ minHeight: 0 }}
+        {/* Tab Content — bottom padding accounts for BottomNav + safe area */}
+        <div
+          className="flex-1 relative"
+          style={{ minHeight: 0, paddingBottom: 'calc(6rem + var(--safe-area-bottom, 0px))' }}
         >
           <AnimatePresence mode="wait">
             {activeTab === 'home' && (

@@ -42,8 +42,9 @@ export const BottomNav = memo(function BottomNav({
   ];
 
   return (
-    <motion.nav 
-      className="absolute bottom-0 left-0 right-0 pb-8 pt-2"
+    <motion.nav
+      className="absolute bottom-0 left-0 right-0 pt-2"
+      style={{ paddingBottom: 'max(2rem, var(--safe-area-bottom, 0px))' }}
       initial={{ y: 0 }}
       animate={{ y: isVisible ? 0 : 120 }}
       transition={{

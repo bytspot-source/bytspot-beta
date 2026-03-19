@@ -1,11 +1,24 @@
 /**
  * Bytspot Push Subscription Utility
- * Subscribes the user to Web Push notifications using the backend VAPID public key.
+ *
+ * Supports TWO paths:
+ * 1. **Native (Capacitor)** — uses @capacitor/push-notifications for APNs token
+ * 2. **Web (PWA)** — uses Web Push via service-worker PushManager + VAPID
+ *
+ * The correct path is chosen automatically at runtime.
  */
 
 import { trpc } from './trpc';
 
 const STORAGE_KEY = 'bytspot_push_subscribed';
+
+/** Detect if we're running inside a Capacitor native shell */
+function isNativeApp(): boolean {
+  return typeof (window as any).Capacitor !== 'undefined' &&
+    (window as any).Capacitor.isNativePlatform?.() === true;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -14,8 +27,11 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
 
+// ── Public API ─────────────────────────────────────────────────────────────
+
 /** Returns true if push is supported and permission already granted */
 export function isPushEnabled(): boolean {
+  if (isNativeApp()) return localStorage.getItem(STORAGE_KEY) === 'true';
   return (
     'serviceWorker' in navigator &&
     'PushManager' in window &&
@@ -26,10 +42,54 @@ export function isPushEnabled(): boolean {
 
 /**
  * Request permission and subscribe to push notifications.
- * Fetches the VAPID public key from the API, creates a PushSubscription,
- * and POSTs it to /push/subscribe.
+ * Automatically picks native (APNs) or web (VAPID) path.
  */
 export async function subscribeToPush(): Promise<boolean> {
+  if (isNativeApp()) return subscribeNative();
+  return subscribeWeb();
+}
+
+/** Call once on app load to re-register existing subscriptions */
+export async function ensurePushSubscribed(): Promise<void> {
+  if (!localStorage.getItem(STORAGE_KEY)) return;
+  if (!isNativeApp() && Notification.permission !== 'granted') return;
+  await subscribeToPush().catch(() => {});
+}
+
+// ── Native (Capacitor) path ────────────────────────────────────────────────
+
+async function subscribeNative(): Promise<boolean> {
+  try {
+    const { PushNotifications } = await import('@capacitor/push-notifications');
+
+    // Request permission
+    const permResult = await PushNotifications.requestPermissions();
+    if (permResult.receive !== 'granted') return false;
+
+    // Listen for the APNs token
+    PushNotifications.addListener('registration', async (token) => {
+      console.log('[push-native] APNs token:', token.value);
+      // Send APNs device token to backend
+      await trpc.push.subscribe.mutate({ deviceToken: token.value, platform: 'ios' } as any);
+      localStorage.setItem(STORAGE_KEY, 'true');
+    });
+
+    PushNotifications.addListener('registrationError', (err) => {
+      console.warn('[push-native] registration error:', err);
+    });
+
+    // Trigger registration
+    await PushNotifications.register();
+    return true;
+  } catch (err) {
+    console.warn('[push-native] subscription failed:', err);
+    return false;
+  }
+}
+
+// ── Web (PWA) path ─────────────────────────────────────────────────────────
+
+async function subscribeWeb(): Promise<boolean> {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
 
@@ -53,16 +113,8 @@ export async function subscribeToPush(): Promise<boolean> {
     localStorage.setItem(STORAGE_KEY, 'true');
     return true;
   } catch (err) {
-    console.warn('[push] subscription failed:', err);
+    console.warn('[push-web] subscription failed:', err);
     return false;
   }
-}
-
-/** Call once on app load to re-register existing subscriptions */
-export async function ensurePushSubscribed(): Promise<void> {
-  if (!localStorage.getItem(STORAGE_KEY)) return;
-  if (Notification.permission !== 'granted') return;
-  // Silently re-subscribe to refresh the endpoint if needed
-  await subscribeToPush().catch(() => {});
 }
 

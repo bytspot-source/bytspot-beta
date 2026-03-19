@@ -257,6 +257,16 @@ html {
   scroll-behavior: smooth;
 }
 
+/* ── Capacitor iOS Safe Area ──────────────────────────────────── */
+/* Uses env() values injected by iOS WebKit when viewport-fit=cover
+   is set in <meta name="viewport">. Falls back to 0px on web. */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
 /* SF Pro Text/Display system fonts */
 @layer base {
   body {

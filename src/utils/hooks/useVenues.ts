@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
-import { getVenuePrimaryPhoto } from '../venuePhoto';
+import { resolveVenuePhoto } from '../venuePhoto';
 
 /** Haversine — returns distance in miles between two lat/lng points */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -69,7 +69,7 @@ function crowdToAvailability(crowd: ApiVenue['crowd']): string {
 /** Convert an ApiVenue → DiscoverCard. Pass userCoords to get a real distance string. */
 export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: number; lng: number }): DiscoverCard {
   const cardType = mapCategory(v.category);
-  const image = v.imageUrl || getVenuePrimaryPhoto(v.category, v.name);
+  const image = resolveVenuePhoto({ imageUrl: v.imageUrl, category: v.category, name: v.name });
 
   let distance = '—';
   if (userCoords && typeof v.lat === 'number' && typeof v.lng === 'number') {

@@ -88,3 +88,37 @@ export function getVenuePrimaryPhoto(category: string, name: string): string {
   return getVenuePhotos(category, name, 1)[0];
 }
 
+/**
+ * Resolve a venue's best photo URL.
+ * Priority: Google Places photoUrls → DB imageUrl → Unsplash fallback
+ */
+export function resolveVenuePhoto(opts: {
+  photoUrls?: string[];
+  imageUrl?: string | null;
+  category: string;
+  name: string;
+}): string {
+  if (opts.photoUrls?.length) return opts.photoUrls[0];
+  if (opts.imageUrl) return opts.imageUrl;
+  return getVenuePrimaryPhoto(opts.category, opts.name);
+}
+
+/**
+ * Get all available photos for a venue (for gallery/detail views).
+ * Merges Google Places photos with Unsplash fallbacks to ensure ≥ count items.
+ */
+export function resolveVenuePhotos(opts: {
+  photoUrls?: string[];
+  imageUrl?: string | null;
+  category: string;
+  name: string;
+  count?: number;
+}): string[] {
+  const count = opts.count ?? 4;
+  const real = opts.photoUrls?.slice(0, count) ?? [];
+  if (real.length >= count) return real;
+  // Fill remaining slots with Unsplash fallbacks
+  const fallbacks = getVenuePhotos(opts.category, opts.name, count - real.length);
+  return [...real, ...fallbacks];
+}
+

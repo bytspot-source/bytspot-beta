@@ -67,6 +67,11 @@ export interface DiscoverCard {
   _slug?: string; // Venue slug for API lookups
   _lat?: number; // Latitude
   _lng?: number; // Longitude
+  // Google Places integration
+  placeId?: string; // Google Places ID for detail lookups
+  photoUrls?: string[]; // Real Google Places photo URLs (preferred over `image`)
+  ratingCount?: number; // Number of Google ratings
+  isOpen?: boolean | null; // Real-time open/closed status from Google
 }
 
 export const discoverCards: DiscoverCard[] = [

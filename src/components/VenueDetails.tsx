@@ -8,7 +8,7 @@ import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';
-import { getVenuePhotos } from '../utils/venuePhoto';
+import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
 
 interface VenueDetailsProps {
@@ -66,11 +66,15 @@ const menuItems = [
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
-  // Dynamic gallery — deterministic per venue name + category
+  // Dynamic gallery — prefer Google Places photos, fall back to Unsplash
   const venueCategory = venue.category || venue.type || 'venue';
-  const galleryImages = venue.image
-    ? [venue.image, ...getVenuePhotos(venueCategory, venue.name, 3)]
-    : getVenuePhotos(venueCategory, venue.name, 4);
+  const galleryImages = resolveVenuePhotos({
+    photoUrls: venue.photoUrls,
+    imageUrl: venue.image || venue.imageUrl,
+    category: venueCategory,
+    name: venue.name,
+    count: 4,
+  });
 
   // Use real API crowd data from venue prop
   const liveVibe = venue.vibe ?? 7;

@@ -101,6 +101,61 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
   } as DiscoverCard & { _slug: string; _lat: number; _lng: number };
 }
 
+/** Map a Google Places result → DiscoverCard */
+const GOOGLE_TYPE_TO_CARD: Record<string, CardType> = {
+  restaurant: 'dining', cafe: 'coffee', coffee_shop: 'coffee',
+  bar: 'nightlife', night_club: 'nightlife',
+  clothing_store: 'shopping', shopping_mall: 'shopping',
+  gym: 'fitness', movie_theater: 'entertainment', amusement_park: 'entertainment',
+  parking: 'parking',
+};
+
+function googleTypeToCardType(types: string[], primaryType: string | null): CardType {
+  if (primaryType) {
+    const mapped = GOOGLE_TYPE_TO_CARD[primaryType];
+    if (mapped) return mapped;
+  }
+  for (const t of types) {
+    const mapped = GOOGLE_TYPE_TO_CARD[t];
+    if (mapped) return mapped;
+  }
+  return 'venue';
+}
+
+export function placeToCard(
+  p: { placeId: string; name: string; address: string; lat: number; lng: number; rating: number | null; ratingCount: number; types: string[]; primaryType: string | null; photoUrls: string[]; isOpen: boolean | null; websiteUri: string | null; priceLevel: string | null },
+  index: number,
+  userCoords?: { lat: number; lng: number },
+): DiscoverCard {
+  const cardType = googleTypeToCardType(p.types, p.primaryType);
+  const image = resolveVenuePhoto({ photoUrls: p.photoUrls, category: cardType, name: p.name });
+
+  let distance = '—';
+  if (userCoords) {
+    const miles = haversineMiles(userCoords.lat, userCoords.lng, p.lat, p.lng);
+    distance = formatDistance(miles);
+  }
+
+  return {
+    id: 20_000 + index,
+    type: cardType,
+    name: p.name,
+    image,
+    distance,
+    rating: p.rating ?? undefined,
+    ratingCount: p.ratingCount,
+    description: p.address,
+    location: p.address,
+    website: p.websiteUri ?? undefined,
+    isOpen: p.isOpen,
+    placeId: p.placeId,
+    photoUrls: p.photoUrls,
+    verified: false,
+    _lat: p.lat,
+    _lng: p.lng,
+  } as DiscoverCard;
+}
+
 interface UseVenuesResult {
   venues: ApiVenue[];
   cards: DiscoverCard[];
@@ -108,6 +163,11 @@ interface UseVenuesResult {
   error: string | null;
   refresh: () => Promise<void>;
   userCoords: { lat: number; lng: number } | null;
+  /** Search Google Places and return results as DiscoverCards */
+  searchPlaces: (query: string) => Promise<DiscoverCard[]>;
+  /** Nearby search via Google Places for a specific type */
+  searchNearby: (type?: string) => Promise<DiscoverCard[]>;
+  placesLoading: boolean;
 }
 
 export function useVenues(): UseVenuesResult {
@@ -116,6 +176,7 @@ export function useVenues(): UseVenuesResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [placesLoading, setPlacesLoading] = useState(false);
   const fetchedRef = useRef(false);
   const isMountedRef = useRef(true);
   const latestRequestIdRef = useRef(0);
@@ -228,6 +289,35 @@ export function useVenues(): UseVenuesResult {
     };
   }, []);
 
-  return { venues, cards, loading, error, refresh: fetchVenues, userCoords };
+  // ── Google Places: text search ─────────────────────────
+  const searchPlaces = async (query: string): Promise<DiscoverCard[]> => {
+    setPlacesLoading(true);
+    try {
+      const res = await trpc.places.textSearch.query({ query, maxResults: 10 });
+      return res.places.map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
+    } catch (err: any) {
+      console.error('[searchPlaces]', err?.message);
+      return [];
+    } finally {
+      setPlacesLoading(false);
+    }
+  };
+
+  // ── Google Places: nearby search ──────────────────────
+  const searchNearby = async (type?: string): Promise<DiscoverCard[]> => {
+    const coords = userCoordsRef.current ?? { lat: 33.7756, lng: -84.3963 }; // default: Atlanta
+    setPlacesLoading(true);
+    try {
+      const res = await trpc.places.nearbySearch.query({ lat: coords.lat, lng: coords.lng, type, maxResults: 10 });
+      return res.places.map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
+    } catch (err: any) {
+      console.error('[searchNearby]', err?.message);
+      return [];
+    } finally {
+      setPlacesLoading(false);
+    }
+  };
+
+  return { venues, cards, loading, error, refresh: fetchVenues, userCoords, searchPlaces, searchNearby, placesLoading };
 }
 

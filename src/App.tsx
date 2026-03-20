@@ -65,6 +65,9 @@ export default function App() {
     error: venuesError,
     refresh: refreshVenues,
     userCoords,
+    searchPlaces,
+    searchNearby,
+    placesLoading,
   } = useVenues();
   const [searchValue, setSearchValue] = useState('');
   const [showMapMenu, setShowMapMenu] = useState(false);
@@ -1167,6 +1170,9 @@ export default function App() {
                     loading={venuesLoading}
                     error={venuesError}
                     refresh={refreshVenues}
+                    searchPlaces={searchPlaces}
+                    searchNearby={searchNearby}
+                    placesLoading={placesLoading}
                     onBookRide={(v) => {
                       if (v) setRideDestination(v);
                       setShowRideSelection(true);

@@ -246,9 +246,25 @@ interface DiscoverSectionProps {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Google Places text search */
+  searchPlaces?: (query: string) => Promise<DiscoverCard[]>;
+  /** Google Places nearby search by type */
+  searchNearby?: (type?: string) => Promise<DiscoverCard[]>;
+  placesLoading?: boolean;
 }
 
-export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh }: DiscoverSectionProps) {
+// Map CardType → Google Places API type string
+const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
+  coffee: 'cafe',
+  dining: 'restaurant',
+  nightlife: 'night_club',
+  shopping: 'shopping_mall',
+  entertainment: 'movie_theater',
+  fitness: 'gym',
+  parking: 'parking',
+};
+
+export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
   // Beta MVP: prefer live API data, but fall back to mock parking/valet cards
   // until those vendor categories exist in the backend.
   const apiCardTypes = new Set(
@@ -267,8 +283,11 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       id: 10_000 + index,
     }));
 
-  const cards = [...apiCards, ...fallbackStaticCards];
-  const hasLiveVenueCards = apiCards.length > 0;
+  // Google Places results (populated on filter change)
+  const [googleCards, setGoogleCards] = useState<DiscoverCard[]>([]);
+
+  const cards = [...apiCards, ...fallbackStaticCards, ...googleCards];
+  const hasLiveVenueCards = apiCards.length > 0 || googleCards.length > 0;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
@@ -412,6 +431,22 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   useEffect(() => {
     setCurrentIndex(0);
   }, [appliedFilter, showSavedOnly]);
+
+  // Fetch Google Places results when a category filter is applied
+  useEffect(() => {
+    if (!appliedFilter || !searchNearby) return;
+    // Only search for categories that map to Google types
+    const googleType = CARD_TYPE_TO_GOOGLE[appliedFilter];
+    if (!googleType) { setGoogleCards([]); return; }
+    let cancelled = false;
+    searchNearby(googleType).then((results) => {
+      if (!cancelled) {
+        setGoogleCards(results);
+        setCurrentIndex(0);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [appliedFilter, searchNearby]);
 
   useEffect(() => {
     if (!filteredCards.length) {

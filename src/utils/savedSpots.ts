@@ -1,7 +1,8 @@
 /**
  * Saved Spots Management Utility
- * Handles saving, organizing, and retrieving favorite spots across the app
+ * v2 — API-first: calls tRPC user.savedSpots.*, falls back to localStorage.
  */
+import { trpc } from './trpc';
 
 export type SpotType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness';
 
@@ -18,12 +19,11 @@ export interface SavedSpot {
   savedAt: number;
   lastVisited?: number;
   visitCount?: number;
-  // Type-specific data
-  spots?: number; // For parking
-  price?: string; // For parking/venues
-  features?: string[]; // For parking
-  cuisine?: string; // For dining
-  hours?: string; // For venues
+  spots?: number;
+  price?: string;
+  features?: string[];
+  cuisine?: string;
+  hours?: string;
   coordinates?: { lat: number; lng: number };
 }
 
@@ -40,8 +40,12 @@ export interface SavedCollection {
 const STORAGE_KEY = 'bytspot_saved_spots';
 const COLLECTIONS_KEY = 'bytspot_spot_collections';
 
+function isAuthenticated(): boolean {
+  return !!localStorage.getItem('bytspot_auth_token');
+}
+
 /**
- * Get all saved spots
+ * Get all saved spots — sync localStorage
  */
 export function getSavedSpots(): SavedSpot[] {
   try {
@@ -54,74 +58,92 @@ export function getSavedSpots(): SavedSpot[] {
 }
 
 /**
- * Get saved spots by type
+ * Get all saved spots — API-first
  */
+export async function getSavedSpotsAsync(): Promise<SavedSpot[]> {
+  if (!isAuthenticated()) return getSavedSpots();
+  try {
+    const rows = await trpc.user.savedSpots.list.query();
+    const mapped: SavedSpot[] = rows.map((r: any) => ({
+      id: r.venue?.id ?? r.venueId,
+      type: (r.venue?.category ?? 'venue') as SpotType,
+      name: r.venue?.name ?? '',
+      address: r.venue?.address ?? '',
+      imageUrl: r.venue?.imageUrl ?? undefined,
+      notes: r.notes ?? undefined,
+      tags: r.tags ?? [],
+      savedAt: new Date(r.savedAt).getTime(),
+      coordinates: r.venue?.lat && r.venue?.lng ? { lat: r.venue.lat, lng: r.venue.lng } : undefined,
+    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+    return mapped;
+  } catch { return getSavedSpots(); }
+}
+
 export function getSavedSpotsByType(type: SpotType): SavedSpot[] {
   return getSavedSpots().filter(spot => spot.type === type);
 }
 
-/**
- * Get saved spot by ID
- */
 export function getSavedSpot(id: string): SavedSpot | undefined {
   return getSavedSpots().find(spot => spot.id === id);
 }
 
-/**
- * Check if a spot is saved
- */
 export function isSpotSaved(id: string): boolean {
   return getSavedSpots().some(spot => spot.id === id);
 }
 
 /**
- * Save a spot
+ * Save a spot — optimistic localStorage + fire-and-forget API call
  */
 export function saveSpot(spot: Omit<SavedSpot, 'savedAt' | 'visitCount'>): SavedSpot {
   const spots = getSavedSpots();
-  
-  // Check if already saved
   const existingIndex = spots.findIndex(s => s.id === spot.id);
-  
   const savedSpot: SavedSpot = {
     ...spot,
     savedAt: Date.now(),
     visitCount: existingIndex >= 0 ? spots[existingIndex].visitCount : 0,
     lastVisited: existingIndex >= 0 ? spots[existingIndex].lastVisited : undefined,
   };
-  
   if (existingIndex >= 0) {
-    // Update existing
     spots[existingIndex] = savedSpot;
   } else {
-    // Add new
     spots.unshift(savedSpot);
   }
-  
   localStorage.setItem(STORAGE_KEY, JSON.stringify(spots));
+
+  // Fire-and-forget API save
+  if (isAuthenticated()) {
+    trpc.user.savedSpots.save.mutate({
+      venueId: spot.id,
+      notes: spot.notes,
+      tags: spot.tags,
+    }).catch(() => {});
+  }
+
   return savedSpot;
 }
 
 /**
- * Remove a saved spot
+ * Remove a saved spot — optimistic localStorage + fire-and-forget API call
  */
 export function removeSavedSpot(id: string): boolean {
   const spots = getSavedSpots();
   const filtered = spots.filter(spot => spot.id !== id);
-  
-  if (filtered.length === spots.length) {
-    return false; // Spot not found
-  }
-  
+  if (filtered.length === spots.length) return false;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-  
+
   // Also remove from collections
   const collections = getCollections();
   collections.forEach(collection => {
     collection.spotIds = collection.spotIds.filter(spotId => spotId !== id);
   });
   saveCollections(collections);
-  
+
+  // Fire-and-forget API remove
+  if (isAuthenticated()) {
+    trpc.user.savedSpots.remove.mutate({ venueId: id }).catch(() => {});
+  }
+
   return true;
 }
 

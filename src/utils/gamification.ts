@@ -1,7 +1,15 @@
 /**
  * Bytspot Gamification & Loyalty System
  * Manages points, achievements, and membership tiers
+ *
+ * v2 — API-first: calls tRPC endpoints, falls back to localStorage when offline/unauthenticated.
  */
+import { trpc } from './trpc';
+
+/** Returns true when a JWT is present (user is logged in). */
+function isAuthenticated(): boolean {
+  return !!localStorage.getItem('bytspot_auth_token');
+}
 
 export interface UserPoints {
   total: number;
@@ -309,51 +317,53 @@ export function getNextTierInfo(currentPoints: number): {
 }
 
 /**
- * Get user's current points
+ * Get user's current points — sync localStorage fallback
  */
-export function getUserPoints(): UserPoints {
+export function getUserPointsLocal(): UserPoints {
   const stored = localStorage.getItem(STORAGE_KEYS.POINTS);
   if (stored) {
     const data = JSON.parse(stored);
-    return {
-      ...data,
-      lastUpdated: new Date(data.lastUpdated),
-    };
+    return { ...data, lastUpdated: new Date(data.lastUpdated) };
   }
-  
-  // Initialize with welcome bonus
-  const initialPoints: UserPoints = {
-    total: 100,
-    lifetime: 100,
-    pending: 0,
-    lastUpdated: new Date(),
-  };
-  
+  const initialPoints: UserPoints = { total: 100, lifetime: 100, pending: 0, lastUpdated: new Date() };
   localStorage.setItem(STORAGE_KEYS.POINTS, JSON.stringify(initialPoints));
-  
-  // Record welcome bonus transaction
-  addPointTransaction({
-    type: 'earn',
-    amount: 100,
-    description: POINT_ACTIONS.WELCOME_BONUS.description,
-    category: 'bonus',
-  });
-  
   return initialPoints;
 }
 
+/** @deprecated Use getUserPointsAsync instead */
+export const getUserPoints = getUserPointsLocal;
+
 /**
- * Add points to user's account
+ * Get user's current points — API-first, localStorage fallback
+ */
+export async function getUserPointsAsync(): Promise<UserPoints> {
+  if (!isAuthenticated()) return getUserPointsLocal();
+  try {
+    const res = await trpc.user.points.get.query();
+    const pts: UserPoints = { total: res.total, lifetime: res.lifetime, pending: 0, lastUpdated: new Date() };
+    // Sync to localStorage for offline access
+    localStorage.setItem(STORAGE_KEYS.POINTS, JSON.stringify(pts));
+    return pts;
+  } catch {
+    return getUserPointsLocal();
+  }
+}
+
+/**
+ * Add points to user's account (localStorage only — offline fallback).
+ * NOTE: When authenticated, points are awarded server-side by the venues.checkin procedure.
+ * This function should only be called as a local fallback when not authenticated.
  */
 export function addPoints(action: keyof typeof POINT_ACTIONS, bonus: number = 0): boolean {
+  // When authenticated, the backend awards points during check-in; skip local bookkeeping
+  if (isAuthenticated()) return true;
+
   const actionConfig = POINT_ACTIONS[action];
-  
+
   // Check if one-time action already completed
   if ('oneTime' in actionConfig && actionConfig.oneTime) {
     const completedActions = JSON.parse(localStorage.getItem(STORAGE_KEYS.ONE_TIME_ACTIONS) || '[]');
-    if (completedActions.includes(action)) {
-      return false; // Already claimed
-    }
+    if (completedActions.includes(action)) return false;
     completedActions.push(action);
     localStorage.setItem(STORAGE_KEYS.ONE_TIME_ACTIONS, JSON.stringify(completedActions));
   }
@@ -362,38 +372,27 @@ export function addPoints(action: keyof typeof POINT_ACTIONS, bonus: number = 0)
   if ('limit' in actionConfig && actionConfig.limit) {
     const today = new Date().toDateString();
     const dailyLimits = JSON.parse(localStorage.getItem(STORAGE_KEYS.DAILY_LIMITS) || '{}');
-
-    if (!dailyLimits[today]) {
-      dailyLimits[today] = {};
-    }
-
+    if (!dailyLimits[today]) dailyLimits[today] = {};
     const currentCount = dailyLimits[today][action] || 0;
-    if (currentCount >= (actionConfig.limit as number)) {
-      return false; // Daily limit reached
-    }
-    
+    if (currentCount >= (actionConfig.limit as number)) return false;
     dailyLimits[today][action] = currentCount + 1;
     localStorage.setItem(STORAGE_KEYS.DAILY_LIMITS, JSON.stringify(dailyLimits));
   }
-  
-  // Add points
-  const points = getUserPoints();
+
+  const points = getUserPointsLocal();
   const totalPoints = actionConfig.points + bonus;
-  
   points.total += totalPoints;
   points.lifetime += totalPoints;
   points.lastUpdated = new Date();
-  
   localStorage.setItem(STORAGE_KEYS.POINTS, JSON.stringify(points));
-  
-  // Record transaction
+
   addPointTransaction({
     type: 'earn',
     amount: totalPoints,
     description: actionConfig.description + (bonus > 0 ? ` (+${bonus} bonus)` : ''),
     category: action.toLowerCase(),
   });
-  
+
   return true;
 }
 
@@ -444,23 +443,39 @@ function addPointTransaction(transaction: Omit<PointTransaction, 'id' | 'timesta
 }
 
 /**
- * Get point transaction history
+ * Get point transaction history — localStorage fallback
  */
 export function getPointTransactions(): PointTransaction[] {
   const stored = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
   if (!stored) return [];
-  
   const data = JSON.parse(stored);
-  return data.map((txn: any) => ({
-    ...txn,
-    timestamp: new Date(txn.timestamp),
-  }));
+  return data.map((txn: any) => ({ ...txn, timestamp: new Date(txn.timestamp) }));
 }
 
 /**
- * Get user's achievements
+ * Get point transaction history — API-first
  */
-export function getUserAchievements(): Achievement[] {
+export async function getPointTransactionsAsync(): Promise<PointTransaction[]> {
+  if (!isAuthenticated()) return getPointTransactions();
+  try {
+    const res = await trpc.user.points.history.query({ limit: 50 });
+    return res.items.map((t: any) => ({
+      id: t.id,
+      type: t.type as PointTransaction['type'],
+      amount: t.amount,
+      description: t.description ?? '',
+      timestamp: new Date(t.createdAt),
+      category: t.category ?? '',
+    }));
+  } catch {
+    return getPointTransactions();
+  }
+}
+
+/**
+ * Get user's achievements — sync localStorage fallback
+ */
+export function getUserAchievementsLocal(): Achievement[] {
   const stored = localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS);
   if (stored) {
     const data = JSON.parse(stored);
@@ -469,10 +484,39 @@ export function getUserAchievements(): Achievement[] {
       unlockedAt: achievement.unlockedAt ? new Date(achievement.unlockedAt) : undefined,
     }));
   }
-  
-  // Initialize with default achievements
   localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(ACHIEVEMENTS));
   return ACHIEVEMENTS;
+}
+
+/** @deprecated Use getUserAchievementsAsync instead */
+export const getUserAchievements = getUserAchievementsLocal;
+
+/**
+ * Get user's achievements — API-first, localStorage fallback
+ */
+export async function getUserAchievementsAsync(): Promise<Achievement[]> {
+  if (!isAuthenticated()) return getUserAchievementsLocal();
+  try {
+    const apiList = await trpc.user.achievements.list.query();
+    // Map API shape → local Achievement shape
+    const mapped: Achievement[] = apiList.map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      description: a.description,
+      icon: a.icon,
+      category: a.category as Achievement['category'],
+      requirement: a.requirement,
+      progress: a.unlocked ? a.requirement : 0,
+      unlocked: a.unlocked,
+      unlockedAt: a.unlockedAt ? new Date(a.unlockedAt) : undefined,
+      reward: a.reward,
+      rarity: a.rarity as Achievement['rarity'],
+    }));
+    localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(mapped));
+    return mapped;
+  } catch {
+    return getUserAchievementsLocal();
+  }
 }
 
 /**
@@ -578,12 +622,9 @@ const MOCK_LEADERBOARD: Omit<LeaderboardEntry, 'rank'>[] = [
   { userId: '10', name: 'Sam W.', points: 980, tier: 'silver' },
 ];
 
-/**
- * Get Top 10 leaderboard entries (mock for now — will use real API data later).
- * Inserts the current user into the list if they rank in the top 10.
- */
-export function getLeaderboard(): { entries: LeaderboardEntry[]; userRank: number; userPoints: number } {
-  const currentPoints = getUserPoints().total;
+/** Sync mock leaderboard — used when not authenticated */
+export function getLeaderboardLocal(): { entries: LeaderboardEntry[]; userRank: number; userPoints: number } {
+  const currentPoints = getUserPointsLocal().total;
   const userName = (() => {
     try {
       const stored = localStorage.getItem('bytspot_user_name');
@@ -592,21 +633,42 @@ export function getLeaderboard(): { entries: LeaderboardEntry[]; userRank: numbe
       return user?.name?.split(' ')[0] || 'You';
     } catch { return 'You'; }
   })();
-
-  // Build full list including current user and sort
   const allEntries = [
     ...MOCK_LEADERBOARD,
     { userId: 'me', name: userName, points: currentPoints, tier: getUserTier(currentPoints).level as MembershipTier },
   ].sort((a, b) => b.points - a.points);
-
   const userRank = allEntries.findIndex(e => e.userId === 'me') + 1;
-  const top10 = allEntries.slice(0, 10).map((e, i) => ({
-    ...e,
-    rank: i + 1,
-    isCurrentUser: e.userId === 'me',
-  }));
-
+  const top10 = allEntries.slice(0, 10).map((e, i) => ({ ...e, rank: i + 1, isCurrentUser: e.userId === 'me' }));
   return { entries: top10, userRank, userPoints: currentPoints };
+}
+
+/** @deprecated Use getLeaderboardAsync instead */
+export const getLeaderboard = getLeaderboardLocal;
+
+/**
+ * Get leaderboard — API-first, mock fallback
+ */
+export async function getLeaderboardAsync(): Promise<{ entries: LeaderboardEntry[]; userRank: number; userPoints: number }> {
+  if (!isAuthenticated()) return getLeaderboardLocal();
+  try {
+    const [apiLb, apiPts] = await Promise.all([
+      trpc.social.leaderboard.query({ limit: 10 }),
+      trpc.user.points.get.query(),
+    ]);
+    const currentUserId = (() => { try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}')?.id; } catch { return undefined; } })();
+    const entries: LeaderboardEntry[] = apiLb.map((e: any) => ({
+      rank: e.rank,
+      userId: e.userId,
+      name: e.name,
+      points: e.points,
+      tier: getUserTier(e.points).level as MembershipTier,
+      isCurrentUser: e.userId === currentUserId,
+    }));
+    const userRank = entries.find(e => e.isCurrentUser)?.rank ?? entries.length + 1;
+    return { entries, userRank, userPoints: apiPts.total };
+  } catch {
+    return getLeaderboardLocal();
+  }
 }
 
 /**

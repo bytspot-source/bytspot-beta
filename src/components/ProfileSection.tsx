@@ -13,9 +13,9 @@ import { VibePreferences } from './VibePreferences';
 import { SavedSpotsSection } from './SavedSpotsSection';
 import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
-import { getUserPoints, getUserTier, getAchievementStats } from '../utils/gamification';
-import { getCheckinHistory, type CheckInRecord } from '../utils/checkinHistory';
-import { getFollowedUsers, getSocialFeed, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
+import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
+import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
+import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -31,7 +31,7 @@ type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifi
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const savedSpotsStats = getSavedSpotsStats();
-  const checkinHistory = getCheckinHistory();
+
   // Read real user data from localStorage
   const userName = (() => {
     const name = localStorage.getItem('bytspot_user_name');
@@ -41,16 +41,23 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       return user?.name?.split(' ')[0] || 'Guest';
     } catch { return 'Guest'; }
   })();
-  const userPoints = getUserPoints();
+
+  // Async state: points, checkins, achievements — start with sync localStorage values, upgrade via API
+  const [userPoints, setUserPoints] = useState(getUserPoints());
+  const [checkinHistory, setCheckinHistory] = useState<CheckInRecord[]>(getCheckinHistory());
   const userTier = getUserTier(userPoints.total);
   const achievementStats = getAchievementStats();
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
   const [referralCount, setReferralCount] = useState<number | null>(null);
+
   useEffect(() => {
+    // Upgrade from API (fire all in parallel)
+    getUserPointsAsync().then(setUserPoints).catch(() => {});
+    getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
     trpc.auth.me.query().then((data) => {
       setReferralCount(data.referralCount);
-    }).catch(() => { /* offline or API sleeping — show nothing */ });
+    }).catch(() => {});
   }, []);
 
   const springConfig = {
@@ -143,6 +150,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   }
 
   if (currentScreen === 'friends') {
+    // Start with sync localStorage values — FriendsView below upgrades via API
     const followed = getFollowedUsers();
     const feed = getSocialFeed();
     const crowdColor = (lvl: number) =>

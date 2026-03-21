@@ -50,11 +50,14 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
   const [referralCount, setReferralCount] = useState<number | null>(null);
+  // Following count — start with localStorage, upgrade via API
+  const [followingCount, setFollowingCount] = useState(getFollowedUsers().length);
 
   useEffect(() => {
     // Upgrade from API (fire all in parallel)
     getUserPointsAsync().then(setUserPoints).catch(() => {});
     getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
+    getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
     trpc.auth.me.query().then((data) => {
       setReferralCount(data.referralCount);
     }).catch(() => {});
@@ -320,10 +323,10 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/20">
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                47
+                {followingCount}
               </p>
               <p className="text-[12px] text-white/80" style={{ fontWeight: 400 }}>
-                Bookings
+                Following
               </p>
             </div>
             <div className="text-center">

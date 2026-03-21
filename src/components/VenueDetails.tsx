@@ -96,6 +96,16 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
+  // Venue check-in activity feed
+  const [venueCheckins, setVenueCheckins] = useState<Array<{ id: string; userId: string; userName: string; crowdLevel: number; crowdLabel: string; timestamp: string }>>([]);
+  useEffect(() => {
+    if (venueKey) {
+      trpc.social.venueCheckins.query({ venueId: venueKey, limit: 8 }).then((res) => {
+        setVenueCheckins(res.items);
+      }).catch(() => {});
+    }
+  }, [venueKey]);
+
   // Crowd history for trend chart
   const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
   useEffect(() => {
@@ -581,6 +591,38 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               </div>
             </div>
           </motion.div>
+
+          {/* Recent Check-ins at This Venue */}
+          {venueCheckins.length > 0 && (
+            <motion.div
+              className="mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.55 }}
+            >
+              <h3 className="text-[20px] text-white mb-3" style={{ fontWeight: 600 }}>Recent Check-ins</h3>
+              <div className="space-y-2">
+                {venueCheckins.map((c) => {
+                  const crowdCol = c.crowdLevel === 1 ? 'text-green-400' : c.crowdLevel === 2 ? 'text-yellow-400' : c.crowdLevel === 3 ? 'text-orange-400' : 'text-red-400';
+                  const crowdIcon = c.crowdLevel === 1 ? '🟢' : c.crowdLevel === 2 ? '🟡' : c.crowdLevel === 3 ? '🟠' : '🔴';
+                  const mins = Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 60000);
+                  const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+                  return (
+                    <div key={c.id} className="flex items-center gap-3 rounded-[14px] p-3 bg-[#1C1C1E]/80 border border-white/10">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/30 to-cyan-500/30 flex items-center justify-center">
+                        <Users className="w-4 h-4 text-white/60" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] text-white truncate" style={{ fontWeight: 600 }}>{c.userName}</p>
+                        <p className={`text-[12px] ${crowdCol}`} style={{ fontWeight: 500 }}>{crowdIcon} {c.crowdLabel}</p>
+                      </div>
+                      <span className="text-[11px] text-white/30 shrink-0">{ago}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
 
           {/* Reviews */}
           <motion.div

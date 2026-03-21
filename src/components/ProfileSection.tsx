@@ -52,6 +52,9 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [referralCount, setReferralCount] = useState<number | null>(null);
   // Following count — start with localStorage, upgrade via API
   const [followingCount, setFollowingCount] = useState(getFollowedUsers().length);
+  // Premium status
+  const [isPremium, setIsPremium] = useState(false);
+  const [premiumLoading, setPremiumLoading] = useState(false);
 
   useEffect(() => {
     // Upgrade from API (fire all in parallel)
@@ -60,6 +63,9 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
     trpc.auth.me.query().then((data) => {
       setReferralCount(data.referralCount);
+    }).catch(() => {});
+    trpc.subscription.status.query().then((data) => {
+      setIsPremium(data.isPremium);
     }).catch(() => {});
   }, []);
 
@@ -308,9 +314,16 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
             {/* User Info */}
             <div className="flex-1">
-              <h2 className="text-[22px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {userName}
-              </h2>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-[22px] text-white" style={{ fontWeight: 700 }}>
+                  {userName}
+                </h2>
+                {isPremium && (
+                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/40 to-yellow-400/40 border border-amber-400/50">
+                    <span className="text-[11px] text-amber-200" style={{ fontWeight: 700 }}>Premium ✨</span>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <div className={`px-2.5 py-1 rounded-full text-[12px] bg-gradient-to-br ${userTier.gradient}/30 border-2 border-white/30`} style={{ fontWeight: 600 }}>
                   <span className="text-white">{userTier.icon} {userTier.name} Member</span>
@@ -531,6 +544,45 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             </div>
           </motion.div>
         ))}
+
+        {/* Go Premium Upsell (only for non-premium users) */}
+        {!isPremium && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.22 }}
+          >
+            <motion.button
+              onClick={async () => {
+                setPremiumLoading(true);
+                try {
+                  const result = await trpc.subscription.createCheckout.mutate();
+                  if (result.url) {
+                    window.location.href = result.url;
+                  } else if (result.demoMode) {
+                    toast('Stripe not configured yet — coming soon!');
+                  } else {
+                    toast(result.message || 'You are already premium!');
+                  }
+                } catch {
+                  toast.error('Something went wrong. Try again.');
+                } finally {
+                  setPremiumLoading(false);
+                }
+              }}
+              disabled={premiumLoading}
+              className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 border-amber-400/40 bg-gradient-to-r from-amber-500/20 to-yellow-400/20 hover:from-amber-500/30 hover:to-yellow-400/30 shadow-xl"
+              whileTap={{ scale: 0.98 }}
+              transition={springConfig}
+            >
+              <Crown className="w-5 h-5 text-amber-300" strokeWidth={2.5} />
+              <span className="text-[15px] text-amber-200" style={{ fontWeight: 700 }}>
+                {premiumLoading ? 'Loading...' : 'Go Premium — $9.99/mo ✨'}
+              </span>
+            </motion.button>
+            <p className="text-[12px] text-white/40 text-center mt-2">Ad-free · Priority Concierge · Exclusive Badge</p>
+          </motion.div>
+        )}
 
         {/* Become a Host Button */}
         {onBecomeHost && (

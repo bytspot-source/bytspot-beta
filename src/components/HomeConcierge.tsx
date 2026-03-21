@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, Sparkles, MapPin, RotateCcw } from 'lucide-react';
+import { X, Send, Sparkles, MapPin, RotateCcw, Calendar, Star, Mic, MicOff } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { trpc } from '../utils/trpc';
 
@@ -15,14 +15,31 @@ interface Venue {
   [key: string]: any;
 }
 
+interface LiveEvent {
+  id: string;
+  title: string;
+  venue: string;
+  date: string;
+  time: string;
+  category: string;
+  price: string;
+}
+
+interface LivePlace {
+  placeId: string;
+  name: string;
+  address: string;
+  rating: number | null;
+  primaryType: string | null;
+  photoUrls: string[];
+}
+
 interface HomeConciergeProps {
   isOpen?: boolean;
   onClose?: () => void;
   venues: Venue[];
   onVenueSelect: (venue: Venue) => void;
-  /** When true, renders as a full-height tab instead of a bottom-sheet modal */
   tabMode?: boolean;
-  /** Dynamic city name — defaults to 'Midtown' for backward compat */
   cityName?: string;
 }
 
@@ -31,27 +48,59 @@ interface Message {
   text: string;
   sender: 'user' | 'ai';
   venues?: Venue[];
+  events?: LiveEvent[];
+  places?: LivePlace[];
 }
 
 const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
 const SUGGESTIONS = [
+  '🌙 Plan my night',
+  "What's happening tonight?",
   "What's chill right now?",
-  'Best spot for drinks tonight',
+  'Best spot for drinks',
   'Good food nearby',
-  "Where's it most lit?",
-  'Coffee with good vibes',
+  'Date night ideas',
 ];
 
 export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false, cityName = 'Midtown' }: HomeConciergeProps) {
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in ${cityName} for you.` },
+    { id: 1, sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.` },
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // Voice recognition setup
+  const toggleVoice = () => {
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  };
 
   const handleSend = async (text?: string) => {
     const query = (text ?? input).trim();
@@ -62,13 +111,11 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     setInput('');
     setIsTyping(true);
 
-    // Build message history for AI context (last 10 turns)
     const history = [...messages, userMsg].map(m => ({
       role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.text,
     }));
 
-    // Slim venue payload — only what the AI needs
     const venueContext = venues.map(v => ({
       id: String(v.id ?? v.name),
       name: v.name,
@@ -77,7 +124,6 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       address: v.address,
     }));
 
-    // Quiz answers from localStorage
     let quizAnswers: Record<string, string> | undefined;
     try {
       const raw = localStorage.getItem('bytspot_quiz_answers');
@@ -86,14 +132,25 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
 
     try {
       const result = await trpc.concierge.chat.mutate({ messages: history, venues: venueContext, quizAnswers });
-      const { reply, venueIds } = result;
+      const { reply, venueIds, liveEvents, livePlaces } = result as any;
       // Map returned IDs back to full venue objects for the card UI
       const venueCards = (venueIds ?? [])
-        .map(id => venues.find(v => String(v.id ?? v.name) === id))
-        .filter((v): v is Venue => Boolean(v));
+        .map((id: string) => venues.find(v => String(v.id ?? v.name) === id))
+        .filter((v: Venue | undefined): v is Venue => Boolean(v));
+      // Filter events that the AI referenced
+      const eventIds: string[] = (result as any).eventIds ?? [];
+      const eventCards: LiveEvent[] = eventIds.length > 0 && liveEvents
+        ? (liveEvents as LiveEvent[]).filter((e: LiveEvent) => eventIds.includes(`evt:${e.id}`))
+        : [];
+      // Include live places the AI mentioned (gp: prefix IDs)
+      const gpIds = (venueIds ?? []).filter((id: string) => id.startsWith('gp:'));
+      const placeCards: LivePlace[] = gpIds.length > 0 && livePlaces
+        ? (livePlaces as LivePlace[]).filter((p: LivePlace) => gpIds.includes(`gp:${p.placeId}`))
+        : [];
+
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards },
+        { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards, events: eventCards.length > 0 ? eventCards : undefined, places: placeCards.length > 0 ? placeCards : undefined },
       ]);
     } catch {
       setMessages(prev => [
@@ -126,7 +183,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Tell me your vibe and I'll find the perfect spot in ${cityName} for you.` }])}
+            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.` }])}
             className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
             title="Clear chat"
           >
@@ -147,6 +204,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
               ? 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white'
               : 'bg-[#1C1C1E] border border-white/10 text-white'} rounded-[18px] px-4 py-3`}>
               <p className="text-[14px] leading-relaxed whitespace-pre-wrap" style={{ fontWeight: 400 }}>{m.text}</p>
+              {/* Venue Cards */}
               {m.venues && m.venues.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {m.venues.map(v => (
@@ -166,6 +224,48 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
                       </div>
                       <span className="text-white/40 text-[12px]">›</span>
                     </button>
+                  ))}
+                </div>
+              )}
+              {/* Google Places Cards */}
+              {m.places && m.places.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {m.places.map(p => (
+                    <div key={p.placeId}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-[14px] bg-white/10 text-left">
+                      {p.photoUrls[0] ? (
+                        <img src={p.photoUrls[0]} alt={p.name} className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/30 to-blue-500/30 border border-cyan-400/30 flex items-center justify-center flex-shrink-0">
+                          <MapPin className="w-4 h-4 text-cyan-300" strokeWidth={2} />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-[13px] truncate" style={{ fontWeight: 600 }}>{p.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          {p.rating && <span className="text-yellow-400 text-[11px] flex items-center gap-0.5"><Star className="w-3 h-3" fill="currentColor" />{p.rating}</span>}
+                          <span className="text-white/40 text-[11px]">{p.primaryType ?? 'venue'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Event Cards */}
+              {m.events && m.events.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {m.events.map(e => (
+                    <div key={e.id}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-[14px] bg-gradient-to-r from-orange-500/10 to-pink-500/10 border border-orange-400/20 text-left">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500/30 to-pink-500/30 border border-orange-400/30 flex items-center justify-center flex-shrink-0">
+                        <Calendar className="w-4 h-4 text-orange-300" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-[13px] truncate" style={{ fontWeight: 600 }}>{e.title}</p>
+                        <p className="text-white/50 text-[11px]">{e.venue} · {e.time} · {e.price}</p>
+                      </div>
+                      <span className="text-orange-300 text-[11px]" style={{ fontWeight: 600 }}>🎫</span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -205,6 +305,14 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
           placeholder="Find me somewhere chill…"
           className="flex-1 px-4 py-2.5 rounded-full bg-[#1C1C1E] border border-white/15 text-white text-[14px] placeholder:text-white/40 outline-none focus:border-purple-400 transition-colors"
         />
+        {/* Voice Input */}
+        <motion.button onClick={toggleVoice}
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${isListening ? 'bg-red-500/80 animate-pulse' : 'bg-white/10'}`}
+          whileTap={{ scale: 0.9 }}
+          title="Voice input">
+          {isListening ? <MicOff className="w-4 h-4 text-white" strokeWidth={2.5} /> : <Mic className="w-4 h-4 text-white/50" strokeWidth={2.5} />}
+        </motion.button>
+        {/* Send */}
         <motion.button onClick={() => handleSend()}
           disabled={!input.trim()}
           className={`w-10 h-10 rounded-full flex items-center justify-center ${input.trim() ? 'bg-gradient-to-br from-purple-500 to-fuchsia-500' : 'bg-white/10'}`}

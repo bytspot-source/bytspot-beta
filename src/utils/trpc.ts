@@ -6,7 +6,7 @@
  *   const me = await trpc.auth.me.query();    // fully typed!
  *   const health = await trpc.health.check.query();
  */
-import { createTRPCClient, httpBatchLink } from '@trpc/client';
+import { createTRPCClient, httpLink } from '@trpc/client';
 import type { AppRouter } from '@bytspot-api/trpc/router';
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -15,7 +15,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://bytspot-api
 
 export const trpc = createTRPCClient<AppRouter>({
   links: [
-    httpBatchLink({
+    httpLink({
       url: `${API_BASE_URL}/trpc`,
       async headers() {
         const token = localStorage.getItem('bytspot_auth_token');

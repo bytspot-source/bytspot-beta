@@ -16,6 +16,7 @@ const ProfileSection = lazy(() => import('./components/ProfileSection').then(m =
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
 const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
+const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
@@ -84,6 +85,7 @@ export default function App() {
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
   const [rideDestination, setRideDestination] = useState<{ name: string; lat?: number; lng?: number } | undefined>(undefined);
+  const [valetServiceFromRide, setValetServiceFromRide] = useState<any>(null);
   const [selectedSearchVenue, setSelectedSearchVenue] = useState<any>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
@@ -1374,8 +1376,21 @@ export default function App() {
           isOpen={showRideSelection}
           onClose={() => { setShowRideSelection(false); setRideDestination(undefined); }}
           onSelectValet={() => {
-            setDiscoverFilter('valet');
-            setActiveTab('discover');
+            // Build a ValetService object from the current ride destination
+            const dest = rideDestination;
+            setValetServiceFromRide({
+              id: `valet-${Date.now()}`,
+              name: dest?.name ? `${dest.name} Valet` : 'Premium Valet',
+              photo: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=400',
+              rating: 4.8,
+              totalServices: 250,
+              baseRate: 25,
+              responseTime: '< 5 min',
+              serviceArea: dest?.name || 'Midtown Atlanta',
+              certifications: ['Premium Parking', 'Insured', 'Background Checked'],
+              bio: `Professional valet service for ${dest?.name || 'your destination'}.`,
+            });
+            setShowRideSelection(false);
           }}
           destination={rideDestination?.name}
           lat={rideDestination?.lat}
@@ -1383,6 +1398,19 @@ export default function App() {
           isDarkMode={isDarkMode}
         />
         </Suspense>
+
+        {/* Valet Flow — triggered from RideSelection "Valet Service" button */}
+        <AnimatePresence>
+          {valetServiceFromRide && (
+            <Suspense fallback={null}>
+              <ValetFlow
+                service={valetServiceFromRide}
+                isDarkMode={isDarkMode}
+                onClose={() => setValetServiceFromRide(null)}
+              />
+            </Suspense>
+          )}
+        </AnimatePresence>
 
         {/* Beta Feedback Button — only on Home tab */}
         {activeTab === 'home' && currentScreen === 'main' && (

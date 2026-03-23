@@ -38,16 +38,31 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, dest
   };
 
   const handleRideShare = (service: 'Uber' | 'Lyft') => {
+    const destName = destination || 'Destination';
+    const encodedDest = encodeURIComponent(destName);
+
+    // Build deep link URL for each service
+    // Falls back to the mobile web experience which handles app-not-installed gracefully
+    let url: string;
+    if (service === 'Uber') {
+      // Uber universal link — opens app if installed, otherwise mobile web
+      url = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${encodedDest}&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}`;
+    } else {
+      // Lyft universal link — opens app if installed, otherwise mobile web
+      url = `https://lyft.com/ride?id=lyft&destination[latitude]=${lat}&destination[longitude]=${lng}&destination[address]=${encodedDest}`;
+    }
+
     toast.success(`Opening ${service}`, {
-      description: `Redirecting to ${service} app...`,
-      duration: 2000,
+      description: `Redirecting to ${service} with destination: ${destName}`,
+      duration: 3000,
     });
-    // In a real app, this would use deep links:
-    // Uber: uber://
-    // Lyft: lyft://
+
+    // Open in new tab (works on both mobile and desktop)
+    window.open(url, '_blank', 'noopener,noreferrer');
+
     setTimeout(() => {
       onClose();
-    }, 1000);
+    }, 500);
   };
 
   return (

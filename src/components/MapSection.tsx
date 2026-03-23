@@ -66,53 +66,11 @@ interface FilterState {
   showPremiumOnly: boolean;
 }
 
-// ⚠️ PLACEHOLDER: Hardcoded Atlanta Midtown parking demo data.
-// TODO: Replace with real parking API data when backend parking endpoints exist.
-const ATLANTA_PARKING: ParkingSpot[] = [
-  {
-    id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage',
-    available: 22, total: 45, price: 8, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['ccs' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage',
-    available: 14, total: 60, price: 6, isPremium: false,
-    hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage',
-    available: 38, total: 80, price: 5, isPremium: false,
-    hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType],
-    isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 4, lat: 33.7896, lng: -84.3860, name: 'Midtown Place Parking',
-    available: 0, total: 35, price: 10, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType, 'ccs' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 5, lat: 33.7904, lng: -84.3847, name: 'Arts Center MARTA Garage',
-    available: 28, total: 50, price: 7, isPremium: false,
-    hasEVCharging: false, isCovered: false, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 6, lat: 33.7727, lng: -84.3876, name: 'Fox Theatre Parking',
-    available: 12, total: 30, price: 9, isPremium: true,
-    hasEVCharging: false, isCovered: false, securityLevel: 'premium', hasCameras: true, isReserved: true,
-  },
-  {
-    id: 7, lat: 33.7780, lng: -84.3849, name: 'Biltmore Hotel Garage',
-    available: 5, total: 25, price: 12, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 8, lat: 33.7859, lng: -84.3857, name: 'Pershing Point Garage',
-    available: 18, total: 40, price: 6, isPremium: false,
-    hasEVCharging: false, isCovered: false, securityLevel: 'basic', hasCameras: false, isReserved: false,
-  },
+// Fallback parking data — used until live API data loads
+const FALLBACK_PARKING: ParkingSpot[] = [
+  { id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage', available: 22, total: 45, price: 8, isPremium: true, hasEVCharging: true, evConnectorTypes: ['ccs' as EVConnectorType], isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false },
+  { id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage', available: 14, total: 60, price: 6, isPremium: false, hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false },
+  { id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage', available: 38, total: 80, price: 5, isPremium: false, hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType], isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false },
 ];
 
 // Fix Leaflet's broken default icon paths in Vite builds
@@ -170,7 +128,7 @@ function createVenueIcon(): L.DivIcon {
 
 export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, userCoords }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
-  const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
+  const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null);
@@ -205,6 +163,33 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     id: i + 100, lat: v.lat, lng: v.lng, name: v.name, type: v.category, rating: 4.5,
   }));
 
+  // Merge live API parking data into map pins
+  useEffect(() => {
+    if (!apiVenues.length) return;
+    const liveSpots: ParkingSpot[] = [];
+    let idCounter = 1000;
+    apiVenues.forEach((venue) => {
+      venue.parking.spots.forEach((spot: any) => {
+        liveSpots.push({
+          id: idCounter++,
+          lat: venue.lat + (Math.random() - 0.5) * 0.001, // slight offset so pins don't stack
+          lng: venue.lng + (Math.random() - 0.5) * 0.001,
+          name: spot.name || `${venue.name} Parking`,
+          available: spot.available,
+          total: spot.capacity,
+          price: spot.pricePerHr,
+          isPremium: spot.pricePerHr >= 8,
+          hasEVCharging: false,
+          isCovered: true,
+          securityLevel: spot.pricePerHr >= 8 ? 'premium' : 'standard',
+          hasCameras: true,
+          isReserved: false,
+        });
+      });
+    });
+    if (liveSpots.length > 0) setParkingData(liveSpots);
+  }, [apiVenues]);
+
   useEffect(() => {
     if (destination) {
       setRouteDestination(destination);
@@ -213,6 +198,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   }, [destination]);
 
   useEffect(() => {
+    if (!selectedFunction) return;
+
     const toasts: Record<string, string> = {
       'traffic-intelligence': 'Traffic Intelligence Active',
       'trending-hotspots': 'Trending Hotspots Active',
@@ -221,8 +208,41 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       'ai-navigation': 'AI Navigation Premium Active',
       'spot-radar': 'Spot Radar Active',
     };
-    if (selectedFunction && toasts[selectedFunction]) {
-      if (selectedFunction === 'traffic-intelligence') setShowTrafficIntel(true);
+
+    // Apply functional behavior per mode
+    switch (selectedFunction) {
+      case 'smart-parking':
+        setShowParkingSpots(true);
+        setShowVenues(false);
+        // Sort by best value: cheapest with availability
+        setParkingData((prev) => [...prev].sort((a, b) => {
+          if (a.available === 0 && b.available > 0) return 1;
+          if (b.available === 0 && a.available > 0) return -1;
+          return a.price - b.price;
+        }));
+        break;
+      case 'live-venue-data':
+        setShowVenues(true);
+        setShowParkingSpots(true);
+        break;
+      case 'trending-hotspots':
+        setShowVenues(true);
+        setShowParkingSpots(false);
+        break;
+      case 'traffic-intelligence':
+        setShowTrafficIntel(true);
+        break;
+      case 'spot-radar':
+        setShowParkingSpots(true);
+        setShowVenues(false);
+        // Filter to only spots with availability
+        setParkingData((prev) => prev.filter((s) => s.available > 0));
+        break;
+      default:
+        break;
+    }
+
+    if (toasts[selectedFunction]) {
       toast.success(toasts[selectedFunction], { duration: 2000 });
     }
   }, [selectedFunction]);

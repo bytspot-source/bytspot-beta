@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, Sparkles, MapPin, DollarSign, Clock, Mic, MicOff, Navigation, Calendar, Cloud, Users, AlertCircle, Phone, Zap, TrendingDown, TrendingUp, Shield, Star } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { trpc } from '../utils/trpc';
 
 interface ConciergeSectionProps {
   isDarkMode: boolean;
@@ -486,7 +487,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     };
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
 
     const userInput = inputValue;
@@ -501,28 +502,67 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     setInputValue('');
     setIsTyping(true);
 
-    // Simulate AI thinking time (500-1500ms for realism)
-    setTimeout(() => {
-      const response = getSmartAIResponse(userInput);
-      
+    // Build conversation history for the API (last 10 messages)
+    const conversationHistory = [...messages, userMessage]
+      .filter((m) => m.type === 'user' || m.type === 'ai')
+      .slice(-10)
+      .map((m) => ({ role: (m.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content }));
+
+    try {
+      const token = localStorage.getItem('bytspot_auth_token');
+      if (!token) {
+        // Unauthenticated — fall back to local mock
+        const response = getSmartAIResponse(userInput);
+        const aiMessage: Message = {
+          id: Date.now() + 1, type: 'ai', content: response.content,
+          timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+        };
+        setMessages((prev) => [...prev, aiMessage]);
+        setIsTyping(false);
+        return;
+      }
+
+      const result = await trpc.concierge.chat.mutate({
+        messages: conversationHistory,
+        venues: [],
+        quizAnswers: undefined,
+      });
+
+      const suggestions: string[] = [];
+      if (result.liveEvents && result.liveEvents.length > 0) {
+        suggestions.push(`🎫 ${result.liveEvents[0].title}`);
+      }
+      if (result.livePlaces && result.livePlaces.length > 0) {
+        suggestions.push(`📍 Tell me about ${result.livePlaces[0].name}`);
+      }
+      suggestions.push('🅿️ Find parking nearby', '🌙 Plan my night');
+
       const aiMessage: Message = {
         id: Date.now() + 1,
         type: 'ai',
-        content: response.content,
+        content: result.reply,
         timestamp: new Date(),
-        suggestions: response.suggestions,
-        recommendations: response.recommendations,
+        suggestions: suggestions.slice(0, 4),
         metadata: {
-          weather: '72° Clear',
           location: currentLocation,
           budget: 'Standard',
-          urgency: userInput.toLowerCase().includes('urgent') || userInput.toLowerCase().includes('expired') ? 'urgent' : 'normal',
+          urgency: 'normal',
         },
       };
-      
+
       setMessages((prev) => [...prev, aiMessage]);
+    } catch (err: any) {
+      console.error('[Concierge] API error:', err?.message);
+      // Fall back to local mock on error
+      const response = getSmartAIResponse(userInput);
+      const aiMessage: Message = {
+        id: Date.now() + 1, type: 'ai', content: response.content,
+        timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   const handleSuggestion = useCallback((suggestion: string) => {

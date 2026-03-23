@@ -50,7 +50,9 @@ import { trpc } from './utils/trpc';
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>('splash');
+  // Determine initial screen: skip splash/landing/auth if user already has a token
+  const hasAuthToken = !!localStorage.getItem('bytspot_auth_token');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken ? 'main' : 'splash');
   const [activeTab, setActiveTab] = useState('home');
   const [isHost, setIsHost] = useState(false);
   const [isValet, setIsValet] = useState(false);
@@ -484,6 +486,22 @@ export default function App() {
         );
         setIsValet(res.valet?.status === 'active');
       }).catch(() => { /* silently ignore — user may not be a provider */ });
+    }
+
+    // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
+    const path = window.location.pathname;
+    if (path.includes('/premium/success')) {
+      toast.success('🎉 Welcome to Bytspot Premium!', { description: 'Your subscription is now active.', duration: 5000 });
+      setActiveTab('profile');
+      // Clean the URL without reload
+      window.history.replaceState({}, '', '/');
+    } else if (path.includes('/parking/success')) {
+      toast.success('✅ Parking Reserved!', { description: 'Your parking spot is confirmed.', duration: 5000 });
+      setActiveTab('map');
+      window.history.replaceState({}, '', '/');
+    } else if (path.includes('/cancelled')) {
+      toast('Payment cancelled — no charges made.', { duration: 3000 });
+      window.history.replaceState({}, '', '/');
     }
   }, []);
 

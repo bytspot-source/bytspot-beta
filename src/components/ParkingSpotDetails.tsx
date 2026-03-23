@@ -166,9 +166,12 @@ export function ParkingSpotDetails({
 
   const handleNavigate = () => {
     triggerHaptic();
+    // Open Google Maps with the spot's coordinates
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}&travelmode=driving`;
+    window.open(url, '_blank');
     onNavigate(spot.id);
     toast.success('Navigation Started', {
-      description: `Navigating to ${spot.name}`,
+      description: `Opening Google Maps to ${spot.name}`,
       duration: 3000,
     });
   };

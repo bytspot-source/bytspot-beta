@@ -601,8 +601,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               {routeDestination && (
                 <motion.button
                   onClick={() => {
-                    toast.success('Starting Navigation', {
-                      description: `Calculating route to ${routeDestination}`,
+                    const encoded = encodeURIComponent(routeDestination);
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
+                    window.open(url, '_blank');
+                    toast.success('Navigation Started', {
+                      description: `Opening Google Maps to ${routeDestination}`,
                       duration: 2000,
                     });
                   }}
@@ -658,10 +661,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         onReserve={handleSpotReserve}
         onNavigate={(spotId) => {
           setShowSpotDetails(false);
-          toast.success('Navigation Started', {
-            description: 'Opening navigation app...',
-            duration: 2000,
-          });
+          // Find the spot and open Google Maps
+          const spot = parkingData.find(s => s.id === spotId);
+          if (spot) {
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}&travelmode=driving`;
+            window.open(url, '_blank');
+          }
         }}
         isDarkMode={isDarkMode}
       />

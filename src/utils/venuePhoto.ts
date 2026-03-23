@@ -3,6 +3,26 @@
  * No API key needed. Photos are stable (same venue → same photos every render).
  */
 
+/**
+ * Venue-specific photos for the 12 Atlanta beta venues.
+ * Each venue gets a distinct, recognizable image that matches its actual vibe.
+ * Key = lowercased venue name.
+ */
+const VENUE_PHOTO_MAP: Record<string, string> = {
+  'colony square': 'https://images.unsplash.com/photo-1567449303078-57ad995bd329?w=800', // modern mixed-use plaza
+  'fado irish pub': 'https://images.unsplash.com/photo-1555658636-6e4a36218be7?w=800', // warm pub interior
+  'krog street market': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800', // food hall market
+  'ladybird grove & mess hall': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800', // outdoor dining patio
+  'livingston': 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=800', // upscale restaurant
+  'lyla lila': 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800', // fine dining
+  'mbar': 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=800', // rooftop bar city view
+  "ormsby's": 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800', // game bar atmosphere
+  'piedmont park': 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=800', // green park landscape
+  'ponce city market': 'https://images.unsplash.com/photo-1519999482648-25049ddd37b1?w=800', // historic brick market building
+  'the painted pin': 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800', // bowling/entertainment lounge
+  'tongue & groove': 'https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=800', // nightclub dance floor
+};
+
 const CATEGORY_PHOTO_POOLS: Record<string, string[]> = {
   bar: [
     'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800',
@@ -100,6 +120,9 @@ export function resolveVenuePhoto(opts: {
 }): string {
   if (opts.photoUrls?.length) return opts.photoUrls[0];
   if (opts.imageUrl) return opts.imageUrl;
+  // Check venue-specific photo map before falling back to generic category
+  const venueSpecific = VENUE_PHOTO_MAP[opts.name.toLowerCase()];
+  if (venueSpecific) return venueSpecific;
   return getVenuePrimaryPhoto(opts.category, opts.name);
 }
 

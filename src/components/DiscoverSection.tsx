@@ -5,7 +5,7 @@ import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { ValetFlow } from './ValetFlow';
-import { discoverCards, type DiscoverCard, type CardType } from '../utils/mockData';
+import { type DiscoverCard, type CardType } from '../utils/mockData';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 
 
@@ -265,28 +265,11 @@ const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
 };
 
 export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
-  // Beta MVP: prefer live API data, but fall back to mock parking/valet cards
-  // until those vendor categories exist in the backend.
-  const apiCardTypes = new Set(
-    apiCards
-      .map(card => normalizeCardType(card.type))
-      .filter((type): type is CardType => type !== null)
-  );
-
-  const fallbackStaticCards = discoverCards
-    .filter(card => {
-      if (card.type !== 'parking' && card.type !== 'valet') return false;
-      return !apiCardTypes.has(card.type);
-    })
-    .map((card, index) => ({
-      ...card,
-      id: 10_000 + index,
-    }));
-
   // Google Places results (populated on filter change)
   const [googleCards, setGoogleCards] = useState<DiscoverCard[]>([]);
 
-  const cards = [...apiCards, ...fallbackStaticCards, ...googleCards];
+  // Live API cards + Google Places only — no mock fallbacks
+  const cards = [...apiCards, ...googleCards];
   const hasLiveVenueCards = apiCards.length > 0 || googleCards.length > 0;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);

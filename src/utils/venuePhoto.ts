@@ -9,7 +9,7 @@
  * Key = lowercased venue name.
  */
 const VENUE_PHOTO_MAP: Record<string, string> = {
-  'colony square': 'https://images.unsplash.com/photo-1567449303078-57ad995bd329?w=800', // modern mixed-use plaza
+  'colony square': 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800', // modern mixed-use plaza
   'fado irish pub': 'https://images.unsplash.com/photo-1555658636-6e4a36218be7?w=800', // warm pub interior
   'krog street market': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800', // food hall market
   'ladybird grove & mess hall': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800', // outdoor dining patio

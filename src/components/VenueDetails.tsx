@@ -63,6 +63,38 @@ const menuItems = [
   { name: 'Craft Beer', price: '$8-12', available: true },
 ];
 
+/**
+ * Generate estimated crowd history based on venue category and current crowd level.
+ * Uses typical patterns: restaurants peak at lunch/dinner, bars peak late evening, etc.
+ */
+function generateEstimatedCrowdHistory(category: string, currentCrowd: string | null) {
+  const labels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
+  const cat = category.toLowerCase();
+  // Typical hourly patterns (12 data points = last 24h in 2h intervals)
+  let pattern: number[];
+  if (cat.includes('bar') || cat.includes('club') || cat.includes('lounge') || cat.includes('night')) {
+    pattern = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 3, 2]; // peaks late evening
+  } else if (cat.includes('restaurant') || cat.includes('food') || cat.includes('dining')) {
+    pattern = [1, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 1]; // lunch + dinner peaks
+  } else if (cat.includes('coffee') || cat.includes('cafe') || cat.includes('bakery')) {
+    pattern = [1, 2, 3, 4, 3, 2, 2, 2, 1, 1, 1, 1]; // morning peak
+  } else if (cat.includes('park') || cat.includes('outdoor') || cat.includes('garden')) {
+    pattern = [1, 1, 2, 3, 3, 4, 3, 3, 2, 1, 1, 1]; // afternoon peak
+  } else {
+    pattern = [1, 1, 2, 2, 3, 3, 3, 4, 3, 2, 2, 1]; // generic
+  }
+  // Adjust based on current crowd level
+  const currentLevel = currentCrowd === 'Packed' ? 4 : currentCrowd === 'Busy' ? 3 : currentCrowd === 'Active' ? 2 : 1;
+  const patternMax = Math.max(...pattern);
+  const scale = currentLevel / patternMax;
+  const now = new Date();
+  return pattern.map((level, i) => {
+    const adjusted = Math.max(1, Math.min(4, Math.round(level * scale + (Math.random() * 0.6 - 0.3))));
+    const time = new Date(now.getTime() - (pattern.length - 1 - i) * 2 * 60 * 60 * 1000);
+    return { level: adjusted, label: labels[adjusted], recordedAt: time.toISOString() };
+  });
+}
+
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -109,14 +141,27 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   // Crowd history for trend chart
   const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
   useEffect(() => {
+    let cancelled = false;
     if (venue.slug) {
       trpc.venues.getBySlug.query({ slug: venue.slug }).then((result) => {
+        if (cancelled) return;
         if (result?.crowd?.history?.length) {
           setCrowdHistory(result.crowd.history.filter((h): h is { level: number; label: string; recordedAt: string } => typeof h.level === 'number' && typeof h.label === 'string' && typeof h.recordedAt === 'string'));
+          return;
         }
-      }).catch(() => {});
+        // Generate estimated popular times when no real history exists
+        setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
+      }).catch(() => {
+        if (!cancelled) {
+          setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
+        }
+      });
+    } else {
+      // No slug — still show estimated data
+      setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
     }
-  }, [venue.slug]);
+    return () => { cancelled = true; };
+  }, [venue.slug, venue.category, venue.type, crowdLevel]);
 
   // Similar venues
   const [similarVenues, setSimilarVenues] = useState<Array<{ id: string; name: string; slug: string; category: string; similarity: number }>>([]);

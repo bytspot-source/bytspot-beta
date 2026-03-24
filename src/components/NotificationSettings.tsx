@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, Bell, Mail, MessageSquare, Save } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Bell, Mail, MessageSquare, Save, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { trpc } from '../utils/trpc';
 
 interface NotificationSettingsProps {
   isDarkMode: boolean;
@@ -29,27 +30,30 @@ interface NotificationPreferences {
   };
 }
 
+const DEFAULT_PREFS: NotificationPreferences = {
+  push: { reservations: true, promotions: true, reminders: true, insider: true, nearby: false },
+  email: { reservations: true, promotions: false, newsletter: true, receipts: true },
+  sms: { reservations: true, reminders: true, emergencies: true },
+};
+
 export function NotificationSettings({ isDarkMode, onBack }: NotificationSettingsProps) {
-  const [preferences, setPreferences] = useState<NotificationPreferences>({
-    push: {
-      reservations: true,
-      promotions: true,
-      reminders: true,
-      insider: true,
-      nearby: false,
-    },
-    email: {
-      reservations: true,
-      promotions: false,
-      newsletter: true,
-      receipts: true,
-    },
-    sms: {
-      reservations: true,
-      reminders: true,
-      emergencies: true,
-    },
-  });
+  const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Load saved preferences from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const prefs = await trpc.user.notifications.getPrefs.query();
+        setPreferences(prefs as NotificationPreferences);
+      } catch {
+        // Use defaults on error (e.g. not logged in)
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   const springConfig = {
     type: "spring" as const,
@@ -68,9 +72,17 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
     });
   };
 
-  const handleSave = () => {
-    toast.success('Notification settings saved');
-    setTimeout(() => onBack(), 1000);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await trpc.user.notifications.updatePrefs.mutate(preferences);
+      toast.success('Notification settings saved');
+      setTimeout(() => onBack(), 1000);
+    } catch {
+      toast.error('Failed to save settings. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
@@ -371,15 +383,16 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
         {/* Save Button */}
         <motion.button
           onClick={handleSave}
-          className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl"
+          disabled={saving || loading}
+          className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl disabled:opacity-60"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <Save className="w-5 h-5" strokeWidth={2.5} />
+          {saving ? <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} /> : <Save className="w-5 h-5" strokeWidth={2.5} />}
           <span className="text-[17px]" style={{ fontWeight: 600 }}>
-            Save Preferences
+            {saving ? 'Saving...' : 'Save Preferences'}
           </span>
         </motion.button>
       </div>

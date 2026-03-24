@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, Bell, Mail, MessageSquare, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Bell, Mail, MessageSquare, Save, Loader2, BellRing, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { trpc } from '../utils/trpc';
+import { isPushSupported, getPermissionState, isSubscribed, subscribeToPush } from '../utils/pushNotifications';
 
 interface NotificationSettingsProps {
   isDarkMode: boolean;
@@ -40,8 +41,10 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
   const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pushStatus, setPushStatus] = useState<'unknown' | 'unsupported' | 'denied' | 'prompt' | 'subscribed'>('unknown');
+  const [subscribing, setSubscribing] = useState(false);
 
-  // Load saved preferences from backend
+  // Load saved preferences from backend + check push status
   useEffect(() => {
     (async () => {
       try {
@@ -53,7 +56,28 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
         setLoading(false);
       }
     })();
+    // Check browser push support & subscription state
+    (async () => {
+      if (!isPushSupported()) { setPushStatus('unsupported'); return; }
+      const perm = getPermissionState();
+      if (perm === 'denied') { setPushStatus('denied'); return; }
+      const sub = await isSubscribed();
+      setPushStatus(sub ? 'subscribed' : 'prompt');
+    })();
   }, []);
+
+  const handleEnablePush = async () => {
+    setSubscribing(true);
+    const result = await subscribeToPush();
+    setSubscribing(false);
+    if (result.success) {
+      setPushStatus('subscribed');
+      toast.success('Push notifications enabled!');
+    } else {
+      if (getPermissionState() === 'denied') setPushStatus('denied');
+      toast.error(result.error || 'Failed to enable push notifications.');
+    }
+  };
 
   const springConfig = {
     type: "spring" as const,
@@ -140,7 +164,35 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
               Push Notifications
             </h3>
           </div>
-          
+
+          {/* Browser Push Subscription Banner */}
+          {pushStatus === 'prompt' && (
+            <motion.button
+              onClick={handleEnablePush}
+              disabled={subscribing}
+              className="w-full mb-4 rounded-[16px] px-4 py-3 flex items-center gap-3 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 border border-purple-400/30 disabled:opacity-60"
+              whileTap={{ scale: 0.98 }}
+            >
+              {subscribing ? <Loader2 className="w-5 h-5 text-purple-300 animate-spin" strokeWidth={2.5} /> : <BellRing className="w-5 h-5 text-purple-300" strokeWidth={2.5} />}
+              <div className="text-left flex-1">
+                <p className="text-[14px] text-white" style={{ fontWeight: 600 }}>Enable Push Notifications</p>
+                <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Get real-time crowd alerts in your browser</p>
+              </div>
+            </motion.button>
+          )}
+          {pushStatus === 'subscribed' && (
+            <div className="mb-4 rounded-[16px] px-4 py-3 flex items-center gap-3 bg-green-500/10 border border-green-400/20">
+              <CheckCircle2 className="w-5 h-5 text-green-400" strokeWidth={2.5} />
+              <p className="text-[13px] text-green-300" style={{ fontWeight: 500 }}>Push notifications are enabled</p>
+            </div>
+          )}
+          {pushStatus === 'denied' && (
+            <div className="mb-4 rounded-[16px] px-4 py-3 flex items-center gap-3 bg-red-500/10 border border-red-400/20">
+              <Bell className="w-5 h-5 text-red-400" strokeWidth={2.5} />
+              <p className="text-[13px] text-red-300" style={{ fontWeight: 500 }}>Notifications blocked — enable in browser settings</p>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="flex items-center justify-between py-2">
               <div>

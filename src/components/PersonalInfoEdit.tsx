@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, Camera, User, Mail, Phone, MapPin, Calendar, Save } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { ArrowLeft, Camera, User, Mail, Phone, MapPin, Calendar, Save, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { trpc } from '../utils/trpc';
 
 interface PersonalInfoEditProps {
   isDarkMode: boolean;
@@ -11,17 +12,42 @@ interface PersonalInfoEditProps {
 
 export function PersonalInfoEdit({ isDarkMode, onBack }: PersonalInfoEditProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
-    firstName: 'Alex',
-    lastName: 'Thompson',
-    email: 'alex.thompson@example.com',
-    phone: '+1 (555) 123-4567',
-    address: '123 Market Street, San Francisco',
-    birthday: '1990-05-15',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    address: '',
+    birthday: '',
   });
+
+  // Load profile from API on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const profile = await trpc.user.profile.get.query();
+        const nameParts = (profile.name ?? '').split(' ');
+        setFormData({
+          firstName: nameParts[0] ?? '',
+          lastName: nameParts.slice(1).join(' ') ?? '',
+          email: profile.email ?? '',
+          phone: profile.phone ?? '',
+          address: profile.address ?? '',
+          birthday: profile.birthday ?? '',
+        });
+        if (profile.profileImage) setProfileImage(profile.profileImage);
+      } catch {
+        // Fallback — user might not have profile data yet
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
 
   const springConfig = {
     type: "spring" as const,
@@ -34,7 +60,6 @@ export function PersonalInfoEdit({ isDarkMode, onBack }: PersonalInfoEditProps) 
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!['image/jpeg', 'image/png'].includes(file.type)) {
       toast.error('Invalid file format', {
         description: 'Please upload a JPG or PNG image',
@@ -42,8 +67,7 @@ export function PersonalInfoEdit({ isDarkMode, onBack }: PersonalInfoEditProps) 
       return;
     }
 
-    // Validate file size (5MB max)
-    const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+    const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       toast.error('File too large', {
         description: 'Maximum file size is 5MB',
@@ -52,25 +76,43 @@ export function PersonalInfoEdit({ isDarkMode, onBack }: PersonalInfoEditProps) 
     }
 
     setIsUploading(true);
-
-    // Simulate upload
     const reader = new FileReader();
     reader.onload = (event) => {
-      setTimeout(() => {
-        setProfileImage(event.target?.result as string);
-        setIsUploading(false);
-        toast.success('Photo uploaded successfully');
-      }, 1000);
+      const dataUrl = event.target?.result as string;
+      setProfileImage(dataUrl);
+      setIsUploading(false);
+      toast.success('Photo ready — save to persist');
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
-    toast.success('Profile updated', {
-      description: 'Your changes have been saved',
-    });
-    setTimeout(() => onBack(), 1000);
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const fullName = [formData.firstName, formData.lastName].filter(Boolean).join(' ');
+      await trpc.user.profile.update.mutate({
+        name: fullName || undefined,
+        phone: formData.phone || undefined,
+        address: formData.address || undefined,
+        birthday: formData.birthday || undefined,
+        profileImage: profileImage || undefined,
+      });
+      toast.success('Profile updated', { description: 'Your changes have been saved' });
+      setTimeout(() => onBack(), 800);
+    } catch (err: any) {
+      toast.error('Save failed', { description: err?.message ?? 'Please try again' });
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto pb-24">
@@ -289,15 +331,16 @@ export function PersonalInfoEdit({ isDarkMode, onBack }: PersonalInfoEditProps) 
         {/* Save Button */}
         <motion.button
           onClick={handleSave}
-          className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl"
+          disabled={isSaving}
+          className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl disabled:opacity-60"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <Save className="w-5 h-5" strokeWidth={2.5} />
+          {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" strokeWidth={2.5} />}
           <span className="text-[17px]" style={{ fontWeight: 600 }}>
-            Save Changes
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </span>
         </motion.button>
       </div>

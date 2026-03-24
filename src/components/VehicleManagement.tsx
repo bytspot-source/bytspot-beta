@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Car, Edit, Trash2, Camera, Save, X, Search, Package } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { ArrowLeft, Plus, Car, Edit, Trash2, Camera, Save, X, Search, Package, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import type { TransmissionType, TrunkCategory } from '../utils/valetMockData';
+import { trpc } from '../utils/trpc';
 
 interface VehicleManagementProps {
   isDarkMode: boolean;
@@ -24,19 +25,22 @@ interface Vehicle {
 }
 
 export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps) {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([
-    {
-      id: '1',
-      type: 'ev',
-      make: 'Tesla',
-      model: 'Model 3',
-      year: 2023,
-      color: 'Midnight Silver',
-      licensePlate: '7ABC123',
-      transmissionType: 'ev',
-      trunkCategory: 'full',
-    },
-  ]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load vehicles from API on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await trpc.user.vehicles.list.query();
+        setVehicles((list ?? []) as Vehicle[]);
+      } catch {
+        // Fallback — API might not have vehicles column yet
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
 
   const [showAddEdit, setShowAddEdit] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -203,35 +207,52 @@ export function VehicleManagement({ isDarkMode, onBack }: VehicleManagementProps
     setShowAddEdit(true);
   };
 
-  const handleSave = () => {
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
     if (!formData.make || !formData.model || !formData.licensePlate) {
       toast.error('Please fill all required fields');
       return;
     }
 
-    if (editingVehicle) {
-      setVehicles(vehicles.map(v => 
-        v.id === editingVehicle.id 
-          ? { ...v, ...formData }
-          : v
-      ));
-      toast.success('Vehicle updated');
-    } else {
-      const newVehicle: Vehicle = {
-        id: Date.now().toString(),
-        ...formData,
-      };
-      setVehicles([...vehicles, newVehicle]);
-      toast.success('Vehicle added');
+    setIsSaving(true);
+    try {
+      if (editingVehicle) {
+        await trpc.user.vehicles.update.mutate({ id: editingVehicle.id, ...formData });
+        setVehicles(vehicles.map(v =>
+          v.id === editingVehicle.id ? { ...v, ...formData } : v
+        ));
+        toast.success('Vehicle updated');
+      } else {
+        const newVehicle = await trpc.user.vehicles.add.mutate(formData);
+        setVehicles([...vehicles, newVehicle as Vehicle]);
+        toast.success('Vehicle added');
+      }
+      setShowAddEdit(false);
+    } catch (err: any) {
+      toast.error('Save failed', { description: err?.message ?? 'Please try again' });
+    } finally {
+      setIsSaving(false);
     }
-
-    setShowAddEdit(false);
   };
 
-  const handleDelete = (id: string) => {
-    setVehicles(vehicles.filter(v => v.id !== id));
-    toast.success('Vehicle removed');
+  const handleDelete = async (id: string) => {
+    try {
+      await trpc.user.vehicles.remove.mutate({ id });
+      setVehicles(vehicles.filter(v => v.id !== id));
+      toast.success('Vehicle removed');
+    } catch (err: any) {
+      toast.error('Remove failed', { description: err?.message ?? 'Please try again' });
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+      </div>
+    );
+  }
 
   if (showAddEdit) {
     return (

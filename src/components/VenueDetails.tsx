@@ -118,8 +118,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const lastCheckIn = parseInt(localStorage.getItem(checkInKey) || '0', 10);
   const [checkedIn, setCheckedIn] = useState(Date.now() - lastCheckIn < 3600_000);
 
-  // Review state
-  const venueKey = venue.id || venue.name;
+  // Review state — ensure venueKey is always a string for tRPC compatibility
+  const venueKey = String(venue.id || venue.name);
   const [userReviews, setUserReviews] = useState<VenueReview[]>(() => getVenueReviews(venueKey));
   const avgRating = getAverageRating(venueKey);
   const [showReviewForm, setShowReviewForm] = useState(false);

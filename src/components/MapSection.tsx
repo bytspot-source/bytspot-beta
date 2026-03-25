@@ -1,20 +1,22 @@
-import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api';
+import 'leaflet/dist/leaflet.css';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
-  MapPin
+  MapPin, AlertTriangle, Music, Send
 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapFunction, MapViewMode } from './MapMenuSlideUp';
 import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
+// VenueDetails imported for future use
+// import { VenueDetails } from './VenueDetails';
 import { useVenues } from '../utils/hooks/useVenues';
-
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyB-b2l6T-saxk5h9PZUPRBmC7R_4pxryNk';
 
 interface MapSectionProps {
   isDarkMode: boolean;
@@ -65,50 +67,216 @@ interface FilterState {
   showPremiumOnly: boolean;
 }
 
-// Fallback parking data — used until live API data loads
-const FALLBACK_PARKING: ParkingSpot[] = [
-  { id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage', available: 22, total: 45, price: 8, isPremium: true, hasEVCharging: true, evConnectorTypes: ['ccs' as EVConnectorType], isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false },
-  { id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage', available: 14, total: 60, price: 6, isPremium: false, hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false },
-  { id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage', available: 38, total: 80, price: 5, isPremium: false, hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType], isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false },
+// ⚠️ PLACEHOLDER: Hardcoded Atlanta Midtown parking demo data.
+// TODO: Replace with real parking API data when backend parking endpoints exist.
+const ATLANTA_PARKING: ParkingSpot[] = [
+  {
+    id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage',
+    available: 22, total: 45, price: 8, isPremium: true,
+    hasEVCharging: true, evConnectorTypes: ['ccs' as EVConnectorType],
+    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage',
+    available: 14, total: 60, price: 6, isPremium: false,
+    hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage',
+    available: 38, total: 80, price: 5, isPremium: false,
+    hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType],
+    isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 4, lat: 33.7896, lng: -84.3860, name: 'Midtown Place Parking',
+    available: 0, total: 35, price: 10, isPremium: true,
+    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType, 'ccs' as EVConnectorType],
+    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 5, lat: 33.7904, lng: -84.3847, name: 'Arts Center MARTA Garage',
+    available: 28, total: 50, price: 7, isPremium: false,
+    hasEVCharging: false, isCovered: false, securityLevel: 'standard', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 6, lat: 33.7727, lng: -84.3876, name: 'Fox Theatre Parking',
+    available: 12, total: 30, price: 9, isPremium: true,
+    hasEVCharging: false, isCovered: false, securityLevel: 'premium', hasCameras: true, isReserved: true,
+  },
+  {
+    id: 7, lat: 33.7780, lng: -84.3849, name: 'Biltmore Hotel Garage',
+    available: 5, total: 25, price: 12, isPremium: true,
+    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType],
+    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
+  },
+  {
+    id: 8, lat: 33.7859, lng: -84.3857, name: 'Pershing Point Garage',
+    available: 18, total: 40, price: 6, isPremium: false,
+    hasEVCharging: false, isCovered: false, securityLevel: 'basic', hasCameras: false, isReserved: false,
+  },
 ];
+
+// Fix Leaflet's broken default icon paths in Vite builds
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 
 // Default center fallback — used only when no GPS coords are available
-const DEFAULT_MAP_CENTER = { lat: 33.7866, lng: -84.3833 };
+const DEFAULT_MAP_CENTER: [number, number] = [33.7866, -84.3833];
 
-// Google Maps dark mode style
-const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#1d1d1d' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1d1d1d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#383838' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3c3c3c' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e6d70' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252525' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6a6a6a' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
+// Single controller inside MapContainer — handles recenter + zoom via state signals
+function MapInteractionController({
+  shouldRecenter, onRecentered,
+  zoomDirection, onZoomed,
+  center,
+}: {
+  shouldRecenter: boolean; onRecentered: () => void;
+  zoomDirection: number; onZoomed: () => void;
+  center: [number, number];
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (shouldRecenter) { map.setView(center, 14); onRecentered(); }
+  }, [shouldRecenter, map, onRecentered, center]);
+  useEffect(() => {
+    if (zoomDirection === 1) { map.zoomIn(); onZoomed(); }
+    else if (zoomDirection === -1) { map.zoomOut(); onZoomed(); }
+  }, [zoomDirection, map, onZoomed]);
+  return null;
+}
+
+// Shared CSS keyframes injected once
+const PULSE_STYLE_ID = 'bytspot-pulse-css';
+if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID)) {
+  const style = document.createElement('style');
+  style.id = PULSE_STYLE_ID;
+  style.textContent = `
+    @keyframes bytspot-pulse { 0%{transform:scale(1);opacity:.7} 70%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
+    @keyframes bytspot-pulse-slow { 0%{transform:scale(1);opacity:.5} 70%{transform:scale(2.4);opacity:0} 100%{transform:scale(2.4);opacity:0} }
+    .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
+    .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
+  `;
+  document.head.appendChild(style);
+}
+
+function createParkingIcon(color: string): L.DivIcon {
+  return L.divIcon({
+    html: `<div style="position:relative;width:32px;height:32px;">
+      <div class="byt-pulse-ring" style="border:2px solid ${color};"></div>
+      <div style="width:32px;height:32px;border-radius:50%;background:${color};border:3px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 20px ${color}44;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;cursor:pointer;line-height:1;">P</div>
+    </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -18],
+    className: '',
+  });
+}
+
+function createVenueIcon(): L.DivIcon {
+  return L.divIcon({
+    html: `<div style="position:relative;width:26px;height:26px;">
+      <div class="byt-pulse-ring-slow" style="border:2px solid #9333ea;"></div>
+      <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#9333ea,#ec4899);border:2px solid rgba(255,255,255,0.8);box-shadow:0 2px 10px rgba(0,0,0,0.6),0 0 16px #9333ea44;display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg></div>
+    </div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    popupAnchor: [0, -15],
+    className: '',
+  });
+}
+
+// Community Report icons
+type ReportType = 'accident' | 'closure' | 'police' | 'hazard' | 'construction';
+interface CommunityReport {
+  id: number; lat: number; lng: number; type: ReportType;
+  description: string; reportedBy: string; timeAgo: string; upvotes: number;
+}
+
+const REPORT_ICONS: Record<ReportType, { emoji: string; color: string }> = {
+  accident: { emoji: '🚨', color: '#EF4444' },
+  closure: { emoji: '🚧', color: '#F59E0B' },
+  police: { emoji: '👮', color: '#3B82F6' },
+  hazard: { emoji: '⚠️', color: '#F97316' },
+  construction: { emoji: '🔨', color: '#8B5CF6' },
+};
+
+const COMMUNITY_REPORTS: CommunityReport[] = [
+  { id: 101, lat: 33.7870, lng: -84.3850, type: 'accident', description: 'Minor fender bender, right lane blocked', reportedBy: 'Alex M.', timeAgo: '5 min ago', upvotes: 12 },
+  { id: 102, lat: 33.7830, lng: -84.3880, type: 'closure', description: 'Road closed for construction until 6 PM', reportedBy: 'Jordan K.', timeAgo: '22 min ago', upvotes: 34 },
+  { id: 103, lat: 33.7900, lng: -84.3840, type: 'police', description: 'Speed trap on Peachtree near 14th', reportedBy: 'Sam W.', timeAgo: '8 min ago', upvotes: 45 },
+  { id: 104, lat: 33.7780, lng: -84.3870, type: 'hazard', description: 'Large pothole in right lane', reportedBy: 'Chris D.', timeAgo: '1 hr ago', upvotes: 8 },
+  { id: 105, lat: 33.7855, lng: -84.3820, type: 'construction', description: 'Lane shift ahead, expect delays', reportedBy: 'Taylor R.', timeAgo: '15 min ago', upvotes: 19 },
 ];
 
-/** Build an inline-SVG data URL for parking markers */
-function parkingMarkerIcon(color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${color}" stroke="white" stroke-width="3"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="800" font-family="Arial">P</text></svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+function createReportIcon(type: ReportType): L.DivIcon {
+  const { emoji, color } = REPORT_ICONS[type];
+  return L.divIcon({
+    html: `<div style="position:relative;width:30px;height:30px;">
+      <div class="byt-pulse-ring" style="border:2px solid ${color};"></div>
+      <div style="width:30px;height:30px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;">${emoji}</div>
+    </div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -17],
+    className: '',
+  });
 }
 
-/** Build an inline-SVG data URL for venue markers */
-function venueMarkerIcon(): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#9333ea"/><stop offset="100%" stop-color="#ec4899"/></linearGradient></defs><circle cx="13" cy="13" r="12" fill="url(#g)" stroke="white" stroke-width="2"/><path d="M13 5a5 5 0 00-5 5c0 3.75 5 9.5 5 9.5s5-5.75 5-9.5a5 5 0 00-5-5zm0 7a2 2 0 110-4 2 2 0 010 4z" fill="white"/></svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+// Live Events & Vibes
+interface LiveEvent {
+  id: number; lat: number; lng: number; name: string;
+  type: 'concert' | 'food' | 'party' | 'sports' | 'market';
+  crowd: 'low' | 'medium' | 'high'; description: string; time: string;
 }
 
-const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
+const EVENT_ICONS: Record<LiveEvent['type'], { emoji: string; color: string }> = {
+  concert: { emoji: '🎵', color: '#EC4899' },
+  food: { emoji: '🍔', color: '#F59E0B' },
+  party: { emoji: '🎉', color: '#8B5CF6' },
+  sports: { emoji: '⚽', color: '#10B981' },
+  market: { emoji: '🛍️', color: '#06B6D4' },
+};
+
+const LIVE_EVENTS: LiveEvent[] = [
+  { id: 201, lat: 33.7890, lng: -84.3870, name: 'Midtown Music Fest', type: 'concert', crowd: 'high', description: 'Live DJ set at Piedmont Park entrance', time: '8 PM - 12 AM' },
+  { id: 202, lat: 33.7810, lng: -84.3855, name: 'ATL Food Truck Rally', type: 'food', crowd: 'medium', description: '12 food trucks on 10th Street', time: '11 AM - 9 PM' },
+  { id: 203, lat: 33.7860, lng: -84.3895, name: 'Rooftop Block Party', type: 'party', crowd: 'high', description: 'Colony Square rooftop party', time: '7 PM - 2 AM' },
+  { id: 204, lat: 33.7920, lng: -84.3860, name: 'Pickup Soccer', type: 'sports', crowd: 'low', description: 'Open pickup game at the park', time: '5 PM - 7 PM' },
+  { id: 205, lat: 33.7750, lng: -84.3840, name: 'Artisan Market', type: 'market', crowd: 'medium', description: 'Local artisans and crafts', time: '10 AM - 6 PM' },
+];
+
+function createEventIcon(type: LiveEvent['type']): L.DivIcon {
+  const { emoji, color } = EVENT_ICONS[type];
+  return L.divIcon({
+    html: `<div style="position:relative;width:34px;height:34px;">
+      <div class="byt-pulse-ring-slow" style="border:2px solid ${color};"></div>
+      <div style="width:34px;height:34px;border-radius:12px;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;">${emoji}</div>
+    </div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    popupAnchor: [0, -19],
+    className: '',
+  });
+}
+
+const CROWD_COLORS: Record<LiveEvent['crowd'], string> = { low: '#10B981', medium: '#F59E0B', high: '#EF4444' };
+
+/** Open native navigation — Google Maps on Android/web, Apple Maps on iOS */
+function openNativeNavigation(lat: number, lng: number, label?: string) {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (isIOS) {
+    window.open(`maps://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`, '_system');
+  } else {
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}${label ? `&destination_place_id=${encodeURIComponent(label)}` : ''}`, '_blank');
+  }
+}
 
 export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, userCoords }: MapSectionProps) {
-  const { isLoaded } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const mapCenter = useMemo(() => userCoords ? { lat: userCoords.lat, lng: userCoords.lng } : DEFAULT_MAP_CENTER, [userCoords]);
-  const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_PARKING);
+  const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
+  const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null);
@@ -120,6 +288,13 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [zoomDirection, setZoomDirection] = useState(0);
   const [reservationSpot, setReservationSpot] = useState<any>(null);
   const [selectedMapVenue, setSelectedMapVenue] = useState<any>(null);
+  // Community reports & live vibes/events layers
+  const [showReports, setShowReports] = useState(true);
+  const [showEvents, setShowEvents] = useState(true);
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [newReportType, setNewReportType] = useState<ReportType>('hazard');
+  const [newReportDesc, setNewReportDesc] = useState('');
+  const [communityReports, setCommunityReports] = useState<CommunityReport[]>(COMMUNITY_REPORTS);
 
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
@@ -143,33 +318,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     id: i + 100, lat: v.lat, lng: v.lng, name: v.name, type: v.category, rating: 4.5,
   }));
 
-  // Merge live API parking data into map pins
-  useEffect(() => {
-    if (!apiVenues.length) return;
-    const liveSpots: ParkingSpot[] = [];
-    let idCounter = 1000;
-    apiVenues.forEach((venue) => {
-      venue.parking.spots.forEach((spot: any) => {
-        liveSpots.push({
-          id: idCounter++,
-          lat: venue.lat + (Math.random() - 0.5) * 0.001, // slight offset so pins don't stack
-          lng: venue.lng + (Math.random() - 0.5) * 0.001,
-          name: spot.name || `${venue.name} Parking`,
-          available: spot.available,
-          total: spot.capacity,
-          price: spot.pricePerHr,
-          isPremium: spot.pricePerHr >= 8,
-          hasEVCharging: false,
-          isCovered: true,
-          securityLevel: spot.pricePerHr >= 8 ? 'premium' : 'standard',
-          hasCameras: true,
-          isReserved: false,
-        });
-      });
-    });
-    if (liveSpots.length > 0) setParkingData(liveSpots);
-  }, [apiVenues]);
-
   useEffect(() => {
     if (destination) {
       setRouteDestination(destination);
@@ -178,8 +326,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   }, [destination]);
 
   useEffect(() => {
-    if (!selectedFunction) return;
-
     const toasts: Record<string, string> = {
       'traffic-intelligence': 'Traffic Intelligence Active',
       'trending-hotspots': 'Trending Hotspots Active',
@@ -188,41 +334,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       'ai-navigation': 'AI Navigation Premium Active',
       'spot-radar': 'Spot Radar Active',
     };
-
-    // Apply functional behavior per mode
-    switch (selectedFunction) {
-      case 'smart-parking':
-        setShowParkingSpots(true);
-        setShowVenues(false);
-        // Sort by best value: cheapest with availability
-        setParkingData((prev) => [...prev].sort((a, b) => {
-          if (a.available === 0 && b.available > 0) return 1;
-          if (b.available === 0 && a.available > 0) return -1;
-          return a.price - b.price;
-        }));
-        break;
-      case 'live-venue-data':
-        setShowVenues(true);
-        setShowParkingSpots(true);
-        break;
-      case 'trending-hotspots':
-        setShowVenues(true);
-        setShowParkingSpots(false);
-        break;
-      case 'traffic-intelligence':
-        setShowTrafficIntel(true);
-        break;
-      case 'spot-radar':
-        setShowParkingSpots(true);
-        setShowVenues(false);
-        // Filter to only spots with availability
-        setParkingData((prev) => prev.filter((s) => s.available > 0));
-        break;
-      default:
-        break;
-    }
-
-    if (toasts[selectedFunction]) {
+    if (selectedFunction && toasts[selectedFunction]) {
+      if (selectedFunction === 'traffic-intelligence') setShowTrafficIntel(true);
       toast.success(toasts[selectedFunction], { duration: 2000 });
     }
   }, [selectedFunction]);
@@ -290,86 +403,91 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     return true;
   });
 
-  // Handle zoom / recenter via mapRef
-  useEffect(() => {
-    if (shouldRecenter && mapRef.current) {
-      mapRef.current.panTo(mapCenter);
-      mapRef.current.setZoom(14);
-      setShouldRecenter(false);
-    }
-  }, [shouldRecenter, mapCenter]);
-
-  useEffect(() => {
-    if (zoomDirection !== 0 && mapRef.current) {
-      const z = mapRef.current.getZoom() || 14;
-      mapRef.current.setZoom(z + zoomDirection);
-      setZoomDirection(0);
-    }
-  }, [zoomDirection]);
-
-  if (!isLoaded) {
-    return (
-      <div className="relative w-full h-full flex items-center justify-center bg-[#1d1d1d]">
-        <div className="text-white/60 text-sm">Loading map…</div>
-      </div>
-    );
-  }
-
   return (
     <div className="relative w-full h-full" style={{ zIndex: 0 }}>
-      {/* Google Map */}
-      <div className="absolute inset-0" style={{ zIndex: 0 }}>
-        <GoogleMap
-          mapContainerStyle={MAP_CONTAINER_STYLE}
+      {/* Real Leaflet Map */}
+      <MapContainer
+        center={mapCenter}
+        zoom={14}
+        className="absolute inset-0 w-full h-full"
+        style={{ zIndex: 0 }}
+        zoomControl={false}
+      >
+        {/* Tile Layer — CartoDB Dark Matter */}
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          maxZoom={19}
+        />
+        <MapInteractionController
+          shouldRecenter={shouldRecenter} onRecentered={() => setShouldRecenter(false)}
+          zoomDirection={zoomDirection} onZoomed={() => setZoomDirection(0)}
           center={mapCenter}
-          zoom={14}
-          onLoad={(map) => { mapRef.current = map; }}
-          options={{
-            disableDefaultUI: true,
-            styles: DARK_MAP_STYLES,
-            gestureHandling: 'greedy',
-            maxZoom: 19,
-            minZoom: 10,
-          }}
-        >
-          {/* Parking Markers */}
-          {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
-            const status = getAvailabilityStatus(spot);
-            const color = getColor(status);
-            return (
-              <MarkerF
-                key={spot.id}
-                position={{ lat: spot.lat, lng: spot.lng }}
-                icon={{ url: parkingMarkerIcon(color), scaledSize: new google.maps.Size(32, 32), anchor: new google.maps.Point(16, 16) }}
-                onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }}
-              />
-            );
-          })}
+        />
 
-          {/* Venue Markers */}
-          {showVenues && mapVenues.map((venue: Venue) => (
-            <MarkerF
-              key={venue.id}
-              position={{ lat: venue.lat, lng: venue.lng }}
-              icon={{ url: venueMarkerIcon(), scaledSize: new google.maps.Size(26, 26), anchor: new google.maps.Point(13, 13) }}
-              onClick={() => setSelectedMapVenue(venue)}
-            />
-          ))}
-
-          {/* Info window for selected venue */}
-          {selectedMapVenue && (
-            <InfoWindowF
-              position={{ lat: selectedMapVenue.lat, lng: selectedMapVenue.lng }}
-              onCloseClick={() => setSelectedMapVenue(null)}
+        {/* Parking Markers */}
+        {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
+          const status = getAvailabilityStatus(spot);
+          const color = getColor(status);
+          return (
+            <Marker
+              key={spot.id}
+              position={[spot.lat, spot.lng]}
+              icon={createParkingIcon(color)}
+              eventHandlers={{ click: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); } }}
             >
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedMapVenue.name}</div>
-                <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>{selectedMapVenue.type}</div>
+              <Popup>
+                <div style={{ minWidth: 160 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{spot.name}</div>
+                  <div style={{ color, fontWeight: 600 }}>{spot.available}/{spot.total} spots · ${spot.price}/hr</div>
+                  {spot.isPremium && <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2 }}>★ Premium</div>}
+                  {spot.hasEVCharging && <div style={{ fontSize: 11, color: '#10B981', marginTop: 2 }}>⚡ EV Charging</div>}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
+        {/* Venue Markers */}
+        {showVenues && mapVenues.map((venue: Venue) => (
+          <Marker key={venue.id} position={[venue.lat, venue.lng]} icon={createVenueIcon()}>
+            <Popup>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{venue.name}</div>
+              <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>{venue.type}</div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Community Report Markers */}
+        {showReports && communityReports.map((r) => (
+          <Marker key={r.id} position={[r.lat, r.lng]} icon={createReportIcon(r.type)}>
+            <Popup>
+              <div style={{ minWidth: 180 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{REPORT_ICONS[r.type].emoji} {r.type.charAt(0).toUpperCase() + r.type.slice(1)}</div>
+                <div style={{ fontSize: 12, marginBottom: 4 }}>{r.description}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>{r.reportedBy} · {r.timeAgo} · 👍 {r.upvotes}</div>
               </div>
-            </InfoWindowF>
-          )}
-        </GoogleMap>
-      </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Live Event Markers */}
+        {showEvents && LIVE_EVENTS.map((ev) => (
+          <Marker key={ev.id} position={[ev.lat, ev.lng]} icon={createEventIcon(ev.type)}>
+            <Popup>
+              <div style={{ minWidth: 180 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{EVENT_ICONS[ev.type].emoji} {ev.name}</div>
+                <div style={{ fontSize: 12, marginBottom: 2 }}>{ev.description}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>🕐 {ev.time}</div>
+                <div style={{ fontSize: 11, marginTop: 2 }}>
+                  Crowd: <span style={{ color: CROWD_COLORS[ev.crowd], fontWeight: 600 }}>{ev.crowd.toUpperCase()}</span>
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+      </MapContainer>
 
 
       {/* Right Controls — Zoom + Recenter */}
@@ -414,9 +532,97 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             <div className="w-2 h-2 rounded-full bg-purple-500" />
           )}
         </motion.button>
+
+        {/* Layer toggles */}
+        <motion.button
+          onClick={() => setShowReports(!showReports)}
+          className={`px-3 py-2 rounded-full flex items-center gap-1.5 backdrop-blur-xl border-2 shadow-xl ${showReports ? 'bg-red-500/30 border-red-400/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          whileTap={{ scale: 0.95 }}
+          transition={springConfig}
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+          <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>Reports</span>
+        </motion.button>
+        <motion.button
+          onClick={() => setShowEvents(!showEvents)}
+          className={`px-3 py-2 rounded-full flex items-center gap-1.5 backdrop-blur-xl border-2 shadow-xl ${showEvents ? 'bg-purple-500/30 border-purple-400/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          whileTap={{ scale: 0.95 }}
+          transition={springConfig}
+        >
+          <Music className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+          <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>Vibes</span>
+        </motion.button>
       </div>
 
+      {/* Report FAB */}
+      <div className="absolute bottom-20 left-4 z-[1000]">
+        <motion.button
+          onClick={() => setShowReportForm(!showReportForm)}
+          className="w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br from-red-500 to-orange-500 border-2 border-white/40 shadow-xl"
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+          animate={{ boxShadow: showReportForm ? '0 0 20px rgba(239,68,68,0.5)' : '0 4px 12px rgba(0,0,0,0.4)' }}
+        >
+          <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
+        </motion.button>
+      </div>
 
+      {/* Community Report Form */}
+      <AnimatePresence>
+        {showReportForm && (
+          <motion.div
+            className="absolute bottom-36 left-4 right-4 z-[1001]"
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 30, scale: 0.95 }}
+            transition={springConfig}
+          >
+            <div className="p-4 rounded-[20px] bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[15px] text-white" style={{ fontWeight: 700 }}>📋 Community Report</h3>
+                <motion.button onClick={() => setShowReportForm(false)} whileTap={{ scale: 0.9 }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 border border-white/30">
+                  <X className="w-3.5 h-3.5 text-white" />
+                </motion.button>
+              </div>
+              {/* Report Type Selector */}
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {(Object.entries(REPORT_ICONS) as [ReportType, { emoji: string; color: string }][]).map(([key, { emoji, color }]) => (
+                  <motion.button key={key}
+                    onClick={() => setNewReportType(key)}
+                    className={`px-2.5 py-1.5 rounded-full text-[11px] border ${newReportType === key ? 'border-white/60' : 'border-white/20'}`}
+                    style={{ background: newReportType === key ? `${color}33` : 'rgba(255,255,255,0.05)', fontWeight: 600, color: 'white' }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {emoji} {key}
+                  </motion.button>
+                ))}
+              </div>
+              <input
+                type="text" value={newReportDesc} onChange={(e) => setNewReportDesc(e.target.value)}
+                placeholder="What's happening?" className="w-full p-2.5 rounded-[12px] bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 outline-none mb-3"
+              />
+              <motion.button
+                onClick={() => {
+                  if (!newReportDesc.trim()) return;
+                  const newReport: CommunityReport = {
+                    id: Date.now(), lat: mapCenter[0] + (Math.random() - 0.5) * 0.005,
+                    lng: mapCenter[1] + (Math.random() - 0.5) * 0.005, type: newReportType,
+                    description: newReportDesc, reportedBy: 'You', timeAgo: 'Just now', upvotes: 0,
+                  };
+                  setCommunityReports(prev => [newReport, ...prev]);
+                  setNewReportDesc(''); setShowReportForm(false);
+                  toast.success('Report submitted', { description: `${REPORT_ICONS[newReportType].emoji} ${newReportDesc}` });
+                }}
+                className="w-full py-2.5 rounded-[12px] bg-gradient-to-r from-red-500 to-orange-500 text-white text-[14px] border border-white/30"
+                style={{ fontWeight: 600 }} whileTap={{ scale: 0.98 }}
+              >
+                Submit Report
+              </motion.button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Filter Panel */}
       <AnimatePresence>
@@ -605,13 +811,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               {routeDestination && (
                 <motion.button
                   onClick={() => {
-                    const encoded = encodeURIComponent(routeDestination);
-                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
-                    window.open(url, '_blank');
-                    toast.success('Navigation Started', {
-                      description: `Opening Google Maps to ${routeDestination}`,
-                      duration: 2000,
-                    });
+                    // Try to find a matching parking spot or venue for coordinates
+                    const matchedSpot = parkingData.find(s => s.name.toLowerCase().includes(routeDestination.toLowerCase()));
+                    if (matchedSpot) {
+                      openNativeNavigation(matchedSpot.lat, matchedSpot.lng, matchedSpot.name);
+                    } else {
+                      // Fallback: open Google Maps search for the destination
+                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(routeDestination)}`, '_blank');
+                    }
+                    toast.success('Opening Navigation', { description: `Routing to ${routeDestination}`, duration: 2000 });
                   }}
                   className="w-full py-3 rounded-[14px] bg-gradient-to-r from-green-500 to-emerald-500 border-2 border-white/30 shadow-lg"
                   whileTap={{ scale: 0.98 }}
@@ -664,13 +872,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         }}
         onReserve={handleSpotReserve}
         onNavigate={(spotId) => {
-          setShowSpotDetails(false);
-          // Find the spot and open Google Maps
           const spot = parkingData.find(s => s.id === spotId);
+          setShowSpotDetails(false);
           if (spot) {
-            const url = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}&travelmode=driving`;
-            window.open(url, '_blank');
+            openNativeNavigation(spot.lat, spot.lng, spot.name);
           }
+          toast.success('Navigation Started', { description: 'Opening maps app...', duration: 2000 });
         }}
         isDarkMode={isDarkMode}
       />
@@ -682,7 +889,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         onToggle={() => setShowTrafficIntel(!showTrafficIntel)}
       />
 
-      {/* Parking Reservation Flow — portal escapes map z-index stacking */}
+      {/* Parking Reservation Flow — portal escapes Leaflet z-index stacking */}
       {createPortal(
         <AnimatePresence>
           {reservationSpot && (

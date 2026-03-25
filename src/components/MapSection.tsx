@@ -1,21 +1,20 @@
-import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
+import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
-  Home, MapPin
+  MapPin
 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapFunction, MapViewMode } from './MapMenuSlideUp';
 import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
-import { VenueDetails } from './VenueDetails';
 import { useVenues } from '../utils/hooks/useVenues';
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyB-b2l6T-saxk5h9PZUPRBmC7R_4pxryNk';
 
 interface MapSectionProps {
   isDarkMode: boolean;
@@ -73,61 +72,42 @@ const FALLBACK_PARKING: ParkingSpot[] = [
   { id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage', available: 38, total: 80, price: 5, isPremium: false, hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType], isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false },
 ];
 
-// Fix Leaflet's broken default icon paths in Vite builds
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
-
 // Default center fallback — used only when no GPS coords are available
-const DEFAULT_MAP_CENTER: [number, number] = [33.7866, -84.3833];
+const DEFAULT_MAP_CENTER = { lat: 33.7866, lng: -84.3833 };
 
-// Single controller inside MapContainer — handles recenter + zoom via state signals
-function MapInteractionController({
-  shouldRecenter, onRecentered,
-  zoomDirection, onZoomed,
-  center,
-}: {
-  shouldRecenter: boolean; onRecentered: () => void;
-  zoomDirection: number; onZoomed: () => void;
-  center: [number, number];
-}) {
-  const map = useMap();
-  useEffect(() => {
-    if (shouldRecenter) { map.setView(center, 14); onRecentered(); }
-  }, [shouldRecenter, map, onRecentered, center]);
-  useEffect(() => {
-    if (zoomDirection === 1) { map.zoomIn(); onZoomed(); }
-    else if (zoomDirection === -1) { map.zoomOut(); onZoomed(); }
-  }, [zoomDirection, map, onZoomed]);
-  return null;
+// Google Maps dark mode style
+const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#1d1d1d' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1d1d1d' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#383838' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3c3c3c' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e6d70' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252525' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6a6a6a' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
+];
+
+/** Build an inline-SVG data URL for parking markers */
+function parkingMarkerIcon(color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${color}" stroke="white" stroke-width="3"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="800" font-family="Arial">P</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-function createParkingIcon(color: string): L.DivIcon {
-  return L.divIcon({
-    html: `<div style="width:32px;height:32px;border-radius:50%;background:${color};border:3px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;cursor:pointer;line-height:1;">P</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -18],
-    className: '',
-  });
+/** Build an inline-SVG data URL for venue markers */
+function venueMarkerIcon(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#9333ea"/><stop offset="100%" stop-color="#ec4899"/></linearGradient></defs><circle cx="13" cy="13" r="12" fill="url(#g)" stroke="white" stroke-width="2"/><path d="M13 5a5 5 0 00-5 5c0 3.75 5 9.5 5 9.5s5-5.75 5-9.5a5 5 0 00-5-5zm0 7a2 2 0 110-4 2 2 0 010 4z" fill="white"/></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-
-function createVenueIcon(): L.DivIcon {
-  return L.divIcon({
-    html: `<div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#9333ea,#ec4899);border:2px solid rgba(255,255,255,0.8);box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    popupAnchor: [0, -15],
-    className: '',
-  });
-}
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
 export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, userCoords }: MapSectionProps) {
-  const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
+  const { isLoaded } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const mapCenter = useMemo(() => userCoords ? { lat: userCoords.lat, lng: userCoords.lng } : DEFAULT_MAP_CENTER, [userCoords]);
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
@@ -310,62 +290,86 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     return true;
   });
 
+  // Handle zoom / recenter via mapRef
+  useEffect(() => {
+    if (shouldRecenter && mapRef.current) {
+      mapRef.current.panTo(mapCenter);
+      mapRef.current.setZoom(14);
+      setShouldRecenter(false);
+    }
+  }, [shouldRecenter, mapCenter]);
+
+  useEffect(() => {
+    if (zoomDirection !== 0 && mapRef.current) {
+      const z = mapRef.current.getZoom() || 14;
+      mapRef.current.setZoom(z + zoomDirection);
+      setZoomDirection(0);
+    }
+  }, [zoomDirection]);
+
+  if (!isLoaded) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center bg-[#1d1d1d]">
+        <div className="text-white/60 text-sm">Loading map…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full h-full" style={{ zIndex: 0 }}>
-      {/* Real Leaflet Map */}
-      <MapContainer
-        center={mapCenter}
-        zoom={14}
-        className="absolute inset-0 w-full h-full"
-        style={{ zIndex: 0 }}
-        zoomControl={false}
-      >
-        {/* Tile Layer — CartoDB Dark Matter */}
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          maxZoom={19}
-        />
-        <MapInteractionController
-          shouldRecenter={shouldRecenter} onRecentered={() => setShouldRecenter(false)}
-          zoomDirection={zoomDirection} onZoomed={() => setZoomDirection(0)}
+      {/* Google Map */}
+      <div className="absolute inset-0" style={{ zIndex: 0 }}>
+        <GoogleMap
+          mapContainerStyle={MAP_CONTAINER_STYLE}
           center={mapCenter}
-        />
+          zoom={14}
+          onLoad={(map) => { mapRef.current = map; }}
+          options={{
+            disableDefaultUI: true,
+            styles: DARK_MAP_STYLES,
+            gestureHandling: 'greedy',
+            maxZoom: 19,
+            minZoom: 10,
+          }}
+        >
+          {/* Parking Markers */}
+          {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
+            const status = getAvailabilityStatus(spot);
+            const color = getColor(status);
+            return (
+              <MarkerF
+                key={spot.id}
+                position={{ lat: spot.lat, lng: spot.lng }}
+                icon={{ url: parkingMarkerIcon(color), scaledSize: new google.maps.Size(32, 32), anchor: new google.maps.Point(16, 16) }}
+                onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }}
+              />
+            );
+          })}
 
-        {/* Parking Markers */}
-        {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
-          const status = getAvailabilityStatus(spot);
-          const color = getColor(status);
-          return (
-            <Marker
-              key={spot.id}
-              position={[spot.lat, spot.lng]}
-              icon={createParkingIcon(color)}
-              eventHandlers={{ click: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); } }}
+          {/* Venue Markers */}
+          {showVenues && mapVenues.map((venue: Venue) => (
+            <MarkerF
+              key={venue.id}
+              position={{ lat: venue.lat, lng: venue.lng }}
+              icon={{ url: venueMarkerIcon(), scaledSize: new google.maps.Size(26, 26), anchor: new google.maps.Point(13, 13) }}
+              onClick={() => setSelectedMapVenue(venue)}
+            />
+          ))}
+
+          {/* Info window for selected venue */}
+          {selectedMapVenue && (
+            <InfoWindowF
+              position={{ lat: selectedMapVenue.lat, lng: selectedMapVenue.lng }}
+              onCloseClick={() => setSelectedMapVenue(null)}
             >
-              <Popup>
-                <div style={{ minWidth: 160 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{spot.name}</div>
-                  <div style={{ color, fontWeight: 600 }}>{spot.available}/{spot.total} spots · ${spot.price}/hr</div>
-                  {spot.isPremium && <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2 }}>★ Premium</div>}
-                  {spot.hasEVCharging && <div style={{ fontSize: 11, color: '#10B981', marginTop: 2 }}>⚡ EV Charging</div>}
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-
-        {/* Venue Markers */}
-        {showVenues && mapVenues.map((venue: Venue) => (
-          <Marker key={venue.id} position={[venue.lat, venue.lng]} icon={createVenueIcon()}>
-            <Popup>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{venue.name}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>{venue.type}</div>
-            </Popup>
-          </Marker>
-        ))}
-
-      </MapContainer>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedMapVenue.name}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>{selectedMapVenue.type}</div>
+              </div>
+            </InfoWindowF>
+          )}
+        </GoogleMap>
+      </div>
 
 
       {/* Right Controls — Zoom + Recenter */}
@@ -678,7 +682,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         onToggle={() => setShowTrafficIntel(!showTrafficIntel)}
       />
 
-      {/* Parking Reservation Flow — portal escapes Leaflet z-index stacking */}
+      {/* Parking Reservation Flow — portal escapes map z-index stacking */}
       {createPortal(
         <AnimatePresence>
           {reservationSpot && (

@@ -171,6 +171,31 @@ export default function App() {
         // @capacitor/app not installed → running in browser, skip
       }
     })();
+
+    // ─── Capacitor Status Bar Styling ──────────────────────────────────────
+    // Match the native status bar to the app's dark theme.
+    // Uses dynamic import so the web build doesn't break if the plugin is absent.
+    (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return; // web → skip
+
+        const { StatusBar, Style } = await import('@capacitor/status-bar');
+
+        // App is fixed to dark mode → light text on dark background
+        await StatusBar.setStyle({ style: Style.Dark });
+        await StatusBar.setBackgroundColor({ color: '#000000' });
+
+        // Future-proof: if dark mode becomes toggleable, listen for changes
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        mq.addEventListener('change', async (e) => {
+          await StatusBar.setStyle({ style: e.matches ? Style.Dark : Style.Light });
+          await StatusBar.setBackgroundColor({ color: e.matches ? '#000000' : '#FFFFFF' });
+        });
+      } catch {
+        // @capacitor/status-bar not available → running in browser, skip
+      }
+    })();
   }, []);
 
   // ─── "Near me now" push alerts ───────────────────────────────────────────

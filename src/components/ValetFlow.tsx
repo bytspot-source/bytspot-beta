@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  X, ChevronLeft, MapPin, Star, Shield, Clock, DollarSign, 
+import {
+  X, ChevronLeft, MapPin, Star, Shield, Clock, DollarSign,
   Phone, Camera, Check, AlertCircle, Navigation, User, Car,
   CreditCard, Apple, Smartphone, ChevronRight, MessageCircle,
   Award, TrendingUp, Zap, Bell, Info, FileText, Image as ImageIcon,
@@ -8,6 +8,18 @@ import {
   Wrench, Package, Fuel
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
+
+const VALET_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyB-b2l6T-saxk5h9PZUPRBmC7R_4pxryNk';
+
+const VALET_DARK_STYLES: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#1d1d1d' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1d1d1d' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252525' }] },
+];
 
 interface ValetService {
   id: string;
@@ -109,6 +121,7 @@ const ADDON_SERVICES: AddonService[] = [
 ];
 
 export function ValetFlow({ service: initialService, isDarkMode, onClose }: ValetFlowProps) {
+  const { isLoaded: mapsLoaded } = useJsApiLoader({ googleMapsApiKey: VALET_MAPS_API_KEY });
   const [currentStep, setCurrentStep] = useState<FlowStep>('overview');
   const [bookingDetails, setBookingDetails] = useState<BookingDetails>({
     firstName: '',
@@ -321,6 +334,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
                 setDetails={setBookingDetails}
                 onContinue={() => setCurrentStep('booking')}
                 springConfig={springConfig}
+                mapsLoaded={mapsLoaded}
               />
             )}
 
@@ -358,6 +372,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
                 estimatedTime={estimatedTime}
                 onRequestRetrieval={handleRequestRetrieval}
                 springConfig={springConfig}
+                mapsLoaded={mapsLoaded}
               />
             )}
 
@@ -392,7 +407,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
 }
 
 // Step 1: Service Overview
-function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, springConfig, details, setDetails }: any) {
+function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, springConfig, details, setDetails, mapsLoaded }: any) {
   const toggleAddon = (addonId: string) => {
     setDetails((prev: BookingDetails) => ({
       ...prev,
@@ -469,17 +484,21 @@ function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, 
         <h3 className="text-[15px] text-white mb-3" style={{ fontWeight: 600 }}>
           Service Area
         </h3>
-        <div className="w-full h-48 rounded-[12px] overflow-hidden bg-gray-800 flex items-center justify-center mb-3 relative">
-          <img
-            src="https://images.unsplash.com/photo-1524661135-423995f22d0b?w=800"
-            alt="Service Area Map"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 rounded-full bg-purple-500/90 border-2 border-white flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-white" />
+        <div className="w-full h-48 rounded-[12px] overflow-hidden bg-gray-800 mb-3 relative">
+          {mapsLoaded ? (
+            <GoogleMap
+              mapContainerStyle={{ width: '100%', height: '100%' }}
+              center={{ lat: 33.7756, lng: -84.3963 }}
+              zoom={13}
+              options={{ disableDefaultUI: true, styles: VALET_DARK_STYLES, gestureHandling: 'cooperative' }}
+            >
+              <MarkerF position={{ lat: 33.7756, lng: -84.3963 }} />
+            </GoogleMap>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <MapPin className="w-6 h-6 text-white/40" />
             </div>
-          </div>
+          )}
         </div>
         <div className="flex items-center gap-2 text-[13px] text-white/70">
           <MapPin className="w-4 h-4" />
@@ -1183,7 +1202,7 @@ function PaymentStep({ serviceFee, addonsCost, platformFee, tax, totalCost, sele
 }
 
 // Step 4: Active Service Tracking
-function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, springConfig }: any) {
+function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, springConfig, mapsLoaded }: any) {
   const currentPhaseIndex = VALET_PHASES.findIndex(p => p.key === status.phase);
 
   return (
@@ -1258,12 +1277,48 @@ function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, spring
         </div>
         
         <div className="w-full h-56 rounded-[12px] overflow-hidden bg-gray-800 relative">
-          <img
-            src="https://images.unsplash.com/photo-1569336415962-a4bd9f69cd83?w=800"
-            alt="GPS Map"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
+          {mapsLoaded ? (
+            <GoogleMap
+              mapContainerStyle={{ width: '100%', height: '100%' }}
+              center={{ lat: 33.7756, lng: -84.3963 }}
+              zoom={15}
+              options={{
+                styles: VALET_DARK_STYLES,
+                disableDefaultUI: true,
+                gestureHandling: 'none',
+                zoomControl: false,
+              }}
+            >
+              {/* Simulated driver marker */}
+              <MarkerF
+                position={{ lat: 33.7770, lng: -84.3950 }}
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="%23A855F7" stroke="white" stroke-width="3"/><text x="20" y="26" text-anchor="middle" font-size="18" fill="white">🚗</text></svg>'
+                  ),
+                  scaledSize: new google.maps.Size(40, 40),
+                  anchor: new google.maps.Point(20, 20),
+                }}
+              />
+              {/* User pickup pin */}
+              <MarkerF
+                position={{ lat: 33.7740, lng: -84.3975 }}
+                icon={{
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="%2300BCD4" stroke="white" stroke-width="3"/><text x="16" y="22" text-anchor="middle" font-size="14" fill="white">📍</text></svg>'
+                  ),
+                  scaledSize: new google.maps.Size(32, 32),
+                  anchor: new google.maps.Point(16, 16),
+                }}
+              />
+            </GoogleMap>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-purple-500 animate-spin" />
+            </div>
+          )}
+          {/* Pulsing car overlay */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <motion.div
               animate={{ scale: [1, 1.1, 1] }}
               transition={{ duration: 1.5, repeat: Infinity }}

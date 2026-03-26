@@ -1117,9 +1117,9 @@ export default function App() {
                                 crowd: v.crowd,
                               }))
                             : [
-                                { name: 'Colony Square Garage', distance: '0.2', spots: 14, available: true, priority: 0 },
-                                { name: '1380 W Peachtree Garage', distance: '0.4', spots: 22, available: true, priority: 0 },
-                                { name: 'Promenade Midtown Parking', distance: '0.6', spots: 38, available: true, priority: 0 },
+                                { name: 'Colony Square Garage', distance: '0.2', spots: 14, available: true, priority: 0, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 } },
+                                { name: '1380 W Peachtree Garage', distance: '0.4', spots: 22, available: true, priority: 0, crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 } },
+                                { name: 'Promenade Midtown Parking', distance: '0.6', spots: 38, available: true, priority: 0, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 } },
                               ]
                         ).map((location, index) => (
                           <motion.button

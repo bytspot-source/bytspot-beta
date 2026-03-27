@@ -146,7 +146,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
       trpc.venues.getBySlug.query({ slug: venue.slug }).then((result) => {
         if (cancelled) return;
         if (result?.crowd?.history?.length) {
-          setCrowdHistory(result.crowd.history.filter((h): h is { level: number; label: string; recordedAt: string } => typeof h.level === 'number' && typeof h.label === 'string' && typeof h.recordedAt === 'string'));
+          setCrowdHistory(
+            result.crowd.history
+              .filter((h) => typeof h.level === 'number' && typeof h.label === 'string' && typeof h.recordedAt === 'string')
+              .map((h) => ({ level: h.level, label: h.label, recordedAt: h.recordedAt }))
+          );
           return;
         }
         // Generate estimated popular times when no real history exists

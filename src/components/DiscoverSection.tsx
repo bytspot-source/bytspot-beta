@@ -1,10 +1,10 @@
 import { motion, PanInfo, AnimatePresence } from 'motion/react';
-import { useState, useEffect, useRef, forwardRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, lazy, Suspense } from 'react';
 import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
-import { ValetFlow } from './ValetFlow';
+const ValetFlow = lazy(() => import('./ValetFlow').then(m => ({ default: m.ValetFlow })));
 import { type DiscoverCard, type CardType } from '../utils/mockData';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 
@@ -802,11 +802,13 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
       <AnimatePresence>
         {selectedValetService && (
-          <ValetFlow
-            service={selectedValetService}
-            isDarkMode={true}
-            onClose={() => setSelectedValetService(null)}
-          />
+          <Suspense fallback={null}>
+            <ValetFlow
+              service={selectedValetService}
+              isDarkMode={true}
+              onClose={() => setSelectedValetService(null)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 

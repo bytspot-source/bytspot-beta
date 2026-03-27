@@ -260,57 +260,77 @@ export function useVenues(): UseVenuesResult {
       fetchVenues();
     }
 
-    // ── SSE: real-time crowd updates ───────────────────────────
+    // ── SSE: real-time crowd updates with exponential backoff ───
     let es: EventSource | null = null;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 8;
+    const BASE_DELAY = 1000; // 1s → 2s → 4s → … → 128s max
 
-    try {
-      es = new EventSource(`${API_BASE_URL}/venues/crowd/stream`);
+    function handleSSEMessage(event: MessageEvent) {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'snapshot') {
+          setVenues((prev) => {
+            if (!prev.length) return prev;
+            const updated = prev.map((v) => {
+              const snap = (msg.venues as Array<{ id: string; crowd: ApiVenue['crowd'] }>).find((s) => s.id === v.id);
+              return snap ? { ...v, crowd: snap.crowd } : v;
+            });
+            venuesRef.current = updated;
+            setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+            return updated;
+          });
+        } else if (msg.type === 'update') {
+          setVenues((prev) => {
+            const updated = prev.map((v) =>
+              v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
+            );
+            venuesRef.current = updated;
+            setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+            return updated;
+          });
+        }
+        // Successful message → reset retry counter
+        retryCount = 0;
+      } catch { /* malformed message — ignore */ }
+    }
 
-      es.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'snapshot') {
-            // Merge crowd snapshot into current venues list
-            setVenues((prev) => {
-              if (!prev.length) return prev;
-              const updated = prev.map((v) => {
-                const snap = (msg.venues as Array<{ id: string; crowd: ApiVenue['crowd'] }>).find((s) => s.id === v.id);
-                return snap ? { ...v, crowd: snap.crowd } : v;
-              });
-              venuesRef.current = updated;
-              setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
-              return updated;
-            });
-          } else if (msg.type === 'update') {
-            setVenues((prev) => {
-              const updated = prev.map((v) =>
-                v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
-              );
-              venuesRef.current = updated;
-              setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
-              return updated;
-            });
+    function connectSSE() {
+      if (!isMountedRef.current) return;
+      try {
+        es = new EventSource(`${API_BASE_URL}/venues/crowd/stream`);
+        es.onmessage = handleSSEMessage;
+        es.onerror = () => {
+          es?.close();
+          es = null;
+          if (!isMountedRef.current) return;
+          if (retryCount < MAX_RETRIES) {
+            const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount), 128_000);
+            retryCount++;
+            retryTimeout = setTimeout(connectSSE, delay);
+          } else {
+            // Exhausted retries — fall back to 60s polling
+            if (!pollInterval) {
+              pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
+            }
           }
-        } catch { /* malformed message — ignore */ }
-      };
-
-      es.onerror = () => {
-        // SSE failed — fall back to 60s polling
-        es?.close();
-        es = null;
+        };
+      } catch {
+        // Browser doesn't support EventSource — use polling
         if (!pollInterval) {
           pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
         }
-      };
-    } catch {
-      // Browser doesn't support EventSource — use polling
-      pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
+      }
     }
+
+    connectSSE();
 
     return () => {
       isMountedRef.current = false;
       es?.close();
+      if (retryTimeout) clearTimeout(retryTimeout);
       if (pollInterval) clearInterval(pollInterval);
     };
   }, []);

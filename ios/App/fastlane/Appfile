@@ -1,4 +1,9 @@
 app_identifier("com.bytspot.app")
-apple_dev_portal_id(ENV["APPLE_TEAM_ID"])
+
+# Apple ID email used for App Store Connect login (only needed if not using API key auth)
+apple_id(ENV["APPLE_ID"]) if ENV["APPLE_ID"]
+
+# Team ID (10-char alphanumeric from Apple Developer portal)
+team_id(ENV["APPLE_TEAM_ID"])
 itc_team_id(ENV["APPLE_TEAM_ID"])
 

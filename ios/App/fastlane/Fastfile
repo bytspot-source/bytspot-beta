@@ -17,6 +17,17 @@ platform :ios do
       build_number: ENV.fetch("GITHUB_RUN_NUMBER", "1")
     )
 
+    # Switch Release config to manual signing for CI
+    # (local dev uses Automatic via Xcode, CI uses manual with provisioning profile)
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path:                  "App.xcodeproj",
+      team_id:               ENV["APPLE_TEAM_ID"],
+      bundle_identifier:     "com.bytspot.app",
+      profile_uuid:          ENV["PROVISIONING_PROFILE_UUID"],
+      code_sign_identity:    "iPhone Distribution"
+    )
+
     # Build the signed .ipa
     build_app(
       project:       "App.xcodeproj",

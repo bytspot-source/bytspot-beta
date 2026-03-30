@@ -102,6 +102,51 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     setIsListening(true);
   };
 
+  /** Lightweight local fallback when user is not logged in */
+  const getLocalResponse = (query: string): { reply: string; matchedVenues: Venue[] } => {
+    const q = query.toLowerCase();
+    const matched: Venue[] = [];
+
+    // Try to match venues by keyword
+    for (const v of venues) {
+      const name = v.name?.toLowerCase() ?? '';
+      const cat = (v.category ?? v.type ?? '').toLowerCase();
+      if (q.includes(name) || q.includes(cat) || (q.includes('drink') && cat.includes('bar'))
+        || (q.includes('food') && (cat.includes('restaurant') || cat.includes('food')))
+        || (q.includes('chill') && v.crowd && v.crowd.level <= 2)
+        || (q.includes('poppin') && v.crowd && v.crowd.level >= 4)) {
+        matched.push(v);
+      }
+    }
+
+    if (matched.length > 0) {
+      const list = matched.slice(0, 3).map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open now'}`).join('\n');
+      return { reply: `Here's what I found in ${cityName}:\n\n${list}\n\nSign in for full AI-powered recommendations with live events & Google Places data! 🔓`, matchedVenues: matched.slice(0, 3) };
+    }
+
+    if (q.includes('night') || q.includes('tonight') || q.includes('happening')) {
+      const top = venues.filter(v => v.crowd && v.crowd.level >= 3).slice(0, 3);
+      if (top.length > 0) {
+        const list = top.map(v => `• **${v.name}** — ${v.crowd?.label}`).join('\n');
+        return { reply: `Here's what's buzzing tonight in ${cityName}:\n\n${list}\n\nSign in to unlock live events from Ticketmaster + AI-curated picks! ✨`, matchedVenues: top };
+      }
+      return { reply: `${cityName} always has something going on! Sign in to get AI-powered picks with live event data from Ticketmaster & Google Places 🎶`, matchedVenues: [] };
+    }
+
+    if (q.includes('date')) {
+      const chill = venues.filter(v => v.crowd && v.crowd.level <= 3).slice(0, 3);
+      return { reply: chill.length > 0
+        ? `For date night vibes, check out:\n\n${chill.map(v => `• **${v.name}** — ${v.crowd?.label}`).join('\n')}\n\nSign in for personalized AI picks! 💜`
+        : `I've got great date night ideas! Sign in to get personalized AI recommendations based on your vibe quiz 💜`, matchedVenues: chill };
+    }
+
+    // Generic fallback
+    const sample = venues.slice(0, 3);
+    return { reply: sample.length > 0
+      ? `Here are some spots in ${cityName}:\n\n${sample.map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open'}`).join('\n')}\n\nSign in to chat with the full AI concierge — live events, Google Places, and personalized picks! 🚀`
+      : `I'm your ${cityName} guide! Sign in to unlock AI-powered recommendations with live crowd data, events, and more 🔓`, matchedVenues: sample };
+  };
+
   const handleSend = async (text?: string) => {
     const query = (text ?? input).trim();
     if (!query || isTyping) return;
@@ -110,6 +155,19 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
+
+    // Check auth — concierge.chat requires a logged-in user
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token) {
+      // Unauthenticated: use local venue-matching fallback
+      const { reply, matchedVenues } = getLocalResponse(query);
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+      ]);
+      setIsTyping(false);
+      return;
+    }
 
     const history = [...messages, userMsg].map(m => ({
       role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -153,9 +211,11 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards, events: eventCards.length > 0 ? eventCards : undefined, places: placeCards.length > 0 ? placeCards : undefined },
       ]);
     } catch {
+      // API failed — fall back to local responses instead of dead-end error
+      const { reply, matchedVenues } = getLocalResponse(query);
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: "Connection issue — try again in a moment 🔄" },
+        { id: Date.now() + 1, sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
       ]);
     } finally {
       setIsTyping(false);

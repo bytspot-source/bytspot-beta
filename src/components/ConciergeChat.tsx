@@ -75,6 +75,20 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
     setInputValue('');
     setIsTyping(true);
 
+    // Check auth — concierge.chat requires a logged-in user
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token) {
+      const fallback: Message = {
+        id: Date.now() + 1,
+        text: `Here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}${venue.crowd.waitMins ? ` (~${venue.crowd.waitMins}m wait)` : ''}` : '• Currently open'}\n${venue.location ?? venue.address ?? ''}\n\nSign in to chat with the full AI concierge for personalized tips & live data! 🔓`,
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, fallback]);
+      setIsTyping(false);
+      return;
+    }
+
     try {
       // Build conversation history for the API (skip the welcome message at id=1)
       const history: { role: 'user' | 'assistant'; content: string }[] = [
@@ -110,9 +124,10 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
 
       setMessages((prev) => [...prev, aiResponse]);
     } catch {
+      // Fall back to basic venue info instead of dead-end error
       const errorResponse: Message = {
         id: Date.now() + 1,
-        text: "I'm unable to connect right now. Please check your connection and try again.",
+        text: `I'm having trouble connecting to the AI right now, but here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}` : '• Currently open'}\n\nTry again in a moment! 🔄`,
         sender: 'ai',
         timestamp: new Date(),
       };

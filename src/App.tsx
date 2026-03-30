@@ -544,12 +544,15 @@ export default function App() {
 
   // Admin dashboard — accessible at /admin regardless of auth state
 
-  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
-    return (
-      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
-        <AdminDashboard />
-      </Suspense>
-    );
+  if (typeof window !== 'undefined') {
+    const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+    if (normalizedPath === '/admin') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <AdminDashboard />
+        </Suspense>
+      );
+    }
   }
 
   // Beta MVP: Splash → Landing → Auth → Main

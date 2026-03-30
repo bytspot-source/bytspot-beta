@@ -1,16 +1,43 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle } from 'lucide-react';
+import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle, Megaphone } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { trpc } from '../utils/trpc';
+
+interface BetaLeadRecord {
+  email: string;
+  name: string | null;
+  source: string | null;
+  createdAt: string;
+}
 
 interface AdminStats {
   totalUsers: number;
   newSignupsToday: number;
   totalCheckins: number;
   pushSubscribers: number;
+  betaLeadCount: number;
+  betaLeads: BetaLeadRecord[];
   topVenues: { venueId: string; name: string; checkins: number }[];
   generatedAt: string;
+}
+
+/** Map raw source/ref values to human-friendly marketing labels */
+const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
+  qr:             { label: '📱 QR Scan',       color: 'text-cyan-400' },
+  flyer:          { label: '📄 Flyer',         color: 'text-amber-400' },
+  friend:         { label: '🗣️ Word of Mouth', color: 'text-green-400' },
+  tiktok:         { label: '🎵 TikTok',        color: 'text-pink-400' },
+  instagram:      { label: '📸 Instagram',     color: 'text-fuchsia-400' },
+  twitter:        { label: '🐦 Twitter / X',   color: 'text-blue-400' },
+  'bytspot.com':  { label: '🌐 Website',       color: 'text-purple-400' },
+  'bytspot-beta': { label: '🚀 Beta App',      color: 'text-indigo-400' },
+  organic:        { label: '🌱 Organic',        color: 'text-emerald-400' },
+};
+
+function getSourceDisplay(source: string | null): { label: string; color: string } {
+  if (!source) return { label: '❓ Unknown', color: 'text-white/40' };
+  return SOURCE_LABELS[source.toLowerCase()] ?? { label: source, color: 'text-white/50' };
 }
 
 export function AdminDashboard() {
@@ -112,6 +139,7 @@ export function AdminDashboard() {
         <div className="grid grid-cols-2 gap-3 mb-6">
           {[
             { icon: <Users className="w-5 h-5 text-purple-400" />, label: 'Total Users', value: stats.totalUsers },
+            { icon: <Megaphone className="w-5 h-5 text-amber-400" />, label: 'Beta Leads', value: stats.betaLeadCount },
             { icon: <Activity className="w-5 h-5 text-green-400" />, label: 'New Today', value: stats.newSignupsToday },
             { icon: <TrendingUp className="w-5 h-5 text-cyan-400" />, label: 'Check-ins', value: stats.totalCheckins },
             { icon: <Bell className="w-5 h-5 text-pink-400" />, label: 'Push Subs', value: stats.pushSubscribers },
@@ -122,6 +150,42 @@ export function AdminDashboard() {
               <p className="text-[28px] font-bold">{s.value.toLocaleString()}</p>
             </motion.div>
           ))}
+        </div>
+      )}
+
+      {/* Recent beta leads */}
+      {stats && stats.betaLeads.length > 0 && (
+        <div className="rounded-[16px] bg-[#1C1C1E] border border-white/10 p-4 mb-6">
+          <p className="text-[12px] text-white/40 font-bold mb-3">RECENT BETA LEADS</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-white/10 text-[11px] text-white/30 uppercase">
+                  <th className="pb-2 pr-3 font-semibold">Name</th>
+                  <th className="pb-2 pr-3 font-semibold">Email</th>
+                  <th className="pb-2 pr-3 font-semibold">Source</th>
+                  <th className="pb-2 font-semibold text-right">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.betaLeads.map((lead, i) => {
+                  const src = getSourceDisplay(lead.source);
+                  return (
+                    <tr key={`${lead.email}-${i}`} className="border-b border-white/5 last:border-0">
+                      <td className="py-2 pr-3 text-white font-medium truncate max-w-[120px]">
+                        {lead.name || <span className="text-white/20 italic">—</span>}
+                      </td>
+                      <td className="py-2 pr-3 text-white/60 truncate max-w-[160px]">{lead.email}</td>
+                      <td className={`py-2 pr-3 font-medium ${src.color}`}>{src.label}</td>
+                      <td className="py-2 text-white/40 text-right whitespace-nowrap">
+                        {new Date(lead.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

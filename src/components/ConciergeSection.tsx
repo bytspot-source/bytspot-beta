@@ -45,7 +45,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       content: "👋 Hey there! I'm your Bytspot AI Concierge. I can help you find parking, discover venues, book valet services, and optimize your budget.\n\nWhat can I help you with today?",
       timestamp: new Date(),
       suggestions: [
-        '🅿️ Find parking near Union Square',
+        '🅿️ Find parking near Midtown',
         '🎉 Best parking for events',
         '💰 Cheapest options',
         '🆘 Help with reservation',
@@ -58,7 +58,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [locationShared, setLocationShared] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState('San Francisco, CA');
+  const [currentLocation, setCurrentLocation] = useState('Atlanta, GA');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -138,14 +138,14 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           },
           () => {
             toast.error('Location access denied', {
-              description: 'Using default location: San Francisco',
+              description: 'Using default location: Atlanta',
             });
           }
         );
       }
     } else {
       setLocationShared(false);
-      setCurrentLocation('San Francisco, CA');
+      setCurrentLocation('Atlanta, GA');
       toast('Location sharing disabled');
     }
   }, [locationShared]);
@@ -154,15 +154,15 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     const lowerMessage = userMessage.toLowerCase();
     const weather = '72° Clear'; // This could be fetched from an API
     
-    // Parking near Union Square under $15
-    if (lowerMessage.includes('union square') || (lowerMessage.includes('parking') && lowerMessage.includes('$15'))) {
+    // Parking near Midtown under $15
+    if (lowerMessage.includes('midtown') || (lowerMessage.includes('parking') && lowerMessage.includes('$15'))) {
       return {
-        content: `🎯 Found 6 covered parking options near Union Square under $15/hour:\n\nBased on current weather (${weather}), time (${new Date().toLocaleTimeString()}), and your budget, here are my top recommendations:`,
+        content: `🎯 Found 6 covered parking options near Midtown under $15/hour:\n\nBased on current weather (${weather}), time (${new Date().toLocaleTimeString()}), and your budget, here are my top recommendations:`,
         recommendations: [
           {
             id: '1',
             type: 'parking',
-            title: 'Union Square Garage',
+            title: 'Colony Square Garage',
             subtitle: 'Covered • Security 24/7',
             price: '$12/hr',
             distance: '0.1 mi',
@@ -173,7 +173,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '2',
             type: 'parking',
-            title: 'Ellis-O\'Farrell Garage',
+            title: 'Atlantic Station Deck',
             subtitle: 'Covered • EV Charging',
             price: '$14/hr',
             distance: '0.2 mi',
@@ -185,7 +185,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '3',
             type: 'parking',
-            title: 'Sutter-Stockton Garage',
+            title: 'Peachtree Center Garage',
             subtitle: 'Covered • Easy Access',
             price: '$11/hr',
             distance: '0.3 mi',
@@ -197,7 +197,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           },
         ],
         suggestions: [
-          '🎫 Reserve Union Square Garage now',
+          '🎫 Reserve Colony Square Garage now',
           '💰 Show me all options under $10/hour',
           '🚶 What\'s the walking time for each?',
           '⚡ Which has EV charging?',
@@ -205,18 +205,18 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       };
     }
 
-    // Giants game parking
-    if (lowerMessage.includes('giants') || lowerMessage.includes('game')) {
+    // Atlanta United / game parking
+    if (lowerMessage.includes('united') || lowerMessage.includes('game') || lowerMessage.includes('falcons') || lowerMessage.includes('stadium')) {
       return {
-        content: `⚾ Giants game tonight at Oracle Park! Traffic will be heavy.\n\nHere's your best strategy for easy parking & exit:\n\n🚗 **Smart Pick**: Park further out and avoid post-game gridlock. I found spots with dedicated shuttle service:`,
+        content: `⚽ Atlanta United game tonight at Mercedes-Benz Stadium! Traffic will be heavy.\n\nHere's your best strategy for easy parking & exit:\n\n🚗 **Smart Pick**: Park further out and avoid post-game gridlock. I found spots with dedicated shuttle service:`,
         recommendations: [
           {
             id: '1',
             type: 'parking',
-            title: 'Mission Bay Garage',
+            title: 'Gulch Parking Deck',
             subtitle: 'Free shuttle • Quick exit',
             price: '$18 flat',
-            distance: '0.8 mi',
+            distance: '0.3 mi',
             rating: 4.9,
             badge: '⚡ Easy Exit',
             icon: 'parking',
@@ -224,7 +224,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '2',
             type: 'valet',
-            title: 'Oracle Premium Valet',
+            title: 'MBS Premium Valet',
             subtitle: 'Door-to-door service',
             price: '$45 flat',
             distance: 'At venue',
@@ -235,18 +235,18 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '3',
             type: 'transportation',
-            title: 'BART + 10 min walk',
+            title: 'MARTA + 5 min walk',
             subtitle: 'No parking stress',
-            price: '$4.25',
+            price: '$2.50',
             distance: 'N/A',
-            savings: 'Save $14-40',
+            savings: 'Save $16-42',
             badge: '🚇 Eco Option',
             icon: 'train',
           },
         ],
         suggestions: [
-          '🎫 Reserve Mission Bay now (25 spots left)',
-          '🚇 Show me public transit options',
+          '🎫 Reserve Gulch Deck now (25 spots left)',
+          '🚇 Show me MARTA options',
           '💰 Cheapest parking within 10 blocks',
           '⏱️ What time should I arrive?',
         ],
@@ -261,7 +261,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '1',
             type: 'parking',
-            title: '5th & Mission Lot',
+            title: 'Spring & 10th Lot',
             subtitle: 'Security cameras • Well-lit',
             price: '$6/hr',
             distance: '0.4 mi',
@@ -274,7 +274,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '2',
             type: 'parking',
-            title: 'Civic Center Garage',
+            title: 'Peachtree & 14th Garage',
             subtitle: 'Security patrol • Covered',
             price: '$8/hr',
             distance: '0.3 mi',
@@ -286,7 +286,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '3',
             type: 'parking',
-            title: 'Market Street Lot',
+            title: 'Juniper Street Lot',
             subtitle: 'Attendant on-site',
             price: '$10/hr',
             distance: '0.2 mi',
@@ -501,6 +501,19 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     setMessages((prev) => [...prev, userMessage]);
     setInputValue('');
     setIsTyping(true);
+
+    // Offline: respond locally instead of hitting the API
+    if (!navigator.onLine) {
+      const response = getSmartAIResponse(userInput);
+      const aiMessage: Message = {
+        id: Date.now() + 1, type: 'ai',
+        content: '📡 *You\'re offline.* Here\'s what I found from cached data:\n\n' + response.content,
+        timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+      setIsTyping(false);
+      return;
+    }
 
     // Build conversation history for the API (last 10 messages)
     const conversationHistory = [...messages, userMessage]

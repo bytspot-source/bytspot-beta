@@ -8,6 +8,7 @@ import {
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
+import { impactLight, impactMedium, impactHeavy, notifySuccess, selectionChanged } from '../utils/haptics';
 
 type AvailabilityStatus = 'available' | 'limited' | 'full';
 type SecurityLevel = 'basic' | 'standard' | 'premium';
@@ -148,15 +149,8 @@ export function ParkingSpotDetails({
     'Height Clearance 7ft',
   ];
 
-  // Haptic feedback
-  const triggerHaptic = () => {
-    if ('vibrate' in navigator) {
-      navigator.vibrate(10);
-    }
-  };
-
   const handleReserve = () => {
-    triggerHaptic();
+    impactHeavy();
     onReserve(spot.id);
     toast.success('Reservation Started', {
       description: `Reserving ${spot.name} for ${selectedDuration} hours`,
@@ -165,7 +159,7 @@ export function ParkingSpotDetails({
   };
 
   const handleNavigate = () => {
-    triggerHaptic();
+    impactMedium();
     // Open Google Maps with the spot's coordinates
     const url = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}&travelmode=driving`;
     window.open(url, '_blank');
@@ -177,7 +171,7 @@ export function ParkingSpotDetails({
   };
 
   const handleShare = () => {
-    triggerHaptic();
+    impactLight();
     toast.success('Link Copied', {
       description: 'Parking spot link copied to clipboard',
       duration: 2000,
@@ -185,7 +179,7 @@ export function ParkingSpotDetails({
   };
 
   const handleFavorite = () => {
-    triggerHaptic();
+    notifySuccess();
     
     const spotId = `parking-${spot.id}`;
     const spotData = {
@@ -218,7 +212,7 @@ export function ParkingSpotDetails({
   };
 
   const handleContact = () => {
-    triggerHaptic();
+    impactLight();
     toast.info('Opening Messages', {
       description: `Contact ${hostName}`,
       duration: 2000,
@@ -597,7 +591,7 @@ export function ParkingSpotDetails({
                       <motion.button
                         key={hours}
                         onClick={() => {
-                          triggerHaptic();
+                          selectionChanged();
                           setSelectedDuration(hours);
                         }}
                         className={`p-3 rounded-[14px] border-2 ${

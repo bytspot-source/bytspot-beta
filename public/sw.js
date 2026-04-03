@@ -1,4 +1,5 @@
-const CACHE_NAME = 'bytspot-v1';
+const CACHE_NAME = 'bytspot-v2';
+const API_CACHE_NAME = 'bytspot-api-v1';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 // Install — cache app shell
@@ -13,23 +14,43 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter((k) => k !== CACHE_NAME && k !== API_CACHE_NAME)
+          .map((k) => caches.delete(k))
+      )
     )
   );
   self.clients.claim();
 });
 
-// Fetch — network-first for API, cache-first for everything else
+// Fetch — stale-while-revalidate for API, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Network-first for API calls
-  if (url.hostname.includes('bytspot-api') || url.hostname.includes('onrender.com')) {
+  // Stale-while-revalidate for API calls — serve cached then update in background
+  if (url.hostname.includes('bytspot-api') || url.pathname.includes('/trpc/')) {
     event.respondWith(
-      fetch(event.request).catch(() =>
-        new Response(JSON.stringify({ error: 'offline' }), {
-          headers: { 'Content-Type': 'application/json' },
+      caches.open(API_CACHE_NAME).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          const fetchPromise = fetch(event.request)
+            .then((response) => {
+              if (response.ok) {
+                cache.put(event.request, response.clone());
+              }
+              return response;
+            })
+            .catch(() => {
+              // Offline: return cached response if available
+              if (cached) return cached;
+              return new Response(
+                JSON.stringify({ error: 'offline', cached: false }),
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+            });
+          // Return cached immediately if available, otherwise wait for network
+          return cached || fetchPromise;
         })
       )
     );

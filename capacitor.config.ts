@@ -28,9 +28,9 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
 
-    // ── Geolocation (add @capacitor/geolocation later) ──
+    // ── Geolocation (When In Use only — no background location) ──
     Geolocation: {
-      // Permissions declared in Info.plist below
+      // NSLocationWhenInUseUsageDescription declared in Info.plist
     },
 
     // ── Status Bar ──

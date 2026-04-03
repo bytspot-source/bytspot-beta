@@ -156,6 +156,18 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     setInput('');
     setIsTyping(true);
 
+    // Offline: use local venue-matching instead of hitting the API
+    if (!navigator.onLine) {
+      const { reply, matchedVenues } = getLocalResponse(query);
+      const offlineNote = '📡 *You\'re offline right now.* Here\'s what I can find from your cached data:\n\n';
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: 'ai', text: offlineNote + reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+      ]);
+      setIsTyping(false);
+      return;
+    }
+
     // Check auth — concierge.chat requires a logged-in user
     const token = localStorage.getItem('bytspot_auth_token');
     if (!token) {

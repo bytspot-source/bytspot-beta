@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { Home, Compass, Map, Sparkles } from 'lucide-react';
 import { memo } from 'react';
+import { impactLight } from '../utils/haptics';
 
 interface BottomNavProps {
   activeTab: string;
@@ -18,15 +19,9 @@ export const BottomNav = memo(function BottomNav({
   onMapButtonClick,
   isVisible = true
 }: BottomNavProps) {
-  // Haptic feedback simulation
-  const triggerHaptic = () => {
-    if ('vibrate' in navigator) {
-      navigator.vibrate(10);
-    }
-  };
 
   const handleNavClick = (itemId: string) => {
-    triggerHaptic();
+    impactLight();
     if (itemId === 'map' && onMapButtonClick) {
       onMapButtonClick();
     } else {

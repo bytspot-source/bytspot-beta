@@ -20,7 +20,7 @@ interface Message {
 const initialMessages: Message[] = [
   {
     id: 1,
-    text: `Hi! I'm your AI Concierge for ${' '}. I can help you with reservations, recommendations, parking info, and more. What would you like to know?`,
+    text: `Hi! I'm your AI Concierge. I can help you with reservations, recommendations, parking info, and more. What would you like to know?`,
     sender: 'ai',
     timestamp: new Date(),
     suggestions: [

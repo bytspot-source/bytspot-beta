@@ -46,9 +46,7 @@
 
 	<!-- ── Privacy Usage Descriptions (required by App Store Review) ── -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Bytspot uses your location to show live crowd levels, parking availability, and venues near you in Midtown Atlanta.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Bytspot uses your location in the background to send you real-time alerts when your saved spots get crowded.</string>
+	<string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

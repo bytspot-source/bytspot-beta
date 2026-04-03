@@ -24,6 +24,7 @@ import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from 'sonner@2.0.3';
 import { useOffline } from './utils/hooks/useOffline';
+import { prefetchOfflineData } from './utils/offline';
 import { useVenues } from './utils/hooks/useVenues';
 import { useCity } from './utils/hooks/useCity';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
@@ -140,10 +141,11 @@ export default function App() {
     mass: 0.8,
   };
 
-  // Initialize analytics on mount + re-register push subscription
+  // Initialize analytics on mount + re-register push subscription + prefetch offline data
   useEffect(() => {
     initAnalytics();
     ensurePushSubscribed(); // silently re-subscribes if previously granted
+    prefetchOfflineData(); // cache critical data for offline use
 
     // ─── Capacitor Deep Links ─────────────────────────────────────────────
     // When the native app is opened via bytspot:// or a universal link,
@@ -649,6 +651,26 @@ export default function App() {
       <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col">
         {/* Status Bar Space — respects iOS notch / Dynamic Island */}
         <div style={{ height: 'max(3rem, var(--safe-area-top, 0px))' }} />
+
+        {/* Offline Banner — visible when device loses connectivity */}
+        <AnimatePresence>
+          {isOffline && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500/20 border-b border-yellow-500/30">
+                <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span className="text-xs font-medium text-yellow-300">
+                  You're offline — showing cached data
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Enhanced Header - Only on Home */}
         {activeTab === 'home' && (

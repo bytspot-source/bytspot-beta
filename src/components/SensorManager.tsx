@@ -241,7 +241,7 @@ export class SensorManager {
   
   private handleLocationError(error: GeolocationPositionError): void {
     // Silently handle location errors - this is expected when location is disabled or denied
-    // We fall back to default location (San Francisco)
+    // We fall back to default location (Atlanta Midtown)
     const errorMessages: Record<number, string> = {
       1: 'Location permission denied',
       2: 'Location unavailable',
@@ -253,9 +253,9 @@ export class SensorManager {
       console.debug('Location service:', errorMessages[error.code] || 'Unknown error');
     }
     
-    // Use default location if geolocation fails
-    this.sensorData.latitude = 37.7749;
-    this.sensorData.longitude = -122.4194;
+    // Use default location if geolocation fails (Atlanta Midtown)
+    this.sensorData.latitude = 33.7866;
+    this.sensorData.longitude = -84.3833;
     this.sensorData.accuracy = 50; // Lower accuracy for default location
   }
   

@@ -7,6 +7,7 @@ import {
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { impactLight, impactMedium, notifySuccess, selectionChanged } from '../utils/haptics';
 
 type MediaType = 'photo' | 'video' | 'none';
 type PostMode = 'camera' | 'preview' | 'posting';
@@ -59,11 +60,7 @@ export function EphemeralPostCreator({
     mass: 0.8,
   };
 
-  const triggerHaptic = () => {
-    if ('vibrate' in navigator) {
-      navigator.vibrate(10);
-    }
-  };
+
 
   // Initialize camera
   useEffect(() => {
@@ -155,13 +152,13 @@ export function EphemeralPostCreator({
   };
 
   const flipCamera = () => {
-    triggerHaptic();
+    impactLight();
     stopCamera();
     setCameraFacing(prev => prev === 'user' ? 'environment' : 'user');
   };
 
   const capturePhoto = () => {
-    triggerHaptic();
+    impactMedium();
     
     if (!videoRef.current) return;
 
@@ -181,7 +178,7 @@ export function EphemeralPostCreator({
   };
 
   const startRecording = () => {
-    triggerHaptic();
+    impactMedium();
     
     if (!streamRef.current) return;
 
@@ -221,7 +218,7 @@ export function EphemeralPostCreator({
   };
 
   const stopRecording = () => {
-    triggerHaptic();
+    impactMedium();
     
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -230,7 +227,7 @@ export function EphemeralPostCreator({
   };
 
   const toggleSticker = (index: number) => {
-    triggerHaptic();
+    selectionChanged();
     setSelectedStickers(prev => 
       prev.includes(index) 
         ? prev.filter(i => i !== index)
@@ -239,7 +236,7 @@ export function EphemeralPostCreator({
   };
 
   const handlePost = () => {
-    triggerHaptic();
+    notifySuccess();
     setMode('posting');
 
     // Simulate posting story
@@ -284,7 +281,7 @@ export function EphemeralPostCreator({
   };
 
   const retake = () => {
-    triggerHaptic();
+    impactLight();
     setCapturedMedia(null);
     setMediaType('none');
     setCaption('');

@@ -13,6 +13,8 @@ import { VibePreferences } from './VibePreferences';
 import { SavedSpotsSection } from './SavedSpotsSection';
 import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
+import { shareReferral } from '../utils/nativeShare';
+import { impactLight, notifySuccess } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
@@ -430,19 +432,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           const referralUrl = `https://bytspot-beta-app.onrender.com?ref=${userId}`;
 
           const handleShare = async () => {
-            if (navigator.share) {
-              try {
-                await navigator.share({
-                  title: 'Join me on Bytspot',
-                  text: '🔥 I\'m using Bytspot to find the best spots in the city — live crowds, parking, everything. Use my link:',
-                  url: referralUrl,
-                });
-              } catch { /* user cancelled */ }
-            } else {
-              navigator.clipboard.writeText(referralUrl).then(() =>
-                toast.success('Link copied!', { description: referralUrl })
-              );
-            }
+            impactLight();
+            await shareReferral(referralUrl);
           };
 
           return (

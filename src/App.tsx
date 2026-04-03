@@ -14,6 +14,7 @@ const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
 const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
 const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
@@ -545,6 +546,7 @@ export default function App() {
   }
 
   // Admin dashboard — accessible at /admin regardless of auth state
+  // Privacy policy — accessible at /privacy (required for App Store)
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
@@ -552,6 +554,13 @@ export default function App() {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <AdminDashboard />
+        </Suspense>
+      );
+    }
+    if (normalizedPath === '/privacy') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <PrivacyPolicy />
         </Suspense>
       );
     }

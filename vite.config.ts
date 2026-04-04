@@ -53,6 +53,9 @@
       target: 'esnext',
       outDir: 'dist',
       rollupOptions: {
+        // Capacitor native plugins are only available in iOS/Android builds.
+        // Mark them as external so Vite doesn't fail when they're not installed.
+        external: ['@capacitor/haptics', '@capacitor/share', '@capacitor/badge'],
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],

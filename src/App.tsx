@@ -810,7 +810,14 @@ export default function App() {
                         <div className="p-2.5">
                           <p className="text-[13px] text-white font-semibold leading-tight truncate">{evt.title}</p>
                           <p className="text-[11px] text-white/50 mt-0.5 truncate">{evt.venue}</p>
-                          <p className="text-[11px] text-cyan-400 mt-1 font-semibold">{evt.time}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <p className="text-[11px] text-cyan-400 font-semibold">{evt.time}</p>
+                            {evt.price && evt.price !== 'Free' ? (
+                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-300 text-[10px]" style={{ fontWeight: 700 }}>{evt.price}</span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 text-[10px]" style={{ fontWeight: 700 }}>FREE</span>
+                            )}
+                          </div>
                         </div>
                       </motion.div>
                     ))}
@@ -934,8 +941,16 @@ export default function App() {
                                   <div className="p-3">
                                     <div className="text-xl mb-1.5">{icon}</div>
                                     <h3 className="text-white text-[13px] leading-tight mb-2 truncate" style={{ fontWeight: 600 }}>{v.name}</h3>
-                                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
-                                      {emoji} {label}
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
+                                        {emoji} {label}
+                                      </div>
+                                      {/* Entry type badge */}
+                                      {(v as any).entryType === 'paid' ? (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-300 text-[10px]" style={{ fontWeight: 700 }}>{(v as any).entryPrice || 'Paid'}</span>
+                                      ) : (v as any).entryType === 'free' ? (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 text-[10px]" style={{ fontWeight: 700 }}>FREE</span>
+                                      ) : null}
                                     </div>
                                     {wait ? (
                                       <p className="text-white/50 text-[11px] mt-1">~{wait}m wait</p>

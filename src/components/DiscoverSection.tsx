@@ -158,10 +158,20 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-4 right-4 flex flex-col items-end gap-1.5">
               <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
                 <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{card.type}</span>
               </div>
+              {/* Entry type badge — Free (green) or Paid (amber with price) */}
+              {card.entryType === 'paid' ? (
+                <div className="px-2.5 py-1 rounded-full bg-amber-500/90 border border-amber-300/50 shadow-lg">
+                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{card.entryPrice || 'Paid'}</span>
+                </div>
+              ) : card.entryType === 'free' ? (
+                <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 border border-emerald-300/50 shadow-lg">
+                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>FREE</span>
+                </div>
+              ) : null}
             </div>
             <div className="absolute top-4 left-4">
               <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
@@ -273,6 +283,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const hasLiveVenueCards = apiCards.length > 0 || googleCards.length > 0;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
+  const [entryTypeFilter, setEntryTypeFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<DiscoverCard | null>(null);
@@ -317,6 +328,13 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   let filteredCards = appliedFilter
     ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
     : cards;
+
+  // 1b. Entry type filter (composable with category)
+  if (entryTypeFilter !== 'all') {
+    filteredCards = filteredCards.filter(card =>
+      (card.entryType ?? 'free') === entryTypeFilter
+    );
+  }
 
   // 2. Saved-only filter
   if (showSavedOnly) {
@@ -627,6 +645,39 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 whileTap={{ scale: 0.93 }}
               >
                 {cat.label}
+              </motion.button>
+            );
+          })}
+        </div>
+
+        {/* Entry type pills — Free / Paid / All */}
+        <div className="flex gap-1.5">
+          {([
+            { label: '🎟️ All', value: 'all' as const },
+            { label: '✅ Free', value: 'free' as const },
+            { label: '💰 Paid', value: 'paid' as const },
+          ]).map((opt) => {
+            const active = entryTypeFilter === opt.value;
+            return (
+              <motion.button
+                key={opt.value}
+                onClick={() => { setEntryTypeFilter(opt.value); setCurrentIndex(0); }}
+                className="px-2.5 py-1 rounded-full text-[11px] transition-all"
+                style={{
+                  background: active
+                    ? opt.value === 'free' ? 'rgba(16,185,129,0.25)' : opt.value === 'paid' ? 'rgba(245,158,11,0.25)' : 'rgba(0,191,255,0.18)'
+                    : 'rgba(255,255,255,0.06)',
+                  border: active
+                    ? opt.value === 'free' ? '1.5px solid rgba(16,185,129,0.7)' : opt.value === 'paid' ? '1.5px solid rgba(245,158,11,0.7)' : '1.5px solid rgba(0,191,255,0.5)'
+                    : '1.5px solid rgba(255,255,255,0.12)',
+                  color: active
+                    ? opt.value === 'free' ? '#6ee7b7' : opt.value === 'paid' ? '#fcd34d' : '#67e8f9'
+                    : 'rgba(255,255,255,0.45)',
+                  fontWeight: active ? 700 : 500,
+                }}
+                whileTap={{ scale: 0.93 }}
+              >
+                {opt.label}
               </motion.button>
             );
           })}

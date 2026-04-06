@@ -15,12 +15,12 @@ import { resolveVenuePhoto } from '../venuePhoto';
  * These are real Atlanta Midtown venues with plausible crowd data.
  */
 const FALLBACK_VENUES: ApiVenue[] = [
-  { id: 'fallback-1', name: 'Ponce City Market', slug: 'ponce-city-market', address: '675 Ponce De Leon Ave NE', category: 'entertainment', lat: 33.7726, lng: -84.3655, imageUrl: '', crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 10 }, parking: { totalAvailable: 45, spots: [] } },
-  { id: 'fallback-2', name: 'Colony Square', slug: 'colony-square', address: '1197 Peachtree St NE', category: 'shopping', lat: 33.7873, lng: -84.3832, imageUrl: '', crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 }, parking: { totalAvailable: 22, spots: [] } },
-  { id: 'fallback-3', name: 'Optimist Hall', slug: 'optimist-hall', address: '950 Marietta St NW', category: 'restaurant', lat: 33.7700, lng: -84.4050, imageUrl: '', crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 30, spots: [] } },
-  { id: 'fallback-4', name: 'The Painted Pin', slug: 'the-painted-pin', address: '737 Miami Cir NE', category: 'nightlife', lat: 33.8120, lng: -84.3621, imageUrl: '', crowd: { level: 4, label: 'Packed', updatedAt: new Date().toISOString(), waitMins: 20 }, parking: { totalAvailable: 5, spots: [] } },
-  { id: 'fallback-5', name: 'Piedmont Park', slug: 'piedmont-park', address: '1320 Monroe Dr NE', category: 'park', lat: 33.7873, lng: -84.3748, imageUrl: '', crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 60, spots: [] } },
-  { id: 'fallback-6', name: 'Krog Street Market', slug: 'krog-street-market', address: '99 Krog St NE', category: 'restaurant', lat: 33.7575, lng: -84.3636, imageUrl: '', crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 }, parking: { totalAvailable: 12, spots: [] } },
+  { id: 'fallback-1', name: 'Ponce City Market', slug: 'ponce-city-market', address: '675 Ponce De Leon Ave NE', category: 'entertainment', lat: 33.7726, lng: -84.3655, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 10 }, parking: { totalAvailable: 45, spots: [] } },
+  { id: 'fallback-2', name: 'Colony Square', slug: 'colony-square', address: '1197 Peachtree St NE', category: 'shopping', lat: 33.7873, lng: -84.3832, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 }, parking: { totalAvailable: 22, spots: [] } },
+  { id: 'fallback-3', name: 'Optimist Hall', slug: 'optimist-hall', address: '950 Marietta St NW', category: 'restaurant', lat: 33.7700, lng: -84.4050, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 30, spots: [] } },
+  { id: 'fallback-4', name: 'The Painted Pin', slug: 'the-painted-pin', address: '737 Miami Cir NE', category: 'nightlife', lat: 33.8120, lng: -84.3621, imageUrl: '', entryType: 'paid', entryPrice: '$20', ticketUrl: null, crowd: { level: 4, label: 'Packed', updatedAt: new Date().toISOString(), waitMins: 20 }, parking: { totalAvailable: 5, spots: [] } },
+  { id: 'fallback-5', name: 'Piedmont Park', slug: 'piedmont-park', address: '1320 Monroe Dr NE', category: 'park', lat: 33.7873, lng: -84.3748, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 60, spots: [] } },
+  { id: 'fallback-6', name: 'Krog Street Market', slug: 'krog-street-market', address: '99 Krog St NE', category: 'restaurant', lat: 33.7575, lng: -84.3636, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 }, parking: { totalAvailable: 12, spots: [] } },
 ] as unknown as ApiVenue[];
 
 /** Haversine — returns distance in miles between two lat/lng points */
@@ -108,6 +108,10 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     price: v.parking.spots[0] ? `$${v.parking.spots[0].pricePerHr}/hr` : undefined,
     spots: v.parking.totalAvailable || undefined,
     verified: true,
+    // Entry type — pass through from API or default to 'free'
+    entryType: (v as any).entryType || 'free',
+    entryPrice: (v as any).entryPrice || null,
+    ticketUrl: (v as any).ticketUrl || null,
     // Stash the slug for detail lookups
     _slug: v.slug,
     _lat: v.lat,

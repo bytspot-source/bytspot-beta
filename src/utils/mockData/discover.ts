@@ -63,6 +63,10 @@ export interface DiscoverCard {
   baseRate?: number; // Base hourly rate
   responseTime?: string; // Response time
   serviceArea?: string; // Service coverage area
+  // Entry type (free/paid) for venues and events
+  entryType?: 'free' | 'paid'; // "free" or "paid"
+  entryPrice?: string | null; // e.g. "$15", "$25–$50", "From $25"
+  ticketUrl?: string | null; // external purchase link
   // API integration fields
   _slug?: string; // Venue slug for API lookups
   _lat?: number; // Latitude
@@ -125,6 +129,7 @@ export const discoverCards: DiscoverCard[] = [
     vibe: 8.5,
     description: 'Upscale rooftop bar with stunning city views, craft cocktails, and live music every weekend',
     verified: true,
+    entryType: 'free',
     features: ['Live Music', 'Outdoor Seating', 'Full Bar', 'Small Plates'],
     amenities: ['Heated Patio', 'Signature Cocktails', 'Premium Spirits', 'City Views', 'DJ on Weekends'],
     hours: '5pm - 2am Thu-Sat, 5pm - Midnight Sun-Wed',
@@ -142,6 +147,8 @@ export const discoverCards: DiscoverCard[] = [
     rating: 4.7,
     availability: 'Packed',
     vibe: 9.2,
+    entryType: 'paid',
+    entryPrice: '$15',
     description: 'Energetic nightlife hub with live DJs',
   },
   
@@ -287,6 +294,8 @@ export const discoverCards: DiscoverCard[] = [
     rating: 4.8,
     availability: 'Packed',
     vibe: 9.3,
+    entryType: 'paid',
+    entryPrice: '$25',
     description: 'Sophisticated rooftop bar with panoramic city views',
     features: ['City Views', 'Craft Cocktails', 'Dress Code', 'Reservations'],
   },
@@ -300,10 +309,11 @@ export const discoverCards: DiscoverCard[] = [
     rating: 4.9,
     availability: 'Busy',
     vibe: 9.5,
+    entryType: 'free',
     description: 'Creative cocktail bar with seasonal menus',
     features: ['Craft Cocktails', 'Seasonal Menu', 'Mission District', 'Award Winning'],
   },
-  
+
   // Entertainment
   {
     id: 16,
@@ -314,19 +324,24 @@ export const discoverCards: DiscoverCard[] = [
     price: '$$',
     rating: 4.4,
     vibe: 7.2,
+    entryType: 'paid',
+    entryPrice: 'From $14',
     description: 'Modern movie theater with IMAX and Dolby Cinema',
     features: ['IMAX', 'Dolby Cinema', 'Reserved Seating', 'Concessions'],
   },
   {
     id: 17,
     type: 'entertainment',
-    name: 'SFMOMA',
+    name: 'High Museum of Art',
     image: 'https://images.unsplash.com/photo-1578301978018-3005759f48f7?w=800',
     distance: '0.9 mi',
     price: '$',
     rating: 4.7,
     vibe: 8.0,
-    description: 'World-class modern and contemporary art museum',
+    entryType: 'paid',
+    entryPrice: '$18',
+    ticketUrl: 'https://high.org/visit',
+    description: 'World-class art museum in Midtown Atlanta',
     features: ['Museum', 'Contemporary Art', 'Exhibitions', 'Cafe'],
   },
   

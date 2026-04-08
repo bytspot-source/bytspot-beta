@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
-  MapPin, AlertTriangle, Music, Send, ChevronRight,
+  MapPin, ChevronRight,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -324,10 +324,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   // Community reports & live vibes/events layers
   const [showReports, setShowReports] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  const [showReportForm, setShowReportForm] = useState(false);
-  const [newReportType, setNewReportType] = useState<ReportType>('hazard');
-  const [newReportDesc, setNewReportDesc] = useState('');
-  const [communityReports, setCommunityReports] = useState<CommunityReport[]>(COMMUNITY_REPORTS);
+  const [communityReports] = useState<CommunityReport[]>(COMMUNITY_REPORTS);
 
   // ─── Vibe-centric filter state ─────────────────────────────────────────────
   const [vibeFilter, setVibeFilter] = useState<number | null>(null);         // 1|2|3|4|null
@@ -603,6 +600,16 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         >
           <Target className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
+        {/* Traffic Intelligence toggle */}
+        <motion.button
+          onClick={() => setShowTrafficIntel(!showTrafficIntel)}
+          className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500/90 border-amber-300/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+          title="Traffic Intelligence"
+        >
+          <Zap className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-amber-400'}`} strokeWidth={2.5} />
+        </motion.button>
       </div>
 
       {/* ── Vibe Filter Bar — horizontal scroll, full width ── */}
@@ -729,76 +736,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           </motion.button>
         </div>
       </div>
-
-      {/* Report FAB */}
-      <div className="absolute bottom-20 left-4 z-[1000]">
-        <motion.button
-          onClick={() => setShowReportForm(!showReportForm)}
-          className="w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br from-red-500 to-orange-500 border-2 border-white/40 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-          animate={{ boxShadow: showReportForm ? '0 0 20px rgba(239,68,68,0.5)' : '0 4px 12px rgba(0,0,0,0.4)' }}
-        >
-          <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-      </div>
-
-      {/* Community Report Form */}
-      <AnimatePresence>
-        {showReportForm && (
-          <motion.div
-            className="absolute bottom-36 left-4 right-4 z-[1001]"
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 30, scale: 0.95 }}
-            transition={springConfig}
-          >
-            <div className="p-4 rounded-[20px] bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[15px] text-white" style={{ fontWeight: 700 }}>📋 Community Report</h3>
-                <motion.button onClick={() => setShowReportForm(false)} whileTap={{ scale: 0.9 }}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 border border-white/30">
-                  <X className="w-3.5 h-3.5 text-white" />
-                </motion.button>
-              </div>
-              {/* Report Type Selector */}
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {(Object.entries(REPORT_ICONS) as [ReportType, { emoji: string; color: string }][]).map(([key, { emoji, color }]) => (
-                  <motion.button key={key}
-                    onClick={() => setNewReportType(key)}
-                    className={`px-2.5 py-1.5 rounded-full text-[11px] border ${newReportType === key ? 'border-white/60' : 'border-white/20'}`}
-                    style={{ background: newReportType === key ? `${color}33` : 'rgba(255,255,255,0.05)', fontWeight: 600, color: 'white' }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {emoji} {key}
-                  </motion.button>
-                ))}
-              </div>
-              <input
-                type="text" value={newReportDesc} onChange={(e) => setNewReportDesc(e.target.value)}
-                placeholder="What's happening?" className="w-full p-2.5 rounded-[12px] bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 outline-none mb-3"
-              />
-              <motion.button
-                onClick={() => {
-                  if (!newReportDesc.trim()) return;
-                  const newReport: CommunityReport = {
-                    id: Date.now(), lat: mapCenter[0] + (Math.random() - 0.5) * 0.005,
-                    lng: mapCenter[1] + (Math.random() - 0.5) * 0.005, type: newReportType,
-                    description: newReportDesc, reportedBy: 'You', timeAgo: 'Just now', upvotes: 0,
-                  };
-                  setCommunityReports(prev => [newReport, ...prev]);
-                  setNewReportDesc(''); setShowReportForm(false);
-                  toast.success('Report submitted', { description: `${REPORT_ICONS[newReportType].emoji} ${newReportDesc}` });
-                }}
-                className="w-full py-2.5 rounded-[12px] bg-gradient-to-r from-red-500 to-orange-500 text-white text-[14px] border border-white/30"
-                style={{ fontWeight: 600 }} whileTap={{ scale: 0.98 }}
-              >
-                Submit Report
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Filter Panel */}
       <AnimatePresence>

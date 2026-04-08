@@ -163,26 +163,6 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
 
   return (
     <>
-      {/* Collapsed Badge - Bottom Right */}
-      <AnimatePresence>
-        {!isExpanded && (
-          <motion.button
-            onClick={onToggle}
-            className="fixed bottom-28 right-4 z-40 px-3 py-2.5 rounded-full flex items-center gap-2 bg-gradient-to-br from-red-500/90 to-orange-500/90 backdrop-blur-xl border-2 border-white/40 shadow-2xl tap-target"
-            initial={{ x: 200, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 200, opacity: 0 }}
-            transition={{ ...springConfig, delay: 0.3 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <ShieldAlert className="w-4 h-4 text-white" strokeWidth={2.5} />
-            <span className="text-[13px] text-white" style={{ fontWeight: 700 }}>
-              {activeAlerts.filter(a => a.distance < '1').length}
-            </span>
-            <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       {/* Expanded Panel - Slides from Right */}
       <AnimatePresence>

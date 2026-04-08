@@ -1,22 +1,23 @@
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
-  MapPin, AlertTriangle, Music, Send
+  MapPin, AlertTriangle, Music, Send, ChevronRight,
 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapFunction, MapViewMode } from './MapMenuSlideUp';
 import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
-// VenueDetails imported for future use
-// import { VenueDetails } from './VenueDetails';
-import { useVenues } from '../utils/hooks/useVenues';
+import { VenueDetails } from './VenueDetails';
+import { useVenues, venueToCard } from '../utils/hooks/useVenues';
+import { getTrendingVenueIds } from '../utils/venueHours';
+import type { ApiVenue } from '../utils/trpc';
 
 interface MapSectionProps {
   isDarkMode: boolean;
@@ -156,8 +157,10 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
   style.textContent = `
     @keyframes bytspot-pulse { 0%{transform:scale(1);opacity:.7} 70%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
     @keyframes bytspot-pulse-slow { 0%{transform:scale(1);opacity:.5} 70%{transform:scale(2.4);opacity:0} 100%{transform:scale(2.4);opacity:0} }
+    @keyframes bytspot-trend { 0%{transform:scale(1);opacity:.85} 50%{transform:scale(2.8);opacity:0} 100%{transform:scale(2.8);opacity:0} }
     .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
     .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
+    .byt-trend-pulse{position:absolute;inset:-9px;border-radius:50%;animation:bytspot-trend 1.1s ease-out infinite;}
   `;
   document.head.appendChild(style);
 }
@@ -175,15 +178,45 @@ function createParkingIcon(color: string): L.DivIcon {
   });
 }
 
-function createVenueIcon(): L.DivIcon {
+/** Vibe-level → hex color. Mirrors the 1-4 scale from crowdSimulator.ts. */
+const VIBE_COLORS: Record<number, string> = {
+  1: '#10B981', // Chill  — green
+  2: '#EAB308', // Active — yellow
+  3: '#F97316', // Busy   — orange
+  4: '#EF4444', // Packed — red
+};
+
+/**
+ * Vibe-driven marker icon:
+ *   level    — 1-4 crowd level from Vibe Engine
+ *   isPaid   — shows amber price badge on marker
+ *   isTrending — faster, larger pulse ring for high check-in velocity venues
+ *   priceBadge — e.g. "$20" text in the badge
+ */
+function createVibeMarkerIcon(
+  level: number,
+  isPaid: boolean,
+  isTrending: boolean,
+  priceBadge?: string | null,
+): L.DivIcon {
+  const color = VIBE_COLORS[level] ?? '#9333ea';
+  const size = isTrending ? 34 : 28;
+  const anchor = Math.floor(size / 2);
+  const pulseClass = isTrending ? 'byt-trend-pulse' : 'byt-pulse-ring-slow';
+  const priceBadgeHtml = isPaid
+    ? `<div style="position:absolute;top:-7px;right:-8px;background:#F59E0B;color:white;font-size:8px;font-weight:800;padding:1px 4px;border-radius:5px;border:1.5px solid rgba(255,255,255,0.9);white-space:nowrap;line-height:1.5;">${priceBadge ?? '$'}</div>`
+    : '';
   return L.divIcon({
-    html: `<div style="position:relative;width:26px;height:26px;">
-      <div class="byt-pulse-ring-slow" style="border:2px solid #9333ea;"></div>
-      <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#9333ea,#ec4899);border:2px solid rgba(255,255,255,0.8);box-shadow:0 2px 10px rgba(0,0,0,0.6),0 0 16px #9333ea44;display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg></div>
+    html: `<div style="position:relative;width:${size}px;height:${size}px;">
+      <div class="${pulseClass}" style="border:2px solid ${color};"></div>
+      <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid rgba(255,255,255,0.92);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
+      </div>
+      ${priceBadgeHtml}
     </div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    popupAnchor: [0, -15],
+    iconSize: [size, size],
+    iconAnchor: [anchor, anchor],
+    popupAnchor: [0, -(anchor + 2)],
     className: '',
   });
 }
@@ -296,6 +329,14 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [newReportDesc, setNewReportDesc] = useState('');
   const [communityReports, setCommunityReports] = useState<CommunityReport[]>(COMMUNITY_REPORTS);
 
+  // ─── Vibe-centric filter state ─────────────────────────────────────────────
+  const [vibeFilter, setVibeFilter] = useState<number | null>(null);         // 1|2|3|4|null
+  const [entryFilter, setEntryFilter] = useState<'free' | 'paid' | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null); // 'dining'|'nightlife'|'coffee'|'parks'|null
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
+  const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
+
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
   const selectedSpotRef = useRef(selectedSpot);
@@ -314,9 +355,28 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
   const { venues: apiVenues } = useVenues();
 
-  const mapVenues: Venue[] = apiVenues.map((v, i) => ({
-    id: i + 100, lat: v.lat, lng: v.lng, name: v.name, type: v.category, rating: 4.5,
-  }));
+  // Venues that have high check-in velocity in the last hour
+  const trendingIds = useMemo(() => getTrendingVenueIds(), []);
+
+  // Apply vibe / entry / category filters to the full ApiVenue list
+  const filteredMapVenues = useMemo<ApiVenue[]>(() => {
+    const CAT_MAP: Record<string, string[]> = {
+      dining:    ['restaurant', 'food', 'dining'],
+      nightlife: ['bar', 'club', 'nightlife', 'lounge'],
+      coffee:    ['coffee', 'cafe', 'bakery'],
+      parks:     ['park', 'outdoor', 'garden'],
+    };
+    return apiVenues.filter(v => {
+      if (vibeFilter !== null && (v.crowd?.level ?? 0) !== vibeFilter) return false;
+      if (entryFilter !== null && ((v as any).entryType ?? 'free') !== entryFilter) return false;
+      if (categoryFilter !== null) {
+        const cat = (v.category ?? '').toLowerCase();
+        const allowed = CAT_MAP[categoryFilter] ?? [categoryFilter];
+        if (!allowed.some(a => cat.includes(a))) return false;
+      }
+      return true;
+    });
+  }, [apiVenues, vibeFilter, entryFilter, categoryFilter]);
 
   useEffect(() => {
     if (destination) {
@@ -448,15 +508,42 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           );
         })}
 
-        {/* Venue Markers */}
-        {showVenues && mapVenues.map((venue: Venue) => (
-          <Marker key={venue.id} position={[venue.lat, venue.lng]} icon={createVenueIcon()}>
-            <Popup>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{venue.name}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>{venue.type}</div>
-            </Popup>
-          </Marker>
-        ))}
+        {/* ── Vibe Heatmap Overlay — Busy/Packed venues cast a colour glow ── */}
+        {showHeatmap && filteredMapVenues
+          .filter(v => (v.crowd?.level ?? 0) >= 3)
+          .map(v => (
+            <Circle
+              key={`heat-${v.id}`}
+              center={[v.lat, v.lng]}
+              radius={220}
+              pathOptions={{
+                fillColor: v.crowd?.level === 4 ? '#EF4444' : '#F97316',
+                fillOpacity: 0.13,
+                stroke: false,
+              }}
+            />
+          ))
+        }
+
+        {/* ── Venue Markers — vibe-coloured, entry-badged, trending-pulsed ── */}
+        {showVenues && filteredMapVenues.map((v) => {
+          const level = v.crowd?.level ?? 1;
+          const isPaid = (v as any).entryType === 'paid';
+          const isTrending = trendingIds.has(v.id ?? '') || trendingIds.has(v.name);
+          return (
+            <Marker
+              key={v.id}
+              position={[v.lat, v.lng]}
+              icon={createVibeMarkerIcon(level, isPaid, isTrending, (v as any).entryPrice)}
+              eventHandlers={{
+                click: () => {
+                  setPeekVenue(v);
+                  setVenueDetailsVenue(null);
+                },
+              }}
+            />
+          );
+        })}
 
         {/* Community Report Markers */}
         {showReports && communityReports.map((r) => (
@@ -518,40 +605,129 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
       </div>
 
-      {/* Left Controls — Filters */}
-      <div className="absolute top-4 left-4 z-[1000] flex items-center gap-2">
-        <motion.button
-          onClick={() => setShowFilters(!showFilters)}
-          className="px-4 py-2.5 rounded-full flex items-center gap-2 bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
-          whileTap={{ scale: 0.95 }}
-          transition={springConfig}
-        >
-          <Filter className="w-4 h-4 text-white" strokeWidth={2.5} />
-          <span className="text-[14px] text-white" style={{ fontWeight: 600 }}>Filters</span>
-          {(filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly) && (
-            <div className="w-2 h-2 rounded-full bg-purple-500" />
-          )}
-        </motion.button>
+      {/* ── Vibe Filter Bar — horizontal scroll, full width ── */}
+      <div className="absolute top-4 left-3 right-3 z-[1000]">
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
 
-        {/* Layer toggles */}
-        <motion.button
-          onClick={() => setShowReports(!showReports)}
-          className={`px-3 py-2 rounded-full flex items-center gap-1.5 backdrop-blur-xl border-2 shadow-xl ${showReports ? 'bg-red-500/30 border-red-400/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
-          whileTap={{ scale: 0.95 }}
-          transition={springConfig}
-        >
-          <AlertTriangle className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
-          <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>Reports</span>
-        </motion.button>
-        <motion.button
-          onClick={() => setShowEvents(!showEvents)}
-          className={`px-3 py-2 rounded-full flex items-center gap-1.5 backdrop-blur-xl border-2 shadow-xl ${showEvents ? 'bg-purple-500/30 border-purple-400/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
-          whileTap={{ scale: 0.95 }}
-          transition={springConfig}
-        >
-          <Music className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
-          <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>Vibes</span>
-        </motion.button>
+          {/* ─ Vibe chips ─ */}
+          {([
+            { label: 'All Vibes', value: null,  emoji: '✨' },
+            { label: 'Chill',     value: 1,     emoji: '🟢' },
+            { label: 'Active',    value: 2,     emoji: '🟡' },
+            { label: 'Busy',      value: 3,     emoji: '🟠' },
+            { label: 'Packed',    value: 4,     emoji: '🔴' },
+          ] as { label: string; value: number | null; emoji: string }[]).map(chip => (
+            <motion.button
+              key={chip.label}
+              onClick={() => setVibeFilter(vibeFilter === chip.value ? null : chip.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+                vibeFilter === chip.value
+                  ? 'bg-white/20 border-white/70 text-white'
+                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+              }`}
+              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+              whileTap={{ scale: 0.93 }}
+            >
+              {chip.emoji} {chip.label}
+            </motion.button>
+          ))}
+
+          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
+
+          {/* ─ Entry chips ─ */}
+          {([
+            { label: 'Free', value: 'free' as const, emoji: '✅' },
+            { label: 'Paid', value: 'paid' as const, emoji: '💰' },
+          ]).map(chip => (
+            <motion.button
+              key={chip.label}
+              onClick={() => setEntryFilter(entryFilter === chip.value ? null : chip.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+                entryFilter === chip.value
+                  ? 'bg-amber-500/30 border-amber-400/70 text-amber-200'
+                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+              }`}
+              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+              whileTap={{ scale: 0.93 }}
+            >
+              {chip.emoji} {chip.label}
+            </motion.button>
+          ))}
+
+          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
+
+          {/* ─ Category chips ─ */}
+          {([
+            { label: 'Dining',    value: 'dining',    emoji: '🍽️' },
+            { label: 'Nightlife', value: 'nightlife', emoji: '🍸' },
+            { label: 'Coffee',    value: 'coffee',    emoji: '☕' },
+            { label: 'Parks',     value: 'parks',     emoji: '🌳' },
+          ]).map(chip => (
+            <motion.button
+              key={chip.label}
+              onClick={() => setCategoryFilter(categoryFilter === chip.value ? null : chip.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+                categoryFilter === chip.value
+                  ? 'bg-purple-500/30 border-purple-400/70 text-purple-200'
+                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+              }`}
+              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+              whileTap={{ scale: 0.93 }}
+            >
+              {chip.emoji} {chip.label}
+            </motion.button>
+          ))}
+
+          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
+
+          {/* ─ Layer toggles ─ */}
+          <motion.button
+            onClick={() => setShowHeatmap(!showHeatmap)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              showHeatmap ? 'bg-red-500/25 border-red-400/60 text-red-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            }`}
+            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+            whileTap={{ scale: 0.93 }}
+          >
+            🌡️ Heatmap
+          </motion.button>
+          <motion.button
+            onClick={() => setShowReports(!showReports)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              showReports ? 'bg-red-500/25 border-red-400/60 text-red-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            }`}
+            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+            whileTap={{ scale: 0.93 }}
+          >
+            ⚠️ Reports
+          </motion.button>
+          <motion.button
+            onClick={() => setShowEvents(!showEvents)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              showEvents ? 'bg-purple-500/25 border-purple-400/60 text-purple-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            }`}
+            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+            whileTap={{ scale: 0.93 }}
+          >
+            🎶 Vibes
+          </motion.button>
+          <motion.button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              (filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly)
+                ? 'bg-blue-500/25 border-blue-400/60 text-blue-300'
+                : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            }`}
+            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+            whileTap={{ scale: 0.93 }}
+          >
+            <Filter className="inline w-3 h-3 mr-1" strokeWidth={2.5} />
+            Parking
+            {(filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly) && (
+              <span className="ml-1 w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
+            )}
+          </motion.button>
+        </div>
       </div>
 
       {/* Report FAB */}
@@ -902,6 +1078,107 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </AnimatePresence>,
         document.body
       )}
+
+      {/* ── Venue Peek Sheet — slides up when a vibe marker is tapped ── */}
+      <AnimatePresence>
+        {peekVenue && !venueDetailsVenue && (
+          <motion.div
+            className="absolute bottom-24 left-3 right-3 z-[1002]"
+            initial={{ y: 140, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 140, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+          >
+            <div className="rounded-[22px] bg-[#1C1C1E]/96 backdrop-blur-2xl border border-white/18 shadow-2xl overflow-hidden">
+              {/* Header */}
+              <div className="flex items-start justify-between p-4 pb-3">
+                <div className="flex-1 min-w-0">
+                  {/* Vibe + Entry badges */}
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    {(() => {
+                      const lvl = peekVenue.crowd?.level ?? 1;
+                      const badgeClass =
+                        lvl === 4 ? 'bg-red-500/30 text-red-300' :
+                        lvl === 3 ? 'bg-orange-500/30 text-orange-300' :
+                        lvl === 2 ? 'bg-yellow-500/30 text-yellow-300' :
+                                    'bg-green-500/30 text-green-300';
+                      const emoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
+                      return (
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${badgeClass}`}>
+                          {emoji} {peekVenue.crowd?.label ?? 'Chill'}
+                        </span>
+                      );
+                    })()}
+                    {(peekVenue as any).entryType === 'paid' ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-300 font-bold">
+                        {(peekVenue as any).entryPrice ?? 'Paid'}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-bold">
+                        FREE
+                      </span>
+                    )}
+                  </div>
+                  {/* Name */}
+                  <h3 className="text-[17px] text-white font-semibold leading-tight truncate">
+                    {peekVenue.name}
+                  </h3>
+                  {/* Subtitle */}
+                  <p className="text-[12px] text-white/50 mt-0.5 capitalize">
+                    {peekVenue.category}
+                    {peekVenue.crowd?.waitMins ? ` · ~${peekVenue.crowd.waitMins}m wait` : ' · No wait'}
+                  </p>
+                </div>
+                {/* Dismiss */}
+                <motion.button
+                  onClick={() => setPeekVenue(null)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 border border-white/20 ml-3 flex-shrink-0 mt-0.5"
+                  whileTap={{ scale: 0.88 }}
+                >
+                  <X className="w-3.5 h-3.5 text-white/70" />
+                </motion.button>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 px-4 pb-4">
+                <motion.button
+                  onClick={() => openNativeNavigation(peekVenue.lat, peekVenue.lng, peekVenue.name)}
+                  className="flex-1 py-2.5 rounded-[14px] bg-white/10 border border-white/20 text-[13px] text-white/80 font-semibold flex items-center justify-center gap-1.5"
+                  whileTap={{ scale: 0.96 }}
+                >
+                  <Navigation className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  Navigate
+                </motion.button>
+                <motion.button
+                  onClick={() => setVenueDetailsVenue(peekVenue)}
+                  className="flex-1 py-2.5 rounded-[14px] bg-purple-600/70 border border-purple-400/50 text-[13px] text-white font-bold flex items-center justify-center gap-1.5"
+                  whileTap={{ scale: 0.96 }}
+                >
+                  View Details
+                  <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Full Venue Details (opened from peek sheet) ── */}
+      <AnimatePresence>
+        {venueDetailsVenue && (
+          <VenueDetails
+            venue={venueToCard(venueDetailsVenue, 0, userCoords)}
+            isDarkMode={true}
+            onClose={() => { setVenueDetailsVenue(null); setPeekVenue(null); }}
+            onNavigateToMap={() => {}}
+            onBookRide={() => onBookRide?.({
+              name: venueDetailsVenue.name,
+              lat: venueDetailsVenue.lat,
+              lng: venueDetailsVenue.lng,
+            })}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

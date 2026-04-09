@@ -2,7 +2,7 @@
  * Bytspot App Badge Utility
  *
  * Manages the app icon badge count (the red number on the home screen icon).
- * Uses @capacitor/badge on native, falls back to navigator.setAppBadge (PWA).
+ * Uses @capawesome/capacitor-badge on native, falls back to navigator.setAppBadge (PWA).
  *
  * Apple App Review: demonstrates proper badge management — a native app feature.
  */
@@ -14,7 +14,7 @@ async function loadBadge() {
   if (badgeLoaded) return;
   badgeLoaded = true;
   try {
-    const mod = await import('@capacitor/badge');
+    const mod = await import('@capawesome/capacitor-badge');
     Badge = mod.Badge;
   } catch {
     // Plugin not installed

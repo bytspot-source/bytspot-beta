@@ -41,7 +41,7 @@ declare module '@capacitor/share' {
 }
 
 // ── Capacitor Badge ───────────────────────────────────────────────
-declare module '@capacitor/badge' {
+declare module '@capawesome/capacitor-badge' {
   export const Badge: {
     set(options: { count: number }): Promise<void>;
     get(): Promise<{ count: number }>;

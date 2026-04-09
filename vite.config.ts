@@ -55,8 +55,8 @@
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         // Capacitor native plugins are only available in iOS/Android builds.
-        // Mark them as external so Vite doesn't fail when they're not installed.
-        external: ['@capacitor/haptics', '@capacitor/share', '@capacitor/badge'],
+        // Keep them external in the web bundle so browser builds degrade gracefully.
+        external: ['@capacitor/haptics', '@capacitor/share', '@capawesome/capacitor-badge'],
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],

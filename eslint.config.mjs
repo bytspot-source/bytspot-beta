@@ -29,6 +29,8 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       // React Refresh: only warn, don't block
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // Allow empty catch blocks with a comment (used for graceful degradation fallbacks)
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
 )

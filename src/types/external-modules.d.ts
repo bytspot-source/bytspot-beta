@@ -55,7 +55,9 @@ declare module '@capacitor/badge' {
 }
 
 // ── Bytspot API (sibling repo — not available in CI) ──────────────
+// Use `any` so all trpc.routerName.procedureName calls compile
+// without needing the full router definition from bytspot-api.
 declare module '@bytspot-api/trpc/router' {
-  import type { AnyRouter } from '@trpc/server';
-  export type AppRouter = AnyRouter;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type AppRouter = any;
 }

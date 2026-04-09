@@ -1,19 +1,34 @@
-name: iOS Build & TestFlight
+name: iOS → TestFlight
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'ios/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - '.github/workflows/ios-testflight.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
 jobs:
-  build-ios:
-    runs-on: macos-latest
+  build-and-deploy:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LANG: en_US.UTF-8
 
     steps:
+      # ── 1. Checkout ──────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      # ── 2. Node.js + Web build ──────────────────────────────────
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -22,56 +37,81 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npm run type-check
-
-      - name: Lint
-        run: npm run lint
+      - name: Lint & type-check
+        run: |
+          npm run lint
+          npm run type-check
 
       - name: Build web assets
         run: npm run build
 
-      - name: Sync Capacitor to iOS
+      # ── 3. Capacitor sync ───────────────────────────────────────
+      - name: Sync Capacitor → iOS
         run: npx cap sync ios
 
-      - name: Set up Ruby
+      # ── 4. Xcode selection ──────────────────────────────────────
+      - name: Select Xcode
+        run: |
+          # Use latest available Xcode on the runner
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+
+      # ── 5. Ruby + Fastlane ──────────────────────────────────────
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
           bundler-cache: true
           working-directory: ios/App
 
-      - name: Import distribution certificate into keychain
+      # ── 6. Code Signing ─────────────────────────────────────────
+      - name: Import distribution certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $RUNNER_TEMP/cert.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security import $RUNNER_TEMP/cert.p12 \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-          security find-identity -v -p codesigning $KEYCHAIN_PATH
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
 
-      - name: Install App Store provisioning profile
+          # Create & configure keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import .p12 certificate
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          # Verify
+          echo "--- Signing identities ---"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
         env:
           APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
           PP_PATH=$RUNNER_TEMP/bytspot.mobileprovision
-          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode -o $PP_PATH
+          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode -o "$PP_PATH"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+
+          # Extract UUID and install
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" \
-            /dev/stdin <<< "$(security cms -D -i $PP_PATH)")
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+            /dev/stdin <<< "$(security cms -D -i "$PP_PATH")")
+          cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "Installed profile UUID: $UUID"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
-      - name: Build & upload to TestFlight
+      # ── 7. Build + Upload to TestFlight ─────────────────────────
+      - name: Fastlane → TestFlight
         working-directory: ios/App
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -82,7 +122,17 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane beta
 
-      - name: Clean up keychain
+      # ── 8. Upload IPA artifact ──────────────────────────────────
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Bytspot-${{ github.run_number }}.ipa
+          path: ios/App/build/Bytspot.ipa
+          retention-days: 30
+
+      # ── 9. Cleanup ──────────────────────────────────────────────
+      - name: Cleanup keychain
         if: always()
-        run: security delete-keychain $RUNNER_TEMP/build.keychain || true
+        run: security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 

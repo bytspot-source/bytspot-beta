@@ -33,7 +33,7 @@ loadHaptics();
 function vibrateFallback(ms: number = 10) {
   try {
     if ('vibrate' in navigator) navigator.vibrate(ms);
-  } catch { /* ignore */ }
+  } catch { /* vibrate unsupported */ }
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ function vibrateFallback(ms: number = 10) {
  */
 export async function impactLight() {
   if (Haptics) {
-    try { await Haptics.impact({ style: ImpactStyle.Light }); return; } catch {}
+    try { await Haptics.impact({ style: ImpactStyle.Light }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(10);
 }
@@ -53,7 +53,7 @@ export async function impactLight() {
  */
 export async function impactMedium() {
   if (Haptics) {
-    try { await Haptics.impact({ style: ImpactStyle.Medium }); return; } catch {}
+    try { await Haptics.impact({ style: ImpactStyle.Medium }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(20);
 }
@@ -63,7 +63,7 @@ export async function impactMedium() {
  */
 export async function impactHeavy() {
   if (Haptics) {
-    try { await Haptics.impact({ style: ImpactStyle.Heavy }); return; } catch {}
+    try { await Haptics.impact({ style: ImpactStyle.Heavy }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(30);
 }
@@ -73,7 +73,7 @@ export async function impactHeavy() {
  */
 export async function notifySuccess() {
   if (Haptics) {
-    try { await Haptics.notification({ type: NotificationType.Success }); return; } catch {}
+    try { await Haptics.notification({ type: NotificationType.Success }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(15);
 }
@@ -83,7 +83,7 @@ export async function notifySuccess() {
  */
 export async function notifyWarning() {
   if (Haptics) {
-    try { await Haptics.notification({ type: NotificationType.Warning }); return; } catch {}
+    try { await Haptics.notification({ type: NotificationType.Warning }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(25);
 }
@@ -93,7 +93,7 @@ export async function notifyWarning() {
  */
 export async function notifyError() {
   if (Haptics) {
-    try { await Haptics.notification({ type: NotificationType.Error }); return; } catch {}
+    try { await Haptics.notification({ type: NotificationType.Error }); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(40);
 }
@@ -103,7 +103,7 @@ export async function notifyError() {
  */
 export async function selectionChanged() {
   if (Haptics) {
-    try { await Haptics.selectionChanged(); return; } catch {}
+    try { await Haptics.selectionChanged(); return; } catch { /* native unavailable */ }
   }
   vibrateFallback(5);
 }

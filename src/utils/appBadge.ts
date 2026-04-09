@@ -29,7 +29,7 @@ loadBadge();
 export async function setBadgeCount(count: number) {
   // 1. Capacitor native badge
   if (Badge) {
-    try { await Badge.set({ count }); return; } catch {}
+    try { await Badge.set({ count }); return; } catch { /* native unavailable */ }
   }
 
   // 2. PWA Badge API (Chrome 81+, Edge)
@@ -40,7 +40,7 @@ export async function setBadgeCount(count: number) {
       } else {
         await (navigator as any).clearAppBadge();
       }
-    } catch { /* not supported */ }
+    } catch { /* PWA badge unsupported */ }
   }
 }
 
@@ -49,11 +49,11 @@ export async function setBadgeCount(count: number) {
  */
 export async function clearBadge() {
   if (Badge) {
-    try { await Badge.clear(); return; } catch {}
+    try { await Badge.clear(); return; } catch { /* native unavailable */ }
   }
 
   if ('clearAppBadge' in navigator) {
-    try { await (navigator as any).clearAppBadge(); } catch {}
+    try { await (navigator as any).clearAppBadge(); } catch { /* PWA badge unsupported */ }
   }
 }
 
@@ -66,7 +66,7 @@ export async function incrementBadge() {
       const { count } = await Badge.get();
       await Badge.set({ count: (count || 0) + 1 });
       return;
-    } catch {}
+    } catch { /* native unavailable */ }
   }
   // PWA fallback: no way to read current count, just set to 1
   await setBadgeCount(1);

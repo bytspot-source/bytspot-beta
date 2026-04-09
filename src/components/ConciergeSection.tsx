@@ -477,12 +477,12 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
 
     // Default smart response
     return {
-      content: `I'd be happy to help you with that! Here's what I can do:\n\n💡 **Popular Requests**:\n• Find parking by location & price\n• Event-based recommendations\n• Real-time problem solving\n• Budget optimization\n• Group coordination\n\nCould you tell me more about what you need? For example:\n• Where are you going?\n• What's your budget?\n• Any special requirements?`,
+      content: `I can help you navigate Atlanta! Here's what I do best:\n\n🅿️ **Parking** — find & reserve spots by location, price, or event\n📍 **Venues** — crowd levels, wait times, and what's trending\n🚗 **Rides** — compare options and plan your route\n🎉 **Events** — tonight's happenings and nearby plans\n\nTry asking me something like:\n• "Where should I park near Piedmont Park?"\n• "What's happening in Midtown tonight?"\n• "Find me cheap parking for the game"`,
       suggestions: [
         '🅿️ Find parking near me',
-        '🎉 Best spots for tonight',
-        '💰 Cheapest options',
-        '🆘 I need help now',
+        '🎉 What\'s happening tonight?',
+        '📍 Trending spots in Midtown',
+        '🚗 Plan my night out',
       ],
     };
   };

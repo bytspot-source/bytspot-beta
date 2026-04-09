@@ -44,6 +44,10 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 
+	<!-- ── Export Compliance (no custom encryption) ── -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
 	<!-- ── Privacy Usage Descriptions (required by App Store Review) ── -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>

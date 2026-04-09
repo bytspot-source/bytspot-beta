@@ -82,8 +82,25 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import .p12 certificate
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/cert.p12"
+          # Decode .p12 certificate from base64 secret
+          python3 - <<'PY'
+          import base64, os, pathlib, sys
+
+          raw = os.environ.get('APPLE_CERTIFICATE', '').strip()
+          if not raw:
+              raise SystemExit('APPLE_CERTIFICATE secret is empty or unavailable')
+
+          normalized = ''.join(raw.split())
+          try:
+              decoded = base64.b64decode(normalized, validate=True)
+          except Exception as exc:
+              raise SystemExit(f'APPLE_CERTIFICATE is not valid base64: {exc}')
+
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cert.p12'
+          out.write_bytes(decoded)
+          print(f'Wrote certificate to {out}')
+          PY
+
           security import "$RUNNER_TEMP/cert.p12" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
@@ -100,7 +117,25 @@ jobs:
           APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
           PP_PATH=$RUNNER_TEMP/bytspot.mobileprovision
-          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode -o "$PP_PATH"
+
+          python3 - <<'PY'
+          import base64, os, pathlib, sys
+
+          raw = os.environ.get('APPLE_PROVISIONING_PROFILE', '').strip()
+          if not raw:
+              raise SystemExit('APPLE_PROVISIONING_PROFILE secret is empty or unavailable')
+
+          normalized = ''.join(raw.split())
+          try:
+              decoded = base64.b64decode(normalized, validate=True)
+          except Exception as exc:
+              raise SystemExit(f'APPLE_PROVISIONING_PROFILE is not valid base64: {exc}')
+
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bytspot.mobileprovision'
+          out.write_bytes(decoded)
+          print(f'Wrote provisioning profile to {out}')
+          PY
+
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
 
           # Extract UUID and install

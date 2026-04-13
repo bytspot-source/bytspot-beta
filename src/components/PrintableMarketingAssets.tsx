@@ -55,7 +55,7 @@ export function PromotionalFlyer() {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', flex: 1 }}>
         <PrintLogo size={72} />
         <div style={{ marginTop: 8 }}><Wordmark fontSize={48} /></div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, color: BRAND.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.12em', marginTop: 10, marginBottom: 28 }}>📍 Atlanta Beta · Now Live</div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, color: BRAND.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.12em', marginTop: 10, marginBottom: 28 }}>📍 Atlanta · Now Live</div>
         <h1 style={{ fontSize: 38, fontWeight: 800, textAlign: 'center', lineHeight: 1.15, marginBottom: 12, letterSpacing: '-0.02em' }}>Know{' '}<span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Before</span>{' '}You Go.</h1>
         <p style={{ fontSize: 17, color: BRAND.textSecondary, textAlign: 'center', maxWidth: 420, lineHeight: 1.5, marginBottom: 32 }}>Live crowd levels, real-time parking, and ride comparison — all in one app for Atlanta's best venues.</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 460, marginBottom: 24 }}>
@@ -93,7 +93,7 @@ export function PromotionalFlyer() {
             <QRCodeSVG value={APP_URL} size={96} level="H" bgColor="#FFFFFF" fgColor="#000000" />
           </div>
         </div>
-        <div style={{ marginTop: 20, fontSize: 11, color: BRAND.textMuted, textAlign: 'center' }}>© {new Date().getFullYear()} Bytspot · Atlanta, GA · Beta Access</div>
+        <div style={{ marginTop: 20, fontSize: 11, color: BRAND.textMuted, textAlign: 'center' }}>© {new Date().getFullYear()} Bytspot · Atlanta, GA</div>
       </div>
     </div>
   );

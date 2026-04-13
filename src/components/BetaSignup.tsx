@@ -159,7 +159,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg">
                   <MapPin className="w-3 h-3 text-cyan-400" />
                   <span className="text-[11px] font-bold text-white/90 tracking-widest uppercase">
-                    Atlanta Beta &bull; Midtown
+                    Atlanta &bull; Midtown
                   </span>
                 </div>
 
@@ -350,7 +350,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                 {/* Incentive & Trust */}
                 <div className="text-center space-y-3 pt-2">
                   <p className="text-sm text-white/80 font-medium">
-                    First 100 Midtown users get <span className="text-cyan-400">free parking credit</span> during beta.
+                    First 100 Midtown users get <span className="text-cyan-400">free parking credit</span> at launch.
                   </p>
                   <p className="text-[11px] text-white/30">Launching in select Midtown venues.</p>
                 </div>
@@ -381,7 +381,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                 <p className="text-white/70 leading-relaxed">
                   {alreadySignedUp
                     ? "We sent your early access link when you first signed up. Check your inbox!"
-                    : <>We just sent your early access link to{' '}<span className="text-cyan-400 font-semibold">{localStorage.getItem('bytspot_beta_email') || 'your inbox'}</span>.<br />Open it to unlock the beta.</>
+                    : <>We just sent your early access link to{' '}<span className="text-cyan-400 font-semibold">{localStorage.getItem('bytspot_beta_email') || 'your inbox'}</span>.<br />Open it to get started.</>
                   }
                 </p>
               </div>

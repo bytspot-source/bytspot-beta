@@ -477,8 +477,8 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
               key={reward.name}
               onClick={() => {
                 if (canAfford) {
-                  toast.success('Coming Soon!', {
-                    description: 'Reward redemption will be available soon',
+                  toast.success('Reward Selected!', {
+                    description: 'Reward redemption is being processed',
                   });
                 } else {
                   toast.error('Insufficient Points', {

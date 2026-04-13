@@ -277,15 +277,15 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     if (onBookRide) {
       onBookRide();
     } else {
-      toast('Ride booking coming soon!');
+      toast('Ride booking will be available for this venue shortly!');
     }
   };
 
   const handleShare = async () => {
     const slug = venue._slug || venue.slug;
     const venueUrl = slug
-      ? `https://beta.bytspot.com/v/${slug}`
-      : 'https://beta.bytspot.com';
+      ? `https://bytspot.com/v/${slug}`
+      : 'https://bytspot.com';
     const crowdEmoji = crowdLevel === 'Packed' ? '🔴' : crowdLevel === 'Busy' ? '🟠' : crowdLevel === 'Active' ? '🟡' : crowdLevel === 'Chill' ? '🟢' : '';
     const crowdText = crowdLevel ? ` ${crowdEmoji} ${crowdLevel} right now` : '';
     const shareText = `${venue.name}${crowdText} — check it out on Bytspot!`;
@@ -565,7 +565,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                   </div>
                 </>
               ) : (
-                <p className="text-[13px] text-white/40 text-center py-4">Crowd data coming soon</p>
+                <p className="text-[13px] text-white/40 text-center py-4">Crowd data unavailable for this venue</p>
               )}
             </div>
           </motion.div>

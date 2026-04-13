@@ -79,17 +79,17 @@ Lifestyle
 
 ## Privacy Policy URL
 ```
-https://bytspot-beta-app.onrender.com/privacy
+https://bytspot.com/privacy
 ```
 
 ## Support URL
 ```
-mailto:bytspotapp@gmail.com
+https://bytspot.com/support
 ```
 
 ## Marketing URL (optional)
 ```
-https://bytspot-beta.onrender.com
+https://bytspot.com
 ```
 
 ## Copyright

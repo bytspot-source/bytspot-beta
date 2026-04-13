@@ -1494,7 +1494,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Beta Feedback Button — only on Home tab */}
+        {/* Feedback Button — only on Home tab */}
         {activeTab === 'home' && currentScreen === 'main' && (
           <motion.button
             className="fixed bottom-24 right-4 z-[55] w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-white/30 shadow-xl flex items-center justify-center"
@@ -1502,13 +1502,13 @@ export default function App() {
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
             onClick={() => { setShowFeedback(true); setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(''); }}
-            aria-label="Share beta feedback"
+            aria-label="Share feedback"
           >
             <span className="text-[20px]">💬</span>
           </motion.button>
         )}
 
-        {/* Beta Feedback Sheet */}
+        {/* Feedback Sheet */}
         <AnimatePresence>
           {showFeedback && (
             <>
@@ -1537,7 +1537,7 @@ export default function App() {
                   <>
                     <div className="flex items-center justify-between mb-5">
                       <div>
-                        <p className="text-[18px] text-white font-semibold">Beta Feedback</p>
+                        <p className="text-[18px] text-white font-semibold">Feedback</p>
                         <p className="text-[13px] text-white/50">How's Bytspot feeling?</p>
                       </div>
                       <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowFeedback(false)}
@@ -1572,7 +1572,7 @@ export default function App() {
                       whileTap={{ scale: 0.98 }}
                       disabled={feedbackRating === 0}
                       onClick={() => {
-                        const entry = { rating: feedbackRating, text: feedbackText.trim(), ts: Date.now(), version: '0.1-beta' };
+                        const entry = { rating: feedbackRating, text: feedbackText.trim(), ts: Date.now(), version: '1.0' };
                         try {
                           const existing = JSON.parse(localStorage.getItem('bytspot_feedback') || '[]');
                           localStorage.setItem('bytspot_feedback', JSON.stringify([...existing, entry]));

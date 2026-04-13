@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { trpc } from '../utils/trpc';
@@ -13,6 +13,8 @@ import { VibePreferences } from './VibePreferences';
 import { SavedSpotsSection } from './SavedSpotsSection';
 import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
+import { PrivacyPolicy } from './PrivacyPolicy';
+import { TermsOfService } from './TermsOfService';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight, notifySuccess } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
@@ -28,7 +30,7 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service';
 
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
@@ -105,6 +107,13 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
         { icon: <Settings className="w-5 h-5" />, label: 'General', badge: null, screen: null },
       ],
     },
+    {
+      title: 'Legal',
+      items: [
+        { icon: <Shield className="w-5 h-5" />, label: 'Privacy Policy', badge: null, screen: 'privacy-policy' as ProfileScreen },
+        { icon: <FileText className="w-5 h-5" />, label: 'Terms of Service', badge: null, screen: 'terms-of-service' as ProfileScreen },
+      ],
+    },
   ];
 
   // Show sub-screens
@@ -134,6 +143,28 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'location-settings') {
     return <LocationSettings isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} userRole="parker" />;
+  }
+
+  if (currentScreen === 'privacy-policy') {
+    return (
+      <div className="relative">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+          <ChevronRight className="w-4 h-4 rotate-180" /> Back
+        </button>
+        <PrivacyPolicy />
+      </div>
+    );
+  }
+
+  if (currentScreen === 'terms-of-service') {
+    return (
+      <div className="relative">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+          <ChevronRight className="w-4 h-4 rotate-180" /> Back
+        </button>
+        <TermsOfService />
+      </div>
+    );
   }
 
   if (currentScreen === 'saved-spots') {
@@ -551,7 +582,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                   if (result.url) {
                     window.location.href = result.url;
                   } else if (result.demoMode) {
-                    toast('Stripe not configured yet — coming soon!');
+                    toast('Premium upgrade is being set up. Check back shortly!');
                   } else {
                     toast(result.message || 'You are already premium!');
                   }

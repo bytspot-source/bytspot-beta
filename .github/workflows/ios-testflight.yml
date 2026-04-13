@@ -154,7 +154,6 @@ jobs:
           APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           PROVISIONING_PROFILE_UUID: ${{ env.PROVISIONING_PROFILE_UUID }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane beta
 
       # ── 8. Upload IPA artifact ──────────────────────────────────

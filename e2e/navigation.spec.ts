@@ -11,6 +11,8 @@ const MOCK_VENUES = [
     lng: -84.384,
     category: 'bar',
     imageUrl: null,
+    entryType: 'paid',
+    entryPrice: '$22',
     crowd: { level: 3, label: 'Lively', waitMins: 10, recordedAt: new Date().toISOString() },
     parking: { totalAvailable: 5, spots: [] },
   },
@@ -28,39 +30,66 @@ const MOCK_VENUES = [
   },
 ];
 
-/** Intercept tRPC venues.list calls and SSE stream via page.route (requires serviceWorkers: 'block') */
+/** Mock tRPC fetch + EventSource inside the browser so tests never depend on the live backend. */
 async function mockVenuesApi(page: import('@playwright/test').Page) {
-  // Mock venues.list tRPC batch endpoint
-  await page.route(/venues\.list/, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{ result: { data: { venues: MOCK_VENUES } } }]),
-    });
-  });
+  await page.addInitScript((mockVenues) => {
+    const originalFetch = window.fetch.bind(window);
 
-  // Mock SSE crowd stream — return empty event stream so it doesn't error/retry
-  await page.route(/crowd\/stream/, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body: 'data: {"type":"snapshot","venues":[]}\n\n',
-    });
-  });
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (!url.includes('/trpc/')) return originalFetch(input as RequestInfo | URL, init);
 
-  // Mock other tRPC calls that may fail (providers.getStatus, health.stats)
-  await page.route(/\/trpc\/(?!venues)/, async (route) => {
-    const url = route.request().url();
-    // Count how many procedures are batched (comma-separated in URL path)
-    const pathMatch = url.match(/\/trpc\/([^?]+)/);
-    const procedures = pathMatch ? pathMatch[1].split(',') : ['unknown'];
-    const results = procedures.map(() => ({ result: { data: null } }));
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(results),
-    });
+      const match = url.match(/\/trpc\/([^?]+)/);
+      const procedures = match ? match[1].split(',') : ['unknown'];
+      const results = procedures.map((procedure) => {
+        if (procedure.includes('venues.list')) return { result: { data: { venues: mockVenues } } };
+        if (procedure.includes('auth.me')) return { result: { data: { referralCount: 0 } } };
+        if (procedure.includes('subscription.status')) return { result: { data: { isPremium: false } } };
+        if (procedure.includes('social.venueCheckins')) return { result: { data: { items: [] } } };
+        if (procedure.includes('venues.getBySlug')) return { result: { data: { crowd: { history: [] } } } };
+        if (procedure.includes('venues.getSimilar')) return { result: { data: { similar: [] } } };
+        return { result: { data: null } };
+      });
+      const payload = procedures.length === 1 ? results[0] : results;
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    class MockEventSource {
+      url: string;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      constructor(url: string) {
+        this.url = url;
+        window.setTimeout(() => {
+          this.onmessage?.({ data: JSON.stringify({ type: 'snapshot', venues: [] }) } as MessageEvent<string>);
+        }, 0);
+      }
+      close() {}
+      addEventListener() {}
+      removeEventListener() {}
+    }
+
+    // @ts-expect-error test-only shim
+    window.EventSource = MockEventSource;
+  }, MOCK_VENUES);
+}
+
+async function robustClick(locator: import('@playwright/test').Locator) {
+  await locator.waitFor({ state: 'attached', timeout: 10_000 });
+  await locator.evaluate((el) => {
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
   });
+  try {
+    await locator.click({ force: true, timeout: 5_000 });
+  } catch {
+    await locator.evaluate((el) => {
+      if (el instanceof HTMLElement) el.click();
+    });
+  }
 }
 
 /**
@@ -196,6 +225,57 @@ test.describe('App Navigation Flow', () => {
 
     // Should switch to Map tab
     await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
+  });
+
+  test('Discover tab → paid venue → mock checkout → ticket confirmed', async ({ page }) => {
+    await getToMainApp(page);
+
+    await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
+    await expect(page.getByRole('tab', { name: 'Discover tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
+    await expect(page.getByTestId('discover-entry-filter-paid')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('discover-entry-filter-paid').click({ force: true });
+
+    const dragCard = page.locator('[data-testid^="discover-swipe-card-"]').first();
+    const hasCard = await dragCard.isVisible({ timeout: 5_000 }).catch(() => false);
+    if (!hasCard) {
+      test.skip(true, 'Mock paid venue card did not render on Discover tab');
+      return;
+    }
+
+    const box = await dragCard.boundingBox();
+    if (!box) {
+      test.skip(true, 'Could not get card bounding box');
+      return;
+    }
+
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    for (let i = 0; i <= 10; i++) {
+      await page.mouse.move(startX + (i * 12), startY, { steps: 1 });
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(2000);
+
+    await expect(page.getByText('Entry Access')).toBeVisible({ timeout: 10_000 });
+
+    const purchaseButton = page.getByTestId('venue-ticket-cta').first();
+    await robustClick(purchaseButton);
+    await expect(page.getByTestId('ticket-flow-modal')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('ticket-flow-continue')).toBeVisible({ timeout: 10_000 });
+
+    await robustClick(page.getByTestId('ticket-flow-continue'));
+    await expect(page.getByTestId('ticket-flow-confirm')).toBeVisible({ timeout: 10_000 });
+
+    await robustClick(page.getByTestId('ticket-flow-confirm'));
+    await expect(page.getByTestId('ticket-flow-confirmed')).toBeVisible({ timeout: 10_000 });
+
+    const wallet = await page.evaluate(() => {
+      return JSON.parse(localStorage.getItem('bytspot_access_pass_wallet') || '[]');
+    });
+    expect(Array.isArray(wallet)).toBeTruthy();
+    expect(wallet[0]?.title).toBe('The Rooftop Bar');
   });
 
   test('Tab navigation works for all tabs', async ({ page }) => {

@@ -6,7 +6,9 @@ import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 const ValetFlow = lazy(() => import('./ValetFlow').then(m => ({ default: m.ValetFlow })));
 import { type DiscoverCard, type CardType } from '../utils/mockData';
+import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
+import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
 
 
 // Pure helper — no state deps, safe at module level
@@ -46,6 +48,33 @@ function normalizeCardType(type: string | null | undefined): CardType | null {
     : null;
 }
 
+function getEventCardId(event: AppEvent, index: number): number {
+  const numeric = Number.parseInt(event.id.replace(/[^0-9]/g, ''), 10);
+  return Number.isFinite(numeric) ? 10_000 + numeric : 10_000 + index;
+}
+
+function toEventDiscoverCard(event: AppEvent, index: number): DiscoverCard {
+  const isFree = event.price.trim().toLowerCase() === 'free';
+  return {
+    id: getEventCardId(event, index),
+    type: 'entertainment',
+    name: event.title,
+    image: event.image,
+    distance: '0 mi',
+    price: event.price,
+    description: [event.date, event.time, event.venue].filter(Boolean).join(' · '),
+    location: event.venue,
+    features: [event.category, event.date].filter(Boolean),
+    verified: true,
+    entryType: isFree ? 'free' : 'paid',
+    entryPrice: event.price,
+    ticketUrl: event.url ?? null,
+    eventName: event.title,
+    eventDate: event.date,
+    eventTime: event.time,
+  };
+}
+
 interface SwipeableCardProps {
   card: DiscoverCard;
   onSwipe: (direction: 'left' | 'right') => void;
@@ -64,6 +93,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     const [isDragging, setIsDragging] = useState(false);
     const dragStartTimeRef = useRef<number>(0);
     const hasDraggedRef = useRef<boolean>(false);
+    const isEventCard = card.type === 'entertainment' && (!!card.eventDate || !!card.eventTime);
 
     const handlePan = (_event: any, info: PanInfo) => {
       if (exitX !== null) return;
@@ -114,6 +144,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
       <motion.div
         ref={ref}
         className="absolute inset-4 cursor-grab active:cursor-grabbing"
+        data-testid={`discover-swipe-card-${String(card.id)}`}
         drag={exitX === null}
         dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
         onPan={handlePan}
@@ -160,7 +191,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
             </AnimatePresence>
             <div className="absolute top-4 right-4 flex flex-col items-end gap-1.5">
               <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
-                <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{card.type}</span>
+                <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{isEventCard ? 'event' : card.type}</span>
               </div>
               {/* Entry type badge — Free (green) or Paid (amber with price) */}
               {card.entryType === 'paid' ? (
@@ -174,10 +205,17 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               ) : null}
             </div>
             <div className="absolute top-4 left-4">
-              <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
-                <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.distance}</span>
-              </div>
+              {isEventCard ? (
+                <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-violet-300" strokeWidth={2.5} />
+                  <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.eventDate || 'Tonight'}</span>
+                </div>
+              ) : (
+                <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
+                  <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.distance}</span>
+                </div>
+              )}
             </div>
             <div className="absolute bottom-0 left-0 right-0 p-5">
               <div className="flex items-center gap-2 mb-1.5">
@@ -189,22 +227,31 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 )}
               </div>
               <div className="flex items-center gap-3 text-white/90 drop-shadow-md flex-wrap">
-                {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating.toFixed(1)}</span></div>)}
-                {card.price && (<span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>)}
-                {card.spots && (<div className="flex items-center gap-1"><Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span></div>)}
-                {card.availability && card.availability !== 'Unknown' && (
-                  <div className={`px-2.5 py-0.5 rounded-full text-[12px] border ${
-                    card.availability === 'Chill'   ? 'bg-green-500/40 border-green-400/60 text-green-200' :
-                    card.availability === 'Active'  ? 'bg-yellow-500/40 border-yellow-400/60 text-yellow-200' :
-                    card.availability === 'Busy'    ? 'bg-orange-500/40 border-orange-400/60 text-orange-200' :
-                    card.availability === 'Packed'  ? 'bg-red-500/40 border-red-400/60 text-red-200' :
-                    'bg-white/20 border-white/30 text-white/80'
-                  }`} style={{ fontWeight: 700 }}>
-                    {card.availability === 'Chill'  ? '🟢' :
-                     card.availability === 'Active' ? '🟡' :
-                     card.availability === 'Busy'   ? '🟠' :
-                     card.availability === 'Packed' ? '🔴' : '⚪'} {card.availability}
-                  </div>
+                {isEventCard ? (
+                  <>
+                    {card.eventTime && <span className="text-[15px] text-cyan-300" style={{ fontWeight: 700 }}>{card.eventTime}</span>}
+                    {card.location && <span className="text-[13px] text-white/75" style={{ fontWeight: 500 }}>{card.location}</span>}
+                  </>
+                ) : (
+                  <>
+                    {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating.toFixed(1)}</span></div>)}
+                    {card.price && (<span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>)}
+                    {card.spots && (<div className="flex items-center gap-1"><Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span></div>)}
+                    {card.availability && card.availability !== 'Unknown' && (
+                      <div className={`px-2.5 py-0.5 rounded-full text-[12px] border ${
+                        card.availability === 'Chill'   ? 'bg-green-500/40 border-green-400/60 text-green-200' :
+                        card.availability === 'Active'  ? 'bg-yellow-500/40 border-yellow-400/60 text-yellow-200' :
+                        card.availability === 'Busy'    ? 'bg-orange-500/40 border-orange-400/60 text-orange-200' :
+                        card.availability === 'Packed'  ? 'bg-red-500/40 border-red-400/60 text-red-200' :
+                        'bg-white/20 border-white/30 text-white/80'
+                      }`} style={{ fontWeight: 700 }}>
+                        {card.availability === 'Chill'  ? '🟢' :
+                         card.availability === 'Active' ? '🟡' :
+                         card.availability === 'Busy'   ? '🟠' :
+                         card.availability === 'Packed' ? '🔴' : '⚪'} {card.availability}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -253,9 +300,12 @@ interface DiscoverSectionProps {
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
   initialFilter?: CardType;
   apiCards: DiscoverCard[];
+  events?: AppEvent[];
   loading: boolean;
+  eventsLoading?: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  refreshEvents?: () => Promise<void>;
   /** Google Places text search */
   searchPlaces?: (query: string) => Promise<DiscoverCard[]>;
   /** Google Places nearby search by type */
@@ -274,13 +324,11 @@ const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
   parking: 'parking',
 };
 
-export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, loading, error, refresh, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
+export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, events = [], loading, eventsLoading = false, error, refresh, refreshEvents, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
   // Google Places results (populated on filter change)
   const [googleCards, setGoogleCards] = useState<DiscoverCard[]>([]);
 
-  // Live API cards + Google Places only — no mock fallbacks
-  const cards = [...apiCards, ...googleCards];
-  const hasLiveVenueCards = apiCards.length > 0 || googleCards.length > 0;
+  // Live API cards + event feed + Google Places only — no mock fallbacks
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [entryTypeFilter, setEntryTypeFilter] = useState<'all' | 'free' | 'paid'>('all');
@@ -294,6 +342,13 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const [pullDistance, setPullDistance] = useState(0);
   const [startY, setStartY] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const eventCards = events.map(toEventDiscoverCard);
+  const isEventSurface = appliedFilter === 'entertainment';
+  const cards = [...eventCards, ...apiCards, ...googleCards].filter(card =>
+    !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
+  );
+  const hasLiveVenueCards = cards.length > 0;
+  const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
 
   const springConfig = {
     type: "spring" as const,
@@ -315,7 +370,9 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     }
 
     try {
-      await refresh();
+      const refreshTasks = [refresh()];
+      if (refreshEvents) refreshTasks.push(refreshEvents());
+      await Promise.all(refreshTasks);
       setCurrentIndex(0);
     } finally {
       setIsRefreshing(false);
@@ -325,9 +382,11 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   };
 
   // 1. Category filter
-  let filteredCards = appliedFilter
-    ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
-    : cards;
+  let filteredCards = isEventSurface
+    ? eventCards
+    : appliedFilter
+      ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
+      : cards;
 
   // 1b. Entry type filter (composable with category)
   if (entryTypeFilter !== 'all') {
@@ -425,7 +484,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
   // Sync initial filter from props
   useEffect(() => {
-    setAppliedFilter(initialFilter ?? null);
+    setAppliedFilter(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && initialFilter === 'valet' ? null : (initialFilter ?? null));
     setCurrentIndex(0);
   }, [initialFilter]);
 
@@ -435,7 +494,10 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
   // Fetch Google Places results when a category filter is applied
   useEffect(() => {
-    if (!appliedFilter || !searchNearby) return;
+    if (!appliedFilter || appliedFilter === 'entertainment' || !searchNearby) {
+      if (appliedFilter === 'entertainment') setGoogleCards([]);
+      return;
+    }
     // Only search for categories that map to Google types
     const googleType = CARD_TYPE_TO_GOOGLE[appliedFilter];
     if (!googleType) { setGoogleCards([]); return; }
@@ -513,7 +575,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         lastUpdate: new Date(),
       };
       setSelectedParkingSpot(parkingSpot);
-    } else if (card.type === 'valet') {
+    } else if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && card.type === 'valet') {
       // Convert DiscoverCard to ValetService format
       const baseRate = parseInt(
         (card.price || '$25/hour').replace('$', '').replace(/\/hour.*/, '').replace(/\/hr.*/, '').trim()
@@ -583,7 +645,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       </AnimatePresence>
 
       {/* Loading state */}
-      {loading && (
+      {isSurfaceLoading && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 py-20">
           <motion.div
             className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center"
@@ -592,7 +654,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           >
             <RefreshCw className="w-6 h-6 text-white" />
           </motion.div>
-          <p className="text-white/60 text-sm">Loading Atlanta venues…</p>
+          <p className="text-white/60 text-sm">{isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
         </div>
       )}
 
@@ -629,7 +691,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             { label: '💪 Fitness',       value: 'fitness' },
             { label: '🚕 Valet',          value: 'valet' },
             { label: '🅿️ Parking',      value: 'parking' },
-          ] as { label: string; value: CardType | null }[]).map((cat) => {
+          ].filter(cat => !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || cat.value !== 'valet') as { label: string; value: CardType | null }[]).map((cat) => {
             const active = appliedFilter === cat.value;
             return (
               <motion.button
@@ -663,6 +725,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 key={opt.value}
                 onClick={() => { setEntryTypeFilter(opt.value); setCurrentIndex(0); }}
                 className="px-2.5 py-1 rounded-full text-[11px] transition-all"
+                data-testid={`discover-entry-filter-${opt.value}`}
                 style={{
                   background: active
                     ? opt.value === 'free' ? 'rgba(16,185,129,0.25)' : opt.value === 'paid' ? 'rgba(245,158,11,0.25)' : 'rgba(0,191,255,0.18)'
@@ -743,13 +806,13 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       )}
 
       {/* Empty state — filter returned zero results */}
-      {!loading && !showSavedOnly && filteredCards.length === 0 && (
+      {!isSurfaceLoading && !showSavedOnly && filteredCards.length === 0 && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 px-6">
           <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center mb-1">
-            <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />
+            {isEventSurface ? <Sparkles className="w-7 h-7 text-white/20" strokeWidth={1.5} /> : <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />}
           </div>
           <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
-            No spots match this filter.<br />Try a different category.
+            {isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />Try a different category.
           </p>
           <motion.button
             onClick={() => { setAppliedFilter(null); setCurrentIndex(0); }}
@@ -852,7 +915,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       </AnimatePresence>
 
       <AnimatePresence>
-        {selectedValetService && (
+        {!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && selectedValetService && (
           <Suspense fallback={null}>
             <ValetFlow
               service={selectedValetService}

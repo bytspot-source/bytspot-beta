@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle, Ticket, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { trpc } from '../utils/trpc';
@@ -17,10 +17,12 @@ import { PrivacyPolicy } from './PrivacyPolicy';
 import { TermsOfService } from './TermsOfService';
 import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
-import { impactLight, notifySuccess } from '../utils/haptics';
+import { impactLight } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
+import { activateMockInsiderMembership, getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
+import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -31,7 +33,18 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+
+function formatCommerceTime(value: string | null): string {
+  if (!value) return 'Not yet activated';
+  return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatReservationWindow(startTime: string, endTime: string): string {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
 
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
@@ -57,21 +70,56 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [referralCount, setReferralCount] = useState<number | null>(null);
   // Following count — start with localStorage, upgrade via API
   const [followingCount, setFollowingCount] = useState(getFollowedUsers().length);
-  // Premium status
-  const [isPremium, setIsPremium] = useState(false);
-  const [premiumLoading, setPremiumLoading] = useState(false);
+  const [membership, setMembership] = useState(() => getInsiderMembership());
+  const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
+  const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
+  const [insiderLoading, setInsiderLoading] = useState(false);
+  const hasRealInsiderCheckout = (() => {
+    const token = localStorage.getItem('bytspot_auth_token');
+    return !!token && token !== 'beta_guest';
+  })();
 
   useEffect(() => {
+    const syncCommerce = () => {
+      setMembership(getInsiderMembership());
+      setWalletPasses(getAccessPasses());
+      setParkingReservations(getParkingReservations());
+    };
+
     // Upgrade from API (fire all in parallel)
     getUserPointsAsync().then(setUserPoints).catch(() => {});
     getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
     getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
     trpc.auth.me.query().then((data) => {
-      setReferralCount(data.referralCount);
+      setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
     trpc.subscription.status.query().then((data) => {
-      setIsPremium(data.isPremium);
+      if (data?.isPremium) {
+        setMembership(syncInsiderMembershipFromPremium(true));
+      } else {
+        syncCommerce();
+      }
     }).catch(() => {});
+
+    if (hasRealInsiderCheckout) {
+      trpc.user.accessPasses.list.query().then((passes: any[]) => {
+        replaceAccessPassesFromServer(passes || []);
+      }).catch(() => {});
+    }
+
+    window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+    window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
+
+    const profileFocus = localStorage.getItem('bytspot_profile_focus');
+    if (profileFocus === 'reservations') {
+      setCurrentScreen('reservations');
+      localStorage.removeItem('bytspot_profile_focus');
+    }
+
+    return () => {
+      window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+      window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
+    };
   }, []);
 
   const springConfig = {
@@ -81,6 +129,50 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     mass: 0.8,
   };
 
+  const handleInsiderAction = async () => {
+    if (membership.isActive) {
+      setCurrentScreen('tickets');
+      return;
+    }
+
+    impactLight();
+    setInsiderLoading(true);
+
+    try {
+      if (hasRealInsiderCheckout) {
+        const result = await trpc.subscription.createCheckout.mutate();
+
+        if (result?.url) {
+          window.location.href = result.url;
+          return;
+        }
+
+        if (result?.message === 'Already premium') {
+          setMembership(syncInsiderMembershipFromPremium(true));
+          setCurrentScreen('tickets');
+          toast.success('Insider already active', { description: 'Your access wallet is ready in Profile.' });
+          return;
+        }
+
+        if (result?.demoMode) {
+          toast('Stripe not configured — using demo Insider activation', { description: result.message || 'Real checkout will work once Stripe is configured.' });
+        }
+      } else {
+        toast('Sign in to start real Insider checkout', { description: 'Guest mode will use the demo Insider activation flow.' });
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 850));
+      const nextMembership = activateMockInsiderMembership();
+      setMembership(nextMembership);
+      toast.success('Insider activated', { description: 'Your profile now shows Insider access and My Access.' });
+      setCurrentScreen('tickets');
+    } catch (error: any) {
+      toast.error('Unable to start Insider checkout', { description: error?.message || 'Please try again in a moment.' });
+    } finally {
+      setInsiderLoading(false);
+    }
+  };
+
   const menuSections = [
     {
       title: 'Account',
@@ -88,6 +180,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
         { icon: <User className="w-5 h-5" />, label: 'Personal Information', badge: null, screen: 'personal-info' as ProfileScreen },
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: '2', screen: 'vehicles' as ProfileScreen },
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: '2', screen: 'payment' as ProfileScreen },
+        { icon: <Ticket className="w-5 h-5" />, label: 'My Access', badge: walletPasses.length > 0 ? walletPasses.length.toString() : null, screen: 'tickets' as ProfileScreen },
+        { icon: <Receipt className="w-5 h-5" />, label: 'My Reservations', badge: parkingReservations.length > 0 ? parkingReservations.length.toString() : null, screen: 'reservations' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
         { icon: <Users className="w-5 h-5" />, label: 'Friends', badge: (() => { const f = getFollowedUsers().length; return f > 0 ? f.toString() : null; })(), screen: 'friends' as ProfileScreen },
@@ -202,6 +296,187 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'points') {
     return <BytspotPoints isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+  }
+
+  if (currentScreen === 'tickets') {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2">
+          <motion.button
+            onClick={() => setCurrentScreen('main')}
+            className="flex items-center gap-2 text-white mb-2"
+            whileTap={{ scale: 0.95 }}
+          >
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-4">
+          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
+                <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} saved</h3>
+                <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
+                  {membership.isActive ? 'Insider access is active on this profile.' : 'Start Insider from Profile to unlock the full membership and access-pass journey.'}
+                </p>
+              </div>
+              <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
+                {membership.label}
+              </div>
+            </div>
+          </div>
+
+          {walletPasses.length === 0 ? (
+            <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">
+              <div className="w-14 h-14 mx-auto rounded-full bg-white/10 flex items-center justify-center mb-4">
+                <Ticket className="w-7 h-7 text-white/70" strokeWidth={2.2} />
+              </div>
+              <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No access yet</p>
+              <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
+                Paid venue and event passes you unlock in Discover will appear here instantly.
+              </p>
+            </div>
+          ) : (
+            walletPasses.map((pass, index) => (
+              <motion.div
+                key={pass.id}
+                className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden relative"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...springConfig, delay: 0.05 + index * 0.05 }}
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="relative flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{pass.title}</p>
+                    <p className="text-[13px] text-white/60 mt-1" style={{ fontWeight: 400 }}>
+                      {pass.subtitle ? `${pass.subtitle} · ${pass.location}` : pass.location}
+                    </p>
+                  </div>
+                  <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.4} />
+                    <span className="text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>Confirmed</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ACCESS</p>
+                    <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>{pass.priceLabel}</p>
+                  </div>
+                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ORDER</p>
+                    <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>{pass.orderNumber}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-[16px] p-3 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-fuchsia-500/10 border border-white/10 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ADDED</p>
+                    <p className="text-[13px] text-white/80" style={{ fontWeight: 500 }}>{formatCommerceTime(pass.purchasedAt)}</p>
+                  </div>
+                  <div className="px-3 py-2 rounded-[14px] bg-black/25 border border-white/10">
+                    <span className="text-[12px] text-white tracking-[0.25em]" style={{ fontWeight: 700 }}>QR READY</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (currentScreen === 'reservations') {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2">
+          <motion.button
+            onClick={() => setCurrentScreen('main')}
+            className="flex items-center gap-2 text-white mb-2"
+            whileTap={{ scale: 0.95 }}
+          >
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-4">
+          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/12 via-blue-500/12 to-emerald-500/12 backdrop-blur-xl shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY RESERVATIONS</p>
+                <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{parkingReservations.length} active</h3>
+                <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
+                  Parking stays separate from venue and event access, so your arrivals stay easy to manage.
+                </p>
+              </div>
+              <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
+                Parking passes
+              </div>
+            </div>
+          </div>
+
+          {parkingReservations.length === 0 ? (
+            <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">
+              <div className="w-14 h-14 mx-auto rounded-full bg-white/10 flex items-center justify-center mb-4">
+                <Car className="w-7 h-7 text-white/70" strokeWidth={2.2} />
+              </div>
+              <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No parking reservations yet</p>
+              <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
+                Parking checkouts and demo reservations will appear here as dedicated parking passes.
+              </p>
+            </div>
+          ) : (
+            parkingReservations.map((reservation, index) => (
+              <motion.div
+                key={reservation.id}
+                className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden relative"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...springConfig, delay: 0.05 + index * 0.05 }}
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="relative flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{reservation.spotName}</p>
+                    <p className="text-[13px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{reservation.address}</p>
+                  </div>
+                  <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.4} />
+                    <span className="text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>Active</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>WINDOW</p>
+                    <p className="text-[14px] text-white" style={{ fontWeight: 700 }}>{formatReservationWindow(reservation.startTime, reservation.endTime)}</p>
+                  </div>
+                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>PRICE</p>
+                    <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>${reservation.totalCost.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-[16px] p-3 bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-emerald-500/10 border border-white/10 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>PASS CODE</p>
+                    <p className="text-[13px] text-white/80 tracking-[0.2em]" style={{ fontWeight: 700 }}>{reservation.reservationCode}</p>
+                  </div>
+                  <div className="px-3 py-2 rounded-[14px] bg-black/25 border border-white/10 text-right">
+                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>SOURCE</p>
+                    <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{reservation.source === 'stripe' ? 'Checkout' : 'Demo'}</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))
+          )}
+        </div>
+      </div>
+    );
   }
 
   if (currentScreen === 'friends') {
@@ -364,9 +639,9 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 <h2 className="text-[22px] text-white" style={{ fontWeight: 700 }}>
                   {userName}
                 </h2>
-                {isPremium && (
-                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/40 to-yellow-400/40 border border-amber-400/50">
-                    <span className="text-[11px] text-amber-200" style={{ fontWeight: 700 }}>Premium ✨</span>
+                {membership.isActive && (
+                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/30 via-purple-500/30 to-fuchsia-500/30 border border-fuchsia-400/40">
+                    <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>Insider ✨</span>
                   </div>
                 )}
               </div>
@@ -409,6 +684,139 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       </motion.div>
 
       {/* Points & Rewards Quick Access */}
+      <motion.div
+        className="px-4 mb-6"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.08 }}
+      >
+        <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>SUBSCRIPTION STATUS</p>
+              <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>{membership.label}</p>
+              <p className="text-[13px] text-white/65 mt-2" style={{ fontWeight: 400 }}>
+                {membership.isActive
+                  ? `Activated ${formatCommerceTime(membership.activatedAt)}.`
+                  : 'Start Insider to launch real checkout when signed in, with demo fallback in guest mode.'}
+              </p>
+            </div>
+            <div className={`px-3 py-1.5 rounded-full border text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/70'}`} style={{ fontWeight: 700 }}>
+              {membership.isActive ? 'ACTIVE' : 'AVAILABLE'}
+            </div>
+          </div>
+
+          <div className="relative flex flex-wrap gap-2 mt-4 mb-4">
+            {INSIDER_PERKS.map((perk) => (
+              <div key={perk} className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                {perk}
+              </div>
+            ))}
+          </div>
+
+          <motion.button
+            onClick={handleInsiderAction}
+            className="relative w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 flex items-center justify-center gap-2 shadow-lg"
+            whileTap={{ scale: 0.97 }}
+            transition={springConfig}
+          >
+            <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
+            <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+              {membership.isActive ? 'Open My Access' : insiderLoading ? 'Starting Insider…' : hasRealInsiderCheckout ? 'Start Insider' : 'Preview Insider'}
+            </span>
+          </motion.button>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="px-4 mb-6"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.095 }}
+      >
+        <motion.button
+          onClick={() => setCurrentScreen('reservations')}
+          className="w-full rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/12 via-blue-500/12 to-emerald-500/12 backdrop-blur-xl shadow-xl text-left relative overflow-hidden"
+          whileTap={{ scale: 0.98 }}
+          transition={springConfig}
+        >
+          <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center">
+              <Car className="w-6 h-6 text-white" strokeWidth={2.4} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[13px] text-white/60 mb-0.5" style={{ fontWeight: 700 }}>MY RESERVATIONS</p>
+              <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{parkingReservations.length} parking pass{parkingReservations.length === 1 ? '' : 'es'}</p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.4} />
+          </div>
+
+          {parkingReservations.length > 0 ? (
+            <div className="relative rounded-[18px] p-4 bg-black/25 border border-white/10">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{parkingReservations[0].spotName}</p>
+                  <p className="text-[12px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{formatReservationWindow(parkingReservations[0].startTime, parkingReservations[0].endTime)} · {parkingReservations[0].reservationCode}</p>
+                </div>
+                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
+                  Active
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="relative text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+              Parking checkouts stay separate from event and venue access, so your arrival details are easy to find.
+            </p>
+          )}
+        </motion.button>
+      </motion.div>
+
+      <motion.div
+        className="px-4 mb-6"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.09 }}
+      >
+        <motion.button
+          onClick={() => setCurrentScreen('tickets')}
+          className="w-full rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-left relative overflow-hidden"
+          whileTap={{ scale: 0.98 }}
+          transition={springConfig}
+        >
+          <div className="absolute top-0 right-0 w-28 h-28 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-fuchsia-500 flex items-center justify-center">
+              <Ticket className="w-6 h-6 text-white" strokeWidth={2.4} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[13px] text-white/60 mb-0.5" style={{ fontWeight: 700 }}>MY ACCESS</p>
+              <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} in wallet</p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.4} />
+          </div>
+
+          {walletPasses.length > 0 ? (
+            <div className="relative rounded-[18px] p-4 bg-black/25 border border-white/10">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{walletPasses[0].title}</p>
+                  <p className="text-[12px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{walletPasses[0].priceLabel} · {walletPasses[0].orderNumber}</p>
+                </div>
+                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
+                  Confirmed
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="relative text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+              Unlock paid venue and event access in Discover and it’ll appear here as clean, ready-to-use passes.
+            </p>
+          )}
+        </motion.button>
+      </motion.div>
+
       <motion.div
         className="px-4 mb-6"
         initial={{ opacity: 0, y: 10 }}
@@ -579,45 +987,6 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             </div>
           </motion.div>
         ))}
-
-        {/* Go Premium Upsell (only for non-premium users) */}
-        {!isPremium && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springConfig, delay: 0.22 }}
-          >
-            <motion.button
-              onClick={async () => {
-                setPremiumLoading(true);
-                try {
-                  const result = await trpc.subscription.createCheckout.mutate();
-                  if (result.url) {
-                    window.location.href = result.url;
-                  } else if (result.demoMode) {
-                    toast('Premium upgrade is being set up. Check back shortly!');
-                  } else {
-                    toast(result.message || 'You are already premium!');
-                  }
-                } catch {
-                  toast.error('Something went wrong. Try again.');
-                } finally {
-                  setPremiumLoading(false);
-                }
-              }}
-              disabled={premiumLoading}
-              className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 border-amber-400/40 bg-gradient-to-r from-amber-500/20 to-yellow-400/20 hover:from-amber-500/30 hover:to-yellow-400/30 shadow-xl"
-              whileTap={{ scale: 0.98 }}
-              transition={springConfig}
-            >
-              <Crown className="w-5 h-5 text-amber-300" strokeWidth={2.5} />
-              <span className="text-[15px] text-amber-200" style={{ fontWeight: 700 }}>
-                {premiumLoading ? 'Loading...' : 'Go Premium — $9.99/mo ✨'}
-              </span>
-            </motion.button>
-            <p className="text-[12px] text-white/40 text-center mt-2">Ad-free · Priority Concierge · Exclusive Badge</p>
-          </motion.div>
-        )}
 
         {/* Become a Host Button */}
         {onBecomeHost && (

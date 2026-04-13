@@ -81,8 +81,11 @@
       "scripts": {
             "dev": "vite",
             "build": "vite build",
+            "preview:e2e": "node ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort",
             "type-check": "tsc -p tsconfig.app.json --noEmit",
             "lint": "eslint src --quiet",
+            "test:e2e:ticketing": "npm run build && node scripts/run-ticketing-e2e.mjs",
+            "test:e2e:ticketing:spec": "node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/navigation.spec.ts --project=chromium --grep \"paid venue\" --reporter=line",
             "cap:sync": "npm run build && npx cap sync ios",
             "cap:open": "npx cap open ios",
             "cap:run": "npm run build && npx cap sync ios && npx cap open ios",

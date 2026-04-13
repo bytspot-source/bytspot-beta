@@ -7,14 +7,15 @@ import { trpc, type ApiRidesResponse } from '../utils/trpc';
 interface RideSelectionProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectValet: () => void;
+  onSelectValet?: () => void;
+  showValetOption?: boolean;
   isDarkMode: boolean;
   destination?: string;
   lat?: number;
   lng?: number;
 }
 
-export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, destination, lat = 33.7866, lng = -84.3833 }: RideSelectionProps) {
+export function RideSelection({ isOpen, onClose, onSelectValet, showValetOption = true, isDarkMode, destination, lat = 33.7866, lng = -84.3833 }: RideSelectionProps) {
   const [rides, setRides] = useState<ApiRidesResponse | null>(null);
 
   useEffect(() => {
@@ -108,7 +109,7 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, dest
                     </div>
                   ) : (
                     <p className="text-[12px] leading-tight text-white/60" style={{ fontWeight: 400 }}>
-                      Ride ETAs & valet options nearby
+                      {showValetOption ? 'Ride ETAs & valet options nearby' : 'Ride ETAs nearby'}
                     </p>
                   )}
                 </div>
@@ -121,42 +122,44 @@ export function RideSelection({ isOpen, onClose, onSelectValet, isDarkMode, dest
               </div>
 
               <div className="space-y-1.5 rounded-[24px] border border-white/5 bg-white/[0.03] p-2 pt-1.5">
-                {/* Valet Option */}
-                <motion.button
-                  onClick={() => {
-                    onSelectValet();
-                    onClose();
-                  }}
-                  className="w-full min-h-[74px] p-3 rounded-[20px] bg-gradient-to-br from-orange-500/20 to-red-500/20 border border-orange-500/30 flex items-center gap-2.5 group relative overflow-hidden"
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg group-hover:shadow-orange-500/25 transition-shadow">
-                    <Star className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
-                  </div>
-                  <div className="flex-1 pr-2 text-left">
-                    <h3 className="text-[15px] leading-tight text-white mb-0.5" style={{ fontWeight: 600 }}>
-                      Valet Service
-                    </h3>
-                    <p className="text-[11px] leading-tight text-white/60" style={{ fontWeight: 400 }}>
-                      Premium parking & retrieval
-                    </p>
-                  </div>
-                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-white/50 group-hover:bg-white/20 group-hover:text-white transition-colors">
-                    <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-                  </div>
-                </motion.button>
+                {showValetOption && onSelectValet && (
+                  <>
+                    <motion.button
+                      onClick={() => {
+                        onSelectValet();
+                        onClose();
+                      }}
+                      className="w-full min-h-[74px] p-3 rounded-[20px] bg-gradient-to-br from-orange-500/20 to-red-500/20 border border-orange-500/30 flex items-center gap-2.5 group relative overflow-hidden"
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg group-hover:shadow-orange-500/25 transition-shadow">
+                        <Star className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
+                      </div>
+                      <div className="flex-1 pr-2 text-left">
+                        <h3 className="text-[15px] leading-tight text-white mb-0.5" style={{ fontWeight: 600 }}>
+                          Valet Service
+                        </h3>
+                        <p className="text-[11px] leading-tight text-white/60" style={{ fontWeight: 400 }}>
+                          Premium parking & retrieval
+                        </p>
+                      </div>
+                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-white/50 group-hover:bg-white/20 group-hover:text-white transition-colors">
+                        <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+                      </div>
+                    </motion.button>
 
-                {/* Divider */}
-                <div className="relative py-1">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-white/10" />
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="bg-[#1F1F21] px-2.5 text-[10px] tracking-[0.18em] text-white/40 font-medium">
-                      OR RIDE SHARE
-                    </span>
-                  </div>
-                </div>
+                    <div className="relative py-1">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-white/10" />
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="bg-[#1F1F21] px-2.5 text-[10px] tracking-[0.18em] text-white/40 font-medium">
+                          OR RIDE SHARE
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* Uber Option */}
                 <motion.button

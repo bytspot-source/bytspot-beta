@@ -36,7 +36,10 @@ import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
 import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
-import { TONIGHT_EVENTS, type AppEvent } from './utils/events';
+import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
+import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
+import { finalizePendingParkingCheckout } from './utils/parkingReservations';
+import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
 
 import {
   getPersonalizedCategories,
@@ -105,7 +108,18 @@ export default function App() {
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
+  const [eventsFeed, setEventsFeed] = useState<AppEvent[]>(() => getCachedEvents());
+  const [eventsLoading, setEventsLoading] = useState(false);
   const homeScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && (currentScreen === 'host' || currentScreen === 'valet')) {
+      setCurrentScreen('main');
+    }
+    if (APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && valetServiceFromRide) {
+      setValetServiceFromRide(null);
+    }
+  }, [currentScreen, valetServiceFromRide]);
 
   // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
   const tonightsPick = useMemo(() => {
@@ -240,6 +254,28 @@ export default function App() {
     if (updated) localStorage.setItem(notifiedKey, JSON.stringify(notified));
   }, [apiVenues]);
 
+  const refreshEvents = async () => {
+    const events = await getEventsAsync();
+    setEventsFeed(events);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setEventsLoading(true);
+
+    getEventsAsync()
+      .then((events) => {
+        if (!cancelled) setEventsFeed(events);
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Handle intelligent search
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,7 +311,7 @@ export default function App() {
         dining: 'Restaurants',
         shopping: 'Shopping',
         nightlife: 'Nightlife',
-        entertainment: 'Entertainment',
+        entertainment: 'Events',
         fitness: 'Fitness Centers',
       };
       
@@ -523,12 +559,25 @@ export default function App() {
     // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
     const path = window.location.pathname;
     if (path.includes('/premium/success')) {
-      toast.success('🎉 Welcome to Bytspot Premium!', { description: 'Your subscription is now active.', duration: 5000 });
+      syncInsiderMembershipFromPremium(true);
+      toast.success('🎉 Welcome to Insider!', { description: 'Your membership is now active.', duration: 5000 });
       setActiveTab('profile');
+      setCurrentScreen('main');
       // Clean the URL without reload
       window.history.replaceState({}, '', '/');
+    } else if (path.includes('/premium/cancelled')) {
+      toast('Insider checkout cancelled — no charges made.', { duration: 3000 });
+      setActiveTab('profile');
+      window.history.replaceState({}, '', '/');
     } else if (path.includes('/parking/success')) {
-      toast.success('✅ Parking Reserved!', { description: 'Your parking spot is confirmed.', duration: 5000 });
+      const sessionId = new URLSearchParams(window.location.search).get('session_id');
+      finalizePendingParkingCheckout(sessionId);
+      localStorage.setItem('bytspot_profile_focus', 'reservations');
+      toast.success('✅ Parking Reserved!', { description: 'Your parking pass is now available in Profile → My Reservations.', duration: 5000 });
+      setActiveTab('profile');
+      window.history.replaceState({}, '', '/');
+    } else if (path.includes('/parking/cancelled')) {
+      toast('Parking checkout cancelled — no charges made.', { duration: 3000 });
       setActiveTab('map');
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/cancelled')) {
@@ -630,7 +679,7 @@ export default function App() {
   }
 
   // ── Host App ─────────────────────────────────────────
-  if (currentScreen === 'host') {
+  if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && currentScreen === 'host') {
     return (
       <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
         <HostApp
@@ -642,7 +691,7 @@ export default function App() {
   }
 
   // ── Valet App ────────────────────────────────────────
-  if (currentScreen === 'valet') {
+  if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && currentScreen === 'valet') {
     return (
       <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
         <ValetApp
@@ -805,11 +854,13 @@ export default function App() {
                     <span className="text-[11px] text-white/40">{userCity}</span>
                   </div>
                   <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4 pb-2">
-                    {TONIGHT_EVENTS.map((evt: AppEvent, i: number) => (
-                      <motion.div
+                    {eventsFeed.map((evt: AppEvent, i: number) => (
+                      <motion.button
                         key={evt.id}
+                        type="button"
                         className="flex-shrink-0 w-[160px] rounded-2xl overflow-hidden border border-white/10"
                         style={{ background: '#1C1C1E' }}
+                        onClick={() => handleCategoryClick('entertainment', 'Events')}
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.1 + i * 0.05 }}
@@ -835,7 +886,7 @@ export default function App() {
                             )}
                           </div>
                         </div>
-                      </motion.div>
+                      </motion.button>
                     ))}
                   </div>
                 </div>
@@ -885,7 +936,7 @@ export default function App() {
                         delay={0.35}
                         icon={<Star className="w-[22px] h-[22px]" strokeWidth={2.5} />}
                         title="Book a Ride"
-                        subtitle="Valet & Rideshare"
+                        subtitle="Uber & Lyft"
                         color="orange"
                         isDarkMode={isDarkMode}
                         onClick={() => {
@@ -1115,7 +1166,7 @@ export default function App() {
                           { label: 'Shopping', category: 'shopping', priority: 0, reason: 'trending' as const },
                           { label: 'Nightlife', category: 'nightlife', priority: 0, reason: 'trending' as const },
                           { label: 'Fitness', category: 'fitness', priority: 0, reason: 'trending' as const },
-                          { label: 'Entertainment', category: 'entertainment', priority: 0, reason: 'trending' as const },
+                          { label: 'Events', category: 'entertainment', priority: 0, reason: 'trending' as const },
                         ]).map((item, index) => {
                           const isPersonalized = item.reason === 'preference' || item.reason === 'behavior';
                           const isTimeRelevant = item.reason === 'time';
@@ -1277,9 +1328,12 @@ export default function App() {
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
                     apiCards={discoverApiCards}
+                    events={eventsFeed}
                     loading={venuesLoading}
+                    eventsLoading={eventsLoading}
                     error={venuesError}
                     refresh={refreshVenues}
+                    refreshEvents={refreshEvents}
                     searchPlaces={searchPlaces}
                     searchNearby={searchNearby}
                     placesLoading={placesLoading}
@@ -1372,8 +1426,8 @@ export default function App() {
                       isDarkMode={isDarkMode}
                       isHost={isHost}
                       isValet={isValet}
-                      onBecomeHost={() => setCurrentScreen('host')}
-                      onBecomeValet={() => setCurrentScreen('valet')}
+                      onBecomeHost={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('host')}
+                      onBecomeValet={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('valet')}
                       onLogout={() => {
                         localStorage.removeItem('bytspot_auth_token');
                         localStorage.removeItem('bytspot_user');
@@ -1465,8 +1519,8 @@ export default function App() {
         <RideSelection
           isOpen={showRideSelection}
           onClose={() => { setShowRideSelection(false); setRideDestination(undefined); }}
-          onSelectValet={() => {
-            // Build a ValetService object from the current ride destination
+          showValetOption={!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET}
+          onSelectValet={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => {
             const dest = rideDestination;
             setValetServiceFromRide({
               id: `valet-${Date.now()}`,
@@ -1491,7 +1545,7 @@ export default function App() {
 
         {/* Valet Flow — triggered from RideSelection "Valet Service" button */}
         <AnimatePresence>
-          {valetServiceFromRide && (
+          {!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && valetServiceFromRide && (
             <Suspense fallback={null}>
               <ValetFlow
                 service={valetServiceFromRide}

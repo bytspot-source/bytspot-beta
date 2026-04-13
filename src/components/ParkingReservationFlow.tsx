@@ -8,6 +8,7 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
+import { createDemoParkingReservation, savePendingParkingCheckout } from '../utils/parkingReservations';
 
 interface ParkingSpot {
   id: string;
@@ -154,6 +155,14 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
 
   const handleReserve = async () => {
     setIsReserving(true);
+    const reservationDraft = {
+      spotId: String(selectedSpot.id),
+      spotName: selectedSpot.name,
+      address: selectedSpot.address,
+      durationHours: duration,
+      totalCost,
+    };
+
     try {
       const result = await trpc.payments.checkout.mutate({
         spotId: selectedSpot.id,
@@ -164,6 +173,7 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
       });
       if (result.url) {
         // Real Stripe Checkout — redirect to hosted payment page
+        savePendingParkingCheckout(reservationDraft);
         window.location.href = result.url;
         return;
       }
@@ -175,7 +185,8 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
       // Network error — fall through to demo
     }
     // Demo fallback: simulate successful reservation
-    setReservationCode(`BYT${Date.now().toString().slice(-6)}`);
+    const reservation = createDemoParkingReservation(reservationDraft);
+    setReservationCode(reservation.reservationCode);
     setIsReserving(false);
     setCurrentScreen('active');
   };

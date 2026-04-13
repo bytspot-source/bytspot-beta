@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle } from 'lucide-react';
+import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle, Ticket, Sparkles } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
+import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
 import { addPoints } from '../utils/gamification';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
@@ -10,6 +10,7 @@ import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';
 import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
+import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, upsertAccessPass } from '../utils/insiderCommerce';
 
 interface VenueDetailsProps {
   venue: any;
@@ -95,9 +96,38 @@ function generateEstimatedCrowdHistory(category: string, currentCrowd: string | 
   });
 }
 
+function formatTicketTime(value: string): string {
+  return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
+  const favoriteSpotId = String(venue.id || venue.placeId || venue.slug || venue.name.toLowerCase().replace(/\s+/g, '-'));
+  const isEventAccess = venue.type === 'entertainment';
+  const accessProduct = {
+    id: venue.id || venue.apiId || venue.placeId || venue.slug,
+    name: isEventAccess ? (venue.eventName || venue.name) : venue.name,
+    type: venue.type || venue.category || 'venue',
+    productType: isEventAccess ? 'event' : 'venue',
+    subtitle: isEventAccess
+      ? [venue.eventDate, venue.eventTime].filter(Boolean).join(' · ') || 'Event access'
+      : 'Venue access',
+    location: venue.location || (isEventAccess ? venue.name : venue.description) || 'Atlanta Midtown',
+    entryPrice: venue.entryPrice || null,
+    accessLabel: isEventAccess ? 'Event pass' : 'Entry pass',
+    ticketUrl: venue.ticketUrl || null,
+  };
+  const isTicketedVenue = venue.entryType === 'paid';
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
+  const [activePass, setActivePass] = useState<AccessPass | null>(() => getAccessPassForProduct(accessProduct));
+  const [membership, setMembership] = useState(() => getInsiderMembership());
+  const [showTicketFlow, setShowTicketFlow] = useState(false);
+  const [ticketFlowStep, setTicketFlowStep] = useState<'offer' | 'checkout' | 'confirmed'>('offer');
+  const [ticketLoading, setTicketLoading] = useState(false);
+  const hasRealAccessSync = (() => {
+    const token = localStorage.getItem('bytspot_auth_token');
+    return !!token && token !== 'beta_guest';
+  })();
   // Dynamic gallery — prefer Google Places photos, fall back to Unsplash
   const venueCategory = venue.category || venue.type || 'venue';
   const galleryImages = resolveVenuePhotos({
@@ -127,6 +157,27 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
   const [reviewVibe, setReviewVibe] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
+
+  useEffect(() => {
+    setIsFavorite(isSpotSaved(favoriteSpotId));
+  }, [favoriteSpotId]);
+
+  useEffect(() => {
+    const syncCommerce = () => {
+      setMembership(getInsiderMembership());
+      setActivePass(getAccessPassForProduct(accessProduct));
+    };
+    window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+    return () => window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+  }, [accessProduct.accessLabel, accessProduct.entryPrice, accessProduct.id, accessProduct.location, accessProduct.name, accessProduct.productType, accessProduct.subtitle, accessProduct.ticketUrl, accessProduct.type]);
+
+  useEffect(() => {
+    if (!hasRealAccessSync || !isTicketedVenue) return;
+    trpc.user.accessPasses.list.query().then((passes: AccessPass[]) => {
+      replaceAccessPassesFromServer(passes || []);
+      setActivePass(getAccessPassForProduct(accessProduct));
+    }).catch(() => {});
+  }, [accessProduct.id, accessProduct.name, accessProduct.productType, accessProduct.subtitle, accessProduct.location, accessProduct.entryPrice, accessProduct.accessLabel, accessProduct.ticketUrl, accessProduct.type, hasRealAccessSync, isTicketedVenue]);
 
   // Venue check-in activity feed
   const [venueCheckins, setVenueCheckins] = useState<Array<{ id: string; userId: string; userName: string; crowdLevel: number; crowdLabel: string; timestamp: string }>>([]);
@@ -281,6 +332,33 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     }
   };
 
+  const handleToggleFavorite = () => {
+    if (isSpotSaved(favoriteSpotId)) {
+      removeSavedSpot(favoriteSpotId);
+      setIsFavorite(false);
+      toast.success(`Removed ${venue.name}`, { description: 'Removed from your saved spots', duration: 2000 });
+      return;
+    }
+
+    saveSpot({
+      id: favoriteSpotId,
+      type: (venue.type || venue.category || 'venue') as SpotType,
+      name: venue.name,
+      address: venue.location || venue.description || 'Atlanta Midtown',
+      distance: venue.distance,
+      rating: venue.rating,
+      imageUrl: venue.image,
+      price: venue.entryPrice || venue.price,
+      features: venue.features,
+      hours: venue.hours,
+      coordinates: typeof venue._lat === 'number' && typeof venue._lng === 'number'
+        ? { lat: venue._lat, lng: venue._lng }
+        : undefined,
+    });
+    setIsFavorite(true);
+    toast.success(`Saved ${venue.name}`, { description: 'Added to your saved spots', duration: 2000 });
+  };
+
   const handleShare = async () => {
     const slug = venue._slug || venue.slug;
     const venueUrl = slug
@@ -303,6 +381,39 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
       } catch {
         toast.success(`Share: ${venueUrl}`, { duration: 4000 });
       }
+    }
+  };
+
+  const handleOpenTicketFlow = () => {
+    if (!isTicketedVenue) return;
+    setTicketFlowStep(activePass ? 'confirmed' : 'offer');
+    setShowTicketFlow(true);
+  };
+
+  const handleConfirmTicket = async () => {
+    setTicketLoading(true);
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      const confirmedPass = hasRealAccessSync
+        ? upsertAccessPass(await trpc.user.accessPasses.confirm.mutate({
+            productId: String(accessProduct.id ?? accessProduct.name),
+            productType: accessProduct.productType,
+            title: accessProduct.name,
+            subtitle: accessProduct.subtitle,
+            location: accessProduct.location ?? 'Atlanta Midtown',
+            priceLabel: accessProduct.entryPrice ?? 'Paid entry',
+            accessLabel: accessProduct.accessLabel ?? (isEventAccess ? 'Event pass' : 'Entry pass'),
+            ticketUrl: accessProduct.ticketUrl ?? null,
+          }))
+        : addAccessPassToWallet(accessProduct);
+
+      setActivePass(confirmedPass);
+      setTicketFlowStep('confirmed');
+      toast.success('Pass saved to My Access', { description: `${accessProduct.name} is ready in your Profile wallet.` });
+    } catch (error: any) {
+      toast.error('Unable to confirm access', { description: error?.message || 'Please try again.' });
+    } finally {
+      setTicketLoading(false);
     }
   };
 
@@ -425,11 +536,21 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                     {venue.description}
                   </p>
                 )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className={`px-2.5 py-1 rounded-full border text-[12px] ${isTicketedVenue ? 'bg-amber-500/20 border-amber-400/40 text-amber-200' : 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'}`} style={{ fontWeight: 700 }}>
+                    {isTicketedVenue ? (venue.entryPrice || 'Paid entry') : 'FREE ENTRY'}
+                  </div>
+                  {activePass && (
+                    <div className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[12px] text-emerald-200" style={{ fontWeight: 700 }}>
+                      Pass confirmed
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Favorite Button */}
               <motion.button
-                onClick={() => setIsFavorite(!isFavorite)}
+                onClick={handleToggleFavorite}
                 className={`w-12 h-12 rounded-full flex items-center justify-center border-2 flex-shrink-0 ml-3 ${
                   isFavorite
                     ? 'bg-pink-500/20 border-pink-400'
@@ -527,6 +648,56 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               </div>
             </div>
           </motion.div>
+
+          {isTicketedVenue && (
+            <motion.div
+              className="mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.32 }}
+            >
+              <h3 className="text-[20px] mb-3 text-white" style={{ fontWeight: 600 }}>{isEventAccess ? 'Event Access' : 'Entry Access'}</h3>
+              <div className="rounded-[20px] p-4 border border-white/30 bg-gradient-to-br from-cyan-500/12 via-purple-500/12 to-fuchsia-500/12 backdrop-blur-xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'}</p>
+                    <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 400 }}>
+                      {isEventAccess
+                        ? 'Secure event access before you head out. Once confirmed, your pass lands in My Access inside Profile.'
+                        : 'Secure paid entry before you head out. Once confirmed, your pass lands in My Access inside Profile.'}
+                    </p>
+                  </div>
+                  <div className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[12px] text-amber-200" style={{ fontWeight: 700 }}>
+                    {venue.entryPrice || 'Paid entry'}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mt-4 mb-4">
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                    Door-ready wallet pass
+                  </div>
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                    {membership.isActive ? 'Insider active on this profile' : 'Activate Insider in Profile'}
+                  </div>
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                    {activePass ? 'Pass already confirmed' : 'Fast mock checkout'}
+                  </div>
+                </div>
+
+                <motion.button
+                  onClick={handleOpenTicketFlow}
+                  data-testid="venue-ticket-cta"
+                  className={`w-full py-3 rounded-[16px] flex items-center justify-center gap-2 ${activePass ? 'bg-emerald-500/15 border border-emerald-400/40' : 'bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500'}`}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {activePass ? <CheckCircle className="w-5 h-5 text-emerald-300" strokeWidth={2.5} /> : <Ticket className="w-5 h-5 text-white" strokeWidth={2.5} />}
+                  <span className={`text-[15px] ${activePass ? 'text-emerald-200' : 'text-white'}`} style={{ fontWeight: 700 }}>
+                    {activePass ? 'Pass Confirmed — Open Wallet' : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} — ${venue.entryPrice || 'Paid entry'}`}
+                  </span>
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
 
           {/* Crowd Trend Chart */}
           <motion.div
@@ -881,24 +1052,43 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               )}
             </div>
 
-            {/* Check In CTA */}
-            <motion.button
-              onClick={handleCheckIn}
-              disabled={checkedIn}
-              className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3"
-              style={{
-                background: checkedIn
-                  ? 'rgba(16,185,129,0.15)'
-                  : 'linear-gradient(135deg,#10b981,#059669)',
-                border: checkedIn ? '2px solid rgba(16,185,129,0.4)' : '2px solid transparent',
-              }}
-              whileTap={checkedIn ? {} : { scale: 0.97 }}
-            >
-              <CheckCircle className={`w-5 h-5 ${checkedIn ? 'text-emerald-400' : 'text-white'}`} strokeWidth={2.5} />
-              <span className={`text-[15px] ${checkedIn ? 'text-emerald-400' : 'text-white'}`} style={{ fontWeight: 700 }}>
-                {checkedIn ? 'Checked In ✓' : 'Check In · +10 pts'}
-              </span>
-            </motion.button>
+            {isTicketedVenue ? (
+              <motion.button
+                onClick={handleOpenTicketFlow}
+                data-testid="venue-ticket-cta"
+                className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3 border-2 border-transparent"
+                style={{
+                  background: activePass
+                    ? 'rgba(16,185,129,0.15)'
+                    : 'linear-gradient(135deg,#00BFFF,#A855F7 52%, #FF00FF)',
+                  borderColor: activePass ? 'rgba(16,185,129,0.35)' : 'transparent',
+                }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {activePass ? <CheckCircle className="w-5 h-5 text-emerald-300" strokeWidth={2.5} /> : <Ticket className="w-5 h-5 text-white" strokeWidth={2.5} />}
+                <span className={`text-[15px] ${activePass ? 'text-emerald-200' : 'text-white'}`} style={{ fontWeight: 700 }}>
+                  {activePass ? 'Pass Confirmed ✓' : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} · ${venue.entryPrice || 'Paid entry'}`}
+                </span>
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={handleCheckIn}
+                disabled={checkedIn}
+                className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3"
+                style={{
+                  background: checkedIn
+                    ? 'rgba(16,185,129,0.15)'
+                    : 'linear-gradient(135deg,#10b981,#059669)',
+                  border: checkedIn ? '2px solid rgba(16,185,129,0.4)' : '2px solid transparent',
+                }}
+                whileTap={checkedIn ? {} : { scale: 0.97 }}
+              >
+                <CheckCircle className={`w-5 h-5 ${checkedIn ? 'text-emerald-400' : 'text-white'}`} strokeWidth={2.5} />
+                <span className={`text-[15px] ${checkedIn ? 'text-emerald-400' : 'text-white'}`} style={{ fontWeight: 700 }}>
+                  {checkedIn ? 'Checked In ✓' : 'Check In · +10 pts'}
+                </span>
+              </motion.button>
+            )}
 
             <div className="grid grid-cols-3 gap-2">
               <motion.button
@@ -913,7 +1103,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               </motion.button>
 
               <motion.button
-                onClick={() => setIsFavorite(!isFavorite)}
+                onClick={handleToggleFavorite}
                 className={`p-3 rounded-[12px] border-2 flex flex-col items-center gap-1 ${
                   isFavorite
                     ? 'bg-pink-500/20 border-pink-400'
@@ -942,6 +1132,157 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
             </div>
           </div>
         </div>
+
+        <AnimatePresence>
+          {showTicketFlow && isTicketedVenue && (
+            <motion.div
+              className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-end justify-center px-4 pb-6"
+              data-testid="ticket-flow-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                className="w-full max-w-[393px] rounded-[28px] border border-white/20 bg-[#101012]/95 shadow-2xl overflow-hidden"
+                initial={{ y: 40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 24, opacity: 0 }}
+                transition={springConfig}
+              >
+                <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/10">
+                  <div>
+                    <p className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>PAID ENTRY FLOW</p>
+                    <p className="text-[20px] text-white" style={{ fontWeight: 700 }}>{venue.name}</p>
+                  </div>
+                  <button
+                    onClick={() => setShowTicketFlow(false)}
+                    className="w-10 h-10 rounded-full bg-white/8 border border-white/10 flex items-center justify-center"
+                  >
+                    <X className="w-5 h-5 text-white" strokeWidth={2.3} />
+                  </button>
+                </div>
+
+                {ticketFlowStep === 'offer' && (
+                  <div className="p-5">
+                    <div className="rounded-[20px] p-4 border border-white/15 bg-gradient-to-br from-cyan-500/12 via-purple-500/12 to-fuchsia-500/12 mb-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Confirm this event pass' : 'Unlock tonight’s access'}</p>
+                          <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 400 }}>
+                            {isEventAccess
+                              ? 'One clean flow: preview → checkout → confirmed event pass in your Profile wallet.'
+                              : 'One clean flow: preview → checkout → confirmed pass in your Profile wallet.'}
+                          </p>
+                        </div>
+                        <div className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[12px] text-amber-200" style={{ fontWeight: 700 }}>
+                          {venue.entryPrice || 'Paid entry'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mb-5 text-[13px] text-white/75" style={{ fontWeight: 500 }}>
+                      <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-300" /> Saved straight to My Access</div>
+                      <div className="flex items-center gap-2"><Ticket className="w-4 h-4 text-fuchsia-300" /> {isEventAccess ? 'Door-ready event pass' : 'Door-ready confirmation pass'}</div>
+                      <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {membership.isActive ? 'Insider is active on this profile' : 'You can activate Insider later in Profile'}</div>
+                    </div>
+
+                    <motion.button
+                      onClick={() => setTicketFlowStep('checkout')}
+                      data-testid="ticket-flow-continue"
+                      className="w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[15px]" style={{ fontWeight: 700 }}>Continue to checkout</span>
+                    </motion.button>
+                  </div>
+                )}
+
+                {ticketFlowStep === 'checkout' && (
+                  <div className="p-5">
+                    <div className="rounded-[20px] p-4 border border-white/15 bg-white/5 mb-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3 text-[14px] text-white">
+                        <span style={{ fontWeight: 600 }}>{isEventAccess ? 'Event pass' : 'Entry pass'}</span>
+                        <span style={{ fontWeight: 700 }}>{venue.entryPrice || 'Paid entry'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-[13px] text-white/65">
+                        <span>Checkout</span>
+                        <span>Visa •••• 2401</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-[13px] text-white/65">
+                        <span>Delivery</span>
+                        <span>My Access wallet</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[13px] text-white/60 mb-4" style={{ fontWeight: 400 }}>
+                      {isEventAccess
+                        ? 'This is a polished event checkout preview for TestFlight demos — no real charge is made here yet.'
+                        : 'This is a polished mock checkout for TestFlight demos — no real charge is made here.'}
+                    </p>
+
+                    <div className="flex gap-3">
+                      <motion.button
+                        onClick={() => setTicketFlowStep('offer')}
+                        className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/80"
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        <span className="text-[15px]" style={{ fontWeight: 700 }}>Back</span>
+                      </motion.button>
+                      <motion.button
+                        onClick={handleConfirmTicket}
+                        disabled={ticketLoading}
+                        data-testid="ticket-flow-confirm"
+                        className="flex-[1.3] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white disabled:opacity-70"
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        <span className="text-[15px]" style={{ fontWeight: 700 }}>{ticketLoading ? 'Confirming…' : 'Confirm ticket'}</span>
+                      </motion.button>
+                    </div>
+                  </div>
+                )}
+
+                {ticketFlowStep === 'confirmed' && activePass && (
+                  <div className="p-5" data-testid="ticket-flow-confirmed">
+                    <div className="w-14 h-14 rounded-full bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle className="w-7 h-7 text-emerald-300" strokeWidth={2.5} />
+                    </div>
+                    <p className="text-[24px] text-white text-center mb-2" style={{ fontWeight: 700 }}>{isEventAccess ? 'Event Pass Confirmed' : 'Ticket Confirmed'}</p>
+                    <p className="text-[13px] text-white/65 text-center mb-5" style={{ fontWeight: 400 }}>
+                      Your pass is stored in Profile → My Access and ready whenever you need it.
+                    </p>
+
+                    <div className="rounded-[20px] p-4 border border-white/15 bg-gradient-to-br from-cyan-500/10 via-purple-500/10 to-fuchsia-500/10 space-y-3 mb-5">
+                      <div className="flex items-center justify-between gap-3 text-[14px] text-white">
+                        <span style={{ fontWeight: 600 }}>Order</span>
+                        <span style={{ fontWeight: 700 }}>{activePass.orderNumber}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-[13px] text-white/70">
+                        <span>{isEventAccess ? 'Admission' : 'Entry'}</span>
+                        <span>{activePass.priceLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-[13px] text-white/70">
+                        <span>Pass</span>
+                        <span>{activePass.accessLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-[13px] text-white/70">
+                        <span>Added</span>
+                        <span>{formatTicketTime(activePass.purchasedAt)}</span>
+                      </div>
+                    </div>
+
+                    <motion.button
+                      onClick={() => setShowTicketFlow(false)}
+                      className="w-full py-3 rounded-[16px] bg-emerald-500/15 border border-emerald-400/35 text-emerald-200"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[15px]" style={{ fontWeight: 700 }}>Done</span>
+                    </motion.button>
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

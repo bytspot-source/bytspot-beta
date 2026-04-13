@@ -67,6 +67,9 @@ export interface DiscoverCard {
   entryType?: 'free' | 'paid'; // "free" or "paid"
   entryPrice?: string | null; // e.g. "$15", "$25–$50", "From $25"
   ticketUrl?: string | null; // external purchase link
+  eventName?: string;
+  eventDate?: string;
+  eventTime?: string;
   // API integration fields
   _slug?: string; // Venue slug for API lookups
   _lat?: number; // Latitude
@@ -326,6 +329,9 @@ export const discoverCards: DiscoverCard[] = [
     vibe: 7.2,
     entryType: 'paid',
     entryPrice: 'From $14',
+    eventName: 'IMAX Premiere Night',
+    eventDate: 'Tonight',
+    eventTime: '8:30 PM',
     description: 'Modern movie theater with IMAX and Dolby Cinema',
     features: ['IMAX', 'Dolby Cinema', 'Reserved Seating', 'Concessions'],
   },
@@ -341,6 +347,9 @@ export const discoverCards: DiscoverCard[] = [
     entryType: 'paid',
     entryPrice: '$18',
     ticketUrl: 'https://high.org/visit',
+    eventName: 'After Hours at the High',
+    eventDate: 'Friday',
+    eventTime: '7:00 PM',
     description: 'World-class art museum in Midtown Atlanta',
     features: ['Museum', 'Contemporary Art', 'Exhibitions', 'Cafe'],
   },

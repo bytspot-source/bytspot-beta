@@ -1,0 +1,43 @@
+Vibe Map Test — 2026-04-08T18:34:06.522Z
+==================================================
+⏳ Loading app...
+✅ App loaded
+
+── TEST 1: Map tab ──
+  Map tab: ✅
+  📸 01_map_default.png — map with default vibe markers
+
+── TEST 2: Filter Bar content ──
+  Chill chip:     ❌
+  Packed chip:    ✅
+  Free chip:      ✅
+  Paid chip:      ❌
+  Dining chip:    ✅
+  Heatmap chip:   ❌
+  📸 02_filter_bar.png — full filter bar visible
+
+── TEST 3: Chill filter ──
+  ⚠️ locator.click: Timeout 4000ms exceeded.
+Call log:
+
+  📸 03_chill_filter.png
+
+── TEST 4: Paid entry filter ──
+  ⚠️ locator.click: Timeout 4000ms exceeded.
+Call log:
+
+  📸 04_paid_filter.png
+
+── TEST 5: Nightlife category ──
+  ⚠️ locator.click: Timeout 4000ms exceeded.
+Call log:
+
+  📸 05_nightlife.png
+
+── TEST 6: Heatmap overlay ──
+  ⚠️ locator.click: Timeout 4000ms exceeded.
+Call log:
+
+  📸 06_heatmap.png
+
+── TEST 7: Peek sheet ──

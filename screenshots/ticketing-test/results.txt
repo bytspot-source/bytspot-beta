@@ -1,0 +1,17 @@
+Test started: 2026-04-06T07:23:47.103Z
+step1: importing playwright
+step2: playwright imported
+step3: browser launched
+step4: navigating to app...
+step5: page loaded, setting auth token...
+step6: reloaded with auth
+HOME — FREE badge: true, Paid badge: true
+📸 01_home.png
+📸 02_home_scroll.png
+DISCOVER tab clicked: true
+DISCOVER — Free filter: true, Paid filter: true, Entry badge: true
+📸 03_discover.png
+PAID FILTER — ✅ clicked, 📸 04_paid_filter.png
+FREE FILTER — ✅ clicked, 📸 05_free_filter.png
+
+🎉 ALL TESTS COMPLETE

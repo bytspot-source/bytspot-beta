@@ -120,6 +120,155 @@ export function QRCodeSticker() {
   );
 }
 
+/* ═══ ASSET 3 — App Store Promotional Banner (1040 × 400) ═══ */
+export function AppStoreBanner() {
+  return (
+    <div
+      id="banner"
+      style={{
+        width: 1040,
+        height: 400,
+        background: 'linear-gradient(135deg, #0d0221 0%, #000000 35%, #020a18 70%, #0d0221 100%)',
+        fontFamily: "-apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif",
+        color: BRAND.textPrimary,
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 72px',
+        boxSizing: 'border-box' as const,
+        borderRadius: 24,
+      }}
+    >
+      {/* Background glow orbs */}
+      <div style={{ position: 'absolute', top: -100, left: -60, width: 340, height: 340, borderRadius: '50%', background: 'radial-gradient(circle, rgba(168,85,247,0.18) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: -80, right: -40, width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,191,255,0.14) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: 60, right: 200, width: 180, height: 180, borderRadius: '50%', background: 'radial-gradient(circle, rgba(217,70,239,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+      {/* Left: App icon + info */}
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 44, flex: 1 }}>
+        {/* App icon (rounded square like App Store) */}
+        <div style={{
+          width: 180,
+          height: 180,
+          borderRadius: 40,
+          background: 'linear-gradient(145deg, #1a1a2e 0%, #0f0f1a 100%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(168,85,247,0.1)',
+        }}>
+          <PrintLogo size={110} />
+        </div>
+
+        {/* Text content */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Wordmark fontSize={52} />
+          <div style={{ fontSize: 20, fontWeight: 500, color: BRAND.textSecondary, letterSpacing: '0.01em' }}>
+            AI-Powered Urban Mobility
+          </div>
+          <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
+            {[
+              { emoji: '📊', label: 'Live Crowds' },
+              { emoji: '🅿️', label: 'Parking' },
+              { emoji: '🚗', label: 'Rides' },
+              { emoji: '🤖', label: 'AI Concierge' },
+            ].map((f) => (
+              <div key={f.label} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 14px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'rgba(255,255,255,0.8)',
+              }}>
+                <span>{f.emoji}</span>
+                <span>{f.label}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+            <span style={{ fontSize: 13, color: BRAND.textMuted }}>Free · Designed for iPhone</span>
+            <span style={{ fontSize: 13, color: BRAND.textMuted }}>📍 Atlanta</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Subtle bottom gradient line */}
+      <div style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 3,
+        background: BRAND.gradient,
+        opacity: 0.6,
+      }} />
+    </div>
+  );
+}
+
+/* ═══ ASSET 4 — Social Media Banner (1200 × 630) ═══ */
+export function SocialBanner() {
+  return (
+    <div
+      id="social-banner"
+      style={{
+        width: 1200,
+        height: 630,
+        background: 'linear-gradient(160deg, #0d0221 0%, #000000 40%, #020a18 100%)',
+        fontFamily: "-apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif",
+        color: BRAND.textPrimary,
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 24,
+        boxSizing: 'border-box' as const,
+      }}
+    >
+      {/* Background orbs */}
+      <div style={{ position: 'absolute', top: -120, left: -80, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(168,85,247,0.2) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: -100, right: -60, width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,191,255,0.18) 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+        <PrintLogo size={88} />
+        <Wordmark fontSize={64} />
+        <div style={{ fontSize: 24, fontWeight: 500, color: BRAND.textSecondary, textAlign: 'center', maxWidth: 600, lineHeight: 1.4 }}>
+          Know <span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>Before</span> You Go.
+        </div>
+        <div style={{ fontSize: 16, color: BRAND.textMuted, marginTop: 4 }}>
+          Live crowd levels · Real-time parking · AI-powered recommendations
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+          {['📊 Live Crowds', '🅿️ Parking', '🚗 Ride Compare', '🤖 AI Concierge'].map((f) => (
+            <div key={f} style={{
+              padding: '8px 18px',
+              borderRadius: 999,
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.8)',
+            }}>{f}</div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom gradient accent */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: BRAND.gradient, opacity: 0.7 }} />
+    </div>
+  );
+}
+
 /* ═══ HELPERS — Print & Download ═══ */
 function printAsset(elementId: string) {
   const el = document.getElementById(elementId);
@@ -211,6 +360,26 @@ export default function PrintableMarketingAssets() {
           <button onClick={() => downloadPNG('sticker', 'bytspot-sticker.png', 3)} style={btnOutline}>⬇️ PNG</button>
         </div>
         <QRCodeSticker />
+      </section>
+
+      <section style={{ marginBottom: 60, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>App Store Banner (1040 × 400)</h2>
+          <button onClick={() => printAsset('banner')} style={btnStyle}>🖨️ Print</button>
+          <button onClick={() => downloadSVG('banner', 'bytspot-banner.svg')} style={btnOutline}>⬇️ SVG</button>
+          <button onClick={() => downloadPNG('banner', 'bytspot-banner.png', 3)} style={btnOutline}>⬇️ PNG</button>
+        </div>
+        <div style={{ transform: 'scale(0.75)', transformOrigin: 'top center' }}><AppStoreBanner /></div>
+      </section>
+
+      <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Social Media Banner (1200 × 630)</h2>
+          <button onClick={() => printAsset('social-banner')} style={btnStyle}>🖨️ Print</button>
+          <button onClick={() => downloadSVG('social-banner', 'bytspot-social.svg')} style={btnOutline}>⬇️ SVG</button>
+          <button onClick={() => downloadPNG('social-banner', 'bytspot-social.png', 3)} style={btnOutline}>⬇️ PNG</button>
+        </div>
+        <div style={{ transform: 'scale(0.6)', transformOrigin: 'top center' }}><SocialBanner /></div>
       </section>
     </div>
   );

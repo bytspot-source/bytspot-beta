@@ -1,0 +1,15 @@
+Snap: 2026-04-08T18:42:40.857Z
+✅ App ready
+  📸 01_map.png — Map open — vibe-coloured markers visible
+  New build live: ⚠️ old build still active
+  Filter bar — Chill:    ❌
+  Filter bar — Packed:   ❌
+  Filter bar — Heatmap:  ❌
+  Filter bar — Dining:   ✅
+  📸 02_packed.png — Packed filter active — only red markers shown
+  📸 03_free.png — Free venues only — paid venues hidden
+  📸 04_nightlife_heat.png — Nightlife filter + Heatmap overlay — orange/red halos
+  📸 05_peek.png — Venue peek sheet — vibe badge, wait time, View Details
+  📸 06_venue_details.png — Full VenueDetails opened from map marker
+
+🎉 All snapshots captured

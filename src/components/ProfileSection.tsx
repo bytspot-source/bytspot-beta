@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { trpc } from '../utils/trpc';
@@ -15,6 +15,7 @@ import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { TermsOfService } from './TermsOfService';
+import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight, notifySuccess } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
@@ -30,7 +31,7 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
@@ -112,6 +113,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       items: [
         { icon: <Shield className="w-5 h-5" />, label: 'Privacy Policy', badge: null, screen: 'privacy-policy' as ProfileScreen },
         { icon: <FileText className="w-5 h-5" />, label: 'Terms of Service', badge: null, screen: 'terms-of-service' as ProfileScreen },
+        { icon: <AlertTriangle className="w-5 h-5" />, label: 'Disclaimer', badge: null, screen: 'disclaimer' as ProfileScreen },
       ],
     },
   ];
@@ -163,6 +165,17 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           <ChevronRight className="w-4 h-4 rotate-180" /> Back
         </button>
         <TermsOfService />
+      </div>
+    );
+  }
+
+  if (currentScreen === 'disclaimer') {
+    return (
+      <div className="relative">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+          <ChevronRight className="w-4 h-4 rotate-180" /> Back
+        </button>
+        <Disclaimer />
       </div>
     );
   }

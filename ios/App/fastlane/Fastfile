@@ -11,16 +11,33 @@ platform :ios do
       is_key_content_base64: false
     )
 
-    # Auto-increment build number: fetch the latest from TestFlight and add 1.
-    # This guarantees a strictly increasing version that never collides,
-    # regardless of GitHub Actions run-number resets or re-runs.
+    # Choose a build number that is always strictly higher than TestFlight,
+    # and also unique across GitHub reruns/overlapping CI executions.
     latest = latest_testflight_build_number(
       api_key:        api_key,
       app_identifier: "com.bytspot.app",
       initial_build_number: 63
     )
-    new_build = (latest + 1).to_s
-    UI.message("Build number: #{latest} → #{new_build}")
+    next_remote_build = latest.to_i + 1
+
+    github_run_id = ENV["GITHUB_RUN_ID"].to_s[/\d+/].to_i
+    github_run_attempt = ENV.fetch("GITHUB_RUN_ATTEMPT", "1").to_i
+    ci_build = if github_run_id.positive?
+      format("%d%02d", github_run_id, github_run_attempt).to_i
+    else
+      0
+    end
+
+    timestamp_build = Time.now.utc.strftime("%y%m%d%H%M%S").to_i
+    candidate_builds = [next_remote_build, timestamp_build]
+    candidate_builds << ci_build if ci_build.positive?
+
+    new_build = candidate_builds.max.to_s
+    UI.message(
+      "Build number candidates → latest+1=#{next_remote_build}, " \
+      "timestamp=#{timestamp_build}, " \
+      "ci=#{ci_build.positive? ? ci_build : 'n/a'}; using #{new_build}"
+    )
     increment_build_number(
       xcodeproj:    "App.xcodeproj",
       build_number: new_build

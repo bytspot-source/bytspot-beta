@@ -35,7 +35,10 @@ jobs:
           cache: 'npm'
 
       - name: Install JS dependencies
-        run: npm ci
+        # npm ci is currently tripping on cross-platform optional package
+        # entries in package-lock.json on macOS runners, while npm install
+        # resolves the tree correctly for this build job.
+        run: npm install
 
       - name: Lint
         run: npm run lint

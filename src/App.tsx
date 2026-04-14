@@ -39,6 +39,7 @@ import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription'
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
+import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from './utils/reviewBuild';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
 
 import {
@@ -559,6 +560,12 @@ export default function App() {
     // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
     const path = window.location.pathname;
     if (path.includes('/premium/success')) {
+      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
+        setActiveTab('profile');
+        setCurrentScreen('main');
+        window.history.replaceState({}, '', '/');
+        return;
+      }
       syncInsiderMembershipFromPremium(true);
       toast.success('🎉 Welcome to Insider!', { description: 'Your membership is now active.', duration: 5000 });
       setActiveTab('profile');
@@ -566,6 +573,11 @@ export default function App() {
       // Clean the URL without reload
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/cancelled')) {
+      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
+        setActiveTab('profile');
+        window.history.replaceState({}, '', '/');
+        return;
+      }
       toast('Insider checkout cancelled — no charges made.', { duration: 3000 });
       setActiveTab('profile');
       window.history.replaceState({}, '', '/');

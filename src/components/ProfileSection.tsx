@@ -23,6 +23,7 @@ import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '.
 import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
 import { activateMockInsiderMembership, getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
+import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -130,6 +131,13 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   };
 
   const handleInsiderAction = async () => {
+    if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
+      if (membership.isActive) {
+        setCurrentScreen('tickets');
+      }
+      return;
+    }
+
     if (membership.isActive) {
       setCurrentScreen('tickets');
       return;
@@ -319,11 +327,13 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
                 <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} saved</h3>
                 <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
-                  {membership.isActive ? 'Insider access is active on this profile.' : 'Start Insider from Profile to unlock the full membership and access-pass journey.'}
+                  {membership.isActive
+                    ? 'Access passes saved to this profile appear here.'
+                    : 'Venue, event, and parking passes will appear here after checkout.'}
                 </p>
               </div>
               <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
-                {membership.label}
+                {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'ACCESS' : membership.label}
               </div>
             </div>
           </div>
@@ -639,7 +649,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 <h2 className="text-[22px] text-white" style={{ fontWeight: 700 }}>
                   {userName}
                 </h2>
-                {membership.isActive && (
+                {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && membership.isActive && (
                   <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/30 via-purple-500/30 to-fuchsia-500/30 border border-fuchsia-400/40">
                     <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>Insider ✨</span>
                   </div>
@@ -684,50 +694,52 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       </motion.div>
 
       {/* Points & Rewards Quick Access */}
-      <motion.div
-        className="px-4 mb-6"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.08 }}
-      >
-        <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>SUBSCRIPTION STATUS</p>
-              <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>{membership.label}</p>
-              <p className="text-[13px] text-white/65 mt-2" style={{ fontWeight: 400 }}>
-                {membership.isActive
-                  ? `Activated ${formatCommerceTime(membership.activatedAt)}.`
-                  : 'Start Insider to launch real checkout when signed in, with demo fallback in guest mode.'}
-              </p>
-            </div>
-            <div className={`px-3 py-1.5 rounded-full border text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/70'}`} style={{ fontWeight: 700 }}>
-              {membership.isActive ? 'ACTIVE' : 'AVAILABLE'}
-            </div>
-          </div>
-
-          <div className="relative flex flex-wrap gap-2 mt-4 mb-4">
-            {INSIDER_PERKS.map((perk) => (
-              <div key={perk} className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                {perk}
+      {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && (
+        <motion.div
+          className="px-4 mb-6"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.08 }}
+        >
+          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>SUBSCRIPTION STATUS</p>
+                <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>{membership.label}</p>
+                <p className="text-[13px] text-white/65 mt-2" style={{ fontWeight: 400 }}>
+                  {membership.isActive
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}.`
+                    : 'Start Insider to launch real checkout when signed in, with demo fallback in guest mode.'}
+                </p>
               </div>
-            ))}
-          </div>
+              <div className={`px-3 py-1.5 rounded-full border text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/70'}`} style={{ fontWeight: 700 }}>
+                {membership.isActive ? 'ACTIVE' : 'AVAILABLE'}
+              </div>
+            </div>
 
-          <motion.button
-            onClick={handleInsiderAction}
-            className="relative w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 flex items-center justify-center gap-2 shadow-lg"
-            whileTap={{ scale: 0.97 }}
-            transition={springConfig}
-          >
-            <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
-            <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
-              {membership.isActive ? 'Open My Access' : insiderLoading ? 'Starting Insider…' : hasRealInsiderCheckout ? 'Start Insider' : 'Preview Insider'}
-            </span>
-          </motion.button>
-        </div>
-      </motion.div>
+            <div className="relative flex flex-wrap gap-2 mt-4 mb-4">
+              {INSIDER_PERKS.map((perk) => (
+                <div key={perk} className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                  {perk}
+                </div>
+              ))}
+            </div>
+
+            <motion.button
+              onClick={handleInsiderAction}
+              className="relative w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 flex items-center justify-center gap-2 shadow-lg"
+              whileTap={{ scale: 0.97 }}
+              transition={springConfig}
+            >
+              <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
+              <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+                {membership.isActive ? 'Open My Access' : insiderLoading ? 'Starting Insider…' : hasRealInsiderCheckout ? 'Start Insider' : 'Preview Insider'}
+              </span>
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
 
       <motion.div
         className="px-4 mb-6"

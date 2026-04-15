@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart } from 'lucide-react';
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
 import { BottomNav } from './components/BottomNav';
@@ -108,6 +108,12 @@ export default function App() {
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
+
+  const openAccessWallet = useCallback(() => {
+    localStorage.setItem('bytspot_profile_focus', 'tickets');
+    setCurrentScreen('main');
+    setActiveTab('profile');
+  }, []);
   const [eventsFeed, setEventsFeed] = useState<AppEvent[]>(() => getCachedEvents());
   const [eventsLoading, setEventsLoading] = useState(false);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -1323,6 +1329,7 @@ export default function App() {
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
                   <DiscoverSection
                     isDarkMode={isDarkMode}
+                    onOpenAccessWallet={openAccessWallet}
                     onNavigateToMap={(venueName) => {
                       if (venueName) {
                         setSelectedDestination(venueName);
@@ -1385,6 +1392,7 @@ export default function App() {
                     viewMode={mapViewMode}
                     destination={selectedDestination}
                     userCoords={activeCoords}
+                    onOpenAccessWallet={openAccessWallet}
                     onBackToHome={() => {
                       setActiveTab('home');
                       setSelectedDestination(undefined);
@@ -1485,6 +1493,10 @@ export default function App() {
             <VenueDetails
               venue={selectedSearchVenue}
               onClose={() => setSelectedSearchVenue(null)}
+              onOpenAccessWallet={() => {
+                setSelectedSearchVenue(null);
+                openAccessWallet();
+              }}
               onNavigateToMap={() => {
                 const venueName = selectedSearchVenue?.name || 'Destination';
                 setSelectedDestination(venueName);

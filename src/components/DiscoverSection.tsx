@@ -309,6 +309,7 @@ interface DiscoverSectionProps {
   onShowBottomNav?: () => void;
   onTouch?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
+  onOpenAccessWallet?: () => void;
   initialFilter?: CardType;
   apiCards: DiscoverCard[];
   events?: AppEvent[];
@@ -335,7 +336,7 @@ const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
   parking: 'parking',
 };
 
-export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, initialFilter, apiCards, events = [], loading, eventsLoading = false, error, refresh, refreshEvents, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
+export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, onTouch, onBookRide, onOpenAccessWallet, initialFilter, apiCards, events = [], loading, eventsLoading = false, error, refresh, refreshEvents, searchPlaces, searchNearby, placesLoading }: DiscoverSectionProps) {
   // Google Places results (populated on filter change)
   const [googleCards, setGoogleCards] = useState<DiscoverCard[]>([]);
 
@@ -901,6 +902,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           <VenueDetails
             venue={selectedVenue}
             onClose={() => setSelectedVenue(null)}
+            onOpenAccessWallet={onOpenAccessWallet}
             onNavigateToMap={() => {
               onNavigateToMap?.(selectedVenue?.name);
               setSelectedVenue(null);

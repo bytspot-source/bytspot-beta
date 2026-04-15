@@ -112,8 +112,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
-    if (profileFocus === 'reservations') {
-      setCurrentScreen('reservations');
+    if (profileFocus === 'reservations' || profileFocus === 'tickets') {
+      setCurrentScreen(profileFocus);
       localStorage.removeItem('bytspot_profile_focus');
     }
 
@@ -308,7 +308,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'tickets') {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col" data-testid="profile-access-wallet">
         <div className="px-4 pt-4 pb-2">
           <motion.button
             onClick={() => setCurrentScreen('main')}

@@ -18,6 +18,7 @@ interface VenueDetailsProps {
   isDarkMode: boolean;
   onClose: () => void;
   onOpenConcierge?: () => void;
+  onOpenAccessWallet?: () => void;
   onNavigateToMap?: () => void;
   onBookRide?: () => void;
   isOpen?: boolean;
@@ -101,7 +102,7 @@ function formatTicketTime(value: string): string {
   return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
+export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOpenAccessWallet, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const favoriteSpotId = String(venue.id || venue.placeId || venue.slug || venue.name.toLowerCase().replace(/\s+/g, '-'));
   const isEventAccess = venue.type === 'entertainment';
   const accessProduct: AccessPassInput = {
@@ -395,8 +396,17 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     }
   };
 
+  const handleOpenAccessWallet = () => {
+    setShowTicketFlow(false);
+    onOpenAccessWallet?.();
+  };
+
   const handleOpenTicketFlow = () => {
     if (!isTicketedVenue) return;
+    if (activePass && onOpenAccessWallet) {
+      handleOpenAccessWallet();
+      return;
+    }
     setTicketFlowStep(activePass ? 'confirmed' : 'offer');
     setShowTicketFlow(true);
   };
@@ -1078,7 +1088,9 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               >
                 {activePass ? <CheckCircle className="w-5 h-5 text-emerald-300" strokeWidth={2.5} /> : <Ticket className="w-5 h-5 text-white" strokeWidth={2.5} />}
                 <span className={`text-[15px] ${activePass ? 'text-emerald-200' : 'text-white'}`} style={{ fontWeight: 700 }}>
-                  {activePass ? 'Pass Confirmed ✓' : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} · ${venue.entryPrice || 'Paid entry'}`}
+                  {activePass
+                    ? (onOpenAccessWallet ? 'Pass Confirmed · Open Wallet' : 'Pass Confirmed ✓')
+                    : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} · ${venue.entryPrice || 'Paid entry'}`}
                 </span>
               </motion.button>
             ) : (
@@ -1282,11 +1294,14 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                     </div>
 
                     <motion.button
-                      onClick={() => setShowTicketFlow(false)}
+                      onClick={onOpenAccessWallet ? handleOpenAccessWallet : () => setShowTicketFlow(false)}
+                      data-testid={onOpenAccessWallet ? 'ticket-flow-open-wallet' : undefined}
                       className="w-full py-3 rounded-[16px] bg-emerald-500/15 border border-emerald-400/35 text-emerald-200"
                       whileTap={{ scale: 0.97 }}
                     >
-                      <span className="text-[15px]" style={{ fontWeight: 700 }}>Done</span>
+                      <span className="text-[15px]" style={{ fontWeight: 700 }}>
+                        {onOpenAccessWallet ? 'Open My Access' : 'Done'}
+                      </span>
                     </motion.button>
                   </div>
                 )}

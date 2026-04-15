@@ -270,6 +270,11 @@ test.describe('App Navigation Flow', () => {
 
     await robustClick(page.getByTestId('ticket-flow-confirm'));
     await expect(page.getByTestId('ticket-flow-confirmed')).toBeVisible({ timeout: 10_000 });
+    await robustClick(page.getByTestId('ticket-flow-open-wallet'));
+
+    const walletScreen = page.getByTestId('profile-access-wallet');
+    await expect(walletScreen).toBeVisible({ timeout: 10_000 });
+    await expect(walletScreen.getByText('The Rooftop Bar')).toBeVisible({ timeout: 10_000 });
 
     const wallet = await page.evaluate(() => {
       return JSON.parse(localStorage.getItem('bytspot_access_pass_wallet') || '[]');

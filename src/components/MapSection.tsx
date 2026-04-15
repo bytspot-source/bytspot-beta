@@ -26,6 +26,7 @@ interface MapSectionProps {
   destination?: string;
   onBackToHome?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
+  onOpenAccessWallet?: () => void;
   /** Live user coordinates — map centers here instead of hardcoded Atlanta */
   userCoords?: { lat: number; lng: number };
 }
@@ -307,7 +308,7 @@ function openNativeNavigation(lat: number, lng: number, label?: string) {
   }
 }
 
-export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, userCoords }: MapSectionProps) {
+export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
@@ -1180,6 +1181,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             venue={venueToCard(venueDetailsVenue, 0, userCoords)}
             isDarkMode={true}
             onClose={() => { setVenueDetailsVenue(null); setPeekVenue(null); }}
+            onOpenAccessWallet={onOpenAccessWallet}
             onNavigateToMap={() => {}}
             onBookRide={() => onBookRide?.({
               name: venueDetailsVenue.name,

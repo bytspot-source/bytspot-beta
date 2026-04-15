@@ -1,0 +1,25 @@
+START
+2026-04-15T16:11:14.109Z browser launched
+2026-04-15T16:11:14.111Z open auth
+2026-04-15T16:11:14.538Z http 500 https://bytspot-api.onrender.com/trpc/venues.list
+2026-04-15T16:11:14.540Z console.error Failed to load resource: the server responded with a status of 500 ()
+2026-04-15T16:11:17.974Z landing visible
+2026-04-15T16:11:18.079Z auth visible
+2026-04-15T16:11:18.120Z signup filled
+2026-04-15T16:11:18.157Z signup submitted
+2026-04-15T16:11:18.158Z signup waiting for result
+2026-04-15T16:11:20.576Z response 200 https://bytspot-api.onrender.com/trpc/auth.signup
+2026-04-15T16:11:20.740Z signup home visible
+2026-04-15T16:11:20.775Z stored user ok augment.auth.1776269473913@example.com
+2026-04-15T16:11:21.328Z profile visible
+2026-04-15T16:11:21.490Z response 200 https://bytspot-api.onrender.com/trpc/auth.me
+2026-04-15T16:11:21.492Z http 404 https://bytspot-api.onrender.com/trpc/user.accessPasses.list
+2026-04-15T16:11:21.494Z console.error Failed to load resource: the server responded with a status of 404 ()
+2026-04-15T16:11:22.812Z logout returned to auth
+2026-04-15T16:11:22.959Z login filled
+2026-04-15T16:11:22.969Z login submitted
+2026-04-15T16:11:22.970Z login waiting for result
+2026-04-15T16:11:44.389Z http 404 http://127.0.0.1:4173/api/analytics/events
+2026-04-15T16:11:44.390Z console.error Failed to load resource: the server responded with a status of 404 (Not Found)
+2026-04-15T16:11:48.236Z login timeout body {"bodyText":"👋\nWelcome to Bytspot\n\nMidtown Atlanta, know before you go\n\nSign Up\nLog In\nLog In\nor\nContinue as Guest\n\nBy continuing, you agree to our Terms of Service and Privacy Policy","token":null,"user":null,"userName":null}
+2026-04-15T16:11:48.236Z FAIL login did not reach Home tab within timeout

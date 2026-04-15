@@ -1,0 +1,15 @@
+== AUTH PREFLIGHT ==
+status: 204
+access-control-allow-origin: http://127.0.0.1:4173
+access-control-allow-credentials: true
+access-control-allow-methods: GET,HEAD,PUT,PATCH,POST,DELETE
+access-control-allow-headers: content-type
+vary: Origin, Access-Control-Request-Headers
+
+== SIGNUP POST ==
+status: 200
+{"result":{"data":{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbW8wOGhhNjcwMDBkYzg0MWV6MWxzdHlqIiwiZW1haWwiOiJhdWdtZW50LnByb2JlLjE3NzYyNjg2MjczODFAZXhhbXBsZS5jb20iLCJpYXQiOjE3NzYyNjg2MjksImV4cCI6MTc3Njg3MzQyOX0.FsBBMSwkFNS5UEELA2pS6qEe2rt5bF5VHcwkblE8nCU","user":{"id":"cmo08ha67000dc841ez1lstyj","email":"augment.probe.1776268627381@example.com","name":"Augment Probe"}}}}
+
+== LOGIN POST ==
+status: 200
+{"result":{"data":{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbW8wOGhhNjcwMDBkYzg0MWV6MWxzdHlqIiwiZW1haWwiOiJhdWdtZW50LnByb2JlLjE3NzYyNjg2MjczODFAZXhhbXBsZS5jb20iLCJpYXQiOjE3NzYyNjg2MzEsImV4cCI6MTc3Njg3MzQzMX0.18SLuv08B5bPCB0Hra6vbJKFABPB2-cRIkwkK64IKKE","user":{"id":"cmo08ha67000dc841ez1lstyj","email":"augment.probe.1776268627381@example.com","name":"Augment Probe"}}}}

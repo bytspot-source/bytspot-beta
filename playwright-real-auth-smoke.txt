@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "email": "augment.auth.1776260886121@example.com",
+  "error": "expect(locator).toBeVisible() failed\n\nLocator: getByRole('tab', { name: 'Home tab' })\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"to.be.visible\" with timeout 20000ms\n  - waiting for getByRole('tab', { name: 'Home tab' })\n",
+  "apiHits": [],
+  "jsErrors": []
+}

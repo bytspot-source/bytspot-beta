@@ -1,0 +1,2 @@
+STATUS 400
+[{"error":{"message":"[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"email\"\n    ],\n    \"message\": \"Required\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"password\"\n    ],\n    \"message\": \"Required\"\n  }\n]","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400,"path":"auth.signup"}}}]

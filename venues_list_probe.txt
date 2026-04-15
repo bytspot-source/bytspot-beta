@@ -1,0 +1,35 @@
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    239   0    239   0      0    634      0                              0100    239   0    239   0      0    633      0                              0100    239   0    239   0      0    632      0                              0
+HTTP/1.1 500 Internal Server Error
+Date: Wed, 15 Apr 2026 16:14:21 GMT
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: keep-alive
+access-control-allow-credentials: true
+content-security-policy: default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+ratelimit-limit: 300
+ratelimit-policy: 300;w=900
+ratelimit-remaining: 297
+ratelimit-reset: 441
+referrer-policy: no-referrer
+rndr-id: e6010040-a913-40d7
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: trpc-accept, accept
+vary: Accept-Encoding
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-render-origin-server: Render
+x-xss-protection: 0
+cf-cache-status: DYNAMIC
+Server: cloudflare
+CF-RAY: 9ecc3e2678b7d1b4-ATL
+alt-svc: h3=":443"; ma=86400
+
+{"error":{"message":"\nInvalid `prisma.venue.findMany()` invocation:\n\n\nThe column `venues.entry_type` does not exist in the current database.","code":-32603,"data":{"code":"INTERNAL_SERVER_ERROR","httpStatus":500,"path":"venues.list"}}}EXIT:0 

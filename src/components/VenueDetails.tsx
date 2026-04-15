@@ -10,7 +10,7 @@ import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';
 import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
-import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, upsertAccessPass } from '../utils/insiderCommerce';
+import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 
 interface VenueDetailsProps {
@@ -104,7 +104,7 @@ function formatTicketTime(value: string): string {
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNavigateToMap, onBookRide }: VenueDetailsProps) {
   const favoriteSpotId = String(venue.id || venue.placeId || venue.slug || venue.name.toLowerCase().replace(/\s+/g, '-'));
   const isEventAccess = venue.type === 'entertainment';
-  const accessProduct = {
+  const accessProduct: AccessPassInput = {
     id: venue.id || venue.apiId || venue.placeId || venue.slug,
     name: isEventAccess ? (venue.eventName || venue.name) : venue.name,
     type: venue.type || venue.category || 'venue',

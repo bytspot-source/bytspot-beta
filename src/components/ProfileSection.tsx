@@ -79,6 +79,16 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'beta_guest';
   })();
+  const subscriptionStateLabel = membership.isActive
+    ? membership.source === 'premium'
+      ? 'SYNCED'
+      : 'PREVIEW ACTIVE'
+    : 'AVAILABLE';
+  const communityTierPerks = [
+    'Live vibe + crowd discovery',
+    `${userTier.name} rewards tier`,
+    'Saved spots and check-ins',
+  ];
 
   useEffect(() => {
     const syncCommerce = () => {
@@ -701,7 +711,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.08 }}
         >
-          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
+          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden" data-testid="profile-subscription-card">
             <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="relative flex items-start justify-between gap-3">
               <div>
@@ -709,21 +719,74 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>{membership.label}</p>
                 <p className="text-[13px] text-white/65 mt-2" style={{ fontWeight: 400 }}>
                   {membership.isActive
-                    ? `Activated ${formatCommerceTime(membership.activatedAt)}.`
-                    : 'Start Insider to launch real checkout when signed in, with demo fallback in guest mode.'}
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your wallet-ready access stays tied to this profile.`
+                    : 'Community keeps discovery and rewards active. Insider adds quicker paid-entry flow and wallet-first access.'}
                 </p>
               </div>
               <div className={`px-3 py-1.5 rounded-full border text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/70'}`} style={{ fontWeight: 700 }}>
-                {membership.isActive ? 'ACTIVE' : 'AVAILABLE'}
+                {subscriptionStateLabel}
               </div>
             </div>
 
             <div className="relative flex flex-wrap gap-2 mt-4 mb-4">
-              {INSIDER_PERKS.map((perk) => (
-                <div key={perk} className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                  {perk}
+              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                {walletPasses.length} in My Access
+              </div>
+              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                {userTier.icon} {userTier.name} rewards
+              </div>
+              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                {hasRealInsiderCheckout ? '$9.99/mo live checkout' : 'Preview checkout'}
+              </div>
+            </div>
+
+            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className={`rounded-[20px] p-4 border ${!membership.isActive ? 'bg-white/10 border-white/20' : 'bg-black/15 border-white/10'}`}>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>Community</p>
+                    <p className="text-[12px] text-white/55" style={{ fontWeight: 600 }}>Included</p>
+                  </div>
+                  {!membership.isActive && (
+                    <div className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-[10px] text-white/80" style={{ fontWeight: 700 }}>
+                      CURRENT
+                    </div>
+                  )}
                 </div>
-              ))}
+                <div className="space-y-2">
+                  {communityTierPerks.map((perk) => (
+                    <div key={perk} className="flex items-center gap-2 text-[12px] text-white/75" style={{ fontWeight: 500 }}>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.3} />
+                      <span>{perk}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className={`rounded-[20px] p-4 border ${membership.isActive ? 'bg-gradient-to-br from-cyan-500/18 via-purple-500/16 to-fuchsia-500/18 border-fuchsia-400/30' : 'bg-black/15 border-white/10'}`}>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>Insider</p>
+                      <Crown className="w-4 h-4 text-fuchsia-200" strokeWidth={2.3} />
+                    </div>
+                    <p className="text-[12px] text-white/55" style={{ fontWeight: 600 }}>$9.99/month</p>
+                  </div>
+                  {membership.isActive && (
+                    <div className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[10px] text-emerald-200" style={{ fontWeight: 700 }}>
+                      CURRENT
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {INSIDER_PERKS.map((perk) => (
+                    <div key={perk} className="flex items-center gap-2 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+                      <Sparkles className="w-4 h-4 text-cyan-300" strokeWidth={2.3} />
+                      <span>{perk}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <motion.button

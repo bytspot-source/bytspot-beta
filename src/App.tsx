@@ -39,8 +39,7 @@ import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription'
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
-import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from './utils/reviewBuild';
-import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
+import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
 
 import {
   getPersonalizedCategories,
@@ -598,21 +597,20 @@ export default function App() {
     }
   }, []);
 
-  // Marketing assets — accessible at /marketing for print preview
-  if (typeof window !== 'undefined' && window.location.pathname === '/marketing') {
-    const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));
-    return (
-      <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
-        <PrintableMarketingAssets />
-      </Suspense>
-    );
-  }
-
-  // Admin dashboard — accessible at /admin regardless of auth state
-  // Privacy policy — accessible at /privacy (required for App Store)
-
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+
+    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath === '/admin' || normalizedPath === '/marketing')) {
+      window.history.replaceState({}, '', '/');
+    } else if (normalizedPath === '/marketing') {
+      const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <PrintableMarketingAssets />
+        </Suspense>
+      );
+    }
+
     if (normalizedPath === '/admin') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>

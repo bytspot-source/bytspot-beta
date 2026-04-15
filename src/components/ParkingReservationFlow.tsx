@@ -178,8 +178,7 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
         return;
       }
       if (result.demoMode) {
-        // Stripe not configured yet — fall through to demo confirmation
-        toast('Stripe not configured — using demo mode', { description: 'Set STRIPE_SECRET_KEY on Render to enable real payments' });
+        toast('Reservation checkout unavailable', { description: 'Your parking reservation will be saved in-app for this build.' });
       }
     } catch {
       // Network error — fall through to demo

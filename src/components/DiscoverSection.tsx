@@ -1,6 +1,6 @@
 import { motion, PanInfo, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, forwardRef, lazy, Suspense } from 'react';
-import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart } from 'lucide-react';
+import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
@@ -258,6 +258,17 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
           </div>
           <div className="flex-1 flex flex-col p-4 bg-[#1C1C1E] gap-2">
             {card.description && (<p className="text-[13px] text-white/80 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
+            {card.entryType === 'paid' && (
+              <div className="flex flex-wrap gap-1.5 flex-shrink-0">
+                <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-400/25">
+                  <span className="text-[11px] text-amber-200 whitespace-nowrap" style={{ fontWeight: 600 }}>Paid access</span>
+                </div>
+                <div className="px-2.5 py-1 rounded-full bg-fuchsia-500/10 border border-fuchsia-400/25 flex items-center gap-1.5">
+                  <Ticket className="w-3 h-3 text-fuchsia-300" strokeWidth={2.4} />
+                  <span className="text-[11px] text-white/85 whitespace-nowrap" style={{ fontWeight: 600 }}>Saved to My Access</span>
+                </div>
+              </div>
+            )}
             {card.features && card.features.length > 0 && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                 {card.features.slice(0, 4).map((feature, idx) => (
@@ -344,7 +355,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const containerRef = useRef<HTMLDivElement>(null);
   const eventCards = events.map(toEventDiscoverCard);
   const isEventSurface = appliedFilter === 'entertainment';
-  const cards = [...eventCards, ...apiCards, ...googleCards].filter(card =>
+  const cards = [...apiCards, ...googleCards].filter(card =>
     !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
   );
   const hasLiveVenueCards = cards.length > 0;

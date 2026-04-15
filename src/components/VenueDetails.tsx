@@ -11,6 +11,7 @@ import { broadcastOwnCheckin } from '../utils/social';
 import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
 import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, upsertAccessPass } from '../utils/insiderCommerce';
+import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 
 interface VenueDetailsProps {
   venue: any;
@@ -128,6 +129,16 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'beta_guest';
   })();
+  const accessMembershipLabel = APPLE_REVIEW_HIDE_INSIDER_PREMIUM
+    ? 'Saved on this profile'
+    : membership.isActive
+      ? 'Insider active on this profile'
+      : 'Activate Insider in Profile';
+  const accessFlowLabel = activePass
+    ? 'Pass already confirmed'
+    : APPLE_REVIEW_HIDE_INSIDER_PREMIUM
+      ? 'Quick access preview'
+      : 'Quick checkout preview';
   // Dynamic gallery — prefer Google Places photos, fall back to Unsplash
   const venueCategory = venue.category || venue.type || 'venue';
   const galleryImages = resolveVenuePhotos({
@@ -677,10 +688,10 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                     Door-ready wallet pass
                   </div>
                   <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                    {membership.isActive ? 'Insider active on this profile' : 'Activate Insider in Profile'}
+                    {accessMembershipLabel}
                   </div>
                   <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                    {activePass ? 'Pass already confirmed' : 'Fast mock checkout'}
+                    {accessFlowLabel}
                   </div>
                 </div>
 
@@ -1151,7 +1162,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
               >
                 <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/10">
                   <div>
-                    <p className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>PAID ENTRY FLOW</p>
+                    <p className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>ACCESS CHECKOUT</p>
                     <p className="text-[20px] text-white" style={{ fontWeight: 700 }}>{venue.name}</p>
                   </div>
                   <button
@@ -1170,8 +1181,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                           <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Confirm this event pass' : 'Unlock tonight’s access'}</p>
                           <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 400 }}>
                             {isEventAccess
-                              ? 'One clean flow: preview → checkout → confirmed event pass in your Profile wallet.'
-                              : 'One clean flow: preview → checkout → confirmed pass in your Profile wallet.'}
+                              ? 'One clear flow: review → checkout → confirmed event pass in your Profile wallet.'
+                              : 'One clear flow: review → checkout → confirmed pass in your Profile wallet.'}
                           </p>
                         </div>
                         <div className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[12px] text-amber-200" style={{ fontWeight: 700 }}>
@@ -1183,7 +1194,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
                     <div className="space-y-2 mb-5 text-[13px] text-white/75" style={{ fontWeight: 500 }}>
                       <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-300" /> Saved straight to My Access</div>
                       <div className="flex items-center gap-2"><Ticket className="w-4 h-4 text-fuchsia-300" /> {isEventAccess ? 'Door-ready event pass' : 'Door-ready confirmation pass'}</div>
-                      <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {membership.isActive ? 'Insider is active on this profile' : 'You can activate Insider later in Profile'}</div>
+                      <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'Ready on this profile after confirmation' : membership.isActive ? 'Insider is active on this profile' : 'You can activate Insider later in Profile'}</div>
                     </div>
 
                     <motion.button
@@ -1216,8 +1227,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onNa
 
                     <p className="text-[13px] text-white/60 mb-4" style={{ fontWeight: 400 }}>
                       {isEventAccess
-                        ? 'This is a polished event checkout preview for TestFlight demos — no real charge is made here yet.'
-                        : 'This is a polished mock checkout for TestFlight demos — no real charge is made here.'}
+                        ? 'This checkout preview saves an event pass to My Access. No charge is made in this build.'
+                        : 'This checkout preview saves a confirmation pass to My Access. No charge is made in this build.'}
                     </p>
 
                     <div className="flex gap-3">

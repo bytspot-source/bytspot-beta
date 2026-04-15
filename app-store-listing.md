@@ -16,13 +16,13 @@ Live Crowds, Parking & Spots
 
 ## Promotional Text (170 chars max — can be updated without a new build)
 ```
-🔥 Now live in Atlanta Midtown! See real-time crowd levels, find parking instantly, and discover the best venues around you — powered by AI.
+See live crowd levels, find parking faster, and discover the best spots around Atlanta Midtown — all in one clean app.
 ```
 
 ## Description (4000 chars max)
 
 ```
-Bytspot shows you what's happening right now — live crowd levels, parking availability, and the best spots near you in Atlanta Midtown.
+Bytspot shows you what's happening right now around Atlanta Midtown — live crowd levels, parking availability, and the best spots near you.
 
 LIVE CROWD INTELLIGENCE
 See how packed venues are before you go. Real-time crowd data means you'll never walk into a 45-minute wait again. Check bars, restaurants, coffee shops, and entertainment venues at a glance.
@@ -30,7 +30,7 @@ See how packed venues are before you go. Real-time crowd data means you'll never
 SMART PARKING
 Find available parking near any venue instantly. Compare prices, see walk times, and reserve your spot — all before you leave home. Save time and money with AI-powered parking recommendations.
 
-AI CONCIERGE
+SMART CONCIERGE
 Ask our AI anything: "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Get personalized recommendations based on your preferences, live conditions, and real-time data.
 
 DISCOVER & EXPLORE
@@ -44,16 +44,17 @@ Bookmark your favorite spots and get notified when they're packed or quiet. Shar
 
 FEATURES:
 • Real-time crowd levels for venues and parking
-• AI-powered concierge for instant recommendations
+• Smart concierge recommendations
 • Live parking availability with pricing
 • Venue discovery with swipeable cards
 • Personalized feed based on your preferences
+• Optional sign-in with guest browsing available
 • Push notifications for saved venue alerts
 • Native haptic feedback and share sheet
 • Works offline with cached data
 • Dark mode optimized
 
-Currently live in Atlanta Midtown with more cities coming soon.
+Currently focused on Atlanta Midtown.
 ```
 
 ## Keywords (100 chars max, comma-separated)
@@ -101,5 +102,5 @@ https://bytspot.com
 
 ## What's New in This Version (for updates)
 ```
-🚀 Initial release! Live crowd levels, smart parking, AI concierge, and venue discovery — all in real-time for Atlanta Midtown.
+Initial App Store release with live crowd intelligence, smart parking, concierge recommendations, and venue discovery for Atlanta Midtown.
 ```

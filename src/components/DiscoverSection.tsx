@@ -193,14 +193,14 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
                 <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{isEventCard ? 'event' : card.type}</span>
               </div>
-              {/* Entry type badge — Free (green) or Paid (amber with price) */}
+              {/* Entry type badge — Free (green) or Paid entry (amber with price) */}
               {card.entryType === 'paid' ? (
                 <div className="px-2.5 py-1 rounded-full bg-amber-500/90 border border-amber-300/50 shadow-lg">
-                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{card.entryPrice || 'Paid'}</span>
+                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{card.entryPrice || 'Paid entry'}</span>
                 </div>
               ) : card.entryType === 'free' ? (
                 <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 border border-emerald-300/50 shadow-lg">
-                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>FREE</span>
+                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>FREE ENTRY</span>
                 </div>
               ) : null}
             </div>
@@ -261,11 +261,11 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
             {card.entryType === 'paid' && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                 <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-400/25">
-                  <span className="text-[11px] text-amber-200 whitespace-nowrap" style={{ fontWeight: 600 }}>Paid access</span>
+                  <span className="text-[11px] text-amber-200 whitespace-nowrap" style={{ fontWeight: 600 }}>Paid entry</span>
                 </div>
                 <div className="px-2.5 py-1 rounded-full bg-fuchsia-500/10 border border-fuchsia-400/25 flex items-center gap-1.5">
                   <Ticket className="w-3 h-3 text-fuchsia-300" strokeWidth={2.4} />
-                  <span className="text-[11px] text-white/85 whitespace-nowrap" style={{ fontWeight: 600 }}>Saved to My Access</span>
+                  <span className="text-[11px] text-white/85 whitespace-nowrap" style={{ fontWeight: 600 }}>My Access ready</span>
                 </div>
               </div>
             )}
@@ -724,12 +724,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           })}
         </div>
 
-        {/* Entry type pills — Free / Paid / All */}
+        {/* Entry type pills — All / Free / Paid entry */}
         <div className="flex gap-1.5">
           {([
-            { label: '🎟️ All', value: 'all' as const },
+            { label: '🎟️ All access', value: 'all' as const },
             { label: '✅ Free', value: 'free' as const },
-            { label: '💰 Paid', value: 'paid' as const },
+            { label: '💳 Paid entry', value: 'paid' as const },
           ]).map((opt) => {
             const active = entryTypeFilter === opt.value;
             return (

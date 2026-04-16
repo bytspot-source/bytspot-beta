@@ -133,13 +133,13 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const accessMembershipLabel = APPLE_REVIEW_HIDE_INSIDER_PREMIUM
     ? 'Saved on this profile'
     : membership.isActive
-      ? 'Insider active on this profile'
-      : 'Activate Insider in Profile';
+      ? 'Insider tier active'
+      : 'Community tier active';
   const accessFlowLabel = activePass
-    ? 'Pass already confirmed'
+    ? 'Ready in My Access'
     : APPLE_REVIEW_HIDE_INSIDER_PREMIUM
-      ? 'Quick access preview'
-      : 'Quick checkout preview';
+      ? 'My Access preview'
+      : 'Checkout to My Access';
   // Dynamic gallery — prefer Google Places photos, fall back to Unsplash
   const venueCategory = venue.category || venue.type || 'venue';
   const galleryImages = resolveVenuePhotos({
@@ -681,11 +681,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               <div className="rounded-[20px] p-4 border border-white/30 bg-gradient-to-br from-cyan-500/12 via-purple-500/12 to-fuchsia-500/12 backdrop-blur-xl">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'}</p>
+                    <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Get Event Pass' : 'Get Entry Pass'}</p>
                     <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 400 }}>
                       {isEventAccess
-                        ? 'Secure event access before you head out. Once confirmed, your pass lands in My Access inside Profile.'
-                        : 'Secure paid entry before you head out. Once confirmed, your pass lands in My Access inside Profile.'}
+                        ? 'Review event access now and save the confirmed pass straight to My Access in Profile.'
+                        : 'Review paid entry now and save the confirmed pass straight to My Access in Profile.'}
                     </p>
                   </div>
                   <div className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[12px] text-amber-200" style={{ fontWeight: 700 }}>
@@ -695,7 +695,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
 
                 <div className="flex flex-wrap gap-2 mt-4 mb-4">
                   <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                    Door-ready wallet pass
+                    My Access wallet pass
                   </div>
                   <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
                     {accessMembershipLabel}
@@ -713,7 +713,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                 >
                   {activePass ? <CheckCircle className="w-5 h-5 text-emerald-300" strokeWidth={2.5} /> : <Ticket className="w-5 h-5 text-white" strokeWidth={2.5} />}
                   <span className={`text-[15px] ${activePass ? 'text-emerald-200' : 'text-white'}`} style={{ fontWeight: 700 }}>
-                    {activePass ? 'Pass Confirmed — Open Wallet' : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} — ${venue.entryPrice || 'Paid entry'}`}
+                    {activePass ? 'Pass Confirmed — Open My Access' : `${isEventAccess ? 'Get Event Pass' : 'Get Entry Pass'} — ${venue.entryPrice || 'Paid entry'}`}
                   </span>
                 </motion.button>
               </div>
@@ -1089,8 +1089,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                 {activePass ? <CheckCircle className="w-5 h-5 text-emerald-300" strokeWidth={2.5} /> : <Ticket className="w-5 h-5 text-white" strokeWidth={2.5} />}
                 <span className={`text-[15px] ${activePass ? 'text-emerald-200' : 'text-white'}`} style={{ fontWeight: 700 }}>
                   {activePass
-                    ? (onOpenAccessWallet ? 'Pass Confirmed · Open Wallet' : 'Pass Confirmed ✓')
-                    : `${isEventAccess ? 'Unlock Event Pass' : 'Unlock / Purchase'} · ${venue.entryPrice || 'Paid entry'}`}
+                    ? (onOpenAccessWallet ? 'Pass Confirmed · Open My Access' : 'Pass Confirmed ✓')
+                    : `${isEventAccess ? 'Get Event Pass' : 'Get Entry Pass'} · ${venue.entryPrice || 'Paid entry'}`}
                 </span>
               </motion.button>
             ) : (
@@ -1174,7 +1174,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               >
                 <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/10">
                   <div>
-                    <p className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>ACCESS CHECKOUT</p>
+                    <p className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>MY ACCESS CHECKOUT</p>
                     <p className="text-[20px] text-white" style={{ fontWeight: 700 }}>{venue.name}</p>
                   </div>
                   <button
@@ -1190,11 +1190,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                     <div className="rounded-[20px] p-4 border border-white/15 bg-gradient-to-br from-cyan-500/12 via-purple-500/12 to-fuchsia-500/12 mb-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Confirm this event pass' : 'Unlock tonight’s access'}</p>
+                          <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{isEventAccess ? 'Review this event pass' : 'Review this entry pass'}</p>
                           <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 400 }}>
                             {isEventAccess
-                              ? 'One clear flow: review → checkout → confirmed event pass in your Profile wallet.'
-                              : 'One clear flow: review → checkout → confirmed pass in your Profile wallet.'}
+                              ? 'One clear flow: review → confirm → event pass in My Access.'
+                              : 'One clear flow: review → confirm → entry pass in My Access.'}
                           </p>
                         </div>
                         <div className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[12px] text-amber-200" style={{ fontWeight: 700 }}>
@@ -1205,7 +1205,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
 
                     <div className="space-y-2 mb-5 text-[13px] text-white/75" style={{ fontWeight: 500 }}>
                       <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-300" /> Saved straight to My Access</div>
-                      <div className="flex items-center gap-2"><Ticket className="w-4 h-4 text-fuchsia-300" /> {isEventAccess ? 'Door-ready event pass' : 'Door-ready confirmation pass'}</div>
+                      <div className="flex items-center gap-2"><Ticket className="w-4 h-4 text-fuchsia-300" /> {isEventAccess ? 'Door-ready event pass' : 'Door-ready entry pass'}</div>
                       <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'Ready on this profile after confirmation' : membership.isActive ? 'Insider is active on this profile' : 'You can activate Insider later in Profile'}</div>
                     </div>
 
@@ -1233,14 +1233,14 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                       </div>
                       <div className="flex items-center justify-between gap-3 text-[13px] text-white/65">
                         <span>Delivery</span>
-                        <span>My Access wallet</span>
+                        <span>My Access</span>
                       </div>
                     </div>
 
                     <p className="text-[13px] text-white/60 mb-4" style={{ fontWeight: 400 }}>
                       {isEventAccess
                         ? 'This checkout preview saves an event pass to My Access. No charge is made in this build.'
-                        : 'This checkout preview saves a confirmation pass to My Access. No charge is made in this build.'}
+                        : 'This checkout preview saves an entry pass to My Access. No charge is made in this build.'}
                     </p>
 
                     <div className="flex gap-3">
@@ -1258,7 +1258,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                         className="flex-[1.3] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white disabled:opacity-70"
                         whileTap={{ scale: 0.97 }}
                       >
-                        <span className="text-[15px]" style={{ fontWeight: 700 }}>{ticketLoading ? 'Confirming…' : 'Confirm ticket'}</span>
+                        <span className="text-[15px]" style={{ fontWeight: 700 }}>{ticketLoading ? 'Saving…' : 'Save to My Access'}</span>
                       </motion.button>
                     </div>
                   </div>
@@ -1269,7 +1269,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                     <div className="w-14 h-14 rounded-full bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center mx-auto mb-4">
                       <CheckCircle className="w-7 h-7 text-emerald-300" strokeWidth={2.5} />
                     </div>
-                    <p className="text-[24px] text-white text-center mb-2" style={{ fontWeight: 700 }}>{isEventAccess ? 'Event Pass Confirmed' : 'Ticket Confirmed'}</p>
+                    <p className="text-[24px] text-white text-center mb-2" style={{ fontWeight: 700 }}>{isEventAccess ? 'Event Pass Confirmed' : 'Entry Pass Confirmed'}</p>
                     <p className="text-[13px] text-white/65 text-center mb-5" style={{ fontWeight: 400 }}>
                       Your pass is stored in Profile → My Access and ready whenever you need it.
                     </p>

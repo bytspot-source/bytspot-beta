@@ -411,7 +411,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'reservations') {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col" data-testid="profile-parking-reservations">
         <div className="px-4 pt-4 pb-2">
           <motion.button
             onClick={() => setCurrentScreen('main')}
@@ -453,6 +453,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             parkingReservations.map((reservation, index) => (
               <motion.div
                 key={reservation.id}
+                data-testid={`reservation-card-${reservation.id}`}
                 className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden relative"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -812,6 +813,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       >
         <motion.button
           onClick={() => setCurrentScreen('reservations')}
+          data-testid="profile-reservations-summary"
           className="w-full rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/12 via-blue-500/12 to-emerald-500/12 backdrop-blur-xl shadow-xl text-left relative overflow-hidden"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}

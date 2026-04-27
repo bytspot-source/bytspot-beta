@@ -1,10 +1,26 @@
 
-  import { defineConfig } from 'vite';
+  import { defineConfig, type Plugin } from 'vite';
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
+  // Force Vite's auto-open to launch Chrome on dev start
+  process.env.BROWSER = 'chrome';
+
+  // Dev-only stub: src/utils/analytics.ts POSTs to /api/analytics/events,
+  // which has no backend in local dev. Return 204 so it doesn't surface
+  // as a 404 in the console / network panel.
+  const analyticsStubPlugin = (): Plugin => ({
+    name: 'bytspot:analytics-stub',
+    configureServer(server) {
+      server.middlewares.use('/api/analytics/events', (_req, res) => {
+        res.statusCode = 204;
+        res.end();
+      });
+    },
+  });
+
   export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), analyticsStubPlugin()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

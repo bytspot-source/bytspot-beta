@@ -15,11 +15,11 @@ import { resolveVenuePhoto } from '../venuePhoto';
  * These are real Atlanta Midtown venues with plausible crowd data.
  */
 const FALLBACK_VENUES: ApiVenue[] = [
-  { id: 'fallback-1', name: 'Ponce City Market', slug: 'ponce-city-market', address: '675 Ponce De Leon Ave NE', category: 'entertainment', lat: 33.7726, lng: -84.3655, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 10 }, parking: { totalAvailable: 45, spots: [] } },
-  { id: 'fallback-2', name: 'Colony Square', slug: 'colony-square', address: '1197 Peachtree St NE', category: 'shopping', lat: 33.7873, lng: -84.3832, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 }, parking: { totalAvailable: 22, spots: [] } },
+  { id: 'fallback-1', name: 'Ponce City Market', slug: 'ponce-city-market', address: '675 Ponce De Leon Ave NE', category: 'entertainment', lat: 33.7726, lng: -84.3655, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 10 }, parking: { totalAvailable: 45, spots: [] }, hardwarePatch: { id: 'patch-fallback-1', tagType: 'NTAG424_DNA', label: 'Market Entry', readCounter: 12, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true } },
+  { id: 'fallback-2', name: 'Colony Square', slug: 'colony-square', address: '1197 Peachtree St NE', category: 'shopping', lat: 33.7873, lng: -84.3832, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 }, parking: { totalAvailable: 22, spots: [] }, hardwarePatch: { id: 'patch-fallback-2', tagType: 'NTAG424_DNA', label: 'Midtown Entrance', readCounter: 28, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true } },
   { id: 'fallback-3', name: 'Optimist Hall', slug: 'optimist-hall', address: '950 Marietta St NW', category: 'restaurant', lat: 33.7700, lng: -84.4050, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 30, spots: [] } },
   { id: 'fallback-4', name: 'The Painted Pin', slug: 'the-painted-pin', address: '737 Miami Cir NE', category: 'nightlife', lat: 33.8120, lng: -84.3621, imageUrl: '', entryType: 'paid', entryPrice: '$20', ticketUrl: null, crowd: { level: 4, label: 'Packed', updatedAt: new Date().toISOString(), waitMins: 20 }, parking: { totalAvailable: 5, spots: [] } },
-  { id: 'fallback-5', name: 'Piedmont Park', slug: 'piedmont-park', address: '1320 Monroe Dr NE', category: 'park', lat: 33.7873, lng: -84.3748, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 60, spots: [] } },
+  { id: 'fallback-5', name: 'Piedmont Park', slug: 'piedmont-park', address: '1320 Monroe Dr NE', category: 'park', lat: 33.7873, lng: -84.3748, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 60, spots: [] }, hardwarePatch: { id: 'patch-fallback-5', tagType: 'NTAG424_DNA', label: 'Park Gate', readCounter: 6, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true } },
   { id: 'fallback-6', name: 'Krog Street Market', slug: 'krog-street-market', address: '99 Krog St NE', category: 'restaurant', lat: 33.7575, lng: -84.3636, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 }, parking: { totalAvailable: 12, spots: [] } },
 ] as unknown as ApiVenue[];
 
@@ -84,6 +84,12 @@ function crowdToAvailability(crowd: ApiVenue['crowd']): string {
 export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: number; lng: number }): DiscoverCard {
   const cardType = mapCategory(v.category);
   const image = resolveVenuePhoto({ imageUrl: v.imageUrl, category: v.category, name: v.name });
+  const features = [
+    ...((v as any).hardwarePatch?.id ? ['Bytspot Verified tap access'] : []),
+    ...(v.parking.spots.length > 0
+      ? [`${v.parking.totalAvailable} parking spots`, ...v.parking.spots.slice(0, 2).map(p => p.name)]
+      : []),
+  ];
 
   let distance = '—';
   if (userCoords && typeof v.lat === 'number' && typeof v.lng === 'number') {
@@ -102,9 +108,7 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     vibe: v.crowd ? Math.round((5 - v.crowd.level) * 2.5) : undefined, // level 1→10, 2→8, 3→5, 4→3
     description: v.address,
     location: v.address,
-    features: v.parking.spots.length > 0
-      ? [`${v.parking.totalAvailable} parking spots`, ...v.parking.spots.slice(0, 2).map(p => p.name)]
-      : undefined,
+    features: features.length > 0 ? features : undefined,
     price: v.parking.spots[0] ? `$${v.parking.spots[0].pricePerHr}/hr` : undefined,
     spots: v.parking.totalAvailable || undefined,
     verified: true,

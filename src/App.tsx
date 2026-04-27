@@ -797,14 +797,17 @@ export default function App() {
             {activeTab === 'home' && (
               <motion.div
                 key="home"
-                ref={homeScrollRef}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                className="absolute inset-0 overflow-y-auto"
-                onScroll={handleScroll}
+                className="absolute inset-0"
               >
+                <div
+                  ref={homeScrollRef}
+                  onScroll={handleScroll}
+                  className="absolute inset-0 overflow-y-auto"
+                >
                 {/* ── Tonight's Pick ── Smart venue recommendation */}
                 {tonightsPick && (() => {
                   const v = tonightsPick;
@@ -1312,6 +1315,7 @@ export default function App() {
                     </div>
                   </motion.div>
                 </div>
+                </div>
               </motion.div>
             )}
 
@@ -1595,7 +1599,7 @@ export default function App() {
         {/* Feedback Sheet */}
         <AnimatePresence>
           {showFeedback && (
-            <>
+            <motion.div key="feedback-sheet" initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 1 }}>
               <motion.div
                 className="fixed inset-0 z-[58] bg-black/60 backdrop-blur-sm"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1667,7 +1671,7 @@ export default function App() {
                   </>
                 )}
               </motion.div>
-            </>
+            </motion.div>
           )}
         </AnimatePresence>
 

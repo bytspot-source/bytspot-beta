@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
-  MapPin, ChevronRight, Send,
+  MapPin, ChevronRight, Send, QrCode,
+  Lock, Sparkles,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,7 +18,29 @@ import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
 import { VenueDetails } from './VenueDetails';
 import { useVenues, venueToCard } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
-import type { ApiVenue } from '../utils/trpc';
+import { trpc, type ApiVenue } from '../utils/trpc';
+import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
+import { buildVerifiedVirtualPatchContext, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { filterMapVenues, hasHardwarePatchInstalled } from '../utils/mapVenues';
+
+type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
+
+type ReservationSpot = {
+  id: string;
+  name: string;
+  address: string;
+  distance: number;
+  walkTime: number;
+  price: number;
+  availability: number;
+  total: number;
+  securityRating: number;
+  rating: number;
+  reviews: number;
+  features: string[];
+  iotEnabled: boolean;
+  lastUpdate?: Date | string;
+};
 
 interface MapSectionProps {
   isDarkMode: boolean;
@@ -50,15 +73,6 @@ interface ParkingSpot {
   securityLevel: SecurityLevel;
   hasCameras: boolean;
   isReserved: boolean; // user has reserved this spot
-}
-
-interface Venue {
-  id: number;
-  lat: number;
-  lng: number;
-  name: string;
-  type: string;
-  rating: number;
 }
 
 interface FilterState {
@@ -119,7 +133,7 @@ const ATLANTA_PARKING: ParkingSpot[] = [
 ];
 
 // Fix Leaflet's broken default icon paths in Vite builds
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as LeafletDefaultIconPrototype)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
@@ -159,9 +173,15 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
     @keyframes bytspot-pulse { 0%{transform:scale(1);opacity:.7} 70%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
     @keyframes bytspot-pulse-slow { 0%{transform:scale(1);opacity:.5} 70%{transform:scale(2.4);opacity:0} 100%{transform:scale(2.4);opacity:0} }
     @keyframes bytspot-trend { 0%{transform:scale(1);opacity:.85} 50%{transform:scale(2.8);opacity:0} 100%{transform:scale(2.8);opacity:0} }
+    @keyframes bytspot-verified-glow { 0%,100%{transform:scale(1);opacity:.45} 50%{transform:scale(1.24);opacity:.12} }
+    @keyframes bytspot-verified-ring { 0%{transform:scale(.98);opacity:.8} 70%{transform:scale(1.75);opacity:0} 100%{transform:scale(1.75);opacity:0} }
+    @keyframes bytspot-marker-in { 0%{opacity:0;transform:scale(.55) translateY(4px)} 60%{opacity:1;transform:scale(1.06) translateY(0)} 100%{opacity:1;transform:scale(1) translateY(0)} }
     .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
     .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
     .byt-trend-pulse{position:absolute;inset:-9px;border-radius:50%;animation:bytspot-trend 1.1s ease-out infinite;}
+    .byt-verified-glow{position:absolute;inset:-12px;border-radius:50%;background:radial-gradient(circle, rgba(34,211,238,.45) 0%, rgba(124,58,237,.24) 44%, rgba(236,72,153,0) 74%);animation:bytspot-verified-glow 2.6s ease-in-out infinite;}
+    .byt-verified-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.85);box-shadow:0 0 20px rgba(34,211,238,.45),0 0 28px rgba(124,58,237,.22);animation:bytspot-verified-ring 1.85s ease-out infinite;}
+    .byt-marker-in{animation:bytspot-marker-in 320ms cubic-bezier(.2,.8,.25,1.05) both;transform-origin:center bottom;}
   `;
   document.head.appendChild(style);
 }
@@ -199,16 +219,24 @@ function createVibeMarkerIcon(
   isPaid: boolean,
   isTrending: boolean,
   priceBadge?: string | null,
+  isVerified: boolean = false,
 ): L.DivIcon {
   const color = VIBE_COLORS[level] ?? '#9333ea';
-  const size = isTrending ? 34 : 28;
+  const size = isVerified ? (isTrending ? 38 : 34) : (isTrending ? 34 : 28);
   const anchor = Math.floor(size / 2);
   const pulseClass = isTrending ? 'byt-trend-pulse' : 'byt-pulse-ring-slow';
   const priceBadgeHtml = isPaid
     ? `<div style="position:absolute;top:-7px;right:-8px;background:#F59E0B;color:white;font-size:8px;font-weight:800;padding:1px 4px;border-radius:5px;border:1.5px solid rgba(255,255,255,0.9);white-space:nowrap;line-height:1.5;">${priceBadge ?? '$'}</div>`
     : '';
+  const verifiedGlowHtml = isVerified
+    ? `<div class="byt-verified-glow"></div>
+       <div class="byt-verified-ring"></div>
+       <div style="position:absolute;top:-6px;left:-6px;width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#8b5cf6);border:1.5px solid rgba(255,255,255,0.95);box-shadow:0 0 14px rgba(34,211,238,0.48);display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:900;line-height:1;">✓</div>
+       <div style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,0.92);border:1px solid rgba(103,232,249,0.55);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;line-height:1.35;white-space:nowrap;">BYT</div>`
+    : '';
   return L.divIcon({
-    html: `<div style="position:relative;width:${size}px;height:${size}px;">
+    html: `<div class="byt-marker-in" style="position:relative;width:${size}px;height:${size}px;">
+      ${verifiedGlowHtml}
       <div class="${pulseClass}" style="border:2px solid ${color};"></div>
       <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid rgba(255,255,255,0.92);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;cursor:pointer;">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
@@ -220,6 +248,50 @@ function createVibeMarkerIcon(
     popupAnchor: [0, -(anchor + 2)],
     className: '',
   });
+}
+
+const VERIFIED_ZONE_RADIUS_METERS = 120;
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const earthRadiusMeters = 6_371_000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findNearestVerifiedVenue(venues: ApiVenue[], coords?: { lat: number; lng: number }) {
+  if (!coords) return null;
+
+  let closestVenue: ApiVenue | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const venue of venues) {
+    if (!hasHardwarePatchInstalled(venue)) continue;
+    if (typeof venue.lat !== 'number' || typeof venue.lng !== 'number') continue;
+
+    const distanceMeters = haversineMeters(coords.lat, coords.lng, venue.lat, venue.lng);
+    if (distanceMeters < closestDistance) {
+      closestDistance = distanceMeters;
+      closestVenue = venue;
+    }
+  }
+
+  return closestVenue ? { venue: closestVenue, distanceMeters: closestDistance } : null;
+}
+
+function formatMeters(distanceMeters: number): string {
+  if (distanceMeters >= 1000) return `${(distanceMeters / 1000).toFixed(1)} km`;
+  return `${Math.round(distanceMeters)} m`;
+}
+
+function saveVirtualPatchContext(payload: Record<string, unknown> | VirtualPatchContext) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(VIRTUAL_PATCH_CONTEXT_KEY, JSON.stringify(payload));
 }
 
 // Community Report icons
@@ -311,8 +383,8 @@ function openNativeNavigation(lat: number, lng: number, label?: string) {
 export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
-  const [showParkingSpots, setShowParkingSpots] = useState(true);
-  const [showVenues, setShowVenues] = useState(true);
+  const [showParkingSpots] = useState(true);
+  const [showVenues] = useState(true);
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null);
   const [showSpotDetails, setShowSpotDetails] = useState(false);
   const [routeDestination, setRouteDestination] = useState<string>(destination || '');
@@ -320,8 +392,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [showFilters, setShowFilters] = useState(false);
   const [shouldRecenter, setShouldRecenter] = useState(false);
   const [zoomDirection, setZoomDirection] = useState(0);
-  const [reservationSpot, setReservationSpot] = useState<any>(null);
-  const [selectedMapVenue, setSelectedMapVenue] = useState<any>(null);
+  const [reservationSpot, setReservationSpot] = useState<ReservationSpot | null>(null);
   // Community reports & live vibes/events layers
   const [showReports, setShowReports] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
@@ -335,8 +406,17 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [entryFilter, setEntryFilter] = useState<'free' | 'paid' | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null); // 'dining'|'nightlife'|'coffee'|'parks'|null
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
   const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
+  const [showVirtualPatchSheet, setShowVirtualPatchSheet] = useState(false);
+  const [showQrScannerSheet, setShowQrScannerSheet] = useState(false);
+  const [qrScannerVenue, setQrScannerVenue] = useState<ApiVenue | null>(null);
+  const [showLiveUpdates, setShowLiveUpdates] = useState(true);
+  // Bytspot Premium gating: drives the perks panel inside the verified peek sheet
+  const [isPremium, setIsPremium] = useState(false);
+  const [showPremiumTeaser, setShowPremiumTeaser] = useState(false);
+  const [premiumCheckoutPending, setPremiumCheckoutPending] = useState(false);
 
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
@@ -353,31 +433,170 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   useEffect(() => { parkingDataRef.current = parkingData; }, [parkingData]);
   useEffect(() => { selectedSpotRef.current = selectedSpot; }, [selectedSpot]);
 
+  // Auto-hide the "Live Updates Active" pill after a brief moment so the map stays clean
+  useEffect(() => {
+    if (!showLiveUpdates) return;
+    const t = setTimeout(() => setShowLiveUpdates(false), 3500);
+    return () => clearTimeout(t);
+  }, [showLiveUpdates]);
+
+  // Pull Bytspot Premium status — silently defaults to free on any error (e.g. guest)
+  useEffect(() => {
+    let cancelled = false;
+    trpc.subscription.status.query()
+      .then((data) => { if (!cancelled) setIsPremium(Boolean(data?.isPremium)); })
+      .catch(() => { if (!cancelled) setIsPremium(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
   const { venues: apiVenues } = useVenues();
 
   // Venues that have high check-in velocity in the last hour
   const trendingIds = useMemo(() => getTrendingVenueIds(), []);
 
-  // Apply vibe / entry / category filters to the full ApiVenue list
-  const filteredMapVenues = useMemo<ApiVenue[]>(() => {
-    const CAT_MAP: Record<string, string[]> = {
-      dining:    ['restaurant', 'food', 'dining'],
-      nightlife: ['bar', 'club', 'nightlife', 'lounge'],
-      coffee:    ['coffee', 'cafe', 'bakery'],
-      parks:     ['park', 'outdoor', 'garden'],
-    };
-    return apiVenues.filter(v => {
-      if (vibeFilter !== null && (v.crowd?.level ?? 0) !== vibeFilter) return false;
-      if (entryFilter !== null && ((v as any).entryType ?? 'free') !== entryFilter) return false;
-      if (categoryFilter !== null) {
-        const cat = (v.category ?? '').toLowerCase();
-        const allowed = CAT_MAP[categoryFilter] ?? [categoryFilter];
-        if (!allowed.some(a => cat.includes(a))) return false;
-      }
-      return true;
+  // Apply Verified-only / vibe / entry / category filters to the full ApiVenue list
+  const filteredMapVenues = useMemo<ApiVenue[]>(
+    () => filterMapVenues(apiVenues, { showVerifiedOnly, vibeFilter, entryFilter, categoryFilter }),
+    [apiVenues, vibeFilter, entryFilter, categoryFilter, showVerifiedOnly],
+  );
+  const verifiedVenues = useMemo(() => apiVenues.filter((venue) => hasHardwarePatchInstalled(venue)), [apiVenues]);
+  const verifiedVenueCount = useMemo(() => filteredMapVenues.filter((venue) => hasHardwarePatchInstalled(venue)).length, [filteredMapVenues]);
+  const peekVenueIsVerified = hasHardwarePatchInstalled(peekVenue);
+  const nearestVerifiedVenue = useMemo(
+    () => findNearestVerifiedVenue(verifiedVenues, userCoords),
+    [verifiedVenues, userCoords],
+  );
+  const nearbyVerifiedVenue = useMemo(() => {
+    if (!nearestVerifiedVenue) return null;
+    return nearestVerifiedVenue.distanceMeters <= VERIFIED_ZONE_RADIUS_METERS ? nearestVerifiedVenue : null;
+  }, [nearestVerifiedVenue]);
+  const scanCapabilities = useMemo(
+    () => ({
+      qr: typeof window !== 'undefined' && 'BarcodeDetector' in window,
+      nfc: typeof window !== 'undefined' && 'NDEFReader' in window,
+    }),
+    [],
+  );
+  const virtualPatchSubtitle = nearbyVerifiedVenue
+    ? `${nearbyVerifiedVenue.venue.name} · ${formatMeters(nearbyVerifiedVenue.distanceMeters)}`
+    : 'Open Virtual Patch';
+
+  const handleCloseQrScanner = useCallback(() => {
+    setShowQrScannerSheet(false);
+    setQrScannerVenue(null);
+  }, []);
+
+  const handleQrVerified = useCallback((verification: VirtualPatchScanVerification) => {
+    const targetVenue = qrScannerVenue ?? nearbyVerifiedVenue?.venue ?? null;
+    saveVirtualPatchContext(buildVerifiedVirtualPatchContext(verification, {
+      source: 'map',
+      venueId: targetVenue?.id ?? null,
+      venueName: targetVenue?.name ?? null,
+      patchId: verification.patchId ?? targetVenue?.hardwarePatch?.id ?? null,
+      distanceMeters: nearbyVerifiedVenue ? Math.round(nearbyVerifiedVenue.distanceMeters) : null,
+      capabilities: scanCapabilities,
+    }));
+  }, [nearbyVerifiedVenue, qrScannerVenue, scanCapabilities]);
+
+  const handleLaunchVirtualPatchSession = useCallback(() => {
+    if (!nearbyVerifiedVenue) return;
+
+    const targetVenue = nearbyVerifiedVenue.venue;
+    saveVirtualPatchContext({
+      source: 'map',
+      mode: 'verified-zone',
+      initiatedAt: new Date().toISOString(),
+      venueId: targetVenue.id,
+      venueName: targetVenue.name,
+      patchId: targetVenue.hardwarePatch?.id ?? null,
+      distanceMeters: Math.round(nearbyVerifiedVenue.distanceMeters),
+      capabilities: scanCapabilities,
     });
-  }, [apiVenues, vibeFilter, entryFilter, categoryFilter]);
+
+    setShowVirtualPatchSheet(false);
+
+    if (scanCapabilities.nfc || scanCapabilities.qr) {
+      setQrScannerVenue(targetVenue);
+      setShowQrScannerSheet(true);
+      toast.success('Tap / Scan ready', {
+        description: scanCapabilities.nfc
+          ? `Hold your phone near the patch sticker at ${targetVenue.name}, or switch to QR if needed.`
+          : `Point your camera at the patch code at ${targetVenue.name}.`,
+      });
+      return;
+    }
+
+    const description = scanCapabilities.nfc
+      ? `Hold your phone near the patch sticker at ${targetVenue.name}.`
+      : scanCapabilities.qr
+        ? `Point your camera at the patch code at ${targetVenue.name}.`
+        : `Opening My Access so you can continue the Tap / Scan flow for ${targetVenue.name}.`;
+
+    toast.success('Virtual Patch ready', { description });
+    onOpenAccessWallet?.();
+  }, [nearbyVerifiedVenue, onOpenAccessWallet, scanCapabilities]);
+
+  const handleOpenVirtualPatch = useCallback(() => {
+    setShowReportForm(false);
+    setPeekVenue(null);
+    setVenueDetailsVenue(null);
+    setShowQrScannerSheet(false);
+    setQrScannerVenue(null);
+
+    if (nearbyVerifiedVenue) {
+      setShowVirtualPatchSheet(true);
+      return;
+    }
+
+    const suggestedVenue = peekVenueIsVerified ? peekVenue : nearestVerifiedVenue?.venue ?? null;
+    saveVirtualPatchContext({
+      source: 'map',
+      mode: 'wallet-fallback',
+      initiatedAt: new Date().toISOString(),
+      venueId: suggestedVenue?.id ?? null,
+      venueName: suggestedVenue?.name ?? null,
+      patchId: suggestedVenue?.hardwarePatch?.id ?? null,
+      distanceMeters: nearestVerifiedVenue ? Math.round(nearestVerifiedVenue.distanceMeters) : null,
+    });
+
+    if (!onOpenAccessWallet) {
+      toast.success('Tap / Scan', {
+        description: nearestVerifiedVenue
+          ? `Move within ${VERIFIED_ZONE_RADIUS_METERS} m of a Bytspot Verified venue to start a direct scan.`
+          : 'Virtual Patch will open in My Access in this build.',
+      });
+      return;
+    }
+
+    toast.success('Virtual Patch standby', {
+      description: nearestVerifiedVenue
+        ? `${nearestVerifiedVenue.venue.name} is ${formatMeters(nearestVerifiedVenue.distanceMeters)} away. Opening My Access until you are in range.`
+        : 'Opening My Access for your Tap / Scan flow.',
+    });
+    onOpenAccessWallet();
+  }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, peekVenue, peekVenueIsVerified]);
+
+  // Premium upgrade flow — kicks off Stripe Checkout via tRPC, falls back to a toast in demo mode
+  const handleUpgradeToPremium = useCallback(async () => {
+    if (premiumCheckoutPending) return;
+    setPremiumCheckoutPending(true);
+    try {
+      const result = await trpc.subscription.createCheckout.mutate();
+      if (result?.url) {
+        window.location.href = result.url;
+        return;
+      }
+      toast('Premium preview', {
+        description: result?.message ?? 'Stripe is not configured in this build — perks unlock will go live soon.',
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not start checkout';
+      toast.error('Upgrade unavailable', { description: message });
+    } finally {
+      setPremiumCheckoutPending(false);
+    }
+  }, [premiumCheckoutPending]);
 
   useEffect(() => {
     if (destination) {
@@ -529,13 +748,14 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         {/* ── Venue Markers — vibe-coloured, entry-badged, trending-pulsed ── */}
         {showVenues && filteredMapVenues.map((v) => {
           const level = v.crowd?.level ?? 1;
-          const isPaid = (v as any).entryType === 'paid';
+          const isPaid = v.entryType === 'paid';
           const isTrending = trendingIds.has(v.id ?? '') || trendingIds.has(v.name);
+          const isVerified = hasHardwarePatchInstalled(v);
           return (
             <Marker
               key={v.id}
               position={[v.lat, v.lng]}
-              icon={createVibeMarkerIcon(level, isPaid, isTrending, (v as any).entryPrice)}
+              icon={createVibeMarkerIcon(level, isPaid, isTrending, v.entryPrice, isVerified)}
               eventHandlers={{
                 click: () => {
                   setPeekVenue(v);
@@ -614,6 +834,46 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         >
           <Zap className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-amber-400'}`} strokeWidth={2.5} />
         </motion.button>
+
+        {/* ── Bytspot Verified Only — hexagonal FAB toggle ── */}
+        <motion.button
+          onClick={() => setShowVerifiedOnly(v => !v)}
+          className="relative w-11 h-11 flex items-center justify-center"
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+          aria-pressed={showVerifiedOnly}
+          aria-label={showVerifiedOnly ? 'Showing Bytspot Verified venues only — tap to show all' : 'Show Bytspot Verified venues only'}
+          title="Bytspot Verified only"
+        >
+          {showVerifiedOnly && (
+            <motion.span
+              key="verified-ping"
+              className="absolute inset-0 rounded-full"
+              style={{ background: 'radial-gradient(circle, rgba(34,211,238,0.55), rgba(124,58,237,0.25) 60%, transparent 75%)' }}
+              animate={{ scale: [1, 1.55, 1.85], opacity: [0.65, 0.15, 0] }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+            />
+          )}
+          <motion.span
+            className="absolute inset-0 flex items-center justify-center border-2 shadow-xl backdrop-blur-xl"
+            style={{
+              clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)',
+              background: showVerifiedOnly
+                ? 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))'
+                : 'rgba(28,28,30,0.95)',
+              borderColor: showVerifiedOnly ? 'rgba(165,243,252,0.7)' : 'rgba(255,255,255,0.3)',
+            }}
+            animate={showVerifiedOnly
+              ? { boxShadow: ['0 0 14px rgba(34,211,238,0.45)', '0 0 22px rgba(124,58,237,0.55)', '0 0 14px rgba(236,72,153,0.45)'] }
+              : { boxShadow: '0 6px 16px rgba(0,0,0,0.35)' }}
+            transition={{ duration: 2.4, repeat: showVerifiedOnly ? Infinity : 0, ease: 'easeInOut' }}
+          >
+            <Zap
+              className={`w-5 h-5 ${showVerifiedOnly ? 'text-white' : 'text-cyan-300'}`}
+              strokeWidth={2.6}
+            />
+          </motion.span>
+        </motion.button>
       </div>
 
       {/* ── Vibe Filter Bar — horizontal scroll, full width ── */}
@@ -642,6 +902,23 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               {chip.emoji} {chip.label}
             </motion.button>
           ))}
+
+          {(verifiedVenues.length > 0 || showVerifiedOnly) && (
+            <motion.button
+              onClick={() => setShowVerifiedOnly(v => !v)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg transition-colors ${
+                showVerifiedOnly
+                  ? 'bg-cyan-400/30 border-cyan-200/70 text-white'
+                  : 'bg-cyan-500/18 border-cyan-300/35 text-cyan-100'
+              }`}
+              style={{ fontWeight: 800, whiteSpace: 'nowrap' }}
+              whileTap={{ scale: 0.93 }}
+              aria-pressed={showVerifiedOnly}
+              title={showVerifiedOnly ? 'Showing Verified only' : 'Tap to show Verified only'}
+            >
+              ⬢ {verifiedVenueCount} Verified{showVerifiedOnly ? ' · On' : ''}
+            </motion.button>
+          )}
 
           <div className="flex-shrink-0 w-px bg-white/18 my-1" />
 
@@ -741,6 +1018,49 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </div>
       </div>
 
+      {/* ── Bytspot Verified — Partner-Only mode indicators ── */}
+      <AnimatePresence>
+        {showVerifiedOnly && (
+          <>
+            {/* Cyan vignette accent so it's obvious the map is in a special mode */}
+            <motion.div
+              key="verified-vignette"
+              className="pointer-events-none absolute inset-0 z-[999]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35 }}
+              style={{
+                boxShadow: 'inset 0 0 0 2px rgba(103,232,249,0.55), inset 0 0 60px rgba(34,211,238,0.18)',
+              }}
+            />
+            {/* "Verified Mode" badge — sits just under the filter chips */}
+            <motion.div
+              key="verified-badge"
+              className="absolute top-16 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none"
+              initial={{ opacity: 0, y: -8, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.94 }}
+              transition={springConfig}
+            >
+              <div
+                className="px-3 py-1.5 rounded-full border border-cyan-200/60 shadow-2xl flex items-center gap-2"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(6,182,212,0.92), rgba(124,58,237,0.92) 60%, rgba(236,72,153,0.9))',
+                }}
+              >
+                <span className="text-[12px] text-white" style={{ fontWeight: 900, letterSpacing: '0.04em' }}>
+                  ⬢ VERIFIED MODE
+                </span>
+                <span className="text-[10px] text-white/85" style={{ fontWeight: 700 }}>
+                  Partner venues only
+                </span>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Report FAB — bottom-right, clear of filter bar */}
       <div className="fixed bottom-28 right-4 z-[1001]">
         <motion.button
@@ -754,6 +1074,183 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
       </div>
+
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1001]">
+        <motion.button
+          onClick={handleOpenVirtualPatch}
+          className="relative min-w-[210px] px-3 py-3 rounded-full border border-white/25 shadow-2xl overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))' }}
+          whileTap={{ scale: 0.96 }}
+          animate={{ y: [0, -2, 0], boxShadow: ['0 12px 36px rgba(6,182,212,0.26)', '0 16px 42px rgba(124,58,237,0.36)', '0 12px 36px rgba(236,72,153,0.24)'] }}
+          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+          aria-label="Open Tap and Scan virtual patch flow"
+        >
+          <div className="relative flex items-center gap-3">
+            <div className="w-11 h-11 flex items-center justify-center border border-white/35 bg-black/15" style={{ clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)' }}>
+              <Zap className="w-5 h-5 text-white" strokeWidth={2.6} />
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[15px] text-white leading-tight" style={{ fontWeight: 900 }}>Tap / Scan</div>
+              <div className="text-[11px] text-white/80 leading-tight truncate" style={{ fontWeight: 600 }}>{virtualPatchSubtitle}</div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white/90 ml-1" strokeWidth={2.8} />
+          </div>
+        </motion.button>
+      </div>
+
+      <AnimatePresence>
+        {showVirtualPatchSheet && nearbyVerifiedVenue && (
+          <motion.div
+            className="fixed inset-0 z-[1004] bg-black/55 backdrop-blur-[2px] flex items-end justify-center p-3"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowVirtualPatchSheet(false)}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-[28px] border border-cyan-300/30 bg-[#11131A]/96 backdrop-blur-2xl shadow-2xl overflow-hidden"
+              style={{ boxShadow: '0 0 46px rgba(34,211,238,0.18), 0 18px 48px rgba(0,0,0,0.52)' }}
+              initial={{ y: 140, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 140, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="relative p-6 pb-5">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.20),transparent_68%)]" />
+                <div className="pointer-events-none absolute -right-10 top-0 h-32 w-32 rounded-full bg-fuchsia-500/10 blur-3xl" />
+
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-400/12 border border-cyan-300/25 text-cyan-100 text-[11px] tracking-[0.18em] uppercase" style={{ fontWeight: 800 }}>
+                          <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />
+                          Virtual Patch
+                        </div>
+                        <div className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/6 border border-white/10 text-[10px] text-white/55 uppercase tracking-[0.18em]" style={{ fontWeight: 700 }}>
+                          {formatMeters(nearbyVerifiedVenue.distanceMeters)} away
+                        </div>
+                      </div>
+                      <h3 className="text-[24px] text-white leading-[1.05] tracking-[-0.02em]" style={{ fontWeight: 800 }}>Tap / Scan ready</h3>
+                      <p className="text-[13px] text-white/68 mt-2 max-w-[18rem] leading-[1.5]" style={{ fontWeight: 500 }}>
+                        You’re in range for a fast patch handshake at <span className="text-white" style={{ fontWeight: 700 }}>{nearbyVerifiedVenue.venue.name}</span>.
+                      </p>
+                    </div>
+                    <motion.button
+                      onClick={() => setShowVirtualPatchSheet(false)}
+                      className="mt-0.5 w-9 h-9 rounded-full flex items-center justify-center bg-white/7 border border-white/12 text-white/70"
+                      whileTap={{ scale: 0.92 }}
+                      transition={springConfig}
+                    >
+                      <X className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+
+                  <div className="relative rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(21,25,35,0.96)_0%,rgba(14,18,27,0.92)_100%)] px-4 py-[18px] mb-5 overflow-hidden">
+                    <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
+
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-11 h-11 rounded-[16px] bg-cyan-400/12 border border-cyan-300/18 flex items-center justify-center shadow-[0_10px_24px_rgba(34,211,238,0.12)] shrink-0">
+                        <Zap className="w-4.5 h-4.5 text-cyan-200" strokeWidth={2.6} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[16px] text-white leading-tight truncate" style={{ fontWeight: 700 }}>{nearbyVerifiedVenue.venue.name}</div>
+                            <div className="text-[10px] text-cyan-100/55 uppercase tracking-[0.22em] mt-1" style={{ fontWeight: 700 }}>
+                              Bytspot Verified access point
+                            </div>
+                          </div>
+                          <div className="shrink-0 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] text-white/55 uppercase tracking-[0.16em]" style={{ fontWeight: 700 }}>
+                            Live now
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-white/72" style={{ fontWeight: 600 }}>
+                            <Zap className="w-3.5 h-3.5 text-cyan-200" strokeWidth={2.4} />
+                            {scanCapabilities.nfc ? 'NFC handshake ready' : 'Wallet-guided entry'}
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-white/72" style={{ fontWeight: 600 }}>
+                            <QrCode className="w-3.5 h-3.5 text-fuchsia-200" strokeWidth={2.4} />
+                            {scanCapabilities.qr ? 'QR fallback ready' : 'Manual code fallback'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 mt-[18px]">
+                      <div className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white/6 border border-white/10 text-[11px] text-white/75 flex items-center justify-center shrink-0" style={{ fontWeight: 700 }}>1</div>
+                        <p className="text-[12px] text-white/72 leading-[1.55]" style={{ fontWeight: 500 }}>
+                          Find the glowing Bytspot sticker or patch near the venue entrance.
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white/6 border border-white/10 text-[11px] text-white/75 flex items-center justify-center shrink-0" style={{ fontWeight: 700 }}>2</div>
+                        <p className="text-[12px] text-white/72 leading-[1.55]" style={{ fontWeight: 500 }}>
+                          {scanCapabilities.nfc ? 'Hold your phone near the patch to begin the tap handshake.' : 'Open the guided wallet flow to continue the patch handshake.'}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white/6 border border-white/10 text-[11px] text-white/75 flex items-center justify-center shrink-0" style={{ fontWeight: 700 }}>3</div>
+                        <p className="text-[12px] text-white/72 leading-[1.55]" style={{ fontWeight: 500 }}>
+                          {scanCapabilities.qr ? 'If needed, use your camera to scan the QR fallback on the sticker.' : 'Use the visible patch code as the fallback verification step if needed.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <motion.button
+                      onClick={() => setShowVirtualPatchSheet(false)}
+                      className="flex-1 px-4 py-3.5 rounded-[18px] bg-white/6 border border-white/10 text-white/78"
+                      whileTap={{ scale: 0.97 }}
+                      whileHover={{ scale: 1.01 }}
+                      transition={springConfig}
+                    >
+                      <span className="text-[14px]" style={{ fontWeight: 700 }}>Not now</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={handleLaunchVirtualPatchSession}
+                      className="flex-[1.2] px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white shadow-[0_14px_34px_rgba(124,58,237,0.28)]"
+                      whileTap={{ scale: 0.97, y: 1 }}
+                      whileHover={{ scale: 1.01, y: -1 }}
+                      transition={springConfig}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        {scanCapabilities.nfc ? <Zap className="w-4 h-4 text-white" strokeWidth={2.6} /> : <QrCode className="w-4 h-4 text-white" strokeWidth={2.6} />}
+                        <span className="text-[14px]" style={{ fontWeight: 800 }}>
+                          {scanCapabilities.nfc || scanCapabilities.qr ? 'Start Tap / Scan' : 'Open My Access'}
+                        </span>
+                      </div>
+                      <p aria-hidden="true" className="text-[11px] text-white/75 mt-1.5 text-center" style={{ fontWeight: 600 }}>
+                        {scanCapabilities.nfc
+                          ? 'Hold near the venue patch when prompted.'
+                          : scanCapabilities.qr
+                            ? 'Camera fallback stays ready if NFC is unavailable.'
+                            : 'Continue the flow from your access wallet.'}
+                      </p>
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <VirtualPatchScannerSheet
+        isOpen={showQrScannerSheet && Boolean(qrScannerVenue)}
+        venueName={qrScannerVenue?.name ?? 'Bytspot Verified venue'}
+        fallbackPatchId={qrScannerVenue?.hardwarePatch?.id ?? null}
+        userCoords={userCoords}
+        onClose={handleCloseQrScanner}
+        onVerified={handleQrVerified}
+        onOpenAccessWallet={onOpenAccessWallet}
+      />
 
       {/* Community Report Form — slides up from bottom-right */}
       <AnimatePresence>
@@ -936,24 +1433,27 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         )}
       </AnimatePresence>
 
-      {/* Live Update Indicator */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50">
-        <motion.div
-          className="px-3 py-1.5 rounded-full bg-[#1C1C1E]/95 backdrop-blur-xl border border-white/30 shadow-xl flex items-center gap-2"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={springConfig}
-        >
+      {/* Live Update Indicator — auto-hides so it doesn't obstruct the map */}
+      <AnimatePresence>
+        {showLiveUpdates && (
           <motion.div
-            className="w-2 h-2 rounded-full bg-green-500"
-            animate={{ opacity: [1, 0.3, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-          <span className="text-[11px] text-white/90" style={{ fontWeight: 500 }}>
-            Live Updates Active
-          </span>
-        </motion.div>
-      </div>
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-full bg-[#1C1C1E]/95 backdrop-blur-xl border border-white/30 shadow-xl flex items-center gap-2 pointer-events-none"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={springConfig}
+          >
+            <motion.div
+              className="w-2 h-2 rounded-full bg-green-500"
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+            <span className="text-[11px] text-white/90" style={{ fontWeight: 500 }}>
+              Live Updates Active
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Route Planning Panel */}
       {selectedFunction === 'route' && (
@@ -1024,31 +1524,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.div>
       )}
 
-      {/* Legend */}
-      {selectedFunction !== 'route' && (
-        <div className="absolute bottom-4 right-4 z-50">
-          <div className="px-3 py-2 rounded-[12px] bg-[#1C1C1E]/95 backdrop-blur-xl border border-white/30 shadow-xl">
-            <div className="space-y-1.5">
-              {[
-                { color: '#10B981', label: 'Available' },
-                { color: '#F59E0B', label: 'Limited' },
-                { color: '#EF4444', label: 'Full' },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center gap-2">
-                  <div 
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-[11px] text-white/90" style={{ fontWeight: 500 }}>
-                    {item.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Parking Spot Details Panel */}
       <ParkingSpotDetails
         spot={selectedSpot ? parkingData.find(s => s.id === selectedSpot) || null : null}
@@ -1100,7 +1575,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             exit={{ y: 140, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 340, damping: 30 }}
           >
-            <div className="rounded-[22px] bg-[#1C1C1E]/96 backdrop-blur-2xl border border-white/18 shadow-2xl overflow-hidden">
+            <div
+              className={`rounded-[22px] bg-[#1C1C1E]/96 backdrop-blur-2xl border shadow-2xl overflow-hidden ${peekVenueIsVerified ? 'border-cyan-300/35' : 'border-white/18'}`}
+              style={peekVenueIsVerified ? { boxShadow: '0 0 34px rgba(34,211,238,0.16), 0 18px 42px rgba(0,0,0,0.48)' } : undefined}
+            >
               {/* Header */}
               <div className="flex items-start justify-between p-4 pb-3">
                 <div className="flex-1 min-w-0">
@@ -1120,9 +1598,14 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                         </span>
                       );
                     })()}
-                    {(peekVenue as any).entryType === 'paid' ? (
+                    {peekVenueIsVerified && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-400/15 text-cyan-200 border border-cyan-300/30 font-bold">
+                        ⬢ Bytspot Verified
+                      </span>
+                    )}
+                    {peekVenue.entryType === 'paid' ? (
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-300 font-bold">
-                        {(peekVenue as any).entryPrice ?? 'Paid'}
+                        {peekVenue.entryPrice ?? 'Paid'}
                       </span>
                     ) : (
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-bold">
@@ -1138,6 +1621,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   <p className="text-[12px] text-white/50 mt-0.5 capitalize">
                     {peekVenue.category}
                     {peekVenue.crowd?.waitMins ? ` · ~${peekVenue.crowd.waitMins}m wait` : ' · No wait'}
+                    {peekVenueIsVerified ? ' · Tap-ready' : ''}
                   </p>
                 </div>
                 {/* Dismiss */}
@@ -1149,6 +1633,48 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   <X className="w-3.5 h-3.5 text-white/70" />
                 </motion.button>
               </div>
+
+              {/* ── Member Perks — only on Verified venues; gated by Bytspot Premium ── */}
+              {peekVenueIsVerified && (
+                isPremium ? (
+                  <div
+                    className="mx-4 mb-3 px-3 py-2.5 rounded-[14px] border border-cyan-300/45"
+                    style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.18), rgba(124,58,237,0.18) 60%, rgba(236,72,153,0.16))' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-200" strokeWidth={2.5} />
+                      <span className="text-[11px] text-cyan-100 tracking-[0.08em]" style={{ fontWeight: 800 }}>
+                        MEMBER PERKS · ACTIVE
+                      </span>
+                    </div>
+                    <ul className="text-[12px] text-white/85 space-y-0.5" style={{ fontWeight: 600 }}>
+                      <li>· 10% off your tab</li>
+                      <li>· Skip the line at entry</li>
+                      <li>· Member-only Tap / Scan rewards</li>
+                    </ul>
+                  </div>
+                ) : (
+                  <motion.button
+                    onClick={() => setShowPremiumTeaser(true)}
+                    className="mx-4 mb-3 px-3 py-2.5 rounded-[14px] border border-white/15 bg-white/5 flex items-center gap-2 w-[calc(100%-32px)] text-left"
+                    whileTap={{ scale: 0.98 }}
+                    aria-label="Unlock Bytspot Premium perks for this venue"
+                  >
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.85), rgba(124,58,237,0.85))' }}>
+                      <Lock className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] text-white/95 leading-tight" style={{ fontWeight: 700 }}>
+                        Unlock perks at this Verified venue
+                      </p>
+                      <p className="text-[10.5px] text-white/55 leading-tight mt-0.5" style={{ fontWeight: 500 }}>
+                        Discounts · Skip the line · Tap / Scan rewards
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-white/55 flex-shrink-0" strokeWidth={2.5} />
+                  </motion.button>
+                )
+              )}
 
               {/* Actions */}
               <div className="flex gap-2 px-4 pb-4">
@@ -1170,6 +1696,85 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                 </motion.button>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Premium Teaser Sheet — single keyed motion child so AnimatePresence treats it as one unit ── */}
+      <AnimatePresence>
+        {showPremiumTeaser && (
+          <motion.div
+            key="premium-teaser"
+            className="absolute inset-0 z-[1003]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            role="dialog"
+            aria-label="Unlock Bytspot Premium"
+          >
+            <div
+              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              onClick={() => !premiumCheckoutPending && setShowPremiumTeaser(false)}
+            />
+            <motion.div
+              className="absolute bottom-0 left-0 right-0 z-[1004]"
+              initial={{ y: 320 }}
+              animate={{ y: 0 }}
+              exit={{ y: 320 }}
+              transition={springConfig}
+            >
+              <div
+                className="rounded-t-[28px] border-t border-cyan-300/35 px-5 pt-5 pb-7 shadow-2xl"
+                style={{ background: 'linear-gradient(180deg, rgba(28,28,30,0.98), rgba(10,10,12,0.98))' }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.95), rgba(124,58,237,0.95) 60%, rgba(236,72,153,0.92))' }}>
+                      <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-cyan-200 tracking-[0.1em]" style={{ fontWeight: 800 }}>BYTSPOT PREMIUM</p>
+                      <h3 className="text-[19px] text-white leading-tight" style={{ fontWeight: 800 }}>Unlock Verified perks</h3>
+                    </div>
+                  </div>
+                  <motion.button
+                    onClick={() => setShowPremiumTeaser(false)}
+                    disabled={premiumCheckoutPending}
+                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/8 border border-white/15 disabled:opacity-50"
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-4 h-4 text-white/70" />
+                  </motion.button>
+                </div>
+                <p className="text-[13px] text-white/70 leading-snug mb-4" style={{ fontWeight: 500 }}>
+                  Premium turns every Bytspot Verified venue into a perks venue — discounts, skip-the-line entry, and exclusive Tap / Scan rewards.
+                </p>
+                <ul className="space-y-2 mb-5">
+                  {[
+                    { icon: '💸', label: '10% off your tab at every Verified venue' },
+                    { icon: '🚪', label: 'Skip-the-line at participating partners' },
+                    { icon: '🎁', label: 'Member-only Tap / Scan rewards' },
+                  ].map((perk) => (
+                    <li key={perk.label} className="flex items-center gap-2.5 px-3 py-2 rounded-[12px] bg-white/5 border border-white/10">
+                      <span className="text-[18px]">{perk.icon}</span>
+                      <span className="text-[13px] text-white/90" style={{ fontWeight: 600 }}>{perk.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <motion.button
+                  onClick={handleUpgradeToPremium}
+                  disabled={premiumCheckoutPending}
+                  className="w-full py-3.5 rounded-[16px] border border-white/25 shadow-2xl text-white text-[15px] disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))', fontWeight: 800 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {premiumCheckoutPending ? 'Opening checkout…' : 'Upgrade · $9.99 / month'}
+                </motion.button>
+                <p className="text-[10.5px] text-white/45 text-center mt-2.5" style={{ fontWeight: 500 }}>
+                  Cancel anytime · Powered by Stripe
+                </p>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

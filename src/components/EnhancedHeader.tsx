@@ -219,6 +219,8 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 {/* Profile Menu Button */}
                 <motion.button
                   onClick={onProfileClick}
+                  aria-label="Open profile"
+                  data-testid="open-profile-button"
                   className="w-[34px] h-[34px] rounded-full flex items-center justify-center bg-gradient-to-br from-[#A855F7]/50 to-[#00BFFF]/50 border border-white/30 shadow-lg tap-target relative overflow-hidden"
                   whileTap={{ scale: 0.9 }}
                   transition={springConfig}

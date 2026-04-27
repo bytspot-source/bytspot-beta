@@ -24,6 +24,7 @@ import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAs
 import { activateMockInsiderMembership, getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
+import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 
 interface ProfileSectionProps {
   isDarkMode: boolean;
@@ -35,6 +36,36 @@ interface ProfileSectionProps {
 }
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+
+function readVirtualPatchContext(): VirtualPatchContext | null {
+  try {
+    const raw = localStorage.getItem(VIRTUAL_PATCH_CONTEXT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as VirtualPatchContext;
+  } catch {
+    return null;
+  }
+}
+
+function clearVirtualPatchContext() {
+  localStorage.removeItem(VIRTUAL_PATCH_CONTEXT_KEY);
+}
+
+function formatVirtualPatchDistance(distanceMeters?: number | null): string | null {
+  if (typeof distanceMeters !== 'number') return null;
+  if (distanceMeters >= 1000) return `${(distanceMeters / 1000).toFixed(1)} km away`;
+  return `${Math.round(distanceMeters)} m away`;
+}
+
+function formatVirtualPatchMode(mode?: string): string {
+  switch (mode) {
+    case 'tap-verified': return 'Tap verified';
+    case 'qr-verified': return 'QR verified';
+    case 'verified-zone': return 'Venue in range';
+    case 'wallet-fallback': return 'Wallet standby';
+    default: return 'Virtual Patch';
+  }
+}
 
 function formatCommerceTime(value: string | null): string {
   if (!value) return 'Not yet activated';
@@ -75,6 +106,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
   const [insiderLoading, setInsiderLoading] = useState(false);
+  const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'beta_guest';
@@ -95,6 +127,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       setMembership(getInsiderMembership());
       setWalletPasses(getAccessPasses());
       setParkingReservations(getParkingReservations());
+      setVirtualPatchContext(readVirtualPatchContext());
     };
 
     // Upgrade from API (fire all in parallel)
@@ -347,6 +380,80 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               </div>
             </div>
           </div>
+
+          {virtualPatchContext && (
+            <motion.div
+              data-testid="profile-virtual-patch-card"
+              className="rounded-[24px] p-5 border border-cyan-300/22 bg-gradient-to-br from-cyan-500/12 via-indigo-500/10 to-fuchsia-500/12 backdrop-blur-xl shadow-xl"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.03 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[12px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>VIRTUAL PATCH</p>
+                  <h4 className="text-[19px] text-white" style={{ fontWeight: 700 }}>
+                    {virtualPatchContext.scan ? 'Patch verified' : virtualPatchContext.venueName || 'Tap / Scan ready'}
+                  </h4>
+                  <p className="text-[13px] text-white/68 mt-2" style={{ fontWeight: 500 }}>
+                    {virtualPatchContext.scan
+                      ? `${virtualPatchContext.scan.type === 'nfc' ? 'Tap' : 'QR'} verification completed${virtualPatchContext.venueName ? ` for ${virtualPatchContext.venueName}` : ''}.`
+                      : virtualPatchContext.venueName
+                        ? `Continue your frictionless entry flow for ${virtualPatchContext.venueName}.`
+                        : 'Your last Tap / Scan handoff is ready to continue here.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    clearVirtualPatchContext();
+                    setVirtualPatchContext(null);
+                  }}
+                  className="px-3 py-1.5 rounded-full border border-white/15 bg-black/20 text-[11px] text-white/75"
+                  style={{ fontWeight: 700 }}
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                  {formatVirtualPatchMode(virtualPatchContext.mode)}
+                </div>
+                {virtualPatchContext.scan?.type && (
+                  <div className="px-3 py-1.5 rounded-full bg-emerald-500/18 border border-emerald-400/25 text-[12px] text-emerald-200" style={{ fontWeight: 700 }}>
+                    {virtualPatchContext.scan.type === 'nfc' ? 'Tap confirmed' : 'QR confirmed'}
+                  </div>
+                )}
+                {formatVirtualPatchDistance(virtualPatchContext.distanceMeters) && (
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                    {formatVirtualPatchDistance(virtualPatchContext.distanceMeters)}
+                  </div>
+                )}
+                {virtualPatchContext.capabilities?.nfc && (
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                    NFC ready
+                  </div>
+                )}
+                {virtualPatchContext.capabilities?.qr && (
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                    QR ready
+                  </div>
+                )}
+                {virtualPatchContext.patchId && (
+                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                    Patch {virtualPatchContext.patchId.slice(-6)}
+                  </div>
+                )}
+              </div>
+
+              {virtualPatchContext.scan?.verifiedAt && (
+                <div className="mt-4 rounded-[16px] p-3 bg-black/20 border border-white/10 text-[12px] text-white/72" style={{ fontWeight: 500 }}>
+                  Verified {formatCommerceTime(virtualPatchContext.scan.verifiedAt)}
+                  {virtualPatchContext.scan.binding ? ` · bound to ${virtualPatchContext.scan.binding.type}` : ''}
+                </div>
+              )}
+            </motion.div>
+          )}
 
           {walletPasses.length === 0 ? (
             <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">

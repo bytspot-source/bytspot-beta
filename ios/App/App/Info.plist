@@ -55,6 +55,8 @@
 	<string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
+		<key>NFCReaderUsageDescription</key>
+		<string>Bytspot uses NFC to verify venue patch stickers for fast, secure entry and access verification.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>Bytspot uses your microphone only when you record video updates inside the app.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

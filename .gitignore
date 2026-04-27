@@ -7,6 +7,7 @@ node_modules
 /coverage
 /playwright-report
 /test-results
+/test-results-*/
 
 # production
 /build
@@ -29,4 +30,37 @@ yarn-error.log*
 /status-out.txt
 /ticketing-*.txt
 /trpc-venues-live.txt
+
+# ad-hoc debug capture files at repo root
+/*_output.txt
+/*_exit.txt
+/*_meta.txt
+/*_probe.txt
+/*_log.txt
+/*_check*.txt
+/*_check.txt
+/*_smoke.txt
+/check.txt
+/log[0-9]*.txt
+/install_log.txt
+/lock_*.txt
+/insider_push_*.txt
+/final-push.txt
+/cors_*.txt
+/auth_*.txt
+/server_check_*.txt
+/signup_*.txt
+/venues_*.txt
+/verify_*.txt
+/native_nfc_*
+/nfc_*
+/qr_*
+/map_*
+/virtual_patch_*
+/_node_check.txt
+/cmd_test_output.txt
+/nested_git_branch.txt
+/playwright-real-auth-smoke.txt
+/rerun_auth_*.txt
+/ticketing-spec-*.txt
 

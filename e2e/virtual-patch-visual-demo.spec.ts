@@ -79,13 +79,53 @@ async function installVirtualPatchDemoMocks(
         },
       });
 
+      // Force readyState to 4 (HAVE_ENOUGH_DATA) for all <video> elements so
+      // the BarcodeDetector loop's `readyState >= 2` gate passes immediately
+      // against the mocked stream. We patch at both the prototype level
+      // (defensive) AND on every <video> instance as it's inserted into the
+      // DOM (authoritative — instance descriptors win over prototype ones).
+      try {
+        Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {
+          configurable: true,
+          get() { return 4; },
+        });
+      } catch {
+        // Prototype may be locked down in some engines; instance patch below
+        // is sufficient on its own.
+      }
       Object.defineProperty(HTMLMediaElement.prototype, 'play', {
         configurable: true,
-        value: async function play() {
-          Object.defineProperty(this, 'readyState', { configurable: true, get: () => 4 });
-          return undefined;
-        },
+        value: async function play() { return undefined; },
       });
+
+      const patchVideo = (node: Node) => {
+        if (!(node instanceof HTMLVideoElement)) return;
+        try {
+          Object.defineProperty(node, 'readyState', { configurable: true, get: () => 4 });
+        } catch {
+          // Already patched.
+        }
+      };
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          m.addedNodes.forEach((node) => {
+            patchVideo(node);
+            if (node instanceof Element) {
+              node.querySelectorAll('video').forEach(patchVideo);
+            }
+          });
+        }
+      });
+      // Begin observing once <body> exists.
+      const startObserving = () => {
+        if (!document.body) {
+          window.requestAnimationFrame(startObserving);
+          return;
+        }
+        observer.observe(document.body, { childList: true, subtree: true });
+        document.querySelectorAll('video').forEach(patchVideo);
+      };
+      startObserving();
     } else {
       class MockNDEFReader {
         onreading: ((event: { message: { records: Array<{ recordType: string; data: Uint8Array }> } }) => void) | null = null;
@@ -186,12 +226,10 @@ async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
       await expect(tapScanFab).toContainText('The Rooftop Bar');
       return tapScanFab;
     } catch {
-      await nearbyQuickAction.evaluate((element: HTMLElement) => element.click());
-      const quickActionWorked = await tapScanFab.isVisible().catch(() => false);
-      if (quickActionWorked) {
-        await expect(tapScanFab).toContainText('The Rooftop Bar');
-        return tapScanFab;
-      }
+      // Quick-action path was attempted but didn't surface the FAB. Fall
+      // through to the explicit Map-tab path below — robustClick already
+      // tried both element.click() variants, so re-evaluating here would
+      // just hang on a stale locator.
     }
   }
 
@@ -228,6 +266,12 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
   await page.waitForTimeout(VISUAL_PAUSE_MS);
 
   await robustClick(page.getByRole('button', { name: 'Start Tap / Scan' }));
+
+  // Consent gate (BIPA / CCPA / WA MHMD): the user must affirmatively grant
+  // intent-to-read before any sensor (NFC / camera) is started.
+  await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: /I agree/i }));
+
   await expect(page.getByText('Tap the Bytspot patch')).toBeVisible({ timeout: 10_000 });
   await page.waitForTimeout(VISUAL_PAUSE_MS * 2);
 
@@ -280,8 +324,12 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
   await expect(page.getByText('Tap / Scan ready')).toBeVisible({ timeout: 10_000 });
   await robustClick(page.getByRole('button', { name: 'Start Tap / Scan' }));
 
+  await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: /I agree/i }));
+
   await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('QR Scanner')).toBeVisible({ timeout: 10_000 });
+
   await expect(page.getByText('Patch verified')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Continue in My Access' })).toBeVisible();
 

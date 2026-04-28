@@ -5,7 +5,7 @@ import {
   CreditCard, Apple, Smartphone, ChevronRight, MessageCircle,
   Award, TrendingUp, Zap, Bell, Info, FileText, Image as ImageIcon,
   Share2, Mail, Download, Trophy, Gift, Calendar, Sparkles, Droplet,
-  Wrench, Package, Fuel
+  Wrench, Package, Fuel, Bike
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
@@ -68,7 +68,7 @@ interface BookingDetails {
 }
 
 interface ServiceStatus {
-  phase: 'assigned' | 'en-route' | 'picked-up' | 'parked' | 'retrieving' | 'ready';
+  phase: 'assigned' | 'en-route' | 'picked-up' | 'bike-stowed' | 'parked' | 'retrieving' | 'bike-removed' | 'ready';
   message: string;
   timestamp: Date;
   location?: { lat: number; lng: number };
@@ -78,8 +78,10 @@ const VALET_PHASES = [
   { key: 'assigned', label: 'Valet Assigned', icon: User },
   { key: 'en-route', label: 'En Route to Pickup', icon: Navigation },
   { key: 'picked-up', label: 'Vehicle Picked Up', icon: Car },
+  { key: 'bike-stowed', label: 'E-Bike Stowed', icon: Bike },
   { key: 'parked', label: 'Safely Parked', icon: MapPin },
   { key: 'retrieving', label: 'Retrieving Vehicle', icon: Car },
+  { key: 'bike-removed', label: 'E-Bike Removed', icon: Bike },
   { key: 'ready', label: 'Ready for Pickup', icon: Bell },
 ];
 
@@ -169,7 +171,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
   useEffect(() => {
     if (currentStep !== 'tracking') return;
     
-    const phases: ServiceStatus['phase'][] = ['assigned', 'en-route', 'picked-up', 'parked'];
+    const phases: ServiceStatus['phase'][] = ['assigned', 'en-route', 'picked-up', 'bike-stowed', 'parked'];
     let currentPhaseIndex = 0;
     let mounted = true;
 
@@ -198,8 +200,10 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
       assigned: 'Your valet is reviewing your request',
       'en-route': 'Michael is on the way to pick up your vehicle',
       'picked-up': 'Your vehicle has been picked up safely',
+      'bike-stowed': 'Folding e-bike stowed in your trunk — driving to lot',
       parked: 'Your vehicle is parked and secured',
       retrieving: 'Michael is retrieving your vehicle',
+      'bike-removed': 'E-bike removed from your trunk — trunk clean',
       ready: 'Your vehicle is ready for pickup!',
     };
     return messages[phase];
@@ -224,6 +228,13 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
       message: getStatusMessage('retrieving'),
       timestamp: new Date(),
     });
+    setTimeout(() => {
+      setServiceStatus({
+        phase: 'bike-removed',
+        message: getStatusMessage('bike-removed'),
+        timestamp: new Date(),
+      });
+    }, 3500);
     setTimeout(() => {
       setServiceStatus({
         phase: 'ready',

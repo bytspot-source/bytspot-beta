@@ -6,7 +6,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { notifyError, notifySuccess } from '../utils/haptics';
 import { trpc } from '../utils/trpc';
-import { getNativeNfcRawValue, parseScannedPatchPayload, type VirtualPatchScanVerification } from '../utils/virtualPatch';
+import {
+  buildVerifiedVirtualPatchContext,
+  createAuditEvent,
+  getNativeNfcRawValue,
+  isPatchRevoked,
+  parseScannedPatchPayload,
+  saveVirtualPatchContext,
+  type VirtualPatchAuditEvent,
+  type VirtualPatchScanVerification,
+} from '../utils/virtualPatch';
 
 interface VirtualPatchScannerSheetProps {
   isOpen: boolean;
@@ -16,6 +25,19 @@ interface VirtualPatchScannerSheetProps {
   onClose: () => void;
   onVerified?: (verification: VirtualPatchScanVerification) => void;
   onOpenAccessWallet?: () => void;
+  /** Vendor scope for tenant-isolated audit emission. */
+  vendorId?: string | null;
+  /** Venue ID for audit log scoping. */
+  venueId?: string | null;
+  /** Audit log sink (NIST PR.PT-1). Defaults to console.info in dev. */
+  onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
+}
+
+/** Default audit sink — dev-friendly, replaceable in prod via the prop. */
+function defaultAuditSink(event: VirtualPatchAuditEvent): void {
+  if (typeof console !== 'undefined' && typeof console.info === 'function') {
+    console.info('[bytspot.audit]', event);
+  }
 }
 
 type ScanStatus = 'idle' | 'starting' | 'scanning' | 'verifying' | 'success' | 'error' | 'unsupported';
@@ -75,6 +97,9 @@ export function VirtualPatchScannerSheet({
   onClose,
   onVerified,
   onOpenAccessWallet,
+  vendorId = null,
+  venueId = null,
+  onAuditEvent,
 }: VirtualPatchScannerSheetProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -90,6 +115,18 @@ export function VirtualPatchScannerSheet({
   const [sessionKey, setSessionKey] = useState(0);
   const [preferredMethod, setPreferredMethod] = useState<ScanMethod | 'auto'>('auto');
   const [activeMethod, setActiveMethod] = useState<ScanMethod | null>(null);
+  /**
+   * Explicit consent gate (BIPA / CUBI / WA MHMD / CCPA). Even though we do
+   * not collect biometrics, the patch UID is identifying when correlated with
+   * the user's account, so we surface a clear "intent to read" notice and
+   * require an affirmative tap before any sensor (camera/NFC) is started.
+   */
+  const [hasConsented, setHasConsented] = useState(false);
+
+  const emitAudit = useCallback((event: VirtualPatchAuditEvent) => {
+    const sink = onAuditEvent ?? defaultAuditSink;
+    try { sink(event); } catch { /* never let an audit sink crash the scanner */ }
+  }, [onAuditEvent]);
 
   const isNativeApp = useMemo(
     () => typeof window !== 'undefined' && Capacitor.isNativePlatform(),
@@ -141,8 +178,31 @@ export function VirtualPatchScannerSheet({
     setStatus('verifying');
     setStatusMessage(`Verifying ${venueName} ${method === 'nfc' ? 'tap' : 'scan'}…`);
 
+    let parsedPatchId: string | null = null;
+    let parsedUid: string | null = null;
+
     try {
       const parsed = parseScannedPatchPayload(rawValue, fallbackPatchId);
+      parsedPatchId = parsed.patchId;
+      parsedUid = parsed.uid;
+
+      // NIST RS.MI-1: short-circuit known-revoked patches before any further
+      // network calls so a compromised sticker can never produce a "success"
+      // path on the client, even momentarily.
+      if (isPatchRevoked(parsed.patchId)) {
+        emitAudit(createAuditEvent({
+          outcome: 'revoked',
+          method,
+          vendorId,
+          venueId,
+          patchId: parsed.patchId,
+          uid: parsed.uid,
+          tokenJti: null,
+          reason: 'patch_id_in_revocation_list',
+        }));
+        throw new Error('This Bytspot patch has been revoked. Ask staff for a fresh sticker.');
+      }
+
       let token = parsed.token;
 
       if (!token) {
@@ -178,6 +238,17 @@ export function VirtualPatchScannerSheet({
       setVerification(summary);
       setStatus('success');
       setStatusMessage(`${venueName} is ready for frictionless entry.`);
+      // NIST PR.PT-1: audit log on success. Tenant + token JTI captured so the
+      // entry is independently reconcilable against the server-side ledger.
+      emitAudit(createAuditEvent({
+        outcome: 'success',
+        method,
+        vendorId,
+        venueId,
+        patchId: summary.patchId,
+        uid: summary.uid,
+        tokenJti: summary.tokenJti,
+      }));
       onVerified?.(summary);
       toast.success('Bytspot Verified', { description: `${venueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.` });
       await notifySuccess();
@@ -186,10 +257,22 @@ export function VirtualPatchScannerSheet({
       setVerification(null);
       setStatus('error');
       setStatusMessage(message);
+      // NIST PR.PT-1: audit log on failure. Reason is generic; never echoes
+      // user-supplied content into the audit stream.
+      emitAudit(createAuditEvent({
+        outcome: 'failure',
+        method,
+        vendorId,
+        venueId,
+        patchId: parsedPatchId,
+        uid: parsedUid,
+        tokenJti: null,
+        reason: message.slice(0, 160),
+      }));
       toast.error(method === 'nfc' ? 'Tap verification failed' : 'QR scan failed', { description: message });
       await notifyError();
     }
-  }, [fallbackPatchId, onVerified, stopScanner, userCoords, venueName]);
+  }, [emitAudit, fallbackPatchId, onVerified, stopScanner, userCoords, vendorId, venueId, venueName]);
 
   const scheduleScan = useCallback(() => {
     rafRef.current = window.requestAnimationFrame(async () => {
@@ -221,10 +304,40 @@ export function VirtualPatchScannerSheet({
     });
   }, [verifyRawValue]);
 
+  // Callback ref for the <video> element. Runs synchronously the moment React
+  // attaches the element to the DOM (via Portal). This is the only reliable
+  // hook for the imperative srcObject/play/scheduleScan handoff: a useEffect
+  // keyed on `activeMethod` can fire before the video is rendered (the JSX
+  // gates the <video> on `status` too, and React 18 may commit the activeMethod
+  // change ahead of the status change), at which point videoRef would still be
+  // null. The callback ref bypasses that race entirely.
+  const attachVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (!el) return;
+    if (!streamRef.current || !detectorRef.current) return;
+
+    const stream = streamRef.current;
+    void (async () => {
+      try {
+        el.srcObject = stream;
+      } catch {
+        // Some test/mock streams aren't real MediaStream instances; the
+        // BarcodeDetector can still run against the bare <video>.
+      }
+      await el.play().catch(() => undefined);
+      setStatus('scanning');
+      setStatusMessage('Center the QR code inside the frame.');
+      scheduleScan();
+    })();
+  }, [scheduleScan]);
+
   useEffect(() => {
     if (!isOpen) {
       setPreferredMethod('auto');
       setActiveMethod(null);
+      // Reset consent every time the sheet closes — explicit, per-session
+      // consent is required by BIPA / WA MHMD style "intent to collect" rules.
+      setHasConsented(false);
     }
   }, [isOpen]);
 
@@ -235,6 +348,14 @@ export function VirtualPatchScannerSheet({
       setStatus('idle');
       setStatusMessage('');
       setActiveMethod(null);
+      return;
+    }
+
+    // BIPA / CCPA / WA MHMD: do not start camera or NFC sensors until the user
+    // taps the explicit consent affordance. The scanner sheet stays mounted and
+    // shows the consent surface; only after `setHasConsented(true)` does this
+    // effect re-run and proceed to startScanner / startNfcScanner below.
+    if (!hasConsented) {
       return;
     }
 
@@ -272,16 +393,13 @@ export function VirtualPatchScannerSheet({
 
         streamRef.current = stream;
         detectorRef.current = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+        // Switching activeMethod to 'qr' renders the <video> element. The
+        // imperative srcObject/play()/scheduleScan() handoff happens inside
+        // the <video>'s callback ref (`attachVideoRef`), which fires the
+        // moment React attaches the element to the DOM — even when the
+        // sheet is mounted via createPortal and React 18 commits state
+        // updates in a different order than they were queued.
         setActiveMethod('qr');
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => undefined);
-        }
-
-        setStatus('scanning');
-        setStatusMessage('Center the QR code inside the frame.');
-        scheduleScan();
       } catch (error: any) {
         const message = getCameraErrorMessage(error);
         setStatus('error');
@@ -405,7 +523,7 @@ export function VirtualPatchScannerSheet({
       cancelled = true;
       stopScanner();
     };
-  }, [isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
+  }, [hasConsented, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
 
   const handleRetry = useCallback(() => {
     stopScanner();
@@ -425,9 +543,19 @@ export function VirtualPatchScannerSheet({
   }, [stopScanner]);
 
   const handleContinue = useCallback(() => {
+    // B5: persist a verified context snapshot so the access wallet can render
+    // what was just verified even when the host did not wire onVerified.
+    if (verification) {
+      saveVirtualPatchContext(buildVerifiedVirtualPatchContext(verification, {
+        source: 'scanner',
+        venueId: venueId ?? null,
+        venueName,
+        patchId: verification.patchId,
+      }));
+    }
     onClose();
     onOpenAccessWallet?.();
-  }, [onClose, onOpenAccessWallet]);
+  }, [onClose, onOpenAccessWallet, verification, venueId, venueName]);
 
   return (
     <AnimatePresence>
@@ -467,9 +595,55 @@ export function VirtualPatchScannerSheet({
                 </motion.button>
               </div>
 
-              {(status === 'starting' || status === 'scanning' || status === 'verifying') && activeMethod === 'qr' && supportsLiveQr && (
+              {!hasConsented && (
+                <div className="rounded-[24px] border border-cyan-300/22 bg-gradient-to-br from-cyan-500/8 via-indigo-500/8 to-fuchsia-500/8 p-5 mb-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-cyan-400/14 border border-cyan-300/30 flex items-center justify-center flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-cyan-200" strokeWidth={2.5} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[15px] text-white" style={{ fontWeight: 800 }}>Confirm intent to read</div>
+                      <p className="text-[12.5px] text-white/72 mt-1" style={{ fontWeight: 500 }}>
+                        Bytspot needs to use your device’s {supportsNfc ? 'NFC reader' : 'camera'} to verify the {venueName} patch. The reader captures only the patch identifier and a one-time token — no biometrics, no continuous video, no audio.
+                      </p>
+                    </div>
+                  </div>
+                  <ul className="text-[11.5px] text-white/68 space-y-1.5 mb-4 pl-1" style={{ fontWeight: 500 }}>
+                    <li>• Used only while this sheet is open. Closing the sheet stops the reader.</li>
+                    <li>• Patch ID, scan timestamp, and outcome are written to the audit log for your records.</li>
+                    <li>• You can revoke at any time — close this sheet, or open Settings → Privacy.</li>
+                  </ul>
+                  <div className="flex gap-2">
+                    <motion.button
+                      onClick={() => {
+                        emitAudit(createAuditEvent({
+                          outcome: 'consent_denied',
+                          method: supportsNfc ? 'nfc' : 'qr',
+                          vendorId,
+                          venueId,
+                          reason: 'user_declined_consent',
+                        }));
+                        onClose();
+                      }}
+                      className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/75"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[13.5px]" style={{ fontWeight: 700 }}>Not now</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => setHasConsented(true)}
+                      className="flex-[1.4] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[13.5px]" style={{ fontWeight: 800 }}>I agree — start reader</span>
+                    </motion.button>
+                  </div>
+                </div>
+              )}
+
+              {hasConsented && (status === 'starting' || status === 'scanning' || status === 'verifying') && activeMethod === 'qr' && supportsLiveQr && (
                 <div className="relative rounded-[24px] overflow-hidden border border-cyan-300/18 bg-black mb-4 aspect-[3/4]">
-                  <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                  <video ref={attachVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                   <div className="absolute inset-0 pointer-events-none">
                     <div className="absolute inset-x-7 top-1/2 -translate-y-1/2 h-40 rounded-[26px] border-2 border-cyan-300/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)]" />
                     <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-[88px] text-[12px] text-cyan-100/85 bg-black/45 px-3 py-1.5 rounded-full border border-cyan-300/20" style={{ fontWeight: 600 }}>
@@ -479,7 +653,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {(status === 'starting' || status === 'scanning' || status === 'verifying') && activeMethod === 'nfc' && (
+              {hasConsented && (status === 'starting' || status === 'scanning' || status === 'verifying') && activeMethod === 'nfc' && (
                 <div className="relative rounded-[24px] overflow-hidden border border-cyan-300/18 bg-gradient-to-br from-cyan-500/10 via-indigo-500/10 to-fuchsia-500/10 mb-4 aspect-[3/4] flex items-center justify-center">
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.14),transparent_62%)]" />
                   <div className="relative flex flex-col items-center text-center px-6">

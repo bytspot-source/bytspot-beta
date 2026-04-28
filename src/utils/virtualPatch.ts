@@ -2,6 +2,28 @@ export const VIRTUAL_PATCH_CONTEXT_KEY = 'bytspot_virtual_patch_context';
 
 export type VirtualPatchScanMethod = 'qr' | 'nfc';
 
+/**
+ * Vendor observation surface — EO 14365 / FCC uniform reporting readiness.
+ *
+ * Stored alongside every verified scan so that Bytspot can demonstrate the
+ * record is **observational** about an operational moment, not an automated
+ * decision about a person. The `decidesService: false` literal is a type-level
+ * invariant: any code that consumes this record cannot accidentally treat it
+ * as a service-denial signal without explicitly typing around the constraint.
+ */
+export interface VirtualPatchVendorObservation {
+  /** Per-vendor numeric score, vendor-private, never cross-vendor pooled. */
+  score: number;
+  /** Feature vector that produced the score. Stored for explainability. */
+  inputs: Record<string, number>;
+  /** Per-feature weights at the time this observation was computed. */
+  weights: Record<string, number>;
+  /** Plain-English explanation surfaceable to the customer on request. */
+  explanation: string;
+  /** Type-level invariant: this record never decides service. Staff decide. */
+  decidesService: false;
+}
+
 export interface VirtualPatchScanVerification {
   method: VirtualPatchScanMethod;
   rawValue: string;
@@ -10,6 +32,16 @@ export interface VirtualPatchScanVerification {
   tokenJti: string;
   verifiedAt: string;
   binding: { type: string; id: string } | null;
+  /** Tenant isolation — which vendor's patch was tapped (NIST PR.AC-1). */
+  vendorId?: string | null;
+  /**
+   * Per-vendor key signature returned by the verification API. Lets the
+   * scanner confirm this token came from the expected tenant before it is
+   * surfaced to the wallet (NIST PR.AC tenant boundary).
+   */
+  vendorKeySig?: string | null;
+  /** Optional vendor observation record — see {@link VirtualPatchVendorObservation}. */
+  vendorObservation?: VirtualPatchVendorObservation;
 }
 
 export interface VirtualPatchContext {
@@ -28,6 +60,9 @@ export interface VirtualPatchContext {
     tokenJti?: string;
     verifiedAt?: string;
     binding?: { type: string; id: string } | null;
+    vendorId?: string | null;
+    vendorKeySig?: string | null;
+    vendorObservation?: VirtualPatchVendorObservation;
   };
 }
 
@@ -158,6 +193,82 @@ export function buildVerifiedVirtualPatchContext(
       tokenJti: verification.tokenJti,
       verifiedAt: verification.verifiedAt,
       binding: verification.binding,
+      vendorId: verification.vendorId ?? null,
+      vendorKeySig: verification.vendorKeySig ?? null,
+      // Only include vendorObservation when actually present so the in-memory
+      // shape matches what survives JSON round-trip (localStorage drops keys
+      // whose values are undefined).
+      ...(verification.vendorObservation !== undefined
+        ? { vendorObservation: verification.vendorObservation }
+        : {}),
     },
   };
+}
+
+/**
+ * Audit event surface — NIST PR.PT-1 (audit/log records).
+ *
+ * Emitted on every verification attempt, success and failure alike. The shape
+ * is intentionally serializable: the same payload can be persisted client-side
+ * (offline buffer), shipped to a SIEM, or echoed to console in development
+ * without transformation.
+ */
+export type VirtualPatchAuditOutcome = 'success' | 'failure' | 'revoked' | 'consent_denied';
+
+export interface VirtualPatchAuditEvent {
+  /** ISO-8601 timestamp of the attempt. */
+  at: string;
+  /** Outcome bucket — drives downstream alert thresholds. */
+  outcome: VirtualPatchAuditOutcome;
+  /** Scan method used. */
+  method: VirtualPatchScanMethod;
+  /** Vendor scope (tenant boundary). May be null until verification resolves. */
+  vendorId: string | null;
+  /** Patch ID if known at time of event. */
+  patchId: string | null;
+  /** Patch UID if known at time of event. */
+  uid: string | null;
+  /** Token JTI for successful verifications, null otherwise. */
+  tokenJti: string | null;
+  /** Venue scope. */
+  venueId: string | null;
+  /** Free-text reason for failure / revocation; never includes PII. */
+  reason?: string;
+}
+
+export function createAuditEvent(partial: Partial<VirtualPatchAuditEvent> & { outcome: VirtualPatchAuditOutcome; method: VirtualPatchScanMethod }): VirtualPatchAuditEvent {
+  return {
+    at: partial.at ?? new Date().toISOString(),
+    outcome: partial.outcome,
+    method: partial.method,
+    vendorId: partial.vendorId ?? null,
+    patchId: partial.patchId ?? null,
+    uid: partial.uid ?? null,
+    tokenJti: partial.tokenJti ?? null,
+    venueId: partial.venueId ?? null,
+    reason: partial.reason,
+  };
+}
+
+/**
+ * Client-side revocation cache — NIST RS.MI-1 (containment).
+ *
+ * Source of truth lives server-side; this in-memory cache lets the scanner
+ * short-circuit a network round-trip when a known-bad patch ID is tapped, and
+ * gives the verification call a lightweight pre-flight to fail fast before
+ * surfacing any UI state that suggests success.
+ */
+const revokedPatchIds = new Set<string>();
+
+export function markPatchRevoked(patchId: string): void {
+  if (patchId) revokedPatchIds.add(patchId);
+}
+
+export function isPatchRevoked(patchId: string | null | undefined): boolean {
+  return Boolean(patchId && revokedPatchIds.has(patchId));
+}
+
+export function loadRevocationList(patchIds: readonly string[]): void {
+  revokedPatchIds.clear();
+  for (const id of patchIds) if (id) revokedPatchIds.add(id);
 }

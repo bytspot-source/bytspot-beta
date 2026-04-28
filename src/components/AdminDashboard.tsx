@@ -1,8 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle, Megaphone } from 'lucide-react';
+import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle, Megaphone, Gauge } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { trpc } from '../utils/trpc';
+import { generateMockSystemHealth, type SystemHealth } from '../utils/fusionEngineMockData';
+import { buildEfficiencyInputsFromSystemHealth, EFFICIENCY_COMPONENT_META } from '../utils/efficiencyTelemetry';
+import { computeEfficiencyScore, type EfficiencyScoreInputs } from '../utils/efficiencyScore';
+import { StaffPatchWriter } from './admin/StaffPatchWriter';
 
 interface BetaLeadRecord {
   email: string;
@@ -48,17 +52,28 @@ export function AdminDashboard() {
   const [inviteCodes, setInviteCodes] = useState<string[]>([]);
   const [genCount, setGenCount] = useState(5);
   const [copied, setCopied] = useState<string | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
 
   const fetchStats = useCallback(async (password: string) => {
     setLoading(true);
     try {
       const data = await trpc.admin.stats.query({ adminPassword: password });
       setStats(data);
+      // Internal-only Es validation surface — refresh telemetry alongside stats.
+      // Sourced from mock until the backend telemetry endpoint ships.
+      setSystemHealth(generateMockSystemHealth());
     } catch (err: any) {
       if (err?.data?.code === 'UNAUTHORIZED') { toast.error('Wrong password'); setAuthed(false); return; }
       toast.error('Could not reach API');
     } finally { setLoading(false); }
   }, []);
+
+  // Es is observational about the operational moment, never about a person.
+  const esResult = useMemo(() => {
+    if (!systemHealth) return null;
+    const inputs = buildEfficiencyInputsFromSystemHealth(systemHealth);
+    return computeEfficiencyScore(inputs);
+  }, [systemHealth]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +220,51 @@ export function AdminDashboard() {
         </div>
       )}
 
+      {/* Operational Efficiency — internal validation surface. Observational
+          about the operational moment, not predictive about a person.
+          decidesService: false. */}
+      {esResult && systemHealth && (
+        <div className="rounded-[16px] bg-[#1C1C1E] border border-white/10 p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-cyan-400" strokeWidth={2.5} />
+              <p className="text-[12px] text-white/40 font-bold">OPERATIONAL EFFICIENCY</p>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white/40 font-mono">
+              decidesService: false
+            </span>
+          </div>
+          <div className="flex items-baseline gap-3 mb-3">
+            <span className="text-[40px] font-bold text-white tabular-nums leading-none">{esResult.score}</span>
+            <span className="text-[13px] text-white/40">/ 100</span>
+          </div>
+          <p className="text-[12px] text-white/50 mb-4 leading-snug">{esResult.explanation}.</p>
+          <div className="space-y-2.5">
+            {(Object.keys(esResult.components) as (keyof EfficiencyScoreInputs)[]).map((key) => {
+              const value = esResult.components[key];
+              const meta = EFFICIENCY_COMPONENT_META[key];
+              return (
+                <div key={key}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[12px] text-white/70 font-medium">{meta.label}</span>
+                    <span className="text-[12px] text-cyan-400 font-mono tabular-nums">{(value * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400" style={{ width: `${value * 100}%` }} />
+                  </div>
+                  <p className="text-[10px] text-white/30 mt-1 leading-snug">{meta.source}</p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-white/25 mt-4 leading-snug">
+            Internal validation surface. Sourced from mock telemetry until the backend endpoint ships.
+            Never surfaced on customer-adjacent screens.
+          </p>
+        </div>
+      )}
+
+
       {/* Invite code generator */}
       <div className="rounded-[16px] bg-[#1C1C1E] border border-white/10 p-4 mb-6">
         <p className="text-[12px] text-white/40 font-bold mb-3">GENERATE INVITE CODES</p>
@@ -232,6 +292,8 @@ export function AdminDashboard() {
           </div>
         )}
       </div>
+
+      <StaffPatchWriter />
 
       <button onClick={() => { localStorage.removeItem('bytspot_admin_pw'); setAuthed(false); setPw(''); }}
         className="text-[13px] text-white/20 mx-auto block">

@@ -148,6 +148,36 @@ jobs:
           echo "Installed profile UUID: $UUID"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
+      - name: Install App Clip provisioning profile
+        env:
+          APPLE_APP_CLIP_PROVISIONING_PROFILE: ${{ secrets.APPLE_APP_CLIP_PROVISIONING_PROFILE }}
+        run: |
+          PP_PATH=$RUNNER_TEMP/bytspot-clip.mobileprovision
+
+          python3 - <<'PY'
+          import base64, os, pathlib
+
+          raw = os.environ.get('APPLE_APP_CLIP_PROVISIONING_PROFILE', '').strip()
+          if not raw:
+              raise SystemExit('APPLE_APP_CLIP_PROVISIONING_PROFILE secret is empty or unavailable')
+
+          normalized = ''.join(raw.split())
+          try:
+              decoded = base64.b64decode(normalized, validate=True)
+          except Exception as exc:
+              raise SystemExit(f'APPLE_APP_CLIP_PROVISIONING_PROFILE is not valid base64: {exc}')
+
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bytspot-clip.mobileprovision'
+          out.write_bytes(decoded)
+          print(f'Wrote App Clip provisioning profile to {out}')
+          PY
+
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" \
+            /dev/stdin <<< "$(security cms -D -i "$PP_PATH")")
+          cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+          echo "Installed App Clip profile UUID: $UUID"
+          echo "APP_CLIP_PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
+
       # ── 7. Build + Upload to TestFlight ─────────────────────────
       - name: Fastlane → TestFlight
         working-directory: ios/App
@@ -157,6 +187,7 @@ jobs:
           APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           PROVISIONING_PROFILE_UUID: ${{ env.PROVISIONING_PROFILE_UUID }}
+          APP_CLIP_PROVISIONING_PROFILE_UUID: ${{ env.APP_CLIP_PROVISIONING_PROFILE_UUID }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bundle exec fastlane beta

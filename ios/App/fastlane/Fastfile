@@ -43,18 +43,32 @@ platform :ios do
       build_number: new_build
     )
 
-    # Switch Release config to manual signing for CI
+    # Wire the App Clip target into the Xcode project (idempotent).
+    sh "bundle exec ruby scripts/add_app_clip_target.rb"
+
+    # Switch Release config to manual signing for CI for both targets
     # (local dev uses Automatic via Xcode, CI uses manual with provisioning profile)
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "App.xcodeproj",
       team_id:               ENV["APPLE_TEAM_ID"],
+      targets:               ["App"],
       bundle_identifier:     "com.bytspot.app",
       profile_uuid:          ENV["PROVISIONING_PROFILE_UUID"],
       code_sign_identity:    "Apple Distribution"
     )
 
-    # Build the signed .ipa
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path:                  "App.xcodeproj",
+      team_id:               ENV["APPLE_TEAM_ID"],
+      targets:               ["Clip"],
+      bundle_identifier:     "com.bytspot.app.Clip",
+      profile_uuid:          ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"],
+      code_sign_identity:    "Apple Distribution"
+    )
+
+    # Build the signed .ipa with embedded App Clip
     build_app(
       project:       "App.xcodeproj",
       scheme:        "App",
@@ -64,7 +78,8 @@ platform :ios do
         signingStyle:          "manual",
         teamID:                ENV["APPLE_TEAM_ID"],
         provisioningProfiles:  {
-          "com.bytspot.app" => ENV["PROVISIONING_PROFILE_UUID"]
+          "com.bytspot.app"      => ENV["PROVISIONING_PROFILE_UUID"],
+          "com.bytspot.app.Clip" => ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"]
         }
       },
       output_directory: "./build",

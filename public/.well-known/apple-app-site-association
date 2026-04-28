@@ -1,0 +1,29 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "__APPLE_TEAM_ID__.com.bytspot.app",
+          "__APPLE_TEAM_ID__.com.bytspot.app.Clip"
+        ],
+        "components": [
+          { "/": "/p/*", "comment": "Patch verify deep link" },
+          { "/": "/v/*", "comment": "Venue deep link" },
+          { "/": "/clip", "comment": "App Clip launch path" },
+          { "/": "/", "?": { "patch": "?*" }, "comment": "Patch query parameter" }
+        ]
+      }
+    ]
+  },
+  "appclips": {
+    "apps": [
+      "__APPLE_TEAM_ID__.com.bytspot.app.Clip"
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "__APPLE_TEAM_ID__.com.bytspot.app"
+    ]
+  }
+}

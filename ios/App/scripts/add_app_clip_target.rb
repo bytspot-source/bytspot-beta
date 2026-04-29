@@ -30,6 +30,13 @@ if project.targets.any? { |t| t.name == CLIP_TARGET_NAME }
   exit 0
 end
 
+# Inherit the parent App's current build/marketing version so the embedded
+# Clip's CFBundleVersion matches the host app (App Store requires equality).
+app_release_config = app_target.build_configurations.find { |c| c.name == "Release" } ||
+                     app_target.build_configurations.first
+inherited_marketing_version = app_release_config.build_settings["MARKETING_VERSION"] || "1.0"
+inherited_project_version   = app_release_config.build_settings["CURRENT_PROJECT_VERSION"] || "1"
+
 clip_group = project.main_group[CLIP_GROUP_PATH] ||
              project.main_group.new_group(CLIP_GROUP_PATH, CLIP_GROUP_PATH)
 
@@ -66,8 +73,8 @@ clip_target.build_configurations.each do |config|
   bs["ENABLE_BITCODE"]                 = "NO"
   bs["CODE_SIGN_STYLE"]                = "Manual"
   bs["DEVELOPMENT_TEAM"]               = ENV["APPLE_TEAM_ID"] || ""
-  bs["MARKETING_VERSION"]              = "1.0"
-  bs["CURRENT_PROJECT_VERSION"]        = "1"
+  bs["MARKETING_VERSION"]              = inherited_marketing_version
+  bs["CURRENT_PROJECT_VERSION"]        = inherited_project_version
   bs["ASSETCATALOG_COMPILER_APPICON_NAME"] = "AppIcon"
   bs["LD_RUNPATH_SEARCH_PATHS"]        = "$(inherited) @executable_path/Frameworks"
   if config.name == "Release"

@@ -21,6 +21,12 @@ CLIP_INFO_PLIST   = "Clip/Info.plist"
 CLIP_ENTITLEMENTS = "Clip/Clip.entitlements"
 DEPLOYMENT_TARGET = "15.0"
 
+def find_project_object(project, display_name)
+  project.objects.find do |object|
+    object.respond_to?(:display_name) && object.display_name == display_name
+  end
+end
+
 project = Xcodeproj::Project.open(PROJECT_PATH)
 app_target = project.targets.find { |t| t.name == APP_TARGET_NAME }
 abort "Main App target not found" unless app_target
@@ -54,6 +60,13 @@ CLIP_SOURCES.each do |filename|
   ref = clip_group.files.find { |f| f.path == filename } ||
         clip_group.new_reference(filename)
   clip_target.source_build_phase.add_file_reference(ref, true)
+end
+
+[
+  find_project_object(project, "Assets.xcassets"),
+  find_project_object(project, "LaunchScreen.storyboard"),
+].compact.each do |ref|
+  clip_target.resources_build_phase.add_file_reference(ref, true)
 end
 
 [CLIP_INFO_PLIST.split("/").last, CLIP_ENTITLEMENTS.split("/").last].each do |filename|

@@ -103,7 +103,7 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     name: v.name,
     image,
     distance,
-    rating: 4.5 + Math.random() * 0.5, // placeholder until reviews exist
+    rating: undefined, // venues without review data render no rating badge
     availability: crowdToAvailability(v.crowd),
     vibe: v.crowd ? Math.round((5 - v.crowd.level) * 2.5) : undefined, // level 1→10, 2→8, 3→5, 4→3
     description: v.address,

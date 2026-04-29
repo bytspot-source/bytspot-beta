@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { filterMapVenues, hasHardwarePatchInstalled } from '../mapVenues.ts';
+import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../mapVenues.ts';
 import type { ApiVenue } from '../trpc.ts';
 
 // Minimal venue factory — only the fields filterMapVenues looks at.
@@ -108,4 +108,31 @@ test('filterMapVenues — pure: does not mutate the input array', () => {
   const before = ALL.slice();
   filterMapVenues(ALL, { ...NONE, showVerifiedOnly: true });
   assert.deepEqual(ALL, before);
+});
+
+// ─── isBikeStation ─────────────────────────────────────────────────────────────
+
+test('isBikeStation — null/undefined safe', () => {
+  assert.equal(isBikeStation(null), false);
+  assert.equal(isBikeStation(undefined), false);
+});
+
+test('isBikeStation — vendor categories: bike-share, ebike-station', () => {
+  assert.equal(isBikeStation(venue({ id: 'b1', category: 'bike-share' })), true);
+  assert.equal(isBikeStation(venue({ id: 'b2', category: 'ebike-station' })), true);
+  assert.equal(isBikeStation(venue({ id: 'b3', category: 'EBike Station' })), true);
+});
+
+test('isBikeStation — Google Places types: bicycle_store, bike_rental, bike_share_station', () => {
+  for (const type of ['bicycle_store', 'bike_rental', 'bike_share_station']) {
+    // Build inline because the local venue() factory whitelist strips `types`.
+    const v = { id: `gp-${type}`, name: 'Place', category: 'unknown', types: [type] } as ApiVenue;
+    assert.equal(isBikeStation(v), true, `expected ${type} to be a bike station`);
+  }
+});
+
+test('isBikeStation — non-bike venues return false', () => {
+  assert.equal(isBikeStation(venue({ id: 'r1', category: 'restaurant' })), false);
+  assert.equal(isBikeStation(venue({ id: 'p1', category: 'park' })), false);
+  assert.equal(isBikeStation(venue({ id: 'c1', category: 'coffee' })), false);
 });

@@ -9,6 +9,26 @@ export function hasHardwarePatchInstalled(venue: ApiVenue | null | undefined): b
   return Boolean(venue?.hardwarePatch?.id);
 }
 
+/**
+ * Tokens identifying an eBike / bike-share station. Matches both vendor-onboarded
+ * categories (`bike-share`, `ebike-station`) and Google Places types
+ * (`bicycle_store`, `bike_rental`, `bike_share_station`).
+ */
+const BIKE_STATION_TOKENS = [
+  'bike-share', 'bike_share', 'bikeshare',
+  'ebike-station', 'ebike_station', 'ebike',
+  'bicycle_store', 'bike_rental', 'bike_share_station',
+];
+
+/** True when a venue represents an eBike or bike-share station. */
+export function isBikeStation(venue: ApiVenue | null | undefined): boolean {
+  if (!venue) return false;
+  const cat = String(venue.category ?? '').toLowerCase();
+  if (BIKE_STATION_TOKENS.some((t) => cat.includes(t))) return true;
+  const types = Array.isArray(venue.types) ? (venue.types as string[]) : [];
+  return types.some((t) => BIKE_STATION_TOKENS.includes(String(t).toLowerCase()));
+}
+
 export type MapVenueFilterOptions = {
   showVerifiedOnly: boolean;
   vibeFilter: number | null;

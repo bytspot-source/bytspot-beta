@@ -20,8 +20,15 @@ import { useVenues, venueToCard } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
 import { trpc, type ApiVenue } from '../utils/trpc';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
-import { buildVerifiedVirtualPatchContext, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
-import { filterMapVenues, hasHardwarePatchInstalled } from '../utils/mapVenues';
+import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
+import {
+  FALLBACK_ATLANTA_PARKING,
+  mergeParkingSources,
+  placeToParkingSpot,
+  venueToParkingSpot,
+  type MapParkingSpot,
+} from '../utils/mapParking';
 
 type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
@@ -52,28 +59,20 @@ interface MapSectionProps {
   onOpenAccessWallet?: () => void;
   /** Live user coordinates — map centers here instead of hardcoded Atlanta */
   userCoords?: { lat: number; lng: number };
+  /** Audit log sink (NIST PR.PT-1). Wired by App.tsx to the durable audit pipeline. */
+  onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
+  /** Universal-link / App Clip handoff — auto-opens the scanner with this patch pre-filled. */
+  pendingPatchScan?: { patchId: string; venueName?: string } | null;
+  /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
+  onPendingPatchScanConsumed?: () => void;
 }
 
 type AvailabilityStatus = 'available' | 'limited' | 'full';
-type SecurityLevel = 'basic' | 'standard' | 'premium';
-type EVConnectorType = 'tesla' | 'ccs' | 'chademo' | 'j1772';
 
-interface ParkingSpot {
-  id: number;
-  lat: number;
-  lng: number;
-  name: string;
-  available: number;
-  total: number;
-  price: number; // price per hour in dollars
-  isPremium: boolean;
-  hasEVCharging: boolean;
-  evConnectorTypes?: EVConnectorType[];
-  isCovered: boolean;
-  securityLevel: SecurityLevel;
-  hasCameras: boolean;
-  isReserved: boolean; // user has reserved this spot
-}
+// ParkingSpot definition lives in src/utils/mapParking.ts. Local alias keeps
+// existing call sites compiling while the helpers do the heavy lifting.
+type ParkingSpot = MapParkingSpot;
+type SecurityLevel = MapParkingSpot['securityLevel'];
 
 interface FilterState {
   priceRange: [number, number]; // min, max price per hour
@@ -83,54 +82,8 @@ interface FilterState {
   showPremiumOnly: boolean;
 }
 
-// ⚠️ PLACEHOLDER: Hardcoded Atlanta Midtown parking demo data.
-// TODO: Replace with real parking API data when backend parking endpoints exist.
-const ATLANTA_PARKING: ParkingSpot[] = [
-  {
-    id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage',
-    available: 22, total: 45, price: 8, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['ccs' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage',
-    available: 14, total: 60, price: 6, isPremium: false,
-    hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 3, lat: 33.7883, lng: -84.3836, name: 'Promenade Midtown Garage',
-    available: 38, total: 80, price: 5, isPremium: false,
-    hasEVCharging: true, evConnectorTypes: ['j1772' as EVConnectorType],
-    isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 4, lat: 33.7896, lng: -84.3860, name: 'Midtown Place Parking',
-    available: 0, total: 35, price: 10, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType, 'ccs' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 5, lat: 33.7904, lng: -84.3847, name: 'Arts Center MARTA Garage',
-    available: 28, total: 50, price: 7, isPremium: false,
-    hasEVCharging: false, isCovered: false, securityLevel: 'standard', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 6, lat: 33.7727, lng: -84.3876, name: 'Fox Theatre Parking',
-    available: 12, total: 30, price: 9, isPremium: true,
-    hasEVCharging: false, isCovered: false, securityLevel: 'premium', hasCameras: true, isReserved: true,
-  },
-  {
-    id: 7, lat: 33.7780, lng: -84.3849, name: 'Biltmore Hotel Garage',
-    available: 5, total: 25, price: 12, isPremium: true,
-    hasEVCharging: true, evConnectorTypes: ['tesla' as EVConnectorType],
-    isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false,
-  },
-  {
-    id: 8, lat: 33.7859, lng: -84.3857, name: 'Pershing Point Garage',
-    available: 18, total: 40, price: 6, isPremium: false,
-    hasEVCharging: false, isCovered: false, securityLevel: 'basic', hasCameras: false, isReserved: false,
-  },
-];
+// Tiered parking strategy: vendor-reported (apiVenues) → Google Places nearby
+// → static fallback. See src/utils/mapParking.ts for the merge logic.
 
 // Fix Leaflet's broken default icon paths in Vite builds
 delete (L.Icon.Default.prototype as LeafletDefaultIconPrototype)._getIconUrl;
@@ -191,6 +144,22 @@ function createParkingIcon(color: string): L.DivIcon {
     html: `<div style="position:relative;width:32px;height:32px;">
       <div class="byt-pulse-ring" style="border:2px solid ${color};"></div>
       <div style="width:32px;height:32px;border-radius:50%;background:${color};border:3px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 20px ${color}44;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;cursor:pointer;line-height:1;">P</div>
+    </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -18],
+    className: '',
+  });
+}
+
+/** eBike / bike-share station marker — squared teal badge keeps it visually
+ *  distinct from circular parking pins and rounded venue tiles. */
+function createEBikeIcon(): L.DivIcon {
+  const color = '#14B8A6'; // teal-500
+  return L.divIcon({
+    html: `<div style="position:relative;width:32px;height:32px;">
+      <div class="byt-pulse-ring" style="border:2px solid ${color};border-radius:8px;"></div>
+      <div style="width:32px;height:32px;border-radius:8px;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;line-height:1;">🚲</div>
     </div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
@@ -380,9 +349,9 @@ function openNativeNavigation(lat: number, lng: number, label?: string) {
   }
 }
 
-export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords }: MapSectionProps) {
+export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
-  const [parkingData, setParkingData] = useState<ParkingSpot[]>(ATLANTA_PARKING);
+  const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_ATLANTA_PARKING);
   const [showParkingSpots] = useState(true);
   const [showVenues] = useState(true);
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null);
@@ -456,9 +425,18 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const trendingIds = useMemo(() => getTrendingVenueIds(), []);
 
   // Apply Verified-only / vibe / entry / category filters to the full ApiVenue list
-  const filteredMapVenues = useMemo<ApiVenue[]>(
+  const allFilteredVenues = useMemo<ApiVenue[]>(
     () => filterMapVenues(apiVenues, { showVerifiedOnly, vibeFilter, entryFilter, categoryFilter }),
     [apiVenues, vibeFilter, entryFilter, categoryFilter, showVerifiedOnly],
+  );
+  // eBike stations render as their own marker type; everything else uses the vibe tile.
+  const bikeStations = useMemo<ApiVenue[]>(
+    () => allFilteredVenues.filter(isBikeStation),
+    [allFilteredVenues],
+  );
+  const filteredMapVenues = useMemo<ApiVenue[]>(
+    () => allFilteredVenues.filter((v) => !isBikeStation(v)),
+    [allFilteredVenues],
   );
   const verifiedVenues = useMemo(() => apiVenues.filter((venue) => hasHardwarePatchInstalled(venue)), [apiVenues]);
   const verifiedVenueCount = useMemo(() => filteredMapVenues.filter((venue) => hasHardwarePatchInstalled(venue)).length, [filteredMapVenues]);
@@ -487,6 +465,20 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     setQrScannerVenue(null);
   }, []);
 
+  // Universal-link / App Clip handoff: when App.tsx receives a deep-link with a
+  // patch ID, auto-open the scanner pre-loaded with that patch as the fallback.
+  useEffect(() => {
+    if (!pendingPatchScan?.patchId) return;
+    const synthetic = {
+      id: null,
+      name: pendingPatchScan.venueName ?? 'Bytspot patch',
+      hardwarePatch: { id: pendingPatchScan.patchId },
+    } as unknown as ApiVenue;
+    setQrScannerVenue(synthetic);
+    setShowQrScannerSheet(true);
+    onPendingPatchScanConsumed?.();
+  }, [pendingPatchScan, onPendingPatchScanConsumed]);
+
   const handleQrVerified = useCallback((verification: VirtualPatchScanVerification) => {
     const targetVenue = qrScannerVenue ?? nearbyVerifiedVenue?.venue ?? null;
     saveVirtualPatchContext(buildVerifiedVirtualPatchContext(verification, {
@@ -497,6 +489,21 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       distanceMeters: nearbyVerifiedVenue ? Math.round(nearbyVerifiedVenue.distanceMeters) : null,
       capabilities: scanCapabilities,
     }));
+
+    // C11: dismiss the scanner UI and hand off to VenueDetails for the venue
+    // that was just verified. Falls back to a toast when the venue isn't known
+    // (e.g. universal-link entry without a resolved venue yet).
+    setShowQrScannerSheet(false);
+    setQrScannerVenue(null);
+    setShowVirtualPatchSheet(false);
+    setPeekVenue(null);
+
+    if (targetVenue) {
+      setVenueDetailsVenue(targetVenue);
+      toast.success('Verified', { description: `Tap confirmed at ${targetVenue.name}.` });
+    } else {
+      toast.success('Verified', { description: 'Tap confirmed.' });
+    }
   }, [nearbyVerifiedVenue, qrScannerVenue, scanCapabilities]);
 
   const handleLaunchVirtualPatchSession = useCallback(() => {
@@ -620,15 +627,29 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     }
   }, [selectedFunction]);
 
+  // Tiered parking fetch: vendor-reported venues + Google Places nearby +
+  // static fallback. Vendor entries always win; Places fills gaps; the static
+  // fallback only renders if both are empty (cold-start / offline).
   useEffect(() => {
-    const interval = setInterval(() => {
-      setParkingData(prev => prev.map((spot: ParkingSpot) => ({
-        ...spot,
-        available: Math.max(0, Math.min(spot.total, spot.available + Math.floor(Math.random() * 7) - 3)),
-      })));
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    let cancelled = false;
+    const center = userCoords ?? { lat: DEFAULT_MAP_CENTER[0], lng: DEFAULT_MAP_CENTER[1] };
+    const vendor = apiVenues
+      .map(venueToParkingSpot)
+      .filter((s): s is MapParkingSpot => s !== null);
+
+    trpc.places.nearbySearch.query({ lat: center.lat, lng: center.lng, type: 'parking', maxResults: 12 })
+      .then((res: { places?: Array<{ placeId: string; name: string; lat: number; lng: number }> }) => {
+        if (cancelled) return;
+        const places = (res.places ?? []).map(placeToParkingSpot);
+        setParkingData(mergeParkingSources({ vendor, places, fallback: FALLBACK_ATLANTA_PARKING }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setParkingData(mergeParkingSources({ vendor, places: [], fallback: FALLBACK_ATLANTA_PARKING }));
+      });
+
+    return () => { cancelled = true; };
+  }, [apiVenues, userCoords]);
 
   // Stable reserve callback — reads from refs so never stale
   const handleSpotReserve = useCallback((spotId: number) => {
@@ -765,6 +786,21 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             />
           );
         })}
+
+        {/* ── eBike Station Markers — distinct teal squared icon ── */}
+        {showVenues && bikeStations.map((b) => (
+          <Marker
+            key={`bike-${b.id}`}
+            position={[b.lat, b.lng]}
+            icon={createEBikeIcon()}
+            eventHandlers={{
+              click: () => {
+                setPeekVenue(b);
+                setVenueDetailsVenue(null);
+              },
+            }}
+          />
+        ))}
 
         {/* Community Report Markers */}
         {showReports && communityReports.map((r) => (
@@ -1098,15 +1134,16 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
       </div>
 
-      <AnimatePresence>
-        {showVirtualPatchSheet && nearbyVerifiedVenue && (
-          <motion.div
-            className="fixed inset-0 z-[1004] bg-black/55 backdrop-blur-[2px] flex items-end justify-center p-3"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowVirtualPatchSheet(false)}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {showVirtualPatchSheet && nearbyVerifiedVenue && (
+            <motion.div
+              className="fixed inset-0 z-[1004] bg-black/55 backdrop-blur-[2px] flex items-end justify-center p-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowVirtualPatchSheet(false)}
+            >
             <motion.div
               className="w-full max-w-sm rounded-[28px] border border-cyan-300/30 bg-[#11131A]/96 backdrop-blur-2xl shadow-2xl overflow-hidden"
               style={{ boxShadow: '0 0 46px rgba(34,211,238,0.18), 0 18px 48px rgba(0,0,0,0.52)' }}
@@ -1240,17 +1277,24 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
+      )}
 
-      <VirtualPatchScannerSheet
-        isOpen={showQrScannerSheet && Boolean(qrScannerVenue)}
-        venueName={qrScannerVenue?.name ?? 'Bytspot Verified venue'}
-        fallbackPatchId={qrScannerVenue?.hardwarePatch?.id ?? null}
-        userCoords={userCoords}
-        onClose={handleCloseQrScanner}
-        onVerified={handleQrVerified}
-        onOpenAccessWallet={onOpenAccessWallet}
-      />
+      {createPortal(
+        <VirtualPatchScannerSheet
+          isOpen={showQrScannerSheet && Boolean(qrScannerVenue)}
+          venueName={qrScannerVenue?.name ?? 'Bytspot Verified venue'}
+          fallbackPatchId={qrScannerVenue?.hardwarePatch?.id ?? null}
+          venueId={qrScannerVenue?.id ?? null}
+          userCoords={userCoords}
+          onClose={handleCloseQrScanner}
+          onVerified={handleQrVerified}
+          onOpenAccessWallet={onOpenAccessWallet}
+          onAuditEvent={onAuditEvent}
+        />,
+        document.body,
+      )}
 
       {/* Community Report Form — slides up from bottom-right */}
       <AnimatePresence>

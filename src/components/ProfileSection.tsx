@@ -166,6 +166,13 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     };
   }, []);
 
+  // B5: refresh the verified-patch card every time the tickets screen mounts so
+  // a verification persisted while ProfileSection was already alive is picked up.
+  useEffect(() => {
+    if (currentScreen !== 'tickets') return;
+    setVirtualPatchContext(readVirtualPatchContext());
+  }, [currentScreen]);
+
   const springConfig = {
     type: "spring" as const,
     stiffness: 320,

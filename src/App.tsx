@@ -31,6 +31,9 @@ import { prefetchOfflineData } from './utils/offline';
 import { useVenues } from './utils/hooks/useVenues';
 import { useCity } from './utils/hooks/useCity';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
+import { getAuditSink, initAuditSink } from './utils/auditSink';
+import { useRevocationList } from './utils/hooks/useRevocationList';
+import type { VirtualPatchAuditEvent } from './utils/virtualPatch';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
@@ -109,11 +112,25 @@ export default function App() {
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
 
+  // Universal-link / App Clip handoff — when the user lands via bytspot.app/p/<id>?venue=...
+  // we surface this to MapSection which auto-opens the scanner with the patch pre-filled.
+  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId: string; venueName?: string } | null>(null);
+  const consumePendingPatchScan = useCallback(() => setPendingPatchScan(null), []);
+
   const openAccessWallet = useCallback(() => {
     localStorage.setItem('bytspot_profile_focus', 'tickets');
     setCurrentScreen('main');
     setActiveTab('profile');
   }, []);
+
+  // Stable audit emitter passed down to scanner-hosting surfaces.
+  const emitAuditEvent = useCallback((event: VirtualPatchAuditEvent) => {
+    getAuditSink()?.emit(event);
+  }, []);
+
+  // Populate the client-side revocation cache on boot and refresh periodically.
+  // NIST RS.MI-1 — gives the scanner a fast-fail path before the server round-trip.
+  useRevocationList();
   const [eventsFeed, setEventsFeed] = useState<AppEvent[]>(() => getCachedEvents());
   const [eventsLoading, setEventsLoading] = useState(false);
   const homeScrollRef = useRef<HTMLDivElement>(null);
@@ -167,30 +184,53 @@ export default function App() {
   // Initialize analytics on mount + re-register push subscription + prefetch offline data
   useEffect(() => {
     initAnalytics();
+    initAuditSink(); // NIST PR.PT-1 — durable audit pipeline (boots IndexedDB-backed queue)
     ensurePushSubscribed(); // silently re-subscribes if previously granted
     prefetchOfflineData(); // cache critical data for offline use
 
     // ─── Capacitor Deep Links ─────────────────────────────────────────────
     // When the native app is opened via bytspot:// or a universal link,
     // route to the correct in-app screen.
+    const handleDeepLink = (url: string) => {
+      try {
+        const parsed = new URL(url);
+        const path = parsed.pathname.replace(/^\/+/, '');
+
+        // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
+        // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
+        const patchFromPath = path.startsWith('p/') ? path.slice(2).split('/')[0] : null;
+        const patchFromQuery = parsed.searchParams.get('patch');
+        const patchId = patchFromPath || patchFromQuery;
+        if (patchId) {
+          const venueName = parsed.searchParams.get('venue') || undefined;
+          setActiveTab('map');
+          setPendingPatchScan({ patchId, venueName });
+          return;
+        }
+
+        if (path.startsWith('venue/')) {
+          // bytspot://venue/<id> → open venue details via discover tab
+          setActiveTab('discover');
+        } else if (path === 'map') {
+          setActiveTab('map');
+        } else if (path === 'profile') {
+          setActiveTab('profile');
+        }
+      } catch { /* ignore malformed URLs */ }
+    };
+
+    // Pick up patch deep-links present at first paint (web universal link
+    // landing or App Clip → full-app handoff via SKOverlay).
+    if (typeof window !== 'undefined') {
+      handleDeepLink(window.location.href);
+    }
+
     (async () => {
       try {
         const { App: CapApp } = await import('@capacitor/app');
         CapApp.addListener('appUrlOpen', ({ url }) => {
           console.log('[deeplink]', url);
-          try {
-            const parsed = new URL(url);
-            const path = parsed.pathname.replace(/^\/+/, '');
-
-            if (path.startsWith('venue/')) {
-              // bytspot://venue/<id> → open venue details via discover tab
-              setActiveTab('discover');
-            } else if (path === 'map') {
-              setActiveTab('map');
-            } else if (path === 'profile') {
-              setActiveTab('profile');
-            }
-          } catch { /* ignore malformed URLs */ }
+          handleDeepLink(url);
         });
       } catch {
         // @capacitor/app not installed → running in browser, skip
@@ -1397,6 +1437,9 @@ export default function App() {
                     destination={selectedDestination}
                     userCoords={activeCoords}
                     onOpenAccessWallet={openAccessWallet}
+                    onAuditEvent={emitAuditEvent}
+                    pendingPatchScan={pendingPatchScan}
+                    onPendingPatchScanConsumed={consumePendingPatchScan}
                     onBackToHome={() => {
                       setActiveTab('home');
                       setSelectedDestination(undefined);

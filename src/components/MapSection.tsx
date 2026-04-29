@@ -492,16 +492,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       capabilities: scanCapabilities,
     }));
 
-    // C11: dismiss the scanner UI and hand off to VenueDetails for the venue
-    // that was just verified. Falls back to a toast when the venue isn't known
-    // (e.g. universal-link entry without a resolved venue yet).
-    setShowQrScannerSheet(false);
-    setQrScannerVenue(null);
-    setShowVirtualPatchSheet(false);
-    setPeekVenue(null);
-
+    // Keep the scanner sheet mounted so it can render its own "Patch verified"
+    // success state and Continue-in-My-Access CTA. Dismissal + wallet handoff
+    // are driven from inside the sheet (handleContinue → onClose → onOpenAccessWallet).
     if (targetVenue) {
-      setVenueDetailsVenue(targetVenue);
       toast.success('Verified', { description: `Tap confirmed at ${targetVenue.name}.` });
     } else {
       toast.success('Verified', { description: 'Tap confirmed.' });

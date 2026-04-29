@@ -6,7 +6,7 @@ import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
   MapPin, ChevronRight, Send, QrCode,
-  Lock, Sparkles,
+  Lock, Sparkles, Wifi,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -20,6 +20,7 @@ import { useVenues, venueToCard } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
 import { trpc, type ApiVenue } from '../utils/trpc';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
+import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
 import {
@@ -379,6 +380,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
   const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
   const [showVirtualPatchSheet, setShowVirtualPatchSheet] = useState(false);
+  const [showAINotice, setShowAINotice] = useState(false);
   const [showQrScannerSheet, setShowQrScannerSheet] = useState(false);
   const [qrScannerVenue, setQrScannerVenue] = useState<ApiVenue | null>(null);
   const [showLiveUpdates, setShowLiveUpdates] = useState(true);
@@ -923,20 +925,32 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             { label: 'Active',    value: 2,     emoji: '🟡' },
             { label: 'Busy',      value: 3,     emoji: '🟠' },
             { label: 'Packed',    value: 4,     emoji: '🔴' },
-          ] as { label: string; value: number | null; emoji: string }[]).map(chip => (
-            <motion.button
-              key={chip.label}
-              onClick={() => setVibeFilter(vibeFilter === chip.value ? null : chip.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
-                vibeFilter === chip.value
-                  ? 'bg-white/20 border-white/70 text-white'
-                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
-              }`}
-              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-              whileTap={{ scale: 0.93 }}
-            >
-              {chip.emoji} {chip.label}
-            </motion.button>
+          ] as { label: string; value: number | null; emoji: string }[]).map((chip, idx) => (
+            <div key={chip.label} className="flex-shrink-0 inline-flex items-stretch gap-1">
+              <motion.button
+                onClick={() => setVibeFilter(vibeFilter === chip.value ? null : chip.value)}
+                className={`px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+                  vibeFilter === chip.value
+                    ? 'bg-white/20 border-white/70 text-white'
+                    : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+                }`}
+                style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
+                whileTap={{ scale: 0.93 }}
+              >
+                {chip.emoji} {chip.label}
+              </motion.button>
+              {idx === 0 && (
+                <motion.button
+                  onClick={() => setShowAINotice(true)}
+                  className="px-2 py-1.5 rounded-full bg-cyan-400/14 border border-cyan-300/35 text-cyan-100 backdrop-blur-xl shadow-lg"
+                  whileTap={{ scale: 0.9 }}
+                  aria-label="How Bytspot AI works"
+                  title="How Bytspot AI works"
+                >
+                  <Sparkles className="w-3.5 h-3.5" strokeWidth={2.6} />
+                </motion.button>
+              )}
+            </div>
           ))}
 
           {(verifiedVenues.length > 0 || showVerifiedOnly) && (
@@ -1214,6 +1228,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                             <QrCode className="w-3.5 h-3.5 text-fuchsia-200" strokeWidth={2.4} />
                             {scanCapabilities.qr ? 'QR fallback ready' : 'Manual code fallback'}
                           </div>
+                          {nearbyVerifiedVenue.venue?.hardwarePatch?.wifi?.available && (
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-400/10 border border-emerald-300/25 text-[11px] text-emerald-100/85" style={{ fontWeight: 600 }} title={nearbyVerifiedVenue.venue.hardwarePatch.wifi.ssid ? `Network: ${nearbyVerifiedVenue.venue.hardwarePatch.wifi.ssid}` : undefined}>
+                              <Wifi className="w-3.5 h-3.5 text-emerald-200" strokeWidth={2.4} />
+                              Venue Wi-Fi on tap
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1295,6 +1315,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         />,
         document.body,
       )}
+
+      <AITransparencyNotice isOpen={showAINotice} onClose={() => setShowAINotice(false)} />
 
       {/* Community Report Form — slides up from bottom-right */}
       <AnimatePresence>

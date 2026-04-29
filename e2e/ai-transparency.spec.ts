@@ -94,14 +94,47 @@ async function enterMapTab(page: import('@playwright/test').Page) {
   await mapTab.click({ force: true });
 
   // The Map Functions menu may surface; if it does, dismiss to expose the
-  // filter bar. The "Live Venue Data" button is the documented entry point
-  // in the existing virtual-patch-visual-demo spec.
+  // filter bar. Mirrors the dual-attempt pattern in
+  // virtual-patch-visual-demo.spec.ts — Playwright's first click occasionally
+  // races the AnimatePresence mount, so we fall back to a direct DOM click.
   const mapFunctionsDialog = page.getByRole('dialog', { name: 'Map Functions' });
   if (await mapFunctionsDialog.isVisible().catch(() => false)) {
     const liveVenueDataButton = page.getByRole('button', { name: /Live Venue Data/i });
     await liveVenueDataButton.click({ force: true }).catch(() => {});
+    if (await mapFunctionsDialog.isVisible().catch(() => false)) {
+      await liveVenueDataButton.evaluate((el: HTMLElement) => el.click()).catch(() => {});
+    }
     await expect(mapFunctionsDialog).toBeHidden({ timeout: 10_000 });
   }
+}
+
+async function robustClick(locator: import('@playwright/test').Locator) {
+  await locator.waitFor({ state: 'attached', timeout: 10_000 });
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  try {
+    await locator.click({ force: true, timeout: 5_000 });
+  } catch {
+    await locator.evaluate((element: HTMLElement) => element.click());
+  }
+}
+
+/**
+ * Framer Motion's `whileTap` listens on pointer events and occasionally
+ * captures the gesture before React's synthetic onClick fires under
+ * Playwright. Dispatch the full pointer sequence + native click to make
+ * sure the React handler runs deterministically across chromium/webkit.
+ */
+async function pointerTap(locator: import('@playwright/test').Locator) {
+  await locator.waitFor({ state: 'attached', timeout: 10_000 });
+  await locator.evaluate((element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const opts = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerType: 'mouse' };
+    element.dispatchEvent(new PointerEvent('pointerdown', opts));
+    element.dispatchEvent(new PointerEvent('pointerup', opts));
+    element.dispatchEvent(new MouseEvent('click', opts));
+  });
 }
 
 test('AI Transparency notice opens from the filter-bar sparkle and dismisses cleanly', async ({ page }) => {
@@ -112,12 +145,16 @@ test('AI Transparency notice opens from the filter-bar sparkle and dismisses cle
   const sparkleButton = page.getByRole('button', { name: 'How Bytspot AI works' });
   await expect(sparkleButton).toBeVisible({ timeout: 15_000 });
 
-  // The notice itself is not in the DOM until the user opens it.
-  const dialog = page.getByRole('dialog').filter({ hasText: 'How Bytspot AI works' });
+  // The notice itself is not in the DOM until the user opens it. Filter the
+  // dialog to the AI notice title-region to disambiguate from the optional
+  // Map Functions dialog that may already exist in the tree.
+  const dialog = page.getByRole('dialog').filter({ hasText: 'What we read' });
   await expect(dialog).toHaveCount(0);
 
   // 2. Tapping opens the dialog with the expected title and operational copy.
-  await sparkleButton.click({ force: true });
+  // Same robustClick fallback the existing visual-demo spec relies on, since
+  // the map filter row sometimes intercepts pointer events on first paint.
+  await pointerTap(sparkleButton);
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await expect(dialog).toContainText('How Bytspot AI works');
   await expect(dialog).toContainText('Signals we use');
@@ -125,6 +162,6 @@ test('AI Transparency notice opens from the filter-bar sparkle and dismisses cle
   await expect(dialog).toContainText(/Staff decide service/i);
 
   // 3. "Got it" closes the dialog. AnimatePresence unmounts on exit.
-  await dialog.getByRole('button', { name: 'Got it' }).click({ force: true });
+  await robustClick(dialog.getByRole('button', { name: 'Got it' }));
   await expect(dialog).toBeHidden({ timeout: 10_000 });
 });

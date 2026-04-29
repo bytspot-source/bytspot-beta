@@ -3,6 +3,8 @@ import { Sun, Cloud, CloudRain, MapPin, Menu, Zap, TrendingUp, Clock } from 'luc
 import { ZoneUserCount } from './ZoneUserCount';
 import { useRef, useEffect, useState } from 'react';
 import { trpc } from '../utils/trpc';
+import type { WeatherSnapshot } from '../utils/hooks/useWeather';
+import { describeWeatherCode } from '../utils/hooks/useWeather';
 import {
   getPersonalizedCategories,
   getUserPreferences,
@@ -19,9 +21,11 @@ import {
 interface EnhancedHeaderProps {
   onProfileClick: () => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
+  weather?: WeatherSnapshot | null;
+  weatherLoading?: boolean;
 }
 
-export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedHeaderProps) {
+export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [greeting, setGreeting] = useState('');
   const [spotsNearby, setSpotsNearby] = useState(12);
@@ -144,8 +148,15 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
 
   // Get weather icon
   const getWeatherIcon = () => {
-    const hour = currentTime.getHours();
-    if (hour >= 6 && hour < 20) {
+    const code = weather?.weatherCode ?? 1;
+    const isDaytime = weather?.isDay ?? (currentTime.getHours() >= 6 && currentTime.getHours() < 20);
+    if (code >= 95 || (code >= 51 && code <= 82)) {
+      return <CloudRain className="w-[18px] h-[18px] text-cyan-300" strokeWidth={2} />;
+    }
+    if (code >= 2 || !isDaytime) {
+      return <Cloud className="w-[18px] h-[18px] text-blue-300" strokeWidth={2} />;
+    }
+    if (isDaytime) {
       return <Sun className="w-[18px] h-[18px] text-amber-400" strokeWidth={2} />;
     }
     return <Cloud className="w-[18px] h-[18px] text-blue-400" strokeWidth={2} />;
@@ -179,8 +190,8 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef }: EnhancedH
                 {/* Weather */}
                 <div className="flex items-center gap-1.5">
                   {getWeatherIcon()}
-                  <span className="text-[14px] text-white" style={{ fontWeight: 600 }}>
-                    72°
+	                  <span className="text-[14px] text-white" style={{ fontWeight: 600 }} title={weather ? describeWeatherCode(weather.weatherCode) : 'Weather updating'}>
+	                    {weatherLoading && weather?.source === 'fallback' ? '…' : `${Math.round(weather?.temperatureF ?? 72)}°`}
                   </span>
                 </div>
                 

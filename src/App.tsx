@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart } from 'lucide-react';
+import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart, Wind } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
@@ -30,6 +30,7 @@ import { useOffline } from './utils/hooks/useOffline';
 import { prefetchOfflineData } from './utils/offline';
 import { useVenues } from './utils/hooks/useVenues';
 import { useCity } from './utils/hooks/useCity';
+import { describeWeatherCode, getWeatherEmoji, getWeatherTip, useWeather } from './utils/hooks/useWeather';
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { getAuditSink, initAuditSink } from './utils/auditSink';
 import { useRevocationList } from './utils/hooks/useRevocationList';
@@ -86,6 +87,7 @@ export default function App() {
     searchNearby,
     placesLoading,
   } = useVenues();
+  const weather = useWeather(userCoords ?? cityCoords);
   const [searchValue, setSearchValue] = useState('');
   const [showMapMenu, setShowMapMenu] = useState(false);
   const [selectedMapFunction, setSelectedMapFunction] = useState<MapFunction | undefined>();
@@ -811,6 +813,8 @@ export default function App() {
           <EnhancedHeader
             onProfileClick={() => setActiveTab('profile')}
             scrollContainerRef={homeScrollRef}
+            weather={weather.current}
+            weatherLoading={weather.loading}
           />
         )}
 
@@ -909,6 +913,51 @@ export default function App() {
                     </motion.div>
                   );
                 })()}
+
+	                {/* ── Weather Smart ── Live conditions for parking + plans */}
+	                <motion.div
+	                  className="px-4 mb-4"
+	                  initial={{ opacity: 0, y: 10 }}
+	                  animate={{ opacity: 1, y: 0 }}
+	                  transition={{ ...springConfig, delay: 0.1 }}
+	                >
+	                  <div className="relative overflow-hidden rounded-[20px] border border-white/20 bg-[#1C1C1E]/80 p-3.5 shadow-[0_16px_42px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+	                    <div className="absolute inset-x-3 top-0 h-px bg-white/30" />
+	                    <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-cyan-500/20 blur-3xl" />
+	                    <div className="absolute -left-12 bottom-0 h-24 w-24 rounded-full bg-purple-500/15 blur-3xl" />
+	                    <div className="relative flex items-center justify-between gap-3">
+	                      <div className="flex min-w-0 items-center gap-3">
+	                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[16px] border border-cyan-300/30 bg-gradient-to-br from-cyan-500/25 to-purple-500/20 text-[24px] shadow-lg shadow-cyan-500/10">
+	                          {getWeatherEmoji(weather.current)}
+	                        </div>
+	                        <div className="min-w-0">
+	                          <div className="flex items-baseline gap-2">
+	                            <p className="text-[24px] leading-none text-white" style={{ fontWeight: 750 }}>
+	                              {Math.round(weather.current.temperatureF)}°
+	                            </p>
+	                            <p className="truncate text-[13px] text-white/75" style={{ fontWeight: 650 }}>
+	                              {describeWeatherCode(weather.current.weatherCode)}
+	                            </p>
+	                          </div>
+	                          <p className="mt-1 truncate text-[11px] text-cyan-200/80" style={{ fontWeight: 600 }}>
+	                            Weather-smart parking · {userCity}
+	                          </p>
+	                        </div>
+	                      </div>
+	                      <div className="flex flex-col items-end gap-1.5 text-right">
+	                        <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] text-white/70" style={{ fontWeight: 700 }}>
+	                          {weather.current.source === 'live' ? 'LIVE' : weather.current.source === 'cached' ? 'CACHED' : 'UPDATING'}
+	                        </span>
+	                        <span className="flex items-center gap-1 text-[11px] text-white/55" style={{ fontWeight: 600 }}>
+	                          <Wind className="h-3 w-3" strokeWidth={2.5} /> {Math.round(weather.current.windMph)} mph
+	                        </span>
+	                      </div>
+	                    </div>
+	                    <p className="relative mt-2.5 text-[12px] leading-[17px] text-white/60">
+	                      {getWeatherTip(weather.current)}
+	                    </p>
+	                  </div>
+	                </motion.div>
 
                 {/* Quick Actions & Nearby - Main Home Content */}
                 <div className="px-4">

@@ -8,7 +8,10 @@
 require "xcodeproj"
 require "pathname"
 
-PROJECT_PATH      = "App.xcodeproj"
+# Resolve paths relative to ios/App regardless of the caller's CWD
+# (fastlane's `sh` runs from ios/App/fastlane, not ios/App).
+APP_DIR           = File.expand_path("..", __dir__)
+PROJECT_PATH      = File.join(APP_DIR, "App.xcodeproj")
 APP_TARGET_NAME   = "App"
 CLIP_TARGET_NAME  = "Clip"
 CLIP_BUNDLE_ID    = "com.bytspot.app.Clip"

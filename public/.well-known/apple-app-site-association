@@ -4,8 +4,8 @@
     "details": [
       {
         "appIDs": [
-          "__APPLE_TEAM_ID__.com.bytspot.app",
-          "__APPLE_TEAM_ID__.com.bytspot.app.Clip"
+          "MK4J6M36S8.com.bytspot.app",
+          "MK4J6M36S8.com.bytspot.app.Clip"
         ],
         "components": [
           { "/": "/p/*", "comment": "Patch verify deep link" },
@@ -18,12 +18,12 @@
   },
   "appclips": {
     "apps": [
-      "__APPLE_TEAM_ID__.com.bytspot.app.Clip"
+      "MK4J6M36S8.com.bytspot.app.Clip"
     ]
   },
   "webcredentials": {
     "apps": [
-      "__APPLE_TEAM_ID__.com.bytspot.app"
+      "MK4J6M36S8.com.bytspot.app"
     ]
   }
 }

@@ -272,3 +272,35 @@ export function loadRevocationList(patchIds: readonly string[]): void {
   revokedPatchIds.clear();
   for (const id of patchIds) if (id) revokedPatchIds.add(id);
 }
+
+/**
+ * Persist a verified virtual-patch context to localStorage so the access
+ * wallet (and any tab opened from a deep-link) can render the just-verified
+ * binding without re-issuing the verification call. Only sheet-level scope
+ * is written — no raw GPS, no biometrics. Read with loadVirtualPatchContext.
+ */
+export function saveVirtualPatchContext(context: VirtualPatchContext): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(VIRTUAL_PATCH_CONTEXT_KEY, JSON.stringify(context));
+  } catch {
+    // Quota or sandboxed storage — best-effort persistence, never crash the scanner.
+  }
+}
+
+export function loadVirtualPatchContext(): VirtualPatchContext | null {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const raw = window.localStorage.getItem(VIRTUAL_PATCH_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as VirtualPatchContext) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearVirtualPatchContext(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try { window.localStorage.removeItem(VIRTUAL_PATCH_CONTEXT_KEY); } catch { /* ignore */ }
+}

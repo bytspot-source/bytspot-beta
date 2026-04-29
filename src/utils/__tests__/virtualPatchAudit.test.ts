@@ -146,3 +146,65 @@ test('integration: revoked patch produces a revoked audit event', () => {
   assert.equal(event!.patchId, 'patch-bad');
   assert.equal(event!.tokenJti, null);
 });
+
+// ─── coords-discard invariant (SECURE Data Act / CCPA 2026) ─────────────
+//
+// The audit record describes an operational moment, not a customer. Raw
+// device coordinates flow into the verification call as transient request
+// data and must never end up serialized in an audit event. This test pins
+// that invariant so a future addition of a `lat`/`lng`/`coords` field on
+// VirtualPatchAuditEvent triggers a hard test failure rather than a
+// silent regulatory regression.
+
+test('createAuditEvent: serialized payload never carries raw coordinates', () => {
+  // Drive every outcome bucket through the constructor and assert the
+  // JSON shape stays free of geolocation keys.
+  const buckets: Array<Pick<VirtualPatchAuditEvent, 'outcome' | 'method'>> = [
+    { outcome: 'success', method: 'nfc' },
+    { outcome: 'failure', method: 'qr' },
+    { outcome: 'revoked', method: 'nfc' },
+    { outcome: 'consent_denied', method: 'qr' },
+  ];
+
+  for (const bucket of buckets) {
+    const evt = createAuditEvent({
+      ...bucket,
+      vendorId: 'vendor-1',
+      venueId: 'venue-1',
+      patchId: 'patch-1',
+      uid: 'UID-FFEEDD',
+      tokenJti: bucket.outcome === 'success' ? 'jti-ok' : null,
+      reason: bucket.outcome === 'success' ? undefined : 'test',
+    });
+
+    const json = JSON.stringify(evt);
+    assert.ok(!/"lat"\s*:/i.test(json), `audit JSON must not include "lat": ${json}`);
+    assert.ok(!/"lng"\s*:/i.test(json), `audit JSON must not include "lng": ${json}`);
+    assert.ok(!/"longitude"\s*:/i.test(json), `audit JSON must not include "longitude": ${json}`);
+    assert.ok(!/"latitude"\s*:/i.test(json), `audit JSON must not include "latitude": ${json}`);
+    assert.ok(!/"coords"\s*:/i.test(json), `audit JSON must not include "coords": ${json}`);
+    assert.ok(!/"geolocation"\s*:/i.test(json), `audit JSON must not include "geolocation": ${json}`);
+  }
+});
+
+test('createAuditEvent: rejects coord-shaped extras silently — schema is closed', () => {
+  // Even if a caller hands us a `lat`/`lng` via TypeScript escape hatches,
+  // the constructor's explicit field list in createAuditEvent ignores
+  // anything outside the documented shape. This test pins that behavior
+  // at runtime.
+  const rogue = {
+    outcome: 'success' as const,
+    method: 'nfc' as const,
+    patchId: 'patch-1',
+    tokenJti: 'jti-ok',
+    // Fields that must NOT survive the constructor.
+    lat: 33.789,
+    lng: -84.384,
+    coords: { latitude: 33.789, longitude: -84.384 },
+  } as Parameters<typeof createAuditEvent>[0] & { lat: number; lng: number; coords: unknown };
+
+  const evt = createAuditEvent(rogue);
+  const json = JSON.stringify(evt);
+  assert.ok(!json.includes('33.789'), `audit JSON leaked lat value: ${json}`);
+  assert.ok(!json.includes('-84.384'), `audit JSON leaked lng value: ${json}`);
+});

@@ -82,17 +82,18 @@ export const QuickActionCard = memo(function QuickActionCard({
       }}
       whileTap={{ scale: 0.95 }}
       whileHover={{ scale: 1.01, y: -4 }}
-      className="relative overflow-hidden rounded-[20px] p-[1px] tap-target"
+	      className="relative overflow-hidden rounded-[18px] p-[1px] tap-target"
+	      style={{ height: 'clamp(96px, 24vw, 112px)' }}
       aria-label={`${title}: ${subtitle}`}
     >
       {/* Gradient border effect */}
       <div className={`absolute inset-0 bg-gradient-to-br ${colors.darkBg} opacity-30`} />
       
       {/* Card content */}
-      <div className="relative rounded-[19px] p-5 border-2 border-white/30 text-left h-full flex flex-col bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl hover:shadow-2xl">
-        {/* Icon - 44px for better tap target */}
+	      <div className="relative rounded-[17px] p-3.5 border border-white/25 text-left h-full flex flex-col bg-[#1C1C1E]/80 backdrop-blur-xl shadow-lg hover:shadow-xl">
+	        {/* Icon - compact but still legible in App Clip */}
         <motion.div
-          className={`w-11 h-11 rounded-[12px] bg-gradient-to-br ${colors.darkBg} ${colors.shadow} shadow-xl flex items-center justify-center mb-4`}
+	          className={`w-9 h-9 rounded-[11px] bg-gradient-to-br ${colors.darkBg} ${colors.shadow} shadow-lg flex items-center justify-center mb-2.5`}
           transition={{
             type: "spring" as const,
             stiffness: 320,
@@ -108,7 +109,7 @@ export const QuickActionCard = memo(function QuickActionCard({
 
         {/* Text - Using iOS typography scale */}
         <div className="flex-1">
-          <h3 className="text-white" style={{ 
+	          <h3 className="text-white truncate" style={{
             fontSize: 'var(--text-headline)',
             lineHeight: 'var(--text-headline-line)',
             fontWeight: 'var(--font-weight-semibold)',
@@ -116,7 +117,7 @@ export const QuickActionCard = memo(function QuickActionCard({
           }}>
             {title}
           </h3>
-          <p className="text-white" style={{ 
+	          <p className="text-white/80 line-clamp-2" style={{
             fontSize: 'var(--text-footnote)',
             lineHeight: 'var(--text-footnote-line)',
             fontWeight: 'var(--font-weight-regular)'
@@ -126,7 +127,7 @@ export const QuickActionCard = memo(function QuickActionCard({
         </div>
 
         {/* Chevron indicator */}
-        <div className="absolute top-4 right-4 text-white/80" aria-hidden="true">
+	        <div className="absolute top-3.5 right-3.5 text-white/70" aria-hidden="true">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

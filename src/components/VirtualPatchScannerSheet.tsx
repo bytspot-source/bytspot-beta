@@ -31,6 +31,13 @@ interface VirtualPatchScannerSheetProps {
   venueId?: string | null;
   /** Audit log sink (NIST PR.PT-1). Defaults to console.info in dev. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
+  /**
+   * Optional age-gate. When present, the user must affirm they meet the
+   * minimum age before the consent panel renders or any sensor starts.
+   * Used by 21+ nightlife / lounge / dispensary venues. Affirmation is
+   * non-persistent and resets every time the sheet closes.
+   */
+  ageGate?: { minAge: number } | null;
 }
 
 /** Default audit sink — dev-friendly, replaceable in prod via the prop. */
@@ -100,6 +107,7 @@ export function VirtualPatchScannerSheet({
   vendorId = null,
   venueId = null,
   onAuditEvent,
+  ageGate = null,
 }: VirtualPatchScannerSheetProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -122,6 +130,12 @@ export function VirtualPatchScannerSheet({
    * require an affirmative tap before any sensor (camera/NFC) is started.
    */
   const [hasConsented, setHasConsented] = useState(false);
+  /**
+   * Optional age-gate affirmation. Sequenced before the consent panel so
+   * an under-age user never sees the "intent to read" surface and the
+   * sensor is never armed. Defaults to true when no gate is configured.
+   */
+  const [hasAffirmedAge, setHasAffirmedAge] = useState(!ageGate);
 
   const emitAudit = useCallback((event: VirtualPatchAuditEvent) => {
     const sink = onAuditEvent ?? defaultAuditSink;
@@ -338,8 +352,11 @@ export function VirtualPatchScannerSheet({
       // Reset consent every time the sheet closes — explicit, per-session
       // consent is required by BIPA / WA MHMD style "intent to collect" rules.
       setHasConsented(false);
+      // Age affirmation is also per-session. Defaults to true when the
+      // venue carries no ageGate so the consent panel renders immediately.
+      setHasAffirmedAge(!ageGate);
     }
-  }, [isOpen]);
+  }, [isOpen, ageGate]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -355,7 +372,9 @@ export function VirtualPatchScannerSheet({
     // taps the explicit consent affordance. The scanner sheet stays mounted and
     // shows the consent surface; only after `setHasConsented(true)` does this
     // effect re-run and proceed to startScanner / startNfcScanner below.
-    if (!hasConsented) {
+    // The age-gate (when configured) sequences before consent — sensors stay
+    // dark until both gates are cleared.
+    if (!hasAffirmedAge || !hasConsented) {
       return;
     }
 
@@ -523,7 +542,7 @@ export function VirtualPatchScannerSheet({
       cancelled = true;
       stopScanner();
     };
-  }, [hasConsented, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
+  }, [hasAffirmedAge, hasConsented, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
 
   const handleRetry = useCallback(() => {
     stopScanner();
@@ -595,7 +614,48 @@ export function VirtualPatchScannerSheet({
                 </motion.button>
               </div>
 
-              {!hasConsented && (
+              {!hasAffirmedAge && ageGate && (
+                <div className="rounded-[24px] border border-amber-300/30 bg-gradient-to-br from-amber-500/10 via-orange-500/8 to-rose-500/8 p-5 mb-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-400/16 border border-amber-300/35 flex items-center justify-center flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-amber-200" strokeWidth={2.5} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[15px] text-white" style={{ fontWeight: 800 }}>Verify your age</div>
+                      <p className="text-[12.5px] text-white/72 mt-1" style={{ fontWeight: 500 }}>
+                        {venueName} requires guests to be {ageGate.minAge} or older. Bytspot does not store your date of birth — only your one-tap affirmation, scoped to this session.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <motion.button
+                      onClick={() => {
+                        emitAudit(createAuditEvent({
+                          outcome: 'consent_denied',
+                          method: supportsNfc ? 'nfc' : 'qr',
+                          vendorId,
+                          venueId,
+                          reason: `age_gate_declined_min_${ageGate.minAge}`,
+                        }));
+                        onClose();
+                      }}
+                      className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/75"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[13.5px]" style={{ fontWeight: 700 }}>{'I\u2019m under ' + ageGate.minAge}</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => setHasAffirmedAge(true)}
+                      className="flex-[1.4] py-3 rounded-[16px] bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500 text-white"
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="text-[13.5px]" style={{ fontWeight: 800 }}>{'I\u2019m ' + ageGate.minAge + ' or older'}</span>
+                    </motion.button>
+                  </div>
+                </div>
+              )}
+
+              {hasAffirmedAge && !hasConsented && (
                 <div className="rounded-[24px] border border-cyan-300/22 bg-gradient-to-br from-cyan-500/8 via-indigo-500/8 to-fuchsia-500/8 p-5 mb-4">
                   <div className="flex items-start gap-3 mb-3">
                     <div className="w-10 h-10 rounded-full bg-cyan-400/14 border border-cyan-300/30 flex items-center justify-center flex-shrink-0">

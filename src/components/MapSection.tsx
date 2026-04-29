@@ -1312,6 +1312,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           onVerified={handleQrVerified}
           onOpenAccessWallet={onOpenAccessWallet}
           onAuditEvent={onAuditEvent}
+          ageGate={qrScannerVenue?.ageGate ?? null}
         />,
         document.body,
       )}

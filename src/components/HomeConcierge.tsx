@@ -53,6 +53,46 @@ interface Message {
 }
 
 const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
+const messageTransition = { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const };
+const wordVariants = {
+  hidden: { opacity: 0, y: 4, filter: 'blur(3px)' },
+  show: { opacity: 1, y: 0, filter: 'blur(0px)' },
+};
+
+const buildWelcomeMessage = (cityName: string): Message => ({
+  id: 1,
+  sender: 'ai',
+  text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.`,
+});
+
+function PremiumAIText({ text, animate }: { text: string; animate: boolean }) {
+  if (!animate) return <>{text}</>;
+
+  const tokens = text.split(/(\s+)/).filter(Boolean);
+  const stagger = Math.min(0.018, 1.35 / Math.max(tokens.length, 1));
+
+  return (
+    <motion.span
+      className="block"
+      initial="hidden"
+      animate="show"
+      variants={{ show: { transition: { staggerChildren: stagger } } }}
+    >
+      {tokens.map((token, index) => token.trim() === '' ? (
+        <span key={`${token}-${index}`}>{token}</span>
+      ) : (
+        <motion.span
+          key={`${token}-${index}`}
+          className="inline-block will-change-transform"
+          variants={wordVariants}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {token}
+        </motion.span>
+      ))}
+    </motion.span>
+  );
+}
 
 const SUGGESTIONS = [
   '🌙 Plan my night',
@@ -64,14 +104,16 @@ const SUGGESTIONS = [
 ];
 
 export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false, cityName = 'Midtown' }: HomeConciergeProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 1, sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.` },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => [buildWelcomeMessage(cityName)]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [connectionState, setConnectionState] = useState<'ready' | 'thinking' | 'offline' | 'fallback'>('ready');
   const endRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const nextMessageIdRef = useRef(2);
+
+  const createMessageId = () => nextMessageIdRef.current++;
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -151,10 +193,11 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     const query = (text ?? input).trim();
     if (!query || isTyping) return;
 
-    const userMsg: Message = { id: Date.now(), sender: 'user', text: query };
+    const userMsg: Message = { id: createMessageId(), sender: 'user', text: query };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
+    setConnectionState(navigator.onLine ? 'thinking' : 'offline');
 
     // Offline: use local venue-matching instead of hitting the API
     if (!navigator.onLine) {
@@ -162,9 +205,10 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       const offlineNote = '📡 *You\'re offline right now.* Here\'s what I can find from your cached data:\n\n';
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: offlineNote + reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+        { id: createMessageId(), sender: 'ai', text: offlineNote + reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
       ]);
       setIsTyping(false);
+      setConnectionState('offline');
       return;
     }
 
@@ -175,9 +219,10 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       const { reply, matchedVenues } = getLocalResponse(query);
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+        { id: createMessageId(), sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
       ]);
       setIsTyping(false);
+      setConnectionState('fallback');
       return;
     }
 
@@ -220,15 +265,18 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
 
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: reply, venues: venueCards, events: eventCards.length > 0 ? eventCards : undefined, places: placeCards.length > 0 ? placeCards : undefined },
+        { id: createMessageId(), sender: 'ai', text: reply || 'I found a few options — want me to narrow it by vibe, price, or distance?', venues: venueCards, events: eventCards.length > 0 ? eventCards : undefined, places: placeCards.length > 0 ? placeCards : undefined },
       ]);
-    } catch {
+      setConnectionState('ready');
+    } catch (err: any) {
+      console.warn('[HomeConcierge] Falling back to local response:', err?.message ?? err);
       // API failed — fall back to local responses instead of dead-end error
       const { reply, matchedVenues } = getLocalResponse(query);
       setMessages(prev => [
         ...prev,
-        { id: Date.now() + 1, sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+        { id: createMessageId(), sender: 'ai', text: `I couldn't reach live AI for a moment, so here's the best local read:\n\n${reply}`, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
       ]);
+      setConnectionState('fallback');
     } finally {
       setIsTyping(false);
     }
@@ -243,47 +291,64 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   const chatContent = (
     <>
       {/* Header */}
-      <div className={`flex items-center justify-between px-5 py-3 border-b border-white/10 ${tabMode ? 'pt-4' : 'pb-3'}`}>
+      <div className={`relative overflow-hidden border-b border-white/10 bg-[#0B0B0F]/92 px-5 py-3 backdrop-blur-xl ${tabMode ? 'pt-4' : 'pb-3'}`}>
+        <div className="absolute inset-x-0 top-0 h-px bg-white/25" />
+        <div className="absolute -right-16 -top-20 h-36 w-36 rounded-full bg-purple-500/25 blur-3xl" />
+        <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-500 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/25 ring-1 ring-white/25">
             <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-white text-[15px]" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
-            <p className="text-green-400 text-[11px]" style={{ fontWeight: 500 }}>● Live · {cityName}</p>
+            <p className="text-white text-[15px] leading-5" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
+            <p className="text-[11px] leading-4 text-green-300" style={{ fontWeight: 600 }}>
+              ● {connectionState === 'thinking' ? 'Thinking' : connectionState === 'offline' ? 'Offline mode' : connectionState === 'fallback' ? 'Local fallback' : 'Live'} · {cityName}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setMessages([{ id: Date.now(), sender: 'ai', text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.` }])}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
+            onClick={() => { nextMessageIdRef.current = 2; setMessages([buildWelcomeMessage(cityName)]); setConnectionState('ready'); }}
+            className="w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-xl"
             title="Clear chat"
           >
             <RotateCcw className="w-3.5 h-3.5 text-white/60" strokeWidth={2.5} />
           </button>
           {!tabMode && (
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-xl">
               <X className="w-4 h-4 text-white/70" strokeWidth={2.5} />
             </button>
           )}
         </div>
+        </div>
       </div>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-hide min-h-0">
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide bg-[radial-gradient(circle_at_top_right,rgba(168,85,247,0.12),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(0,191,255,0.09),transparent_34%)]">
+        <AnimatePresence initial={false}>
         {messages.map(m => (
-          <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[82%] ${m.sender === 'user'
-              ? 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white'
-              : 'bg-[#1C1C1E] border border-white/10 text-white'} rounded-[18px] px-4 py-3`}>
-              <p className="text-[14px] leading-relaxed whitespace-pre-wrap" style={{ fontWeight: 400 }}>{m.text}</p>
+          <motion.div
+            key={m.id}
+            className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            initial={{ opacity: 0, y: 14, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={messageTransition}
+          >
+            <div className={`relative max-w-[84%] overflow-hidden rounded-[22px] px-4 py-3 shadow-[0_14px_34px_rgba(0,0,0,0.28)] ${m.sender === 'user'
+              ? 'bg-gradient-to-br from-cyan-500 via-blue-500 to-purple-500 text-white ring-1 ring-cyan-200/25'
+              : 'bg-[#1C1C1E]/80 border border-white/20 text-white backdrop-blur-xl'}`}>
+              {m.sender === 'ai' && <div className="absolute inset-x-3 top-0 h-px bg-white/25" />}
+              <p className="text-[14px] leading-[20px] whitespace-pre-wrap" style={{ fontWeight: 400 }}>
+                <PremiumAIText text={m.text} animate={m.sender === 'ai'} />
+              </p>
               {/* Venue Cards */}
               {m.venues && m.venues.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {m.venues.map(v => (
                     <button key={v.id ?? v.name}
                       onClick={() => { onVenueSelect(v); if (!tabMode) onClose?.(); }}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-[14px] bg-white/10 hover:bg-white/15 transition-colors text-left">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500/30 to-fuchsia-500/30 border border-purple-400/30 flex items-center justify-center flex-shrink-0">
+                      className="w-full flex items-center gap-3 p-2.5 rounded-[16px] bg-white/10 border border-white/10 hover:bg-white/15 transition-colors text-left">
+                      <div className="w-9 h-9 rounded-[13px] bg-gradient-to-br from-purple-500/30 to-fuchsia-500/30 border border-purple-400/30 flex items-center justify-center flex-shrink-0">
                         <MapPin className="w-4 h-4 text-purple-300" strokeWidth={2} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -304,7 +369,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
                 <div className="mt-3 space-y-2">
                   {m.places.map(p => (
                     <div key={p.placeId}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-[14px] bg-white/10 text-left">
+                      className="w-full flex items-center gap-3 p-2.5 rounded-[16px] bg-white/10 border border-white/10 text-left">
                       {p.photoUrls[0] ? (
                         <img src={p.photoUrls[0]} alt={p.name} className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
                       ) : (
@@ -328,7 +393,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
                 <div className="mt-3 space-y-2">
                   {m.events.map(e => (
                     <div key={e.id}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-[14px] bg-gradient-to-r from-orange-500/10 to-pink-500/10 border border-orange-400/20 text-left">
+                      className="w-full flex items-center gap-3 p-2.5 rounded-[16px] bg-gradient-to-r from-orange-500/10 to-pink-500/10 border border-orange-400/20 text-left">
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500/30 to-pink-500/30 border border-orange-400/30 flex items-center justify-center flex-shrink-0">
                         <Calendar className="w-4 h-4 text-orange-300" strokeWidth={2} />
                       </div>
@@ -342,44 +407,45 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
         {isTyping && (
-          <div className="flex justify-start">
-            <div className="bg-[#1C1C1E] border border-white/10 rounded-[18px] px-4 py-3 flex gap-1.5 items-center">
+          <motion.div className="flex justify-start" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={messageTransition}>
+            <div className="bg-[#1C1C1E]/80 border border-white/20 rounded-[20px] px-4 py-3 flex gap-1.5 items-center backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.24)]">
               {[0, 0.2, 0.4].map(d => (
                 <motion.div key={d} className="w-2 h-2 rounded-full bg-white/50"
                   animate={{ opacity: [0.3, 1, 0.3] }}
                   transition={{ duration: 1, repeat: Infinity, delay: d }} />
               ))}
             </div>
-          </div>
+          </motion.div>
         )}
         <div ref={endRef} />
       </div>
       {/* Suggestions */}
-      <div className="px-4 pt-2 pb-1 flex gap-2 overflow-x-auto scrollbar-hide flex-shrink-0">
+      <div className="px-4 pt-2 pb-2 flex gap-2 overflow-x-auto scrollbar-hide flex-shrink-0 bg-[#0B0B0F]/92 backdrop-blur-xl">
         {SUGGESTIONS.map(s => (
           <button key={s} onClick={() => handleSend(s)}
-            className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] bg-purple-500/15 border border-purple-400/30 text-purple-300"
+            className="flex-shrink-0 px-3.5 py-2 rounded-full text-[12px] bg-purple-500/15 border border-purple-400/30 text-purple-200 shadow-sm shadow-purple-500/10"
             style={{ fontWeight: 500 }}>
             {s}
           </button>
         ))}
       </div>
       {/* Input */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-white/10 flex-shrink-0" style={{ paddingBottom: tabMode ? 'calc(12px + env(safe-area-inset-bottom))' : 'calc(12px + env(safe-area-inset-bottom))' }}>
+      <div className="flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0B0B0F]/92 backdrop-blur-xl flex-shrink-0" style={{ paddingBottom: tabMode ? 'calc(12px + env(safe-area-inset-bottom))' : 'calc(12px + env(safe-area-inset-bottom))' }}>
         <input
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
           placeholder="Find me somewhere chill…"
-          className="flex-1 px-4 py-2.5 rounded-full bg-[#1C1C1E] border border-white/15 text-white text-[14px] placeholder:text-white/40 outline-none focus:border-purple-400 transition-colors"
+          className="flex-1 px-4 py-3 rounded-full bg-[#1C1C1E]/80 border border-white/20 text-white text-[15px] leading-5 placeholder:text-white/40 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 transition-colors backdrop-blur-xl"
         />
         {/* Voice Input */}
         <motion.button onClick={toggleVoice}
-          className={`w-10 h-10 rounded-full flex items-center justify-center ${isListening ? 'bg-red-500/80 animate-pulse' : 'bg-white/10'}`}
+          className={`w-11 h-11 rounded-full flex items-center justify-center border border-white/15 ${isListening ? 'bg-red-500/80 animate-pulse' : 'bg-white/10'}`}
           whileTap={{ scale: 0.9 }}
           title="Voice input">
           {isListening ? <MicOff className="w-4 h-4 text-white" strokeWidth={2.5} /> : <Mic className="w-4 h-4 text-white/50" strokeWidth={2.5} />}
@@ -387,7 +453,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         {/* Send */}
         <motion.button onClick={() => handleSend()}
           disabled={!input.trim()}
-          className={`w-10 h-10 rounded-full flex items-center justify-center ${input.trim() ? 'bg-gradient-to-br from-purple-500 to-fuchsia-500' : 'bg-white/10'}`}
+          className={`w-11 h-11 rounded-full flex items-center justify-center border border-white/15 shadow-lg ${input.trim() ? 'bg-gradient-to-br from-purple-500 to-fuchsia-500 shadow-purple-500/25' : 'bg-white/10'}`}
           whileTap={{ scale: 0.9 }}>
           <Send className={`w-4 h-4 ${input.trim() ? 'text-white' : 'text-white/30'}`} strokeWidth={2.5} />
         </motion.button>
@@ -398,7 +464,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   // Tab mode: render as full-height inline panel
   if (tabMode) {
     return (
-      <div className="absolute inset-0 flex flex-col bg-[#111]">
+      <div className="absolute inset-0 flex flex-col bg-[#050507]">
         {chatContent}
       </div>
     );
@@ -413,7 +479,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose} />
           <motion.div
-            className="fixed bottom-0 left-0 right-0 z-[71] bg-[#111] rounded-t-[32px] border-t border-white/10 flex flex-col"
+            className="fixed bottom-0 left-0 right-0 z-[71] bg-[#050507] rounded-t-[32px] border-t border-white/20 flex flex-col overflow-hidden shadow-[0_-24px_70px_rgba(0,0,0,0.55)]"
             style={{ maxHeight: '85vh' }}
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={springConfig}

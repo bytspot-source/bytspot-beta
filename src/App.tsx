@@ -60,10 +60,9 @@ import { trpc } from './utils/trpc';
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 
-const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-8 pb-2';
-const HOME_EDGE_CAROUSEL_CLASS = 'flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-8 pb-2';
-const HOME_FEATURE_CARD_CLASS = 'flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#1C1C1E]/90 text-left shadow-lg';
-const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 148 };
+const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
+const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
+const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
 
 export default function App() {
   // Determine initial screen: skip splash/landing/auth if user already has a token
@@ -871,7 +870,7 @@ export default function App() {
                   const imgUrl = v.imageUrl || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
                   return (
                     <motion.div
-                      className="px-4 mb-4 pt-3"
+	                      className="px-4 mb-3 pt-2"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ ...springConfig, delay: 0.05 }}
@@ -882,7 +881,7 @@ export default function App() {
                       </div>
                       <motion.button
                         className="relative w-full rounded-2xl overflow-hidden text-left"
-                        style={{ height: 142 }}
+	                        style={{ height: 118 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => setSelectedSearchVenue(v)}
                       >
@@ -896,10 +895,10 @@ export default function App() {
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-                        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
+	                        <div className="absolute bottom-2.5 left-3 right-3 flex items-end justify-between gap-3">
                           <div>
-                            <div className="text-[18px] mb-0.5">{icon}</div>
-                            <h3 className="text-white text-[16px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
+	                            <div className="text-[16px] mb-0.5">{icon}</div>
+	                            <h3 className="text-white text-[15px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
                             {v.address && <p className="text-white/60 text-[12px] mt-0.5 truncate">{v.address}</p>}
                           </div>
                           <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>
@@ -910,50 +909,6 @@ export default function App() {
                     </motion.div>
                   );
                 })()}
-
-                {/* ── Tonight's Events ── */}
-				                <div className="mb-5 pt-3">
-                  <div className="px-4 mb-3 flex items-center justify-between">
-				                    <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>What's Happening Tonight</h2>
-                    <span className="text-[11px] text-white/40">{userCity}</span>
-                  </div>
-				                  <div className={HOME_EDGE_CAROUSEL_CLASS}>
-                    {eventsFeed.map((evt: AppEvent, i: number) => (
-                      <motion.button
-                        key={evt.id}
-                        type="button"
-				                        className={`${HOME_FEATURE_CARD_CLASS} border border-white/10`}
-				                        style={HOME_FEATURE_CARD_STYLE}
-                        onClick={() => handleCategoryClick('entertainment', 'Events')}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.1 + i * 0.05 }}
-                        whileTap={{ scale: 0.96 }}
-                      >
-				                        <div className="relative h-[76px] overflow-hidden">
-                          <img src={evt.image} alt={evt.title} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                          <span className="absolute top-2 left-2 text-[18px]">{evt.emoji}</span>
-                          <span className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/60 text-white border border-white/20">
-                            {evt.price}
-                          </span>
-                        </div>
-				                        <div className="p-2.5">
-				                          <p className="text-[13px] text-white font-semibold leading-tight line-clamp-2 min-h-[32px]">{evt.title}</p>
-                          <p className="text-[11px] text-white/50 mt-0.5 truncate">{evt.venue}</p>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <p className="text-[11px] text-cyan-400 font-semibold">{evt.time}</p>
-                            {evt.price && evt.price !== 'Free' ? (
-                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-300 text-[10px]" style={{ fontWeight: 700 }}>{evt.price}</span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 text-[10px]" style={{ fontWeight: 700 }}>FREE</span>
-                            )}
-                          </div>
-                        </div>
-                      </motion.button>
-                    ))}
-                  </div>
-                </div>
 
                 {/* Quick Actions & Nearby - Main Home Content */}
                 <div className="px-4">
@@ -1022,6 +977,51 @@ export default function App() {
                       />
                     </div>
 
+	                    {/* ── Tonight's Events ── */}
+	                    <div className="mb-6">
+	                      <div className="mb-3 flex items-center justify-between">
+	                        <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>What's Happening Tonight</h2>
+	                        <span className="text-[11px] text-white/40">{userCity}</span>
+	                      </div>
+	                      <div className={HOME_CAROUSEL_CLASS}>
+	                        {eventsFeed.map((evt: AppEvent, i: number) => (
+	                          <motion.button
+	                            key={evt.id}
+	                            type="button"
+	                            className={`${HOME_FEATURE_CARD_CLASS} border border-white/10`}
+	                            style={HOME_FEATURE_CARD_STYLE}
+	                            onClick={() => handleCategoryClick('entertainment', 'Events')}
+	                            initial={{ opacity: 0, y: 12 }}
+	                            animate={{ opacity: 1, y: 0 }}
+	                            transition={{ delay: 0.1 + i * 0.05 }}
+	                            whileTap={{ scale: 0.96 }}
+	                          >
+	                            <div className="relative h-[70px] overflow-hidden">
+	                              <img src={evt.image} alt={evt.title} className="w-full h-full object-cover" />
+	                              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+	                              <div className="absolute inset-x-0 top-0 h-px bg-white/35" />
+	                              <span className="absolute top-2 left-2 text-[18px]">{evt.emoji}</span>
+	                              <span className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/60 text-white border border-white/20">
+	                                {evt.price}
+	                              </span>
+	                            </div>
+	                            <div className="p-2.5">
+	                              <p className="text-[13px] text-white font-semibold leading-tight line-clamp-2 min-h-[32px]">{evt.title}</p>
+	                              <p className="text-[11px] text-white/50 mt-0.5 truncate">{evt.venue}</p>
+	                              <div className="flex items-center gap-1.5 mt-1">
+	                                <p className="text-[11px] text-cyan-400 font-semibold">{evt.time}</p>
+	                                {evt.price && evt.price !== 'Free' ? (
+	                                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-300 text-[10px]" style={{ fontWeight: 700 }}>{evt.price}</span>
+	                                ) : (
+	                                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 text-[10px]" style={{ fontWeight: 700 }}>FREE</span>
+	                                )}
+	                              </div>
+	                            </div>
+	                          </motion.button>
+	                        ))}
+	                      </div>
+	                    </div>
+
                     {/* ── Right Now in [City] ── Live Crowd Feed */}
 				                    {apiVenues.filter(v => v.crowd).length > 0 && (
 				                      <div className="mb-6">
@@ -1070,8 +1070,8 @@ export default function App() {
                                 >
                                   {/* Color accent bar */}
                                   <div className="h-[3px]" style={{ background: accentColor }} />
-				                                  <div className="flex h-[145px] flex-col p-3">
-                                    <div className="text-xl mb-1.5">{icon}</div>
+				                                  <div className="flex h-[137px] flex-col p-3">
+	                                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-[14px] bg-white/10 text-xl ring-1 ring-white/15">{icon}</div>
 				                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px]" style={{ fontWeight: 600 }}>{v.name}</h3>
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
@@ -1149,8 +1149,8 @@ export default function App() {
                                   whileHover={{ scale: 1.02, y: -2 }}
                                 >
                                   <div className="h-[3px] bg-gradient-to-r from-orange-500 to-red-500" />
-				                                  <div className="flex h-[145px] flex-col p-3">
-                                    <div className="text-xl mb-1.5">{icon}</div>
+				                                  <div className="flex h-[137px] flex-col p-3">
+	                                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-[14px] bg-orange-500/15 text-xl ring-1 ring-orange-300/20">{icon}</div>
 				                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px]" style={{ fontWeight: 600 }}>{v.name}</h3>
                                     <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${crowdColor}`} style={{ fontWeight: 700 }}>
                                       {byCheckins ? `🔥 ${count} check-in${count !== 1 ? 's' : ''}` : (crowdLabel ? `🔴 ${crowdLabel}` : '🔥 Trending')}
@@ -1190,8 +1190,9 @@ export default function App() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ ...springConfig, delay: 0.35 + i * 0.04 }}
                               >
+	                                <div className="absolute inset-x-3 top-0 h-px bg-purple-200/30" />
                                 <div className="flex items-center gap-2 mb-2">
-                                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white text-[11px]" style={{ fontWeight: 700 }}>
+	                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white text-[11px] shadow-lg shadow-purple-500/20 ring-1 ring-white/25" style={{ fontWeight: 700 }}>
                                     {event.userName.slice(0, 1).toUpperCase()}
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -1308,7 +1309,7 @@ export default function App() {
                           <motion.button
                             key={location.name}
                             onClick={() => handleNearbyLocationClick(location.name)}
-				                            className={`${HOME_FEATURE_CARD_CLASS} border border-white/15 p-3 bg-[#1C1C1E]/80 backdrop-blur-xl relative`}
+				                            className={`${HOME_FEATURE_CARD_CLASS} border border-white/15 p-3 bg-[#15151A]/90 backdrop-blur-xl relative`}
 				                            style={HOME_FEATURE_CARD_STYLE}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -1316,9 +1317,10 @@ export default function App() {
                             whileTap={{ scale: 0.98 }}
                             whileHover={{ scale: 1.005, y: -2 }}
                           >
+				                            <div className="absolute inset-x-3 top-0 h-px bg-cyan-200/30" />
 				                            <div className="flex h-full flex-col justify-between text-left">
 				                              <div className="flex items-start justify-between gap-2">
-				                                <div className="w-9 h-9 rounded-[12px] bg-gradient-to-br from-[#00BFFF]/60 to-[#A855F7]/60 border border-white/25 flex items-center justify-center shadow-lg">
+				                                <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#00BFFF]/70 to-[#A855F7]/70 border border-white/25 flex items-center justify-center shadow-lg shadow-cyan-500/15 ring-1 ring-white/10">
 				                                  <MapPin className="w-[18px] h-[18px] text-white" strokeWidth={2.5} />
 				                                </div>
 				                                {location.priority > 15 && (
@@ -1636,7 +1638,9 @@ export default function App() {
             whileTap={{ scale: 0.9 }}
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-            onClick={() => { setShowFeedback(true); setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(''); }}
+            onClick={() => {
+              window.location.href = 'mailto:bytspotapp@gmail.com?subject=Bytspot%20Feedback%20%26%20Suggestions';
+            }}
             aria-label="Share feedback"
           >
             <span className="text-[20px]">💬</span>

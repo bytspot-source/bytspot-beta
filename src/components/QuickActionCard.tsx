@@ -81,56 +81,59 @@ export const QuickActionCard = memo(function QuickActionCard({
         delay,
       }}
       whileTap={{ scale: 0.95 }}
-      whileHover={{ scale: 1.01, y: -4 }}
-	      className="relative overflow-hidden rounded-[18px] p-[1px] tap-target"
-	      style={{ height: 'clamp(96px, 24vw, 112px)' }}
+      whileHover={{ scale: 1.015, y: -4 }}
+      className="group relative overflow-hidden rounded-[20px] p-[1px] tap-target shadow-[0_16px_36px_rgba(0,0,0,0.26)]"
+      style={{ height: 'clamp(98px, 24vw, 108px)' }}
       aria-label={`${title}: ${subtitle}`}
     >
-      {/* Gradient border effect */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${colors.darkBg} opacity-30`} />
-      
-      {/* Card content */}
-	      <div className="relative rounded-[17px] p-3.5 border border-white/25 text-left h-full flex flex-col bg-[#1C1C1E]/80 backdrop-blur-xl shadow-lg hover:shadow-xl">
-	        {/* Icon - compact but still legible in App Clip */}
-        <motion.div
-	          className={`w-9 h-9 rounded-[11px] bg-gradient-to-br ${colors.darkBg} ${colors.shadow} shadow-lg flex items-center justify-center mb-2.5`}
-          transition={{
-            type: "spring" as const,
-            stiffness: 320,
-            damping: 30,
-            mass: 0.8,
-          }}
-          aria-hidden="true"
-        >
-          <div className="text-white">
-            {icon}
+      <div className={`absolute inset-0 bg-gradient-to-br ${colors.darkBg} opacity-60`} />
+      <div className="absolute inset-[1px] rounded-[19px] bg-[#111116]/90" />
+      <div
+        className="absolute -right-8 -top-10 h-24 w-24 rounded-full blur-2xl transition-opacity group-hover:opacity-90"
+        style={{ background: colors.glow, opacity: 0.5 }}
+      />
+
+      <div className="relative h-full rounded-[19px] border border-white/20 bg-[linear-gradient(145deg,rgba(34,34,42,0.92),rgba(14,14,18,0.94))] p-3.5 text-left shadow-lg backdrop-blur-xl">
+        <div className="absolute inset-x-3 top-0 h-px bg-white/35" />
+        <div className="flex h-full flex-col">
+          <motion.div
+            className={`mb-2 flex h-9 w-9 items-center justify-center rounded-[12px] bg-gradient-to-br ${colors.darkBg} ${colors.shadow} shadow-lg ring-1 ring-white/25`}
+            transition={{
+              type: "spring" as const,
+              stiffness: 320,
+              damping: 30,
+              mass: 0.8,
+            }}
+            aria-hidden="true"
+          >
+            <div className="text-white">
+              {icon}
+            </div>
+          </motion.div>
+
+          <div className="flex-1 min-w-0">
+            <h3 className="text-white truncate" style={{
+              fontSize: 'var(--text-headline)',
+              lineHeight: 'var(--text-headline-line)',
+              fontWeight: 'var(--font-weight-semibold)',
+              marginBottom: '2px'
+            }}>
+              {title}
+            </h3>
+            <p className="text-white/80 line-clamp-2" style={{
+              fontSize: 'var(--text-footnote)',
+              lineHeight: 'var(--text-footnote-line)',
+              fontWeight: 'var(--font-weight-regular)'
+            }}>
+              {subtitle}
+            </p>
           </div>
-        </motion.div>
 
-        {/* Text - Using iOS typography scale */}
-        <div className="flex-1">
-	          <h3 className="text-white truncate" style={{
-            fontSize: 'var(--text-headline)',
-            lineHeight: 'var(--text-headline-line)',
-            fontWeight: 'var(--font-weight-semibold)',
-            marginBottom: '2px'
-          }}>
-            {title}
-          </h3>
-	          <p className="text-white/80 line-clamp-2" style={{
-            fontSize: 'var(--text-footnote)',
-            lineHeight: 'var(--text-footnote-line)',
-            fontWeight: 'var(--font-weight-regular)'
-          }}>
-            {subtitle}
-          </p>
-        </div>
-
-        {/* Chevron indicator */}
-	        <div className="absolute top-3.5 right-3.5 text-white/70" aria-hidden="true">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <div className="absolute top-3.5 right-3.5 rounded-full bg-white/10 p-1 text-white/75 ring-1 ring-white/10" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
         </div>
       </div>
     </motion.button>

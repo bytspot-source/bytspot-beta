@@ -272,9 +272,35 @@ export function useVenues(): UseVenuesResult {
     let es: EventSource | null = null;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+	    let connectingSSE = false;
     let retryCount = 0;
     const MAX_RETRIES = 8;
     const BASE_DELAY = 1000; // 1s → 2s → 4s → … → 128s max
+	    const crowdStreamUrl = `${API_BASE_URL}/venues/crowd/stream`;
+
+	    const startPollingFallback = () => {
+	      if (!pollInterval) {
+	        pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
+	      }
+	    };
+
+	    async function verifySSEEndpoint(): Promise<boolean> {
+	      const controller = new AbortController();
+	      const timeout = setTimeout(() => controller.abort(), 4_000);
+	      try {
+	        const response = await fetch(crowdStreamUrl, {
+	          headers: { Accept: 'text/event-stream' },
+	          signal: controller.signal,
+	        });
+	        const contentType = response.headers.get('content-type') ?? '';
+	        return response.ok && contentType.toLowerCase().includes('text/event-stream');
+	      } catch {
+	        return false;
+	      } finally {
+	        clearTimeout(timeout);
+	        controller.abort();
+	      }
+	    }
 
     function handleSSEMessage(event: MessageEvent) {
       try {
@@ -305,10 +331,17 @@ export function useVenues(): UseVenuesResult {
       } catch { /* malformed message — ignore */ }
     }
 
-    function connectSSE() {
-      if (!isMountedRef.current) return;
+	    async function connectSSE() {
+	      if (!isMountedRef.current || connectingSSE) return;
+	      connectingSSE = true;
       try {
-        es = new EventSource(`${API_BASE_URL}/venues/crowd/stream`);
+	        const endpointReady = await verifySSEEndpoint();
+	        if (!endpointReady || !isMountedRef.current) {
+	          startPollingFallback();
+	          return;
+	        }
+
+	        es = new EventSource(crowdStreamUrl);
         es.onmessage = handleSSEMessage;
         es.onerror = () => {
           es?.close();
@@ -319,17 +352,15 @@ export function useVenues(): UseVenuesResult {
             retryCount++;
             retryTimeout = setTimeout(connectSSE, delay);
           } else {
-            // Exhausted retries — fall back to 60s polling
-            if (!pollInterval) {
-              pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
-            }
+	            // Exhausted retries — fall back to 60s polling
+	            startPollingFallback();
           }
         };
       } catch {
         // Browser doesn't support EventSource — use polling
-        if (!pollInterval) {
-          pollInterval = setInterval(() => { fetchVenues(); }, 60_000);
-        }
+	        startPollingFallback();
+	      } finally {
+	        connectingSSE = false;
       }
     }
 

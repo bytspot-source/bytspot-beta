@@ -356,23 +356,12 @@ test.describe('Member Perks gating on Verified venues', () => {
     await upgradeCta.focus();
     await upgradeCta.press('Enter');
 
-    // The mock fetch in installMocks synthesizes Response objects inside the page
-    // (no real HTTP request leaves the document) so page.waitForRequest can never
-    // see the call. Instead, every tRPC procedure name is pushed into a
-    // window-scoped tracker — wait for createCheckout to land there.
-    await page.waitForFunction(
-      () => {
-        // @ts-expect-error test-only window slot
-        const calls = (window.__BYT_E2E_TRPC_CALLS__ as string[] | undefined) ?? [];
-        return calls.some((p) => p.includes('subscription.createCheckout'));
-      },
-      undefined,
-      { timeout: 15_000 },
-    );
-
     // Wait for window.location.href = MOCK_STRIPE_CHECKOUT_URL to land on the
-    // stubbed page. page.waitForURL is the right primitive here — it observes
-    // the top-level frame navigation triggered by the location assignment.
+    // stubbed page. This proves the CTA called subscription.createCheckout: the
+    // only mocked path that can produce this exact Stripe URL is the tRPC
+    // createCheckout branch in installMocks(). Avoid reading the window-scoped
+    // call tracker after this point — top-level navigation replaces the page
+    // context, which made this assertion race and pass only on retry.
     await page.waitForURL(/checkout\.stripe\.com/, { timeout: 15_000 });
     expect(capturedCheckoutNavigation).not.toBeNull();
     expect(capturedCheckoutNavigation!).toBe(MOCK_STRIPE_CHECKOUT_URL);

@@ -233,7 +233,7 @@ async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
     }
   }
 
-  await mapTab.click({ force: true });
+  await robustClick(mapTab);
   const menuVisible = await mapFunctionsDialog.isVisible().catch(() => false);
   if (!menuVisible) {
     await mapTab.evaluate((element: HTMLElement) => element.click());

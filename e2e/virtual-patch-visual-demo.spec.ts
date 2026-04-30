@@ -241,7 +241,7 @@ async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
 
   await expect(mapFunctionsDialog).toBeVisible({ timeout: 10_000 });
 
-  await liveVenueDataButton.click({ force: true });
+  await robustClick(liveVenueDataButton);
   const stillVisible = await mapFunctionsDialog.isVisible().catch(() => false);
   if (stillVisible) {
     await liveVenueDataButton.evaluate((element: HTMLElement) => element.click());

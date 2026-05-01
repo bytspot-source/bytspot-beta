@@ -33,7 +33,9 @@ export function SmartSearchBar({
   const [isFocused, setIsFocused] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const springConfig = {
     type: "spring" as const,
@@ -128,21 +130,57 @@ export function SmartSearchBar({
     setShowSuggestions(isFocused && (filteredSuggestions.length > 0 || venueMatches.length > 0));
   }, [isFocused, filteredSuggestions.length, venueMatches.length]);
 
-  // Handle voice input (mock)
+  // Handle voice input with graceful fallback for iOS/App Review WebViews.
   const handleVoiceInput = () => {
-    setIsListening(true);
-    
-    // Simulate voice recognition
-    setTimeout(() => {
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    setVoiceFeedback(null);
+
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
       setIsListening(false);
-      onChange('Coffee shops nearby');
+      return;
+    }
+
+    if (!SpeechRecognition) {
+      setIsListening(false);
+      setVoiceFeedback('Voice input is not available on this device. Type your search and I will help right away.');
+      setIsFocused(true);
+      setShowSuggestions(false);
       inputRef.current?.focus();
-    }, 2000);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript;
+        if (transcript) onChange(transcript);
+        setIsListening(false);
+        inputRef.current?.focus();
+      };
+      recognition.onerror = () => {
+        setIsListening(false);
+        setVoiceFeedback('Voice input could not start. Type your search and I will help right away.');
+        inputRef.current?.focus();
+      };
+      recognition.onend = () => setIsListening(false);
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+      setVoiceFeedback('Voice input could not start on this device. Please type your search instead.');
+      inputRef.current?.focus();
+    }
   };
 
   // Clear search
   const handleClear = () => {
     onChange('');
+    setVoiceFeedback(null);
     inputRef.current?.focus();
   };
 
@@ -184,7 +222,10 @@ export function SmartSearchBar({
                   ref={inputRef}
                   type="text"
                   value={value}
-                  onChange={(e) => onChange(e.target.value)}
+                  onChange={(e) => {
+                    setVoiceFeedback(null);
+                    onChange(e.target.value);
+                  }}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => {
                     // Delay to allow suggestion clicks
@@ -222,6 +263,8 @@ export function SmartSearchBar({
                 <motion.button
                   type="button"
                   onClick={handleVoiceInput}
+                  aria-label={isListening ? 'Stop voice input' : 'Voice input'}
+                  title="Voice input"
                   className={`w-9 h-9 rounded-full flex items-center justify-center tap-target ${
                     isListening 
                       ? 'bg-gradient-to-br from-red-500 to-pink-500' 
@@ -260,6 +303,20 @@ export function SmartSearchBar({
           </div>
         </motion.div>
       </form>
+
+      <AnimatePresence>
+        {voiceFeedback && !isListening && (
+          <motion.p
+            role="status"
+            className="mt-2 rounded-2xl border border-purple-400/30 bg-purple-500/15 px-3 py-2 text-[12px] leading-5 text-purple-100 shadow-lg shadow-purple-900/10"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            {voiceFeedback}
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       {/* Search Suggestions Dropdown */}
       <AnimatePresence>

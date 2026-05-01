@@ -295,6 +295,40 @@ test.describe('App Navigation Flow', () => {
     }
   });
 
+  test('App Review controls respond on iPad viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'SpeechRecognition', { value: undefined, configurable: true });
+      Object.defineProperty(window, 'webkitSpeechRecognition', { value: undefined, configurable: true });
+    });
+
+    await getToMainApp(page);
+
+    await page.getByRole('button', { name: 'Voice input' }).evaluate((button) => {
+      if (button instanceof HTMLButtonElement) button.click();
+    });
+    await expect(page.getByRole('status').filter({ hasText: /Voice input is not available/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByPlaceholder('Search or ask me anything...')).toBeFocused();
+
+    await page.getByRole('tab', { name: 'Concierge tab' }).click({ force: true });
+    await expect(page.getByText('Bytspot Concierge', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => {
+      Object.defineProperty(window, 'SpeechRecognition', { value: undefined, configurable: true });
+      Object.defineProperty(window, 'webkitSpeechRecognition', { value: undefined, configurable: true });
+    });
+    await page.getByRole('button', { name: 'Voice input' }).evaluate((button) => {
+      if (button instanceof HTMLButtonElement) button.click();
+    });
+    await expect.poll(() => page.locator('body').innerText(), { timeout: 5_000 }).toMatch(/Voice input is not available|Voice input could not start|could not start voice input/i);
+    await expect(page.getByRole('textbox', { name: 'Find me somewhere chill…' })).toBeFocused();
+
+    await page.getByRole('tab', { name: 'Home tab' }).click({ force: true });
+    await page.getByRole('button', { name: 'Open profile' }).click({ force: true });
+    await page.getByRole('button', { name: 'General' }).click({ force: true });
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('App Preferences')).toBeVisible();
+  });
+
   test('DEBUG: Check mock data flow', async ({ page }) => {
     // Use the standard mock setup
     await getToMainApp(page);

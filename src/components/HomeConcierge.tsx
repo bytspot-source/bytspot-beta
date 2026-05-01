@@ -110,6 +110,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   const [isListening, setIsListening] = useState(false);
   const [connectionState, setConnectionState] = useState<'ready' | 'thinking' | 'offline' | 'fallback'>('ready');
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const nextMessageIdRef = useRef(2);
 
@@ -120,7 +121,19 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   // Voice recognition setup
   const toggleVoice = () => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      setConnectionState('fallback');
+      setMessages(prev => [
+        ...prev,
+        {
+          id: createMessageId(),
+          sender: 'ai',
+          text: 'Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.',
+        },
+      ]);
+      inputRef.current?.focus();
+      return;
+    }
 
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
@@ -128,20 +141,37 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+        setIsListening(false);
+        inputRef.current?.focus();
+      };
+      recognition.onerror = () => {
+        setIsListening(false);
+        setMessages(prev => [
+          ...prev,
+          { id: createMessageId(), sender: 'ai', text: 'I could not start voice input. You can type your request below and I will help right away.' },
+        ]);
+        inputRef.current?.focus();
+      };
+      recognition.onend = () => setIsListening(false);
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch {
       setIsListening(false);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
+      setMessages(prev => [
+        ...prev,
+        { id: createMessageId(), sender: 'ai', text: 'Voice input could not start on this device. Please type your question below.' },
+      ]);
+      inputRef.current?.focus();
+    }
   };
 
   /** Lightweight local fallback when user is not logged in */
@@ -436,6 +466,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       {/* Input */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0B0B0F]/92 backdrop-blur-xl flex-shrink-0" style={{ paddingBottom: tabMode ? 'calc(12px + env(safe-area-inset-bottom))' : 'calc(12px + env(safe-area-inset-bottom))' }}>
         <input
+          ref={inputRef}
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}

@@ -35,7 +35,7 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 
 function readVirtualPatchContext(): VirtualPatchContext | null {
   try {
@@ -257,7 +257,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       title: 'App Settings',
       items: [
         { icon: <MapPin className="w-5 h-5" />, label: 'Location & Privacy', badge: null, screen: 'location-settings' as ProfileScreen },
-        { icon: <Settings className="w-5 h-5" />, label: 'General', badge: null, screen: null },
+        { icon: <Settings className="w-5 h-5" />, label: 'General', badge: null, screen: 'general-settings' as ProfileScreen },
       ],
     },
     {
@@ -297,6 +297,74 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'location-settings') {
     return <LocationSettings isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} userRole="parker" />;
+  }
+
+  if (currentScreen === 'general-settings') {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <motion.button onClick={() => setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>General</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center">
+                <Settings className="w-6 h-6 text-white" strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>App Preferences</p>
+                <p className="text-[13px] text-white/60" style={{ fontWeight: 500 }}>Manage core Bytspot settings.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => toast.success('Appearance is optimized', { description: 'Bytspot uses its premium dark interface by default.' })}
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+              >
+                <div>
+                  <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Appearance</p>
+                  <p className="text-[12px] text-white/55 mt-0.5">Premium dark mode</p>
+                </div>
+                <span className="text-[12px] text-cyan-200" style={{ fontWeight: 700 }}>Active</span>
+              </button>
+
+              <button
+                onClick={() => setCurrentScreen('notifications')}
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+              >
+                <div>
+                  <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Notifications</p>
+                  <p className="text-[12px] text-white/55 mt-0.5">Crowd, parking, and saved-spot alerts</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
+              </button>
+
+              <button
+                onClick={() => setCurrentScreen('location-settings')}
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+              >
+                <div>
+                  <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Location & Privacy</p>
+                  <p className="text-[12px] text-white/55 mt-0.5">Control location and data preferences</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-[20px] p-4 border border-white/15 bg-white/5">
+            <p className="text-[13px] text-white/50 mb-1" style={{ fontWeight: 700 }}>VERSION</p>
+            <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>Bytspot 1.1</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (currentScreen === 'privacy-policy') {

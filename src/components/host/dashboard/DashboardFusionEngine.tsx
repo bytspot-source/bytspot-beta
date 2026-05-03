@@ -235,13 +235,16 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
     <div className="min-h-screen bg-[#000000] pb-24">
       {/* Header */}
       <div className="px-4 pt-6 pb-4 border-b border-white/10">
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6 flex items-center justify-between">
           <div>
+            <p className="mb-2 text-[12px] uppercase tracking-[0.22em] text-cyan-200/70" style={{ fontWeight: 850 }}>
+              Advanced settings
+            </p>
             <h1 className="text-title-1 text-white mb-1">
-              Fusion Engine Diagnostics
+              Background Configuration
             </h1>
             <p className="text-[15px] text-white/70">
-              Real-time sensor fusion monitoring & trip replay
+              Payout readiness, optimization controls, and operational diagnostics for premium providers.
             </p>
           </div>
           <div className={`px-3 py-1.5 rounded-full ${
@@ -265,7 +268,7 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
         {/* View Mode Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
           {[
-            { id: 'overview', label: 'System Overview', icon: Activity },
+            { id: 'overview', label: 'Payouts & Readiness', icon: Wallet },
             { id: 'trip-replay', label: 'Trip Replay', icon: Play },
             { id: 'live-monitor', label: 'Live Monitor', icon: MapPin },
             { id: 'events', label: 'Event Log', icon: AlertCircle },
@@ -304,83 +307,87 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
           />
 
           <motion.div
-            className="rounded-[24px] border-2 border-cyan-300/25 bg-gradient-to-br from-cyan-500/12 to-violet-500/8 p-5 backdrop-blur-xl"
+            className="overflow-hidden rounded-[30px] border border-white/14 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.18),transparent_34%),linear-gradient(135deg,rgba(17,17,20,0.98),rgba(7,8,13,0.98))] shadow-2xl backdrop-blur-xl"
             data-testid="stripe-connect-payout-panel"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.02 }}
           >
-            <div className="mb-4 flex items-start gap-3">
-              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${payoutReady ? 'bg-emerald-400/20' : 'bg-cyan-400/20'}`}>
-                {payoutReady ? <ShieldCheck className="h-6 w-6 text-emerald-200" /> : <Wallet className="h-6 w-6 text-cyan-200" />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <h2 className="text-[18px] text-white" style={{ fontWeight: 800 }}>Stripe Connect Payouts</h2>
-                  <span data-testid="stripe-connect-status-badge" className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${payoutReady ? 'bg-emerald-400/20 text-emerald-100' : 'bg-amber-400/20 text-amber-100'}`} style={{ fontWeight: 850 }}>
+            <div className="grid gap-0 lg:grid-cols-[1fr_0.72fr]">
+              <div className="p-5 lg:p-6">
+                <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[12px] uppercase tracking-[0.2em] text-white/45" style={{ fontWeight: 850 }}>Financial setup</p>
+                    <h2 className="mt-2 text-[28px] leading-tight text-white" style={{ fontWeight: 850 }}>Stripe Connect Payouts</h2>
+                    <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/58">
+                      Connect a Stripe Express account so paid marketplace bookings can settle cleanly to the provider bank account.
+                    </p>
+                  </div>
+                  <span data-testid="stripe-connect-status-badge" className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${payoutReady ? 'bg-emerald-400/18 text-emerald-100 ring-1 ring-emerald-200/20' : 'bg-amber-400/18 text-amber-100 ring-1 ring-amber-200/20'}`} style={{ fontWeight: 900 }}>
                     {connectLoading ? 'Syncing' : payoutStatusLabel}
                   </span>
                 </div>
-                <p className="text-[13px] leading-5 text-white/65">
-                  Vendor Premium payout readiness for marketplace bookings. Stripe Express verifies the provider, then Bytspot routes destination-charge payouts to the connected account.
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Account</p>
+                    <p className="mt-2 truncate text-[14px] text-white" style={{ fontWeight: 800 }}>
+                      {vendorOnboarding?.stripeAccountId ?? connectAccount?.id ?? 'Not connected'}
+                    </p>
+                  </div>
+                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Charges</p>
+                    <p className="mt-2 text-[14px] text-white" style={{ fontWeight: 800 }}>
+                      {connectAccount?.chargesEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Pending'}
+                    </p>
+                  </div>
+                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Payouts</p>
+                    <p className="mt-2 text-[14px] text-white" style={{ fontWeight: 800 }}>
+                      {connectAccount?.payoutsEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Action needed'}
+                    </p>
+                  </div>
+                </div>
+
+                {connectMessage && (
+                  <p className="mt-4 rounded-[18px] border border-white/10 bg-white/[0.055] px-4 py-3 text-[13px] leading-5 text-white/66">
+                    {connectMessage}
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-white/10 bg-black/22 p-5 lg:border-l lg:border-t-0 lg:p-6">
+                <div className={`mb-5 flex h-14 w-14 items-center justify-center rounded-[22px] ${payoutReady ? 'bg-emerald-400/16' : 'bg-cyan-400/14'}`}>
+                  {payoutReady ? <ShieldCheck className="h-7 w-7 text-emerald-100" /> : <Wallet className="h-7 w-7 text-cyan-100" />}
+                </div>
+                <p className="text-[13px] leading-6 text-white/58">
+                  Vendor portal access stays at <span className="text-cyan-100">{VENDOR_PORTAL_URL}</span>. Stripe hosts identity, tax, and bank-account collection.
                 </p>
+                <div className="mt-5 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={startStripeConnect}
+                    disabled={connectStarting}
+                    data-testid="stripe-connect-onboarding-cta"
+                    className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-[13px] text-black shadow-lg shadow-cyan-950/20 disabled:opacity-60"
+                    style={{ fontWeight: 900 }}
+                  >
+                    {connectStarting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                    {payoutReady ? 'Update Stripe Payout Account' : 'Connect Stripe for Payouts'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void syncStripeConnect('manual')}
+                    disabled={connectLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/12 bg-white/[0.055] px-4 py-3 text-[13px] text-white disabled:opacity-60"
+                    style={{ fontWeight: 850 }}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${connectLoading ? 'animate-spin' : ''}`} />
+                    Refresh payout status
+                  </button>
+                </div>
               </div>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Account</p>
-                <p className="mt-1 truncate text-[13px] text-white" style={{ fontWeight: 750 }}>
-                  {vendorOnboarding?.stripeAccountId ?? connectAccount?.id ?? 'Not connected'}
-                </p>
-              </div>
-              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Charges</p>
-                <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 750 }}>
-                  {connectAccount?.chargesEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Pending'}
-                </p>
-              </div>
-              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Payouts</p>
-                <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 750 }}>
-                  {connectAccount?.payoutsEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Action needed'}
-                </p>
-              </div>
-            </div>
-
-            {connectMessage && (
-              <p className="mt-3 rounded-[14px] border border-white/10 bg-white/8 px-3 py-2 text-[12px] leading-5 text-white/70">
-                {connectMessage}
-              </p>
-            )}
-
-            <div className="mt-4 grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
-              <button
-                type="button"
-                onClick={startStripeConnect}
-                disabled={connectStarting}
-                data-testid="stripe-connect-onboarding-cta"
-                className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-white px-4 py-3 text-[13px] text-black shadow-lg disabled:opacity-60"
-                style={{ fontWeight: 850 }}
-              >
-                {connectStarting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                {payoutReady ? 'Update Stripe Payout Account' : 'Connect Stripe for Payouts'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void syncStripeConnect('manual')}
-                disabled={connectLoading}
-                className="inline-flex items-center justify-center gap-2 rounded-[16px] border border-white/15 bg-white/10 px-4 py-3 text-[13px] text-white disabled:opacity-60"
-                style={{ fontWeight: 850 }}
-              >
-                <RefreshCw className={`h-4 w-4 ${connectLoading ? 'animate-spin' : ''}`} />
-                Sync Status
-              </button>
-            </div>
-
-            <p className="mt-3 text-[11px] leading-5 text-white/45">
-              Vendor portal: <span className="text-cyan-200">{VENDOR_PORTAL_URL}</span>
-            </p>
           </motion.div>
 
           {/* Key Metrics */}

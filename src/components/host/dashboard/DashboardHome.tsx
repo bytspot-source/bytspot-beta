@@ -1,7 +1,19 @@
 import { motion } from 'motion/react';
-import { TrendingUp, MapPin, Calendar, Star, DollarSign, Activity } from 'lucide-react';
-import { mockDashboardStats, mockBookings, mockEarnings } from '../../../utils/hostMockData';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  ArrowUpRight,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  MapPin,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { mockBookings, mockDashboardStats, mockEarnings, mockListings } from '../../../utils/hostMockData';
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
@@ -9,269 +21,200 @@ interface DashboardHomeProps {
 
 export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
   const stats = mockDashboardStats;
-  const activeBookings = mockBookings.filter(b => b.status === 'active');
-  const upcomingBookings = mockBookings.filter(b => b.status === 'upcoming').slice(0, 3);
+  const activeBookings = mockBookings.filter((booking) => booking.status === 'active');
+  const upcomingBookings = mockBookings.filter((booking) => booking.status === 'upcoming').slice(0, 3);
+  const activeListings = mockListings.filter((listing) => listing.status === 'active');
+  const listingHealth = Math.round((activeListings.length / Math.max(1, mockListings.length)) * 100);
+  const nextPayout = mockEarnings.pendingPayouts;
 
   const springConfig = {
-    type: "spring" as const,
+    type: 'spring' as const,
     stiffness: 320,
     damping: 30,
     mass: 0.8,
   };
 
-  const statCards = [
-    {
-      title: 'Total Revenue',
-      value: `$${stats.totalRevenue.toLocaleString()}`,
-      icon: DollarSign,
-      color: 'from-green-500/40 to-emerald-500/40',
-      iconColor: 'text-green-400',
-      change: `+${stats.monthlyGrowth}%`,
-      changePositive: true,
-    },
-    {
-      title: 'Active Bookings',
-      value: stats.activeBookings,
-      icon: Activity,
-      color: 'from-cyan-500/40 to-blue-500/40',
-      iconColor: 'text-cyan-400',
-    },
-    {
-      title: 'Total Listings',
-      value: stats.totalListings,
-      icon: MapPin,
-      color: 'from-purple-500/40 to-fuchsia-500/40',
-      iconColor: 'text-purple-400',
-    },
-    {
-      title: 'Average Rating',
-      value: stats.averageRating.toFixed(1),
-      icon: Star,
-      color: 'from-yellow-500/40 to-orange-500/40',
-      iconColor: 'text-yellow-400',
-    },
+  const priorityCards = [
+    { title: 'Total earnings', value: `$${mockEarnings.totalEarnings.toLocaleString()}`, detail: `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month`, icon: DollarSign, tone: 'from-emerald-400/22 to-cyan-400/10' },
+    { title: 'Active bookings', value: activeBookings.length.toString(), detail: `${upcomingBookings.length} upcoming reservations`, icon: Calendar, tone: 'from-cyan-400/22 to-blue-500/10' },
+    { title: 'Listing health', value: `${listingHealth}%`, detail: `${activeListings.length}/${mockListings.length} listings live`, icon: ShieldCheck, tone: 'from-violet-400/22 to-fuchsia-500/10' },
+    { title: 'Guest rating', value: stats.averageRating.toFixed(1), detail: 'High-trust marketplace profile', icon: Star, tone: 'from-amber-300/22 to-orange-500/10' },
+  ];
+
+  const actionItems = [
+    { title: 'Review payout setup', detail: `$${nextPayout.toLocaleString()} pending`, icon: Wallet },
+    { title: 'Improve listing health', detail: 'Add photos and availability windows', icon: MapPin },
+    { title: 'Confirm upcoming bookings', detail: `${upcomingBookings.length} reservations need attention`, icon: CheckCircle2 },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Welcome Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springConfig}
-      >
-        <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
-          Welcome Back
-        </h1>
-        <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          Here's what's happening with your listings today
-        </p>
-      </motion.div>
+      <motion.section className="relative overflow-hidden rounded-[32px] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.26),transparent_32%),linear-gradient(135deg,rgba(24,24,27,0.96),rgba(5,5,8,0.96))] p-5 shadow-2xl lg:p-7" initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} transition={springConfig}>
+        <div className="relative z-10 grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 800 }}>
+              <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Vendor command center
+            </div>
+            <h1 className="max-w-2xl text-[36px] leading-[1.02] text-white lg:text-[48px]" style={{ fontWeight: 850 }}>
+              Your marketplace is healthy and ready for bookings.
+            </h1>
+            <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/64 lg:text-[16px]">
+              Track earnings, stay ahead of active reservations, and keep listings payout-ready without digging through technical telemetry.
+            </p>
+          </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((stat, index) => {
-          const Icon = stat.icon;
-          
+          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[12px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 800 }}>Next payout</p>
+                <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>${nextPayout.toLocaleString()}</p>
+              </div>
+              <div className="rounded-2xl bg-emerald-400/14 px-3 py-2 text-right text-emerald-100">
+                <p className="text-[11px]" style={{ fontWeight: 800 }}>On track</p>
+                <p className="text-[12px] text-emerald-100/70">Stripe-ready</p>
+              </div>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full w-[82%] rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300" />
+            </div>
+            <p className="mt-3 text-[12px] leading-5 text-white/50">82% of this week’s expected payout volume has already been captured.</p>
+          </div>
+        </div>
+      </motion.section>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {priorityCards.map((card, index) => {
+          const Icon = card.icon;
           return (
-            <motion.div
-              key={stat.title}
-              className={`rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br ${stat.color} backdrop-blur-xl shadow-xl`}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...springConfig, delay: index * 0.1 }}
-              whileHover={{ scale: 1.02, y: -4 }}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className={`w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center`}>
-                  <Icon className={`w-6 h-6 ${stat.iconColor}`} strokeWidth={2.5} />
+            <motion.div key={card.title} className={`rounded-[24px] border border-white/12 bg-gradient-to-br ${card.tone} p-5 shadow-xl backdrop-blur-xl`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.06 }} whileHover={{ y: -3 }}>
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-black/25">
+                  <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
                 </div>
-                {stat.change && (
-                  <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${
-                    stat.changePositive ? 'bg-green-500/20' : 'bg-red-500/20'
-                  }`}>
-                    <TrendingUp className={`w-3 h-3 ${stat.changePositive ? 'text-green-400' : 'text-red-400'}`} strokeWidth={2.5} />
-                    <span className={`text-[11px] ${stat.changePositive ? 'text-green-400' : 'text-red-400'}`} style={{ fontWeight: 600 }}>
-                      {stat.change}
-                    </span>
-                  </div>
+                {index === 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 800 }}>
+                    <TrendingUp className="h-3 w-3" /> +{stats.monthlyGrowth}%
+                  </span>
                 )}
               </div>
-              
-              <div className="text-[28px] text-white mb-1" style={{ fontWeight: 700 }}>
-                {stat.value}
-              </div>
-              
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
-                {stat.title}
-              </div>
+              <p className="text-[13px] text-white/55" style={{ fontWeight: 700 }}>{card.title}</p>
+              <p className="mt-1 text-[31px] leading-none text-white" style={{ fontWeight: 850 }}>{card.value}</p>
+              <p className="mt-3 text-[12px] leading-5 text-white/48">{card.detail}</p>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Revenue Chart */}
-      <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.4 }}
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-[22px] text-white mb-1" style={{ fontWeight: 600 }}>
-              Revenue Overview
-            </h2>
-            <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-              Last 10 days
-            </p>
-          </div>
-          <div className="text-right">
-            <div className="text-[24px] text-white mb-1" style={{ fontWeight: 700 }}>
-              ${mockEarnings.thisMonthEarnings.toLocaleString()}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.45fr_0.9fr]">
+        <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.25 }}>
+          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Earnings momentum</h2>
+              <p className="mt-1 text-[14px] text-white/55">Daily revenue from confirmed marketplace bookings.</p>
             </div>
-            <div className="text-[13px] text-green-400" style={{ fontWeight: 600 }}>
-              This month
+            <div className="rounded-2xl border border-white/10 bg-white/6 px-4 py-2 text-right">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-white/40" style={{ fontWeight: 800 }}>This month</p>
+              <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>${mockEarnings.thisMonthEarnings.toLocaleString()}</p>
             </div>
           </div>
-        </div>
-
-        <div className="h-[300px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={mockEarnings.chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis 
-                dataKey="date" 
-                stroke="rgba(255,255,255,0.5)"
-                style={{ fontSize: '12px' }}
-              />
-              <YAxis 
-                stroke="rgba(255,255,255,0.5)"
-                style={{ fontSize: '12px' }}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'rgba(28, 28, 30, 0.95)',
-                  border: '2px solid rgba(255, 255, 255, 0.3)',
-                  borderRadius: '12px',
-                  color: '#fff',
-                }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="earnings" 
-                stroke="#00BFFF" 
-                strokeWidth={3}
-                dot={{ fill: '#00BFFF', strokeWidth: 2, r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Active Bookings */}
-        <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.5 }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[20px] text-white" style={{ fontWeight: 600 }}>
-              Active Now
-            </h2>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 border border-green-400/30">
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[12px] text-green-400" style={{ fontWeight: 600 }}>
-                Live
-              </span>
-            </div>
+          <div className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={mockEarnings.chartData}>
+                <defs>
+                  <linearGradient id="earningsFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.38} />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                <XAxis dataKey="date" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} style={{ fontSize: '12px' }} />
+                <YAxis stroke="rgba(255,255,255,0.35)" tickLine={false} axisLine={false} style={{ fontSize: '12px' }} />
+                <Tooltip contentStyle={{ backgroundColor: 'rgba(17,17,20,0.96)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '16px', color: '#fff' }} />
+                <Area type="monotone" dataKey="earnings" stroke="#22d3ee" strokeWidth={3} fill="url(#earningsFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
+        </motion.section>
 
-          {activeBookings.length > 0 ? (
-            <div className="space-y-3">
-              {activeBookings.map((booking) => (
-                <div
-                  key={booking.id}
-                  className="rounded-xl p-4 bg-[#2C2C2E]/60 border-2 border-white/20"
-                >
-                  <div className="flex items-start justify-between mb-2">
+        <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.32 }}>
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-[21px] text-white" style={{ fontWeight: 800 }}>Today’s focus</h2>
+              <p className="mt-1 text-[13px] text-white/52">Recommended next moves.</p>
+            </div>
+            <ArrowUpRight className="h-5 w-5 text-cyan-200" />
+          </div>
+          <div className="space-y-3">
+            {actionItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button key={item.title} className="w-full rounded-[18px] border border-white/10 bg-white/[0.04] p-4 text-left transition hover:border-cyan-200/30 hover:bg-cyan-300/[0.07]">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
+                      <Icon className="h-5 w-5 text-cyan-100" strokeWidth={2.5} />
+                    </div>
                     <div>
-                      <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                        {booking.guestName}
-                      </div>
-                      <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                        {booking.listingTitle}
-                      </div>
-                    </div>
-                    <div className="text-[17px] text-green-400" style={{ fontWeight: 700 }}>
-                      ${booking.amount}
+                      <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>{item.title}</p>
+                      <p className="mt-1 text-[12px] leading-5 text-white/50">{item.detail}</p>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 text-[13px] text-white/70">
-                    <Calendar className="w-3.5 h-3.5" strokeWidth={2.5} />
-                    <span>{booking.duration}</span>
-                    <span>•</span>
-                    <span>{booking.vehicle}</span>
+                </button>
+              );
+            })}
+          </div>
+        </motion.section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.38 }}>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Live bookings</h2>
+            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-400/12 px-3 py-1.5 text-[12px] text-emerald-100" style={{ fontWeight: 800 }}>
+              <span className="h-2 w-2 rounded-full bg-emerald-300" /> Active
+            </span>
+          </div>
+          <div className="space-y-3">
+            {activeBookings.map((booking) => (
+              <div key={booking.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
+                    <p className="mt-1 text-[12px] text-white/50">{booking.listingTitle}</p>
                   </div>
+                  <p className="text-[17px] text-emerald-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Activity className="w-12 h-12 text-white/30 mx-auto mb-3" strokeWidth={1.5} />
-              <p className="text-[15px] text-white/50" style={{ fontWeight: 400 }}>
-                No active bookings
-              </p>
-            </div>
-          )}
-        </motion.div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/48">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>{booking.duration}</span>
+                  <span>•</span>
+                  <span>{booking.vehicle}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.section>
 
-        {/* Upcoming Bookings */}
-        <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.6 }}
-        >
-          <h2 className="text-[20px] text-white mb-4" style={{ fontWeight: 600 }}>
-            Upcoming Bookings
-          </h2>
-
+        <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.44 }}>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Upcoming</h2>
+            <span className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>Next 72 hours</span>
+          </div>
           <div className="space-y-3">
             {upcomingBookings.map((booking) => {
               const startDate = new Date(booking.startTime);
-              const formattedDate = startDate.toLocaleDateString('en-US', { 
-                month: 'short', 
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit'
-              });
-
+              const formattedDate = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
               return (
-                <div
-                  key={booking.id}
-                  className="rounded-xl p-4 bg-[#2C2C2E]/60 border-2 border-white/20"
-                >
-                  <div className="flex items-start justify-between mb-2">
+                <div key={booking.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                        {booking.guestName}
-                      </div>
-                      <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                        {booking.listingTitle}
-                      </div>
+                      <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
+                      <p className="mt-1 text-[12px] text-white/50">{booking.listingTitle}</p>
                     </div>
-                    <div className="text-[17px] text-cyan-400" style={{ fontWeight: 700 }}>
-                      ${booking.amount}
-                    </div>
+                    <p className="text-[17px] text-cyan-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
                   </div>
-                  
-                  <div className="flex items-center gap-2 text-[13px] text-white/70">
-                    <Calendar className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/48">
+                    <Calendar className="h-3.5 w-3.5" />
                     <span>{formattedDate}</span>
                     <span>•</span>
                     <span>{booking.duration}</span>
@@ -280,50 +223,8 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
               );
             })}
           </div>
-        </motion.div>
+        </motion.section>
       </div>
-
-      {/* Quick Actions */}
-      <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 backdrop-blur-xl shadow-xl"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.7 }}
-      >
-        <h2 className="text-[20px] text-white mb-4" style={{ fontWeight: 600 }}>
-          Quick Actions
-        </h2>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <button className="rounded-xl p-4 bg-[#1C1C1E]/60 border-2 border-white/20 hover:border-white/40 transition-colors">
-            <MapPin className="w-6 h-6 text-purple-400 mb-2" strokeWidth={2.5} />
-            <div className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-              Add Listing
-            </div>
-          </button>
-          
-          <button className="rounded-xl p-4 bg-[#1C1C1E]/60 border-2 border-white/20 hover:border-white/40 transition-colors">
-            <Calendar className="w-6 h-6 text-cyan-400 mb-2" strokeWidth={2.5} />
-            <div className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-              View Calendar
-            </div>
-          </button>
-          
-          <button className="rounded-xl p-4 bg-[#1C1C1E]/60 border-2 border-white/20 hover:border-white/40 transition-colors">
-            <DollarSign className="w-6 h-6 text-green-400 mb-2" strokeWidth={2.5} />
-            <div className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-              Payouts
-            </div>
-          </button>
-          
-          <button className="rounded-xl p-4 bg-[#1C1C1E]/60 border-2 border-white/20 hover:border-white/40 transition-colors">
-            <Star className="w-6 h-6 text-yellow-400 mb-2" strokeWidth={2.5} />
-            <div className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-              Reviews
-            </div>
-          </button>
-        </div>
-      </motion.div>
     </div>
   );
 }

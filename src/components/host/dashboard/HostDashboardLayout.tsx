@@ -12,7 +12,8 @@ import {
   Home,
   Activity,
   Shield,
-  Radio
+  Radio,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -50,9 +51,12 @@ export function HostDashboardLayout({
     { id: 'reviews' as const, label: 'Reviews', icon: Star },
     { id: 'calendar' as const, label: 'Calendar', icon: Calendar },
     { id: 'patches' as const, label: 'Patches', icon: Radio },
-    { id: 'fusion-engine' as const, label: 'Fusion Engine', icon: Activity },
     { id: 'compliance' as const, label: 'Compliance', icon: Shield },
     { id: 'settings' as const, label: 'Settings', icon: Settings },
+  ];
+
+  const advancedItems = [
+    { id: 'fusion-engine' as const, label: 'Background Configuration', description: 'Payouts, optimization, diagnostics', icon: Activity },
   ];
 
   return (
@@ -118,6 +122,43 @@ export function HostDashboardLayout({
             );
           })}
         </nav>
+
+        <div className="mt-7 border-t border-white/10 pt-5">
+          <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
+            <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
+            Advanced settings
+          </div>
+          <div className="space-y-2">
+            {advancedItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === item.id;
+
+              return (
+                <motion.button
+                  key={item.id}
+                  onClick={() => onViewChange(item.id)}
+                  className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-colors ${
+                    isActive
+                      ? 'bg-cyan-500/15 border-2 border-cyan-300/35'
+                      : 'bg-black/20 border-2 border-white/10 hover:border-white/25'
+                  }`}
+                  whileTap={{ scale: 0.98 }}
+                  transition={springConfig}
+                >
+                  <Icon className={`mt-0.5 w-5 h-5 ${isActive ? 'text-cyan-200' : 'text-white/55'}`} strokeWidth={2.5} />
+                  <span className="text-left">
+                    <span className={`block text-[14px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: 700 }}>
+                      {item.label}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-white/40" style={{ fontWeight: 500 }}>
+                      {item.description}
+                    </span>
+                  </span>
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
 
         {onBackToMain && (
           <div className="absolute bottom-6 left-6 right-6">
@@ -201,6 +242,46 @@ export function HostDashboardLayout({
                   );
                 })}
               </nav>
+
+              <div className="mt-6 border-t border-white/10 pt-5">
+                <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
+                  <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  Advanced settings
+                </div>
+                <div className="space-y-2">
+                  {advancedItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = currentView === item.id;
+
+                    return (
+                      <motion.button
+                        key={item.id}
+                        onClick={() => {
+                          onViewChange(item.id);
+                          setSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl ${
+                          isActive
+                            ? 'bg-cyan-500/15 border-2 border-cyan-300/35'
+                            : 'bg-black/20 border-2 border-white/10'
+                        }`}
+                        whileTap={{ scale: 0.98 }}
+                        transition={springConfig}
+                      >
+                        <Icon className={`mt-0.5 w-5 h-5 ${isActive ? 'text-cyan-200' : 'text-white/55'}`} strokeWidth={2.5} />
+                        <span className="text-left">
+                          <span className={`block text-[14px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: 700 }}>
+                            {item.label}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-white/40" style={{ fontWeight: 500 }}>
+                            {item.description}
+                          </span>
+                        </span>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {onBackToMain && (
                 <div className="absolute bottom-6 left-6 right-6">

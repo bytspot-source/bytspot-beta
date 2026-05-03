@@ -48,6 +48,34 @@ export function getProviderPremiumEntitlement(): ProviderPremiumEntitlement {
   return readEntitlement();
 }
 
+function hasActivePlan(status: any, tier: Exclude<ProviderPremiumTier, 'free'>): boolean {
+  const activePlans = Array.isArray(status?.activePlans) ? status.activePlans : [];
+  if (tier === 'valet-premium') return Boolean(status?.isValetPremium || activePlans.includes('valet-premium'));
+  return Boolean(status?.isVendorPremium || activePlans.includes('vendor-premium'));
+}
+
+export function providerPremiumEntitlementFromSubscription(
+  status: any,
+  tier: Exclude<ProviderPremiumTier, 'free'> = 'vendor-premium',
+): ProviderPremiumEntitlement {
+  if (!hasActivePlan(status, tier)) return { ...FREE_PROVIDER, source: 'subscription' };
+
+  return {
+    isActive: true,
+    tier,
+    label: tier === 'valet-premium' ? 'Valet Premium' : 'Vendor Premium',
+    activatedAt: new Date().toISOString(),
+    source: 'subscription',
+  };
+}
+
+export function syncProviderPremiumEntitlementFromSubscription(
+  status: any,
+  tier: Exclude<ProviderPremiumTier, 'free'> = 'vendor-premium',
+): ProviderPremiumEntitlement {
+  return writeEntitlement(providerPremiumEntitlementFromSubscription(status, tier));
+}
+
 export function activateProviderPremiumPreview(tier: Exclude<ProviderPremiumTier, 'free'> = 'vendor-premium'): ProviderPremiumEntitlement {
   return writeEntitlement({
     isActive: true,

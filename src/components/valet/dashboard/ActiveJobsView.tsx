@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { mockActiveJobs, mockDriverProfile, type ValetJob, type AddonService } from '../../../utils/valetMockData';
 import { useState } from 'react';
+import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 
 interface ActiveJobsViewProps {
   isDarkMode: boolean;
@@ -491,6 +492,17 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
 
   return (
     <div className="space-y-6">
+      <ProviderPremiumGate
+        tier="valet-premium"
+        title="Valet Premium Dispatch Intelligence"
+        description="Valet Premium unlocks route-fit scoring, priority payout guidance, and add-on recommendations while keeping manual accept/decline control with the driver."
+        features={[
+          'Route-fit recommendations for battery, vehicle compatibility, and pickup/delivery distance',
+          'Premium payout guidance using Es = Φ_EM + Φ_E + ΔD + f × λ_sim',
+          'Add-on service suggestions for wash, fuel, pickup, and event-lane jobs',
+        ]}
+      />
+
       {/* Summary Stats */}
       <motion.div
         className="grid grid-cols-2 gap-3"

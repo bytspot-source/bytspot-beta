@@ -1,6 +1,6 @@
 import { motion, PanInfo, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, forwardRef, lazy, Suspense } from 'react';
-import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket } from 'lucide-react';
+import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
@@ -9,6 +9,7 @@ import { type DiscoverCard, type CardType } from '../utils/mockData';
 import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
+import { trpc } from '../utils/trpc';
 
 
 // Pure helper — no state deps, safe at module level
@@ -73,6 +74,34 @@ function toEventDiscoverCard(event: AppEvent, index: number): DiscoverCard {
     eventDate: event.date,
     eventTime: event.time,
   };
+}
+
+function isVendorServiceCard(card: DiscoverCard): boolean {
+  return Boolean(card.vendorServiceId);
+}
+
+function hasCheckoutAuth(): boolean {
+  const token = localStorage.getItem('bytspot_auth_token');
+  return Boolean(token && token !== 'beta_guest');
+}
+
+function savePendingBookingCard(card: DiscoverCard | null) {
+  if (!card?.vendorServiceId) return;
+  localStorage.setItem('bytspot_pending_booking_service', card.vendorServiceId);
+  localStorage.setItem('bytspot_pending_booking_card', JSON.stringify(card));
+}
+
+function consumePendingBookingCard(): DiscoverCard | null {
+  const raw = localStorage.getItem('bytspot_pending_booking_card');
+  localStorage.removeItem('bytspot_pending_booking_service');
+  localStorage.removeItem('bytspot_pending_booking_card');
+  if (!raw) return null;
+  try {
+    const card = JSON.parse(raw) as DiscoverCard;
+    return card?.vendorServiceId ? card : null;
+  } catch {
+    return null;
+  }
 }
 
 interface SwipeableCardProps {
@@ -347,8 +376,11 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<DiscoverCard | null>(null);
+  const [selectedVendorService, setSelectedVendorService] = useState<DiscoverCard | null>(null);
   const [selectedParkingSpot, setSelectedParkingSpot] = useState<any>(null);
   const [selectedValetService, setSelectedValetService] = useState<any>(null);
+  const [isBookingService, setIsBookingService] = useState(false);
+  const [bookingServiceMessage, setBookingServiceMessage] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -543,6 +575,14 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    if (!hasCheckoutAuth() || selectedVendorService) return;
+    const pendingCard = consumePendingBookingCard();
+    if (!pendingCard) return;
+    setBookingServiceMessage('You are signed in. Confirm this service to continue to Stripe Checkout.');
+    setSelectedVendorService(pendingCard);
+  }, [selectedVendorService]);
+
   // Pull to refresh
   const handleTouchStart = (e: React.TouchEvent) => {
     if (containerRef.current && containerRef.current.scrollTop === 0) {
@@ -568,7 +608,10 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   };
 
   const handleCardClick = (card: DiscoverCard) => {
-    if (card.type === 'parking') {
+    if (isVendorServiceCard(card)) {
+      setBookingServiceMessage(null);
+      setSelectedVendorService(card);
+    } else if (card.type === 'parking') {
       // Convert DiscoverCard to ParkingSpot format
       const parkingSpot = {
         id: card.id.toString(),
@@ -611,6 +654,53 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       // Show venue details
       setSelectedVenue(card);
     }
+  };
+
+  const handleVendorServiceCheckout = async () => {
+    if (!selectedVendorService?.vendorServiceId || isBookingService) return;
+    if (!hasCheckoutAuth()) {
+      const message = 'Create an account or sign in before booking a paid vendor service.';
+      setBookingServiceMessage(message);
+      toast.info('Sign in required', { description: message });
+      return;
+    }
+    setIsBookingService(true);
+    setBookingServiceMessage(null);
+    try {
+      const result = await trpc.booking.createCheckout.mutate({
+        serviceId: selectedVendorService.vendorServiceId,
+        usePoints: false,
+        successPath: '/booking/success',
+        cancelPath: '/booking/cancelled',
+        metadata: {
+          source: 'discover.service_card',
+          cardName: selectedVendorService.name,
+          vendorId: selectedVendorService.vendorId ?? null,
+          patchId: selectedVendorService.patchId ?? null,
+          patchUid: selectedVendorService.patchUid ?? null,
+        },
+      });
+
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+
+      const message = result?.message ?? 'Checkout is not available yet for this service.';
+      setBookingServiceMessage(message);
+      toast.info('Checkout not started', { description: message });
+    } catch (err: any) {
+      const message = err?.message ?? 'Unable to start booking checkout.';
+      setBookingServiceMessage(message);
+      toast.error('Booking checkout failed', { description: message });
+    } finally {
+      setIsBookingService(false);
+    }
+  };
+
+  const handleRequireAuthForBooking = () => {
+    savePendingBookingCard(selectedVendorService);
+    window.dispatchEvent(new CustomEvent('bytspot:require-auth', { detail: { reason: 'vendor-service-booking' } }));
   };
 
 
@@ -898,6 +988,85 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
       {/* Modals */}
       <AnimatePresence>
+        {selectedVendorService && (
+          <motion.div
+            className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-4"
+            role="dialog"
+            aria-label="Book vendor service"
+            data-testid="vendor-service-booking-sheet"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !isBookingService && setSelectedVendorService(null)}
+          >
+            <motion.div
+              className="w-full max-w-md rounded-[28px] border border-white/15 bg-[#111114] p-5 shadow-2xl"
+              initial={{ y: 36, scale: 0.96 }}
+              animate={{ y: 0, scale: 1 }}
+              exit={{ y: 36, scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-300" style={{ fontWeight: 800 }}>Vendor service</p>
+                  <h3 className="mt-1 text-[22px] leading-tight text-white" style={{ fontWeight: 800 }}>{selectedVendorService.name}</h3>
+                  <p className="mt-1 text-[13px] text-white/55">{selectedVendorService.location || 'Bytspot provider'}</p>
+                </div>
+                <div className="rounded-2xl bg-amber-500/15 px-3 py-2 text-right border border-amber-300/25">
+                  <p className="text-[11px] text-amber-100/70">Price</p>
+                  <p className="text-[16px] text-amber-100" style={{ fontWeight: 800 }}>{selectedVendorService.entryPrice || selectedVendorService.price}</p>
+                </div>
+              </div>
+
+              {selectedVendorService.description && (
+                <p className="mt-4 text-[14px] leading-6 text-white/70">{selectedVendorService.description}</p>
+              )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(selectedVendorService.features ?? []).slice(0, 5).map((feature) => (
+                  <span key={feature} className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] text-white/75">{feature}</span>
+                ))}
+              </div>
+
+              {typeof selectedVendorService.platformFeeCents === 'number' && (
+                <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/10 p-3 text-[12px] leading-5 text-white/60">
+                  Transaction metadata is recalculated server-side before checkout. Provider payout estimate: ${((selectedVendorService.providerPayoutEstimateCents ?? 0) / 100).toFixed(2)}.
+                </div>
+              )}
+
+              {bookingServiceMessage && (
+                <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-3 text-[12px] text-amber-100/85">{bookingServiceMessage}</p>
+              )}
+
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  className="flex-1 rounded-2xl border border-white/12 bg-white/10 px-4 py-3 text-[14px] text-white/70"
+                  style={{ fontWeight: 700 }}
+                  disabled={isBookingService}
+                  onClick={() => setSelectedVendorService(null)}
+                >
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  data-testid="vendor-service-checkout-cta"
+                  className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-3 text-[14px] text-black shadow-lg disabled:opacity-60"
+                  style={{ fontWeight: 850 }}
+                  disabled={isBookingService}
+                  onClick={() => hasCheckoutAuth() ? void handleVendorServiceCheckout() : handleRequireAuthForBooking()}
+                >
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {isBookingService ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                    {isBookingService ? 'Starting…' : hasCheckoutAuth() ? 'Book with Stripe' : 'Sign in to book'}
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {selectedVenue && (
           <VenueDetails
             venue={selectedVenue}

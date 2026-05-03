@@ -79,6 +79,13 @@ export interface DiscoverCard {
   photoUrls?: string[]; // Real Google Places photo URLs (preferred over `image`)
   ratingCount?: number; // Number of Google ratings
   isOpen?: boolean | null; // Real-time open/closed status from Google
+  // Vendor marketplace integration
+  vendorServiceId?: string; // VendorService ID for paid marketplace booking
+  vendorId?: string; // Vendor ID that owns the service
+  patchId?: string | null; // Bound hardware patch, when available
+  patchUid?: string | null; // Physical patch UID, when available
+  providerPayoutEstimateCents?: number; // Display/analytics only; checkout recalculates server-side
+  platformFeeCents?: number; // Display/analytics only; checkout recalculates server-side
 }
 
 export const discoverCards: DiscoverCard[] = [

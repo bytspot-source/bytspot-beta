@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart, Wind } from 'lucide-react';
+import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart, Wind, CheckCircle2, XCircle, ReceiptText } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
 import { QuickActionCard } from './components/QuickActionCard';
@@ -66,6 +66,45 @@ type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
+
+function MarketplaceBookingReturnScreen({ status, onContinue }: { status: 'success' | 'cancelled'; onContinue: () => void }) {
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session_id');
+  const bookingId = params.get('booking_id');
+  const isSuccess = status === 'success';
+
+  return (
+    <div className="fixed inset-0 bg-black text-white flex items-center justify-center px-5">
+      <div className="w-full max-w-md rounded-[32px] border border-white/15 bg-[#111114] p-6 shadow-2xl">
+        <div className={`mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl ${isSuccess ? 'bg-emerald-400/15' : 'bg-amber-400/15'}`}>
+          {isSuccess ? <CheckCircle2 className="h-9 w-9 text-emerald-300" /> : <XCircle className="h-9 w-9 text-amber-300" />}
+        </div>
+        <p className="text-center text-[12px] uppercase tracking-[0.22em] text-cyan-300" style={{ fontWeight: 800 }}>Marketplace booking</p>
+        <h1 className="mt-2 text-center text-[28px] leading-tight" style={{ fontWeight: 850 }}>
+          {isSuccess ? 'Checkout received' : 'Checkout cancelled'}
+        </h1>
+        <p className="mt-3 text-center text-[14px] leading-6 text-white/65">
+          {isSuccess
+            ? 'We are confirming your Stripe payment and booking status. Your receipt will appear in My Access when processing completes.'
+            : 'No charge was completed. You can return to Discover and book this service whenever you are ready.'}
+        </p>
+        <div className="mt-5 rounded-2xl border border-white/12 bg-white/6 p-4 text-[12px] leading-6 text-white/60">
+          <div className="mb-2 flex items-center gap-2 text-white/80"><ReceiptText className="h-4 w-4 text-cyan-300" /> Transaction Metadata</div>
+          <div>Stripe session: <span className="text-white/85">{sessionId ?? 'pending webhook'}</span></div>
+          <div>Booking ID: <span className="text-white/85">{bookingId ?? 'assigned after checkout'}</span></div>
+        </div>
+        <button
+          type="button"
+          className="mt-5 w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-[15px] text-black shadow-lg"
+          style={{ fontWeight: 850 }}
+          onClick={onContinue}
+        >
+          {isSuccess ? 'View My Access' : 'Return to Discover'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   // Determine initial screen: skip splash/landing/auth if user already has a token
@@ -142,6 +181,15 @@ export default function App() {
     localStorage.setItem('bytspot_profile_focus', 'tickets');
     setCurrentScreen('main');
     setActiveTab('profile');
+  }, []);
+
+  useEffect(() => {
+    const handleRequireAuth = () => {
+      toast.info('Sign in required', { description: 'Create an account or log in to continue booking.' });
+      setCurrentScreen('auth');
+    };
+    window.addEventListener('bytspot:require-auth', handleRequireAuth);
+    return () => window.removeEventListener('bytspot:require-auth', handleRequireAuth);
   }, []);
 
   // Stable audit emitter passed down to scanner-hosting surfaces.
@@ -625,6 +673,10 @@ export default function App() {
 
     // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
     const path = window.location.pathname;
+    if (path.includes('/booking/success') || path.includes('/booking/cancelled')) {
+      setCurrentScreen('main');
+      return;
+    }
     if (path.includes('/premium/success')) {
       if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
         setActiveTab('profile');
@@ -689,6 +741,25 @@ export default function App() {
             }}
           />
         </Suspense>
+      );
+    }
+
+    if (normalizedPath === '/booking/success' || normalizedPath === '/booking/cancelled') {
+      const status = normalizedPath === '/booking/success' ? 'success' : 'cancelled';
+      return (
+        <MarketplaceBookingReturnScreen
+          status={status}
+          onContinue={() => {
+            window.history.replaceState({}, '', '/');
+            setCurrentScreen('main');
+            if (status === 'success') {
+              localStorage.setItem('bytspot_profile_focus', 'tickets');
+              setActiveTab('profile');
+            } else {
+              setActiveTab('discover');
+            }
+          }}
+        />
       );
     }
 
@@ -764,6 +835,10 @@ export default function App() {
         onComplete={() => {
           // Token is already stored by AuthenticationFlow — no override needed
           setCurrentScreen('main');
+          if (localStorage.getItem('bytspot_pending_booking_service')) {
+            setActiveTab('discover');
+            toast.success('Ready to book', { description: 'Review the service and continue to Stripe Checkout.' });
+          }
           // Refresh provider status after login
           trpc.providers.getStatus.query().then((res) => {
             setIsHost(

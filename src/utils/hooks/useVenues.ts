@@ -8,6 +8,8 @@ import { useState, useEffect, useRef } from 'react';
 import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
+import { loadVirtualPatchContext } from '../virtualPatch';
+import { vendorServiceToCard } from '../vendorServiceCards';
 
 /**
  * Fallback venues with crowd data — used when the API is cold-starting or unreachable.
@@ -203,7 +205,15 @@ export function useVenues(): UseVenuesResult {
   const isMountedRef = useRef(true);
   const latestRequestIdRef = useRef(0);
   const venuesRef = useRef<ApiVenue[]>([]);
+  const vendorServiceCardsRef = useRef<DiscoverCard[]>([]);
   const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const setCombinedCards = (venueRows: ApiVenue[], vendorCards: DiscoverCard[]) => {
+    setCards([
+      ...venueRows.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)),
+      ...vendorCards,
+    ]);
+  };
 
   // ── GPS location ──────────────────────────────────────────────
   useEffect(() => {
@@ -215,7 +225,7 @@ export function useVenues(): UseVenuesResult {
         setUserCoords(coords);
         // Re-enrich existing cards with fresh distances
         if (venuesRef.current.length > 0) {
-          setCards(venuesRef.current.map((v, i) => venueToCard(v, i, coords)));
+          setCombinedCards(venuesRef.current, vendorServiceCardsRef.current);
         }
       },
       () => { /* permission denied or unavailable — keep '—' */ },
@@ -224,21 +234,58 @@ export function useVenues(): UseVenuesResult {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  const fetchVendorServiceCards = async (): Promise<DiscoverCard[]> => {
+    try {
+      const context = loadVirtualPatchContext();
+      const patchId = context?.patchId ?? null;
+      const distanceMeters = context?.distanceMeters ?? null;
+      const searchResult = await trpc.vendors.search.query({ limit: 20 });
+      const cardsByServiceId = new Map<string, DiscoverCard>();
+
+      if (patchId) {
+        try {
+          const patchResult = await trpc.vendors.getByPatch.query({ patchId });
+          cardsByServiceId.set(
+            patchResult.service.id,
+            vendorServiceToCard(patchResult.service, 0, { patchVerified: true, distanceMeters }),
+          );
+        } catch {
+          // Patch may be venue-bound or not service-bound; keep the general vendor feed.
+        }
+      }
+
+      for (const [index, service] of (searchResult.services ?? []).entries()) {
+        if (!cardsByServiceId.has(service.id)) {
+          cardsByServiceId.set(service.id, vendorServiceToCard(service, index + 1));
+        }
+      }
+
+      return Array.from(cardsByServiceId.values());
+    } catch (err: any) {
+      console.warn('[useVenues] Vendor services unavailable:', err?.message);
+      return [];
+    }
+  };
+
   const fetchVenues = async () => {
     const requestId = ++latestRequestIdRef.current;
     setLoading(true);
     setError(null);
 
     try {
-      const res = await trpc.venues.list.query();
+      const [res, vendorCards] = await Promise.all([
+        trpc.venues.list.query(),
+        fetchVendorServiceCards(),
+      ]);
 
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) {
         return;
       }
 
       venuesRef.current = res.venues;
+      vendorServiceCardsRef.current = vendorCards;
       setVenues(res.venues);
-      setCards(res.venues.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+      setCombinedCards(res.venues, vendorCards);
       setError(null);
       // Cache successful API response for offline/cold-start fallback
       try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(res.venues)); } catch { /* quota exceeded — ignore */ }
@@ -252,8 +299,9 @@ export function useVenues(): UseVenuesResult {
         try { fallback = JSON.parse(cached); } catch { /* use default fallback */ }
       }
       venuesRef.current = fallback;
+      vendorServiceCardsRef.current = [];
       setVenues(fallback);
-      setCards(fallback.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+      setCombinedCards(fallback, []);
       setError(null); // Don't show error — we have fallback data
     }
 
@@ -313,7 +361,7 @@ export function useVenues(): UseVenuesResult {
               return snap ? { ...v, crowd: snap.crowd } : v;
             });
             venuesRef.current = updated;
-            setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+            setCombinedCards(updated, vendorServiceCardsRef.current);
             return updated;
           });
         } else if (msg.type === 'update') {
@@ -322,7 +370,7 @@ export function useVenues(): UseVenuesResult {
               v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
             );
             venuesRef.current = updated;
-            setCards(updated.map((v, i) => venueToCard(v, i, userCoordsRef.current ?? undefined)));
+            setCombinedCards(updated, vendorServiceCardsRef.current);
             return updated;
           });
         }

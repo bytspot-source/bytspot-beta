@@ -21,13 +21,19 @@ interface ProviderPremiumGateProps {
 
 export function ProviderPremiumGate({ title, description, features, compact = false, tier = 'vendor-premium' }: ProviderPremiumGateProps) {
   const [entitlement, setEntitlement] = useState<ProviderPremiumEntitlement>(() => getProviderPremiumEntitlement());
+  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
+  const [usePoints, setUsePoints] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => setEntitlement(getProviderPremiumEntitlement());
     trpc.subscription.status.query()
-      .then((status: any) => setEntitlement(syncProviderPremiumEntitlementFromSubscription(status, tier)))
+      .then((status: any) => {
+        setSubscriptionStatus(status);
+        setEntitlement(syncProviderPremiumEntitlementFromSubscription(status, tier));
+      })
       .catch(() => refresh());
     window.addEventListener(PROVIDER_PREMIUM_EVENT, refresh);
     return () => window.removeEventListener(PROVIDER_PREMIUM_EVENT, refresh);
@@ -36,13 +42,25 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
   const isUnlocked = entitlement.isActive && entitlement.tier === tier;
   const premiumLabel = tier === 'valet-premium' ? 'VALET PREMIUM' : 'VENDOR PREMIUM';
   const activatePreview = () => setEntitlement(activateProviderPremiumPreview(tier));
+  const offer = subscriptionStatus?.subscriptionOffers?.[tier];
+  const availablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
+  const baseCents = Number(offer?.baseUnitAmountCents ?? (tier === 'valet-premium' ? 1499 : 4900));
+  const insiderDiscountCents = Number(offer?.upgradeDiscountCents ?? 0);
+  const maxPointsDiscountCents = Number(offer?.maxPointsDiscountCents ?? 0);
+  const pointsDiscountCents = usePoints ? maxPointsDiscountCents : 0;
+  const estimatedCents = Math.max(50, baseCents - insiderDiscountCents - pointsDiscountCents);
+  const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   const startCheckout = async () => {
     setCheckoutLoading(true);
     setCheckoutMessage(null);
 
     try {
-      const result = await trpc.subscription.createCheckout.mutate({ plan: tier });
+      const result = await trpc.subscription.createCheckout.mutate({
+        plan: tier,
+        usePoints,
+        couponCode: couponCode.trim() || undefined,
+      });
       if (result?.url) {
         window.location.href = result.url;
         return;
@@ -99,19 +117,48 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
 
       <div className="mt-3 rounded-[14px] bg-black/20 p-3 text-[11px] leading-5 text-white/55">
         <Sparkles className="mr-1 inline h-3.5 w-3.5 text-fuchsia-200" />
-        AI ranking uses Es = Φ_EM + Φ_E + ΔD + f × λ_sim. Provider Premium unlocks recommendations, not automatic service decisions.
+        AI ranking uses internal Optimization Logic. Provider Premium unlocks recommendations, not automatic service decisions.
       </div>
 
       {checkoutMessage && <p className="mt-3 text-[11px] font-semibold text-white/55">{checkoutMessage}</p>}
 
       {!isUnlocked && (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-[16px] border border-white/10 bg-black/20 p-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white/70">
+              <span className="font-bold">Estimated today</span>
+              <span className="font-black text-white">{formatCents(estimatedCents)} / mo</span>
+            </div>
+            <label className="mb-2 flex items-center justify-between gap-3 rounded-[12px] bg-white/5 px-3 py-2 text-[12px] font-bold text-white/75">
+              <span>Use {availablePoints.toLocaleString()} points</span>
+              <input
+                type="checkbox"
+                checked={usePoints}
+                disabled={availablePoints <= 0 || maxPointsDiscountCents <= 0}
+                onChange={(event) => setUsePoints(event.target.checked)}
+                className="h-4 w-4 accent-cyan-400"
+              />
+            </label>
+            <input
+              value={couponCode}
+              onChange={(event) => setCouponCode(event.target.value)}
+              placeholder="Coupon code"
+              className="w-full rounded-[12px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
+            />
+            {(insiderDiscountCents > 0 || pointsDiscountCents > 0) && (
+              <p className="mt-2 text-[11px] font-semibold text-emerald-200/80">
+                Saves {formatCents(insiderDiscountCents + pointsDiscountCents)} before any Stripe coupon is applied.
+              </p>
+            )}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
           <button onClick={startCheckout} disabled={checkoutLoading} className="rounded-[16px] bg-white px-4 py-3 text-[13px] font-black text-black disabled:opacity-60">
             {checkoutLoading ? 'Opening Checkout…' : `Start ${tier === 'valet-premium' ? 'Valet' : 'Vendor'} Premium`}
           </button>
           <button onClick={activatePreview} className="rounded-[16px] border border-white/15 bg-white/10 px-4 py-3 text-[13px] font-black text-white">
             Preview
           </button>
+          </div>
         </div>
       )}
     </motion.div>

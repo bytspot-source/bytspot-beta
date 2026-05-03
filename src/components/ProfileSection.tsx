@@ -106,6 +106,9 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
   const [insiderLoading, setInsiderLoading] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
+  const [useInsiderPoints, setUseInsiderPoints] = useState(false);
+  const [insiderCouponCode, setInsiderCouponCode] = useState('');
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
@@ -138,6 +141,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
     trpc.subscription.status.query().then((data) => {
+      setSubscriptionStatus(data);
       if (data?.isPremium) {
         setMembership(syncInsiderMembershipFromPremium(true));
       } else {
@@ -198,7 +202,11 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
     try {
       if (hasRealInsiderCheckout) {
-        const result = await trpc.subscription.createCheckout.mutate();
+        const result = await trpc.subscription.createCheckout.mutate({
+          plan: 'insider-premium',
+          usePoints: useInsiderPoints,
+          couponCode: insiderCouponCode.trim() || undefined,
+        });
 
         if (result?.url) {
           window.location.href = result.url;
@@ -230,6 +238,14 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       setInsiderLoading(false);
     }
   };
+
+  const insiderOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
+  const availableSubscriptionPoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
+  const insiderBaseCents = Number(insiderOffer?.baseUnitAmountCents ?? 999);
+  const insiderMaxPointsDiscountCents = Number(insiderOffer?.maxPointsDiscountCents ?? 0);
+  const insiderPointsDiscountCents = useInsiderPoints ? insiderMaxPointsDiscountCents : 0;
+  const insiderEstimatedCents = Math.max(50, insiderBaseCents - insiderPointsDiscountCents);
+  const formatSubscriptionCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   const menuSections = [
     {
@@ -971,6 +987,43 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 </div>
               </div>
             </div>
+
+            {!membership.isActive && hasRealInsiderCheckout && (
+              <div className="relative mb-4 rounded-[18px] border border-white/15 bg-black/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] text-white/70" style={{ fontWeight: 700 }}>Loyalty checkout</p>
+                    <p className="text-[11px] text-white/45" style={{ fontWeight: 600 }}>Points reduce the Stripe unit amount before redirect.</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[16px] text-white" style={{ fontWeight: 800 }}>{formatSubscriptionCents(insiderEstimatedCents)}</p>
+                    <p className="text-[10px] text-white/45" style={{ fontWeight: 700 }}>/ month</p>
+                  </div>
+                </div>
+                <label className="mb-2 flex items-center justify-between gap-3 rounded-[14px] bg-white/5 px-3 py-2 text-[12px] text-white/75" style={{ fontWeight: 700 }}>
+                  <span>Use {availableSubscriptionPoints.toLocaleString()} points</span>
+                  <input
+                    type="checkbox"
+                    checked={useInsiderPoints}
+                    disabled={availableSubscriptionPoints <= 0 || insiderMaxPointsDiscountCents <= 0}
+                    onChange={(event) => setUseInsiderPoints(event.target.checked)}
+                    className="h-4 w-4 accent-cyan-400"
+                  />
+                </label>
+                <input
+                  value={insiderCouponCode}
+                  onChange={(event) => setInsiderCouponCode(event.target.value)}
+                  placeholder="Coupon code"
+                  className="w-full rounded-[14px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
+                  style={{ fontWeight: 700 }}
+                />
+                {insiderPointsDiscountCents > 0 && (
+                  <p className="mt-2 text-[11px] text-emerald-200/80" style={{ fontWeight: 700 }}>
+                    Points save {formatSubscriptionCents(insiderPointsDiscountCents)} before any Stripe coupon is applied.
+                  </p>
+                )}
+              </div>
+            )}
 
             <motion.button
               onClick={handleInsiderAction}

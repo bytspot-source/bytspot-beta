@@ -388,6 +388,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [isPremium, setIsPremium] = useState(false);
   const [showPremiumTeaser, setShowPremiumTeaser] = useState(false);
   const [premiumCheckoutPending, setPremiumCheckoutPending] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
+  const [usePremiumPoints, setUsePremiumPoints] = useState(false);
+  const [premiumCouponCode, setPremiumCouponCode] = useState('');
 
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
@@ -415,7 +418,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   useEffect(() => {
     let cancelled = false;
     trpc.subscription.status.query()
-      .then((data) => { if (!cancelled) setIsPremium(Boolean(data?.isPremium)); })
+      .then((data) => {
+        if (!cancelled) {
+          setSubscriptionStatus(data);
+          setIsPremium(Boolean(data?.isPremium));
+        }
+      })
       .catch(() => { if (!cancelled) setIsPremium(false); });
     return () => { cancelled = true; };
   }, []);
@@ -580,12 +588,24 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     onOpenAccessWallet();
   }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, peekVenue, peekVenueIsVerified]);
 
+  const premiumOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
+  const premiumAvailablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
+  const premiumBaseCents = Number(premiumOffer?.baseUnitAmountCents ?? 999);
+  const premiumMaxPointsDiscountCents = Number(premiumOffer?.maxPointsDiscountCents ?? 0);
+  const premiumPointsDiscountCents = usePremiumPoints ? premiumMaxPointsDiscountCents : 0;
+  const premiumEstimatedCents = Math.max(50, premiumBaseCents - premiumPointsDiscountCents);
+  const formatPremiumCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
   // Premium upgrade flow — kicks off Stripe Checkout via tRPC, falls back to a toast in demo mode
   const handleUpgradeToPremium = useCallback(async () => {
     if (premiumCheckoutPending) return;
     setPremiumCheckoutPending(true);
     try {
-      const result = await trpc.subscription.createCheckout.mutate();
+      const result = await trpc.subscription.createCheckout.mutate({
+        plan: 'insider-premium',
+        usePoints: usePremiumPoints,
+        couponCode: premiumCouponCode.trim() || undefined,
+      });
       if (result?.url) {
         window.location.href = result.url;
         return;
@@ -599,7 +619,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     } finally {
       setPremiumCheckoutPending(false);
     }
-  }, [premiumCheckoutPending]);
+  }, [premiumCheckoutPending, premiumCouponCode, usePremiumPoints]);
 
   useEffect(() => {
     if (destination) {
@@ -1822,6 +1842,34 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     </li>
                   ))}
                 </ul>
+                <div className="mb-4 rounded-[14px] border border-white/12 bg-black/20 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white/70">
+                    <span style={{ fontWeight: 800 }}>Loyalty price</span>
+                    <span className="text-white" style={{ fontWeight: 900 }}>{formatPremiumCents(premiumEstimatedCents)} / month</span>
+                  </div>
+                  <label className="mb-2 flex items-center justify-between gap-3 rounded-[12px] bg-white/5 px-3 py-2 text-[12px] text-white/75" style={{ fontWeight: 700 }}>
+                    <span>Use {premiumAvailablePoints.toLocaleString()} points</span>
+                    <input
+                      type="checkbox"
+                      checked={usePremiumPoints}
+                      disabled={premiumAvailablePoints <= 0 || premiumMaxPointsDiscountCents <= 0}
+                      onChange={(event) => setUsePremiumPoints(event.target.checked)}
+                      className="h-4 w-4 accent-cyan-400"
+                    />
+                  </label>
+                  <input
+                    value={premiumCouponCode}
+                    onChange={(event) => setPremiumCouponCode(event.target.value)}
+                    placeholder="Coupon code"
+                    className="w-full rounded-[12px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
+                    style={{ fontWeight: 700 }}
+                  />
+                  {premiumPointsDiscountCents > 0 && (
+                    <p className="mt-2 text-[11px] text-emerald-200/80" style={{ fontWeight: 700 }}>
+                      Points save {formatPremiumCents(premiumPointsDiscountCents)} before any Stripe coupon is applied.
+                    </p>
+                  )}
+                </div>
                 <motion.button
                   onClick={handleUpgradeToPremium}
                   disabled={premiumCheckoutPending}
@@ -1829,7 +1877,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))', fontWeight: 800 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  {premiumCheckoutPending ? 'Opening checkout…' : 'Upgrade · $9.99 / month'}
+                  {premiumCheckoutPending ? 'Opening checkout…' : `Upgrade · ${formatPremiumCents(premiumEstimatedCents)} / month`}
                 </motion.button>
                 <p className="text-[10.5px] text-white/45 text-center mt-2.5" style={{ fontWeight: 500 }}>
                   Cancel anytime · Powered by Stripe

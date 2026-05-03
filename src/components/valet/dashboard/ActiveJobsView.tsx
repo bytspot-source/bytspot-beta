@@ -498,7 +498,7 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
         description="Valet Premium unlocks route-fit scoring, priority payout guidance, and add-on recommendations while keeping manual accept/decline control with the driver."
         features={[
           'Route-fit recommendations for battery, vehicle compatibility, and pickup/delivery distance',
-          'Premium payout guidance using Es = Φ_EM + Φ_E + ΔD + f × λ_sim',
+          'Premium payout guidance using Efficiency Metrics',
           'Add-on service suggestions for wash, fuel, pickup, and event-lane jobs',
         ]}
       />

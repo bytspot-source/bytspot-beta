@@ -59,7 +59,7 @@ export function AdminDashboard() {
     try {
       const data = await trpc.admin.stats.query({ adminPassword: password });
       setStats(data);
-      // Internal-only Es validation surface — refresh telemetry alongside stats.
+      // Internal-only Efficiency Metrics validation surface — refresh telemetry alongside stats.
       // Sourced from mock until the backend telemetry endpoint ships.
       setSystemHealth(generateMockSystemHealth());
     } catch (err: any) {
@@ -68,7 +68,7 @@ export function AdminDashboard() {
     } finally { setLoading(false); }
   }, []);
 
-  // Es is observational about the operational moment, never about a person.
+  // Efficiency metrics are observational about the operational moment, never about a person.
   const esResult = useMemo(() => {
     if (!systemHealth) return null;
     const inputs = buildEfficiencyInputsFromSystemHealth(systemHealth);

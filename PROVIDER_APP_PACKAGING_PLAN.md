@@ -1,6 +1,6 @@
 # Bytspot Provider App Packaging Plan
 
-`Es = Φ_EM + Φ_E + ΔD + f × λ_sim`
+Provider analytics use internal Optimization Logic and Efficiency Metrics. Implementation details are intentionally omitted from planning docs.
 
 ## Recommendation
 
@@ -38,8 +38,8 @@ Vendor Premium capabilities:
 - Bulk QR/NFC rollout planning
 - Boosted verified patch visibility
 - Fusion Engine operational insights
-- Simplex-style allocation recommendations
-- Premium payout recommendations using `Es = Φ_EM + Φ_E + ΔD + f × λ_sim`
+- Resource allocation recommendations
+- Premium payout recommendations using Efficiency Metrics
 
 ## Phase 1 — Current Super-App Route
 

@@ -13,8 +13,8 @@
  * by construction for the FCC uniform AI reporting standard contemplated
  * in EO 14365 §6.
  *
- * The internal weighting and component composition is proprietary and is
- * not described in source. Callers supply already-normalized component
+ * The internal weighting and component composition is implementation-specific
+ * and is not described in source. Callers supply already-normalized component
  * inputs and receive a composite result.
  */
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, Copy, ExternalLink, Link, Plus, Radio, Shield, Smartphone } from 'lucide-react';
+import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 
 interface ProviderPatchRecord {
   id: string;
@@ -74,6 +75,16 @@ export function DashboardPatches({ isDarkMode }: { isDarkMode: boolean }) {
           Establish reusable Bytspot patch links for entrances, lots, events, and access checkpoints. These URLs work with App Clip and universal links.
         </p>
       </motion.div>
+
+      <ProviderPremiumGate
+        title="Premium Patch Toolkit"
+        description="Keep basic patch creation free. Unlock AI placement, boosted venue context, and QR/NFC rollout planning with Vendor Premium."
+        features={[
+          'AI-recommended patch placement by entrance, crowd flow, and demand windows',
+          'Bulk QR/NFC kit planning for events, lots, and venue checkpoints',
+          'Boosted verified patch visibility for customers using Tap & Scan',
+        ]}
+      />
 
       <motion.div className={`grid gap-4 rounded-[24px] border-2 border-white/20 ${panelClass} p-5 shadow-xl lg:grid-cols-[1fr_0.9fr]`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
         <div className="space-y-4">

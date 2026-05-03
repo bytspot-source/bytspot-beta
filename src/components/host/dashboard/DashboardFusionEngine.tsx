@@ -19,6 +19,7 @@ import {
   Filter
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 import { 
   generateMockTrip, 
   generateMockSystemHealth, 
@@ -171,6 +172,16 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
       {/* System Overview */}
       {viewMode === 'overview' && (
         <div className="px-4 py-6 space-y-6">
+          <ProviderPremiumGate
+            title="AI Dispatch Optimization"
+            description="Vendor Premium unlocks Simplex-style resource recommendations and payout intelligence while keeping diagnostics visible."
+            features={[
+              'Simplex allocation suggestions for lots, valet lanes, and event checkpoints',
+              'Premium payout recommendations using Es = Φ_EM + Φ_E + ΔD + f × λ_sim',
+              'Demand-window alerts for staffing, patch placement, and boosted availability',
+            ]}
+          />
+
           {/* Key Metrics */}
           <div className="grid grid-cols-2 gap-3">
             <motion.div

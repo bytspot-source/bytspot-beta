@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Building2, CalendarDays, Car, MapPin, Radio, Shield, Sparkles, Zap } from 'lucide-react';
 import { BrandLogo } from '../BrandLogo';
+import { ProviderInstallPrompt } from './ProviderInstallPrompt';
 
 export type ProviderRole = 'parking' | 'venue' | 'event' | 'service';
 
@@ -45,6 +46,8 @@ export function ProviderLanding({ onStart, onBackToParker }: ProviderLandingProp
             One provider entry for hosts, vendors, venue partners, and valet/service teams.
           </p>
         </motion.div>
+
+        <ProviderInstallPrompt />
 
         <motion.div className="mb-5 rounded-[26px] border border-white/15 bg-white/[0.07] p-4 shadow-2xl" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.08 }}>
           <div className="mb-3 flex items-center gap-2 text-[13px] font-bold text-white/80">

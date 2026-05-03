@@ -8,18 +8,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { LandingPage } from './components/LandingPage';
 import { EnhancedHeader } from './components/EnhancedHeader';
 import { SmartSearchBar } from './components/SmartSearchBar';
-const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
-const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
-const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
-const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
-const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
-const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
-const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
-const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
-const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
-const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
-const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
-const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
+import type { ProviderRole } from './components/provider/ProviderLanding';
 import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
 import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
@@ -44,6 +33,19 @@ import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
+const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
+const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
+const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
+const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
+const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
+const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
+const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
+const ProviderLanding = lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
+const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
+const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
+const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
 
 import {
   getPersonalizedCategories,
@@ -107,6 +109,7 @@ export default function App() {
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [, setProviderRouteVersion] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingSlide, setOnboardingSlide] = useState(0);
   const [quizStep, setQuizStep] = useState(0);
@@ -117,6 +120,18 @@ export default function App() {
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
+
+  const openProviderLanding = useCallback(() => {
+    window.history.replaceState({}, '', '/provider');
+    setProviderRouteVersion(version => version + 1);
+  }, []);
+
+  const startProviderOnboarding = useCallback((role: ProviderRole) => {
+    localStorage.setItem('bytspot_provider_role', role);
+    localStorage.setItem('bytspot_provider_entry_source', 'provider-route');
+    window.history.pushState({}, '', '/provider/onboarding');
+    setProviderRouteVersion(version => version + 1);
+  }, []);
 
   // Universal-link / App Clip handoff — when the user lands via bytspot.app/p/<id>?venue=...
   // we surface this to MapSection which auto-opens the scanner with the patch pre-filled.
@@ -659,6 +674,32 @@ export default function App() {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <PrintableMarketingAssets />
+        </Suspense>
+      );
+    }
+
+    if (normalizedPath === '/provider' || normalizedPath === '/vendor') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <ProviderLanding
+            onStart={startProviderOnboarding}
+            onBackToParker={() => {
+              window.history.replaceState({}, '', '/');
+              setProviderRouteVersion(version => version + 1);
+            }}
+          />
+        </Suspense>
+      );
+    }
+
+    if (normalizedPath === '/provider/onboarding' || normalizedPath === '/vendor/onboarding') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <HostApp
+            isDarkMode={isDarkMode}
+            initialScreen="onboarding"
+            onBackToMain={openProviderLanding}
+          />
         </Suspense>
       );
     }

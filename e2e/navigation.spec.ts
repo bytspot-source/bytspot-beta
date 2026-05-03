@@ -45,6 +45,8 @@ async function mockVenuesApi(page: import('@playwright/test').Page) {
         if (procedure.includes('venues.list')) return { result: { data: { venues: mockVenues } } };
         if (procedure.includes('auth.me')) return { result: { data: { referralCount: 0 } } };
         if (procedure.includes('subscription.status')) return { result: { data: { isPremium: false } } };
+        if (procedure.includes('providers.getStatus')) return { result: { data: { host: null } } };
+        if (procedure.includes('patch.revocations.list')) return { result: { data: { revokedIds: [], fetchedAt: new Date().toISOString() } } };
         if (procedure.includes('social.venueCheckins')) return { result: { data: { items: [] } } };
         if (procedure.includes('venues.getBySlug')) return { result: { data: { crowd: { history: [] } } } };
         if (procedure.includes('venues.getSimilar')) return { result: { data: { similar: [] } } };
@@ -327,6 +329,21 @@ test.describe('App Navigation Flow', () => {
     await page.getByRole('button', { name: 'General' }).click({ force: true });
     await expect(page.getByRole('heading', { name: 'General' })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText('App Preferences')).toBeVisible();
+  });
+
+  test('Provider route lets vendors select a role and enter onboarding', async ({ page }) => {
+    await mockVenuesApi(page);
+    await page.goto('/provider');
+
+    await expect(page.getByRole('heading', { name: 'Onboard fast. Start earning.' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Patches can be established and used')).toBeVisible();
+
+    await page.getByRole('button', { name: /Venue Vendor/i }).click();
+    await page.getByRole('button', { name: 'Start Venue Vendor Onboarding' }).click();
+
+    await expect(page).toHaveURL(/\/provider\/onboarding$/);
+    await expect(page.getByRole('heading', { name: 'Create Your Account' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).resolves.toBe('venue');
   });
 
   test('DEBUG: Check mock data flow', async ({ page }) => {

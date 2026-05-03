@@ -11,11 +11,12 @@ import {
   LogOut,
   Home,
   Activity,
-  Shield
+  Shield,
+  Radio
 } from 'lucide-react';
 import { useState } from 'react';
 
-export type DashboardView = 'overview' | 'listings' | 'bookings' | 'earnings' | 'reviews' | 'calendar' | 'settings' | 'fusion-engine' | 'compliance';
+export type DashboardView = 'overview' | 'listings' | 'bookings' | 'earnings' | 'reviews' | 'calendar' | 'patches' | 'settings' | 'fusion-engine' | 'compliance';
 
 interface HostDashboardLayoutProps {
   isDarkMode: boolean;
@@ -48,6 +49,7 @@ export function HostDashboardLayout({
     { id: 'earnings' as const, label: 'Earnings', icon: DollarSign },
     { id: 'reviews' as const, label: 'Reviews', icon: Star },
     { id: 'calendar' as const, label: 'Calendar', icon: Calendar },
+    { id: 'patches' as const, label: 'Patches', icon: Radio },
     { id: 'fusion-engine' as const, label: 'Fusion Engine', icon: Activity },
     { id: 'compliance' as const, label: 'Compliance', icon: Shield },
     { id: 'settings' as const, label: 'Settings', icon: Settings },

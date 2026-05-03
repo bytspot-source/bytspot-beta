@@ -10,6 +10,7 @@ import { DashboardBookings } from './dashboard/DashboardBookings';
 import { DashboardEarnings } from './dashboard/DashboardEarnings';
 import { DashboardReviews } from './dashboard/DashboardReviews';
 import { DashboardCalendar } from './dashboard/DashboardCalendar';
+import { DashboardPatches } from './dashboard/DashboardPatches';
 import { DashboardSettings } from './dashboard/DashboardSettings';
 import { DashboardFusionEngine } from './dashboard/DashboardFusionEngine';
 import { DashboardCompliance } from './dashboard/DashboardCompliance';
@@ -20,10 +21,11 @@ type HostScreen = 'landing' | 'onboarding' | 'dashboard';
 interface HostAppProps {
   isDarkMode: boolean;
   onBackToMain?: () => void;
+  initialScreen?: HostScreen;
 }
 
-export function HostApp({ isDarkMode, onBackToMain }: HostAppProps) {
-  const [currentScreen, setCurrentScreen] = useState<HostScreen>('landing');
+export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing' }: HostAppProps) {
+  const [currentScreen, setCurrentScreen] = useState<HostScreen>(initialScreen);
   const [dashboardView, setDashboardView] = useState<DashboardView>('overview');
   const [isLoading, setIsLoading] = useState(true);
   
@@ -82,6 +84,8 @@ export function HostApp({ isDarkMode, onBackToMain }: HostAppProps) {
         return <DashboardReviews isDarkMode={isDarkMode} />;
       case 'calendar':
         return <DashboardCalendar isDarkMode={isDarkMode} />;
+      case 'patches':
+        return <DashboardPatches isDarkMode={isDarkMode} />;
       case 'fusion-engine':
         return <DashboardFusionEngine isDarkMode={isDarkMode} />;
       case 'compliance':

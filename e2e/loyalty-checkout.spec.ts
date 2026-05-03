@@ -192,8 +192,10 @@ test.describe('Loyalty subscription checkout proof', () => {
 
     const teaser = await openVerifiedPremiumTeaser(page);
     await expect(teaser.getByText(/Use 1,000 points/)).toBeVisible({ timeout: 10_000 });
-    await teaser.getByText(/Use 1,000 points/).click({ force: true });
-    await expect(teaser.getByRole('checkbox')).toBeChecked({ timeout: 5_000 });
+    const pointsCheckbox = teaser.getByRole('checkbox');
+    await expect(pointsCheckbox).toBeEnabled({ timeout: 5_000 });
+    await pointsCheckbox.click();
+    await expect(pointsCheckbox).toBeChecked({ timeout: 5_000 });
     await teaser.getByPlaceholder('Coupon code').fill('FIRST1000');
     const upgradeCta = teaser.getByRole('button', { name: /^Upgrade/i }).first();
     await upgradeCta.focus();

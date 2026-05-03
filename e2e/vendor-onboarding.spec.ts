@@ -174,8 +174,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByRole('button', { name: 'Bookings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'My Listings', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
-    await expect(page.getByText('Access scope')).toBeVisible();
-    await expect(page.getByText('Restricted')).toBeVisible();
+    await expect(page.getByText('Operational role')).toBeVisible();
+    await expect(page.getByText('Staff', { exact: true })).toBeVisible();
     await expect(page.getByText('$24,580')).toHaveCount(0);
   });
 });

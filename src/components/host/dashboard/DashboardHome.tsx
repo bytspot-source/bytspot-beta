@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { mockBookings, mockDashboardStats, mockEarnings, mockListings } from '../../../utils/hostMockData';
-import { financialValue, guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
+import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
@@ -37,7 +37,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
   };
 
   const priorityCards = [
-    { title: access.canSeeFinancials ? 'Total earnings' : 'Access scope', value: financialValue(access, `$${mockEarnings.totalEarnings.toLocaleString()}`), detail: access.canSeeFinancials ? `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month` : `${roleLabel(access.role)} workspace`, icon: access.canSeeFinancials ? DollarSign : ShieldCheck, tone: 'from-emerald-400/22 to-cyan-400/10' },
+    { title: access.canSeeFinancials ? 'Total earnings' : 'Operational role', value: access.canSeeFinancials ? `$${mockEarnings.totalEarnings.toLocaleString()}` : roleLabel(access.role), detail: access.canSeeFinancials ? `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month` : access.role === 'manager' ? 'Payout settings stay owner-only' : 'Revenue hidden for this role', icon: access.canSeeFinancials ? DollarSign : ShieldCheck, tone: 'from-emerald-400/22 to-cyan-400/10' },
     { title: 'Active bookings', value: activeBookings.length.toString(), detail: `${upcomingBookings.length} upcoming reservations`, icon: Calendar, tone: 'from-cyan-400/22 to-blue-500/10' },
     { title: 'Listing health', value: `${listingHealth}%`, detail: `${activeListings.length}/${mockListings.length} listings live`, icon: ShieldCheck, tone: 'from-violet-400/22 to-fuchsia-500/10' },
     { title: 'Guest rating', value: stats.averageRating.toFixed(1), detail: 'High-trust marketplace profile', icon: Star, tone: 'from-amber-300/22 to-orange-500/10' },
@@ -61,7 +61,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
             <h1 className="max-w-2xl text-[36px] leading-[1.02] text-white lg:text-[48px]" style={{ fontWeight: 850 }}>
               {access.role === 'staff' ? 'Today’s operations are ready.' : access.isCottage ? 'Your cottage business is ready for bookings.' : 'Your marketplace is healthy and ready for bookings.'}
             </h1>
-            <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/64 lg:text-[16px]">
+            <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/82 lg:text-[16px]">
               {guidanceForRole(access)}
             </p>
           </div>
@@ -84,13 +84,13 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
             <p className="mt-3 text-[12px] leading-5 text-white/50">82% of this week’s expected payout volume has already been captured.</p>
           </div>
           ) : (
-          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
-            <p className="text-[12px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 800 }}>Today’s operating plan</p>
+          <div className="rounded-[26px] border border-cyan-200/24 bg-cyan-400/[0.085] p-4 backdrop-blur-xl">
+            <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-100/85" style={{ fontWeight: 850 }}>Today’s operating plan</p>
             <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>{activeBookings.length} active · {upcomingBookings.length} upcoming</p>
-            <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/58">
-              <li>1. Open each active booking and confirm vehicle/location details.</li>
-              <li>2. Keep the calendar updated before handoff windows.</li>
-              <li>3. Escalate payout or account questions to the Owner.</li>
+            <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/88">
+              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">1. Open each active booking and confirm vehicle/location details.</li>
+              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">2. Keep the calendar updated before handoff windows.</li>
+              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">3. Escalate payout or account questions to the Owner.</li>
             </ol>
           </div>
           )}
@@ -106,15 +106,15 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-black/25">
                   <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
                 </div>
-                {index === 0 && (
+                {index === 0 && access.canSeeFinancials && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 800 }}>
                     <TrendingUp className="h-3 w-3" /> +{stats.monthlyGrowth}%
                   </span>
                 )}
               </div>
-              <p className="text-[13px] text-white/55" style={{ fontWeight: 700 }}>{card.title}</p>
+              <p className="text-[13px] text-white/78" style={{ fontWeight: 750 }}>{card.title}</p>
               <p className="mt-1 text-[31px] leading-none text-white" style={{ fontWeight: 850 }}>{card.value}</p>
-              <p className="mt-3 text-[12px] leading-5 text-white/48">{card.detail}</p>
+              <p className="mt-3 text-[12px] leading-5 text-white/72">{card.detail}</p>
             </motion.div>
           );
         })}
@@ -153,13 +153,13 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           </div>
           </>
           ) : (
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-5">
+          <div className="rounded-[22px] border border-cyan-200/18 bg-cyan-300/[0.07] p-5">
             <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Operational guidance</h2>
-            <p className="mt-2 text-[14px] leading-6 text-white/58">Financial trends are Owner-only. This workspace keeps your role focused on bookings, calendars, listing quality, and customer handoffs.</p>
+            <p className="mt-2 text-[14px] leading-6 text-white/82">Financial trends are Owner-only. This workspace keeps your role focused on bookings, calendars, listing quality, and customer handoffs.</p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Check active bookings</div>
-              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Confirm upcoming arrivals</div>
-              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Report listing issues</div>
+              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Check active bookings</div>
+              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Confirm upcoming arrivals</div>
+              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Report listing issues</div>
             </div>
           </div>
           )}
@@ -169,7 +169,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-[21px] text-white" style={{ fontWeight: 800 }}>Today’s focus</h2>
-              <p className="mt-1 text-[13px] text-white/52">Recommended next moves.</p>
+              <p className="mt-1 text-[13px] text-white/76">Recommended next moves.</p>
             </div>
             <ArrowUpRight className="h-5 w-5 text-cyan-200" />
           </div>
@@ -184,7 +184,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                     </div>
                     <div>
                       <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>{item.title}</p>
-                      <p className="mt-1 text-[12px] leading-5 text-white/50">{item.detail}</p>
+                      <p className="mt-1 text-[12px] leading-5 text-white/76">{item.detail}</p>
                     </div>
                   </div>
                 </button>

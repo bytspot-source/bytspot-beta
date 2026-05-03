@@ -14,12 +14,14 @@ import {
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { mockBookings, mockDashboardStats, mockEarnings, mockListings } from '../../../utils/hostMockData';
+import { financialValue, guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
-export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
+export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
   const stats = mockDashboardStats;
   const activeBookings = mockBookings.filter((booking) => booking.status === 'active');
   const upcomingBookings = mockBookings.filter((booking) => booking.status === 'upcoming').slice(0, 3);
@@ -35,14 +37,14 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
   };
 
   const priorityCards = [
-    { title: 'Total earnings', value: `$${mockEarnings.totalEarnings.toLocaleString()}`, detail: `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month`, icon: DollarSign, tone: 'from-emerald-400/22 to-cyan-400/10' },
+    { title: access.canSeeFinancials ? 'Total earnings' : 'Access scope', value: financialValue(access, `$${mockEarnings.totalEarnings.toLocaleString()}`), detail: access.canSeeFinancials ? `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month` : `${roleLabel(access.role)} workspace`, icon: access.canSeeFinancials ? DollarSign : ShieldCheck, tone: 'from-emerald-400/22 to-cyan-400/10' },
     { title: 'Active bookings', value: activeBookings.length.toString(), detail: `${upcomingBookings.length} upcoming reservations`, icon: Calendar, tone: 'from-cyan-400/22 to-blue-500/10' },
     { title: 'Listing health', value: `${listingHealth}%`, detail: `${activeListings.length}/${mockListings.length} listings live`, icon: ShieldCheck, tone: 'from-violet-400/22 to-fuchsia-500/10' },
     { title: 'Guest rating', value: stats.averageRating.toFixed(1), detail: 'High-trust marketplace profile', icon: Star, tone: 'from-amber-300/22 to-orange-500/10' },
   ];
 
   const actionItems = [
-    { title: 'Review payout setup', detail: `$${nextPayout.toLocaleString()} pending`, icon: Wallet },
+    { title: access.canManagePayouts ? 'Review payout setup' : 'Review today’s handoffs', detail: access.canManagePayouts ? `$${nextPayout.toLocaleString()} pending` : 'Keep arrivals and departures current', icon: access.canManagePayouts ? Wallet : Clock },
     { title: 'Improve listing health', detail: 'Add photos and availability windows', icon: MapPin },
     { title: 'Confirm upcoming bookings', detail: `${upcomingBookings.length} reservations need attention`, icon: CheckCircle2 },
   ];
@@ -54,16 +56,17 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 800 }}>
               <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Vendor command center
+              {roleLabel(access.role)} command center · {access.isCottage ? 'Cottage business' : 'Provider business'}
             </div>
             <h1 className="max-w-2xl text-[36px] leading-[1.02] text-white lg:text-[48px]" style={{ fontWeight: 850 }}>
-              Your marketplace is healthy and ready for bookings.
+              {access.role === 'staff' ? 'Today’s operations are ready.' : access.isCottage ? 'Your cottage business is ready for bookings.' : 'Your marketplace is healthy and ready for bookings.'}
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/64 lg:text-[16px]">
-              Track earnings, stay ahead of active reservations, and keep listings payout-ready without digging through technical telemetry.
+              {guidanceForRole(access)}
             </p>
           </div>
 
+          {access.canSeeFinancials ? (
           <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -80,6 +83,17 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
             </div>
             <p className="mt-3 text-[12px] leading-5 text-white/50">82% of this week’s expected payout volume has already been captured.</p>
           </div>
+          ) : (
+          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
+            <p className="text-[12px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 800 }}>Today’s operating plan</p>
+            <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>{activeBookings.length} active · {upcomingBookings.length} upcoming</p>
+            <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/58">
+              <li>1. Open each active booking and confirm vehicle/location details.</li>
+              <li>2. Keep the calendar updated before handoff windows.</li>
+              <li>3. Escalate payout or account questions to the Owner.</li>
+            </ol>
+          </div>
+          )}
         </div>
       </motion.section>
 
@@ -108,6 +122,8 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.45fr_0.9fr]">
         <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.25 }}>
+          {access.canSeeFinancials ? (
+          <>
           <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Earnings momentum</h2>
@@ -135,6 +151,18 @@ export function DashboardHome({ isDarkMode }: DashboardHomeProps) {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          </>
+          ) : (
+          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-5">
+            <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Operational guidance</h2>
+            <p className="mt-2 text-[14px] leading-6 text-white/58">Financial trends are Owner-only. This workspace keeps your role focused on bookings, calendars, listing quality, and customer handoffs.</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Check active bookings</div>
+              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Confirm upcoming arrivals</div>
+              <div className="rounded-2xl bg-black/20 p-3 text-white/65">Report listing issues</div>
+            </div>
+          </div>
+          )}
         </motion.section>
 
         <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.32 }}>

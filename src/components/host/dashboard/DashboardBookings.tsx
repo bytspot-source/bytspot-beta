@@ -2,14 +2,16 @@ import { motion } from 'motion/react';
 import { Calendar, MapPin, Car, Clock, User, Filter } from 'lucide-react';
 import { mockBookings } from '../../../utils/hostMockData';
 import { useState } from 'react';
+import { financialValue, type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardBookingsProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
 type BookingFilter = 'all' | 'active' | 'upcoming' | 'completed';
 
-export function DashboardBookings({ isDarkMode }: DashboardBookingsProps) {
+export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps) {
   const [filter, setFilter] = useState<BookingFilter>('all');
 
   const springConfig = {
@@ -77,6 +79,15 @@ export function DashboardBookings({ isDarkMode }: DashboardBookingsProps) {
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
           Manage your parking reservations
         </p>
+      </motion.div>
+
+      <motion.div className="rounded-[22px] border border-white/12 bg-white/[0.055] p-4" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
+        <p className="text-[13px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 850 }}>Booking workflow</p>
+        <ol className="mt-3 grid gap-2 text-[13px] leading-5 text-white/65 md:grid-cols-3">
+          <li>1. Open Active to manage in-progress arrivals and departures.</li>
+          <li>2. Use Upcoming to confirm access instructions before guests arrive.</li>
+          <li>3. Mark handoff notes in View Details so the team stays aligned.</li>
+        </ol>
       </motion.div>
 
       {/* Filter Buttons */}
@@ -159,7 +170,7 @@ export function DashboardBookings({ isDarkMode }: DashboardBookingsProps) {
               </div>
 
               <div className="text-[20px] text-green-400" style={{ fontWeight: 700 }}>
-                ${booking.amount}
+                {financialValue(access, `$${booking.amount}`)}
               </div>
             </div>
 

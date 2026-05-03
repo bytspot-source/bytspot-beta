@@ -25,6 +25,7 @@ import {
 import { useCallback, useState, useEffect } from 'react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 import { trpc } from '../../../utils/trpc';
+import { guidanceForRole, type ProviderDashboardAccess } from './providerDashboardAccess';
 import { 
   generateMockTrip, 
   generateMockSystemHealth, 
@@ -38,6 +39,7 @@ import {
 
 interface DashboardFusionEngineProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
 type ViewMode = 'overview' | 'trip-replay' | 'live-monitor' | 'events';
@@ -79,7 +81,7 @@ function getPayoutStatusLabel(vendor: VendorOnboardingStatus | null, account: St
   return 'Not Connected';
 }
 
-export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps) {
+export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEngineProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [systemHealth, setSystemHealth] = useState<SystemHealth>(generateMockSystemHealth());
   const [selectedTrip, setSelectedTrip] = useState<TripData | null>(null);
@@ -230,6 +232,18 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
 
   const payoutStatusLabel = getPayoutStatusLabel(vendorOnboarding, connectAccount);
   const payoutReady = payoutStatusLabel === 'Payouts Enabled';
+  const viewModes = [
+    { id: 'overview' as const, label: 'Payouts & Readiness', icon: Wallet },
+    ...(!access.isCottage && access.canSeeEnterpriseTelemetry ? [
+      { id: 'trip-replay' as const, label: 'Trip Replay', icon: Play },
+      { id: 'live-monitor' as const, label: 'Live Monitor', icon: MapPin },
+      { id: 'events' as const, label: 'Event Log', icon: AlertCircle },
+    ] : []),
+  ];
+
+  useEffect(() => {
+    if (!viewModes.some((mode) => mode.id === viewMode)) setViewMode('overview');
+  }, [viewMode, viewModes]);
 
   return (
     <div className="min-h-screen bg-[#000000] pb-24">
@@ -244,7 +258,7 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
               Background Configuration
             </h1>
             <p className="text-[15px] text-white/70">
-              Payout readiness, optimization controls, and operational diagnostics for premium providers.
+              {guidanceForRole(access)}
             </p>
           </div>
           <div className={`px-3 py-1.5 rounded-full ${
@@ -267,12 +281,7 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
 
         {/* View Mode Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {[
-            { id: 'overview', label: 'Payouts & Readiness', icon: Wallet },
-            { id: 'trip-replay', label: 'Trip Replay', icon: Play },
-            { id: 'live-monitor', label: 'Live Monitor', icon: MapPin },
-            { id: 'events', label: 'Event Log', icon: AlertCircle },
-          ].map((mode) => (
+          {viewModes.map((mode) => (
             <motion.button
               key={mode.id}
               onClick={() => setViewMode(mode.id as ViewMode)}
@@ -296,6 +305,7 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
       {/* System Overview */}
       {viewMode === 'overview' && (
         <div className="px-4 py-6 space-y-6">
+          {!access.isCottage && (
           <ProviderPremiumGate
             title="AI Dispatch Optimization"
             description="Vendor Premium unlocks optimization-based resource recommendations and payout intelligence while keeping diagnostics visible."
@@ -305,6 +315,7 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
               'Demand-window alerts for staffing, patch placement, and boosted availability',
             ]}
           />
+          )}
 
           <motion.div
             className="overflow-hidden rounded-[30px] border border-white/14 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.18),transparent_34%),linear-gradient(135deg,rgba(17,17,20,0.98),rgba(7,8,13,0.98))] shadow-2xl backdrop-blur-xl"
@@ -389,6 +400,12 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
               </div>
             </div>
           </motion.div>
+
+          {access.isCottage && (
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4 text-[13px] leading-6 text-white/62">
+              Cottage mode hides enterprise telemetry by default. Use this page for payout setup and readiness only; booking and listing work stays in the main dashboard.
+            </div>
+          )}
 
           {/* Key Metrics */}
           <div className="grid grid-cols-2 gap-3">

@@ -2,12 +2,14 @@ import { motion } from 'motion/react';
 import { MapPin, Star, Eye, Plus, Edit, ToggleLeft, ToggleRight } from 'lucide-react';
 import { mockListings } from '../../../utils/hostMockData';
 import { useState } from 'react';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardListingsProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
-export function DashboardListings({ isDarkMode }: DashboardListingsProps) {
+export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {
   const [listings, setListings] = useState(mockListings);
 
   const springConfig = {
@@ -65,6 +67,16 @@ export function DashboardListings({ isDarkMode }: DashboardListingsProps) {
             Add Listing
           </span>
         </motion.button>
+      </motion.div>
+
+      <motion.div className="rounded-[22px] border border-cyan-300/20 bg-cyan-500/10 p-4" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
+        <p className="text-[13px] uppercase tracking-[0.18em] text-cyan-100/70" style={{ fontWeight: 850 }}>Setting up your first listing</p>
+        <ol className="mt-3 grid gap-2 text-[13px] leading-5 text-white/68 md:grid-cols-3">
+          <li>1. Add clear photos, access notes, and availability windows.</li>
+          <li>2. Set hourly/day pricing that matches local demand.</li>
+          <li>3. Use Patches to create a verified tap/scan handoff point.</li>
+        </ol>
+        {access.isCottage && <p className="mt-3 text-[12px] text-white/50">Cottage mode keeps listing setup lightweight: one service, one patch, one reliable booking flow.</p>}
       </motion.div>
 
       {/* Stats */}

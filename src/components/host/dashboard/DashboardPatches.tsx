@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, Copy, ExternalLink, Link, Plus, Radio, Shield, Smartphone } from 'lucide-react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface ProviderPatchRecord {
   id: string;
@@ -36,7 +37,7 @@ function buildPatchUrl(patchId: string, venueName: string): string {
   return `${PATCH_BASE_URL}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
 }
 
-export function DashboardPatches({ isDarkMode }: { isDarkMode: boolean }) {
+export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; access: ProviderDashboardAccess }) {
   const [venueName, setVenueName] = useState(localStorage.getItem('bytspot_provider_business_name') || '');
   const [label, setLabel] = useState('Main Entrance');
   const [patches, setPatches] = useState<ProviderPatchRecord[]>(() => readPatches());
@@ -76,6 +77,7 @@ export function DashboardPatches({ isDarkMode }: { isDarkMode: boolean }) {
         </p>
       </motion.div>
 
+      {!access.isCottage && (
       <ProviderPremiumGate
         title="Premium Patch Toolkit"
         description="Keep basic patch creation free. Unlock AI placement, boosted venue context, and QR/NFC rollout planning with Vendor Premium."
@@ -85,6 +87,7 @@ export function DashboardPatches({ isDarkMode }: { isDarkMode: boolean }) {
           'Boosted verified patch visibility for customers using Tap & Scan',
         ]}
       />
+      )}
 
       <motion.div className={`grid gap-4 rounded-[24px] border-2 border-white/20 ${panelClass} p-5 shadow-xl lg:grid-cols-[1fr_0.9fr]`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
         <div className="space-y-4">
@@ -104,6 +107,7 @@ export function DashboardPatches({ isDarkMode }: { isDarkMode: boolean }) {
         <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-500/10 p-4">
           <div className="mb-3 flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-200" /><p className="text-[16px] font-extrabold text-white">How this gets used</p></div>
           <div className="space-y-3 text-[13px] leading-5 text-white/68">
+            <p><CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-300" />Verify a patch by creating it here, then opening the Test link and confirming the venue name loads.</p>
             <p><Shield className="mr-2 inline h-4 w-4 text-emerald-300" />Create one patch per entrance, booth, lot, or event checkpoint.</p>
             <p><Smartphone className="mr-2 inline h-4 w-4 text-purple-300" />Print the link as a QR code or encode it to an NFC sticker.</p>
             <p><Link className="mr-2 inline h-4 w-4 text-cyan-300" />Customers tap/scan and open Bytspot App Clip or the full app.</p>

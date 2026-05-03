@@ -16,6 +16,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { useState } from 'react';
+import { type ProviderDashboardAccess, roleLabel } from './providerDashboardAccess';
 
 export type DashboardView = 'overview' | 'listings' | 'bookings' | 'earnings' | 'reviews' | 'calendar' | 'patches' | 'settings' | 'fusion-engine' | 'compliance';
 
@@ -25,6 +26,7 @@ interface HostDashboardLayoutProps {
   onViewChange: (view: DashboardView) => void;
   onBackToMain?: () => void;
   children: React.ReactNode;
+  access: ProviderDashboardAccess;
 }
 
 export function HostDashboardLayout({ 
@@ -32,7 +34,8 @@ export function HostDashboardLayout({
   currentView, 
   onViewChange,
   onBackToMain,
-  children 
+  children,
+  access,
 }: HostDashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -53,11 +56,11 @@ export function HostDashboardLayout({
     { id: 'patches' as const, label: 'Patches', icon: Radio },
     { id: 'compliance' as const, label: 'Compliance', icon: Shield },
     { id: 'settings' as const, label: 'Settings', icon: Settings },
-  ];
+  ].filter((item) => access.allowedViews.includes(item.id));
 
   const advancedItems = [
     { id: 'fusion-engine' as const, label: 'Background Configuration', description: 'Payouts, optimization, diagnostics', icon: Activity },
-  ];
+  ].filter((item) => access.allowedViews.includes(item.id));
 
   return (
     <div className="min-h-screen bg-[#000000]">
@@ -95,6 +98,9 @@ export function HostDashboardLayout({
           <p className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
             Host Dashboard
           </p>
+          <div className="mt-3 inline-flex rounded-full border border-white/12 bg-white/8 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>
+            {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
+          </div>
         </div>
 
         <nav className="space-y-2">
@@ -123,6 +129,7 @@ export function HostDashboardLayout({
           })}
         </nav>
 
+        {advancedItems.length > 0 && (
         <div className="mt-7 border-t border-white/10 pt-5">
           <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
             <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -159,6 +166,7 @@ export function HostDashboardLayout({
             })}
           </div>
         </div>
+        )}
 
         {onBackToMain && (
           <div className="absolute bottom-6 left-6 right-6">
@@ -204,6 +212,9 @@ export function HostDashboardLayout({
                   <p className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
                     Host Dashboard
                   </p>
+                  <div className="mt-2 inline-flex rounded-full border border-white/12 bg-white/8 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>
+                    {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
+                  </div>
                 </div>
                 
                 <button
@@ -243,6 +254,7 @@ export function HostDashboardLayout({
                 })}
               </nav>
 
+              {advancedItems.length > 0 && (
               <div className="mt-6 border-t border-white/10 pt-5">
                 <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
                   <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -282,6 +294,7 @@ export function HostDashboardLayout({
                   })}
                 </div>
               </div>
+              )}
 
               {onBackToMain && (
                 <div className="absolute bottom-6 left-6 right-6">

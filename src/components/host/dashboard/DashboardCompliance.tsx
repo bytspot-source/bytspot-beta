@@ -13,9 +13,11 @@ import {
   XCircle
 } from 'lucide-react';
 import { useState } from 'react';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardComplianceProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
 type ComplianceCategory = 'privacy' | 'security' | 'legal' | 'operational';
@@ -37,7 +39,7 @@ interface ComplianceSection {
   overallStatus: 'complete' | 'partial' | 'pending';
 }
 
-export function DashboardCompliance({ isDarkMode }: DashboardComplianceProps) {
+export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceProps) {
   const [selectedCategory, setSelectedCategory] = useState<ComplianceCategory | null>(null);
 
   const springConfig = {
@@ -239,6 +241,21 @@ export function DashboardCompliance({ isDarkMode }: DashboardComplianceProps) {
       ],
     },
   ];
+
+  if (access.isCottage) {
+    return (
+      <div className="rounded-[28px] border border-cyan-300/20 bg-cyan-500/10 p-6 text-white">
+        <h1 className="text-[28px]" style={{ fontWeight: 850 }}>Cottage compliance checklist</h1>
+        <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/62">Cottage mode keeps compliance focused on essentials: clear customer instructions, safe patch placement, privacy-friendly data collection, and payout readiness.</p>
+        <ol className="mt-5 grid gap-3 text-[14px] text-white/70 md:grid-cols-2">
+          <li className="rounded-2xl bg-black/20 p-4">1. Publish accurate listing and access details.</li>
+          <li className="rounded-2xl bg-black/20 p-4">2. Verify every patch before printing or sharing.</li>
+          <li className="rounded-2xl bg-black/20 p-4">3. Keep guest communications inside approved channels.</li>
+          <li className="rounded-2xl bg-black/20 p-4">4. Ask the Owner to review payout and tax settings.</li>
+        </ol>
+      </div>
+    );
+  }
 
   const getStatusIcon = (status: 'complete' | 'partial' | 'pending') => {
     switch (status) {

@@ -2,12 +2,14 @@ import { motion } from 'motion/react';
 import { DollarSign, TrendingUp, Calendar, CreditCard, ArrowUpRight } from 'lucide-react';
 import { mockEarnings } from '../../../utils/hostMockData';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardEarningsProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
-export function DashboardEarnings({ isDarkMode }: DashboardEarningsProps) {
+export function DashboardEarnings({ isDarkMode, access }: DashboardEarningsProps) {
   const earnings = mockEarnings;
 
   const springConfig = {
@@ -16,6 +18,15 @@ export function DashboardEarnings({ isDarkMode }: DashboardEarningsProps) {
     damping: 30,
     mass: 0.8,
   };
+
+  if (!access.canSeeFinancials) {
+    return (
+      <div className="rounded-[28px] border border-amber-300/20 bg-amber-500/10 p-6 text-white">
+        <h1 className="text-[28px]" style={{ fontWeight: 850 }}>Owner approval required</h1>
+        <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/62">Earnings, payout timing, and transactions are visible to Owners only. Managers and Staff can continue with bookings, calendar operations, and listing setup.</p>
+      </div>
+    );
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {

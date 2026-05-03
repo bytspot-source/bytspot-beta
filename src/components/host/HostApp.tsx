@@ -15,6 +15,12 @@ import { DashboardSettings } from './dashboard/DashboardSettings';
 import { DashboardFusionEngine } from './dashboard/DashboardFusionEngine';
 import { DashboardCompliance } from './dashboard/DashboardCompliance';
 import { ArrowLeft } from 'lucide-react';
+import {
+  canAccessDashboardView,
+  firstAllowedDashboardView,
+  readProviderDashboardAccess,
+  type ProviderDashboardAccess,
+} from './dashboard/providerDashboardAccess';
 
 type HostScreen = 'landing' | 'onboarding' | 'dashboard';
 
@@ -28,6 +34,7 @@ interface HostAppProps {
 export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', initialDashboardView = 'overview' }: HostAppProps) {
   const [currentScreen, setCurrentScreen] = useState<HostScreen>(initialScreen);
   const [dashboardView, setDashboardView] = useState<DashboardView>(initialDashboardView);
+  const [dashboardAccess, setDashboardAccess] = useState<ProviderDashboardAccess>(() => readProviderDashboardAccess());
   const [isLoading, setIsLoading] = useState(true);
   
   const springConfig = {
@@ -70,31 +77,51 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
     initializeHostApp();
   }, []);
 
+  useEffect(() => {
+    const refreshAccess = () => setDashboardAccess(readProviderDashboardAccess());
+    window.addEventListener('storage', refreshAccess);
+    window.addEventListener('bytspot:provider-access-updated', refreshAccess);
+    return () => {
+      window.removeEventListener('storage', refreshAccess);
+      window.removeEventListener('bytspot:provider-access-updated', refreshAccess);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canAccessDashboardView(dashboardAccess, dashboardView)) {
+      setDashboardView(firstAllowedDashboardView(dashboardAccess));
+    }
+  }, [dashboardAccess, dashboardView]);
+
   // Render dashboard content based on current view
   const renderDashboardContent = () => {
+    if (!canAccessDashboardView(dashboardAccess, dashboardView)) {
+      return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
+    }
+
     switch (dashboardView) {
       case 'overview':
-        return <DashboardHome isDarkMode={isDarkMode} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'listings':
-        return <DashboardListings isDarkMode={isDarkMode} />;
+        return <DashboardListings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'bookings':
-        return <DashboardBookings isDarkMode={isDarkMode} />;
+        return <DashboardBookings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'earnings':
-        return <DashboardEarnings isDarkMode={isDarkMode} />;
+        return <DashboardEarnings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'reviews':
         return <DashboardReviews isDarkMode={isDarkMode} />;
       case 'calendar':
         return <DashboardCalendar isDarkMode={isDarkMode} />;
       case 'patches':
-        return <DashboardPatches isDarkMode={isDarkMode} />;
+        return <DashboardPatches isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'fusion-engine':
-        return <DashboardFusionEngine isDarkMode={isDarkMode} />;
+        return <DashboardFusionEngine isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'compliance':
-        return <DashboardCompliance isDarkMode={isDarkMode} />;
+        return <DashboardCompliance isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'settings':
-        return <DashboardSettings isDarkMode={isDarkMode} />;
+        return <DashboardSettings isDarkMode={isDarkMode} access={dashboardAccess} />;
       default:
-        return <DashboardHome isDarkMode={isDarkMode} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
     }
   };
 
@@ -192,6 +219,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
                 currentView={dashboardView}
                 onViewChange={setDashboardView}
                 onBackToMain={onBackToMain}
+                access={dashboardAccess}
               >
                 <AnimatePresence mode="wait">
                   <motion.div

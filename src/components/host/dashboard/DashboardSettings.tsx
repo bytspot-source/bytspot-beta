@@ -16,14 +16,18 @@ import {
   Shield
 } from 'lucide-react';
 import { useState } from 'react';
+import { roleLabel, type ProviderBusinessMode, type ProviderDashboardAccess, type ProviderRole } from './providerDashboardAccess';
 
 interface DashboardSettingsProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
-export function DashboardSettings({ isDarkMode }: DashboardSettingsProps) {
+export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [instantBook, setInstantBook] = useState(true);
+  const [selectedRole, setSelectedRole] = useState<ProviderRole>(access.role);
+  const [businessMode, setBusinessMode] = useState<ProviderBusinessMode>(access.businessMode);
 
   const springConfig = {
     type: "spring" as const,
@@ -95,6 +99,15 @@ export function DashboardSettings({ isDarkMode }: DashboardSettingsProps) {
     },
   ];
 
+  const updateAccessPreview = (nextRole: ProviderRole, nextMode: ProviderBusinessMode) => {
+    setSelectedRole(nextRole);
+    setBusinessMode(nextMode);
+    localStorage.setItem('bytspot_provider_role', nextRole);
+    localStorage.setItem('bytspot_provider_business_mode', nextMode);
+    localStorage.setItem('bytspot_provider_is_cottage', String(nextMode === 'cottage'));
+    window.dispatchEvent(new CustomEvent('bytspot:provider-access-updated'));
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -147,6 +160,38 @@ export function DashboardSettings({ isDarkMode }: DashboardSettingsProps) {
           <div className="flex items-center gap-2 text-[15px] text-white/90">
             <MapPin className="w-4 h-4 text-white/70" strokeWidth={2.5} />
             <span>San Francisco, CA</span>
+          </div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="rounded-[20px] p-6 border-2 border-cyan-300/25 bg-cyan-500/10 backdrop-blur-xl shadow-xl"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.15 }}
+      >
+        <h2 className="text-[20px] text-white mb-2" style={{ fontWeight: 800 }}>Workspace access</h2>
+        <p className="mb-4 text-[13px] leading-5 text-white/60">Preview how the dashboard adapts for Owners, Managers, Staff, and smaller cottage businesses. Production roles should come from account metadata.</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-[12px] uppercase tracking-[0.16em] text-white/45" style={{ fontWeight: 800 }}>Role</p>
+            <div className="grid grid-cols-3 gap-2">
+              {(['owner', 'manager', 'staff'] as ProviderRole[]).map((role) => (
+                <button key={role} onClick={() => updateAccessPreview(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-white/10 bg-black/20 text-white/55'}`} style={{ fontWeight: 800 }}>
+                  {roleLabel(role)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-[12px] uppercase tracking-[0.16em] text-white/45" style={{ fontWeight: 800 }}>Business mode</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['standard', 'cottage'] as ProviderBusinessMode[]).map((mode) => (
+                <button key={mode} onClick={() => updateAccessPreview(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-white/10 bg-black/20 text-white/55'}`} style={{ fontWeight: 800 }}>
+                  {mode}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </motion.div>

@@ -43,12 +43,15 @@ declare global {
   }
 }
 
-async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardingResponse) {
-  await page.addInitScript(({ vendorName, sync, connectUrl }) => {
+async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardingResponse, access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' }) {
+  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode }) => {
     localStorage.setItem('bytspot_auth_token', 'vendor-test-token');
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     localStorage.setItem('bytspot_user_name', vendorName);
-    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'user-1', name: vendorName, businessName: vendorName }));
+    localStorage.setItem('bytspot_provider_role', providerRole);
+    localStorage.setItem('bytspot_provider_business_mode', providerBusinessMode);
+    localStorage.setItem('bytspot_provider_is_cottage', String(providerBusinessMode === 'cottage'));
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'user-1', name: vendorName, businessName: vendorName, providerRole, providerBusinessMode }));
 
     if ('serviceWorker' in navigator) {
       try {
@@ -100,7 +103,7 @@ async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardi
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { vendorName: VENDOR_NAME, sync: syncResult, connectUrl: STRIPE_CONNECT_URL });
+  }, { vendorName: VENDOR_NAME, sync: syncResult, connectUrl: STRIPE_CONNECT_URL, providerRole: access?.role ?? 'owner', providerBusinessMode: access?.businessMode ?? 'standard' });
 }
 
 async function openConnectReturn(page: Page) {
@@ -146,5 +149,33 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     const badge = page.getByTestId('stripe-connect-status-badge');
     await expect(badge).toHaveText('Action Required');
     await expect(badge).toHaveClass(/text-amber-100/);
+  });
+
+  test('curates dashboard navigation for manager cottage businesses', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, notConnectedSync, { role: 'manager', businessMode: 'cottage' });
+    await page.goto('/provider/connect/return');
+
+    await expect(page.getByText('Manager · Cottage')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Bookings', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Background Configuration/ })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Your cottage business is ready for bookings.' })).toBeVisible();
+  });
+
+  test('limits staff to operational dashboard without revenue visibility', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, notConnectedSync, { role: 'staff', businessMode: 'standard' });
+    await page.goto('/provider/connect/return');
+
+    await expect(page.getByText('Staff · Standard')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Bookings', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Listings', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Access scope')).toBeVisible();
+    await expect(page.getByText('Restricted')).toBeVisible();
+    await expect(page.getByText('$24,580')).toHaveCount(0);
   });
 });

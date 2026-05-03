@@ -763,12 +763,19 @@ export default function App() {
       );
     }
 
-    if (normalizedPath === '/provider/onboarding' || normalizedPath === '/vendor/onboarding') {
+    if (
+      normalizedPath === '/provider/onboarding' ||
+      normalizedPath === '/vendor/onboarding' ||
+      normalizedPath === '/provider/connect/return' ||
+      normalizedPath === '/provider/connect/refresh'
+    ) {
+      const isStripeConnectReturn = normalizedPath === '/provider/connect/return' || normalizedPath === '/provider/connect/refresh';
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <HostApp
             isDarkMode={isDarkMode}
-            initialScreen="onboarding"
+            initialScreen={isStripeConnectReturn ? 'dashboard' : 'onboarding'}
+            initialDashboardView={isStripeConnectReturn ? 'fusion-engine' : undefined}
             onBackToMain={openProviderLanding}
           />
         </Suspense>

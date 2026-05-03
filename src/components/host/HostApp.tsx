@@ -22,11 +22,12 @@ interface HostAppProps {
   isDarkMode: boolean;
   onBackToMain?: () => void;
   initialScreen?: HostScreen;
+  initialDashboardView?: DashboardView;
 }
 
-export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing' }: HostAppProps) {
+export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', initialDashboardView = 'overview' }: HostAppProps) {
   const [currentScreen, setCurrentScreen] = useState<HostScreen>(initialScreen);
-  const [dashboardView, setDashboardView] = useState<DashboardView>('overview');
+  const [dashboardView, setDashboardView] = useState<DashboardView>(initialDashboardView);
   const [isLoading, setIsLoading] = useState(true);
   
   const springConfig = {

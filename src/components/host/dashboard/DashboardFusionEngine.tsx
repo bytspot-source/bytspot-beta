@@ -16,10 +16,15 @@ import {
   RotateCcw,
   Download,
   Search,
-  Filter
+  Filter,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
+  Wallet
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
+import { trpc } from '../../../utils/trpc';
 import { 
   generateMockTrip, 
   generateMockSystemHealth, 
@@ -37,6 +42,43 @@ interface DashboardFusionEngineProps {
 
 type ViewMode = 'overview' | 'trip-replay' | 'live-monitor' | 'events';
 
+type VendorOnboardingStatus = {
+  id?: string;
+  displayName?: string;
+  stripeAccountId?: string | null;
+  onboardingStatus?: string;
+  updatedAt?: string;
+};
+
+type StripeConnectAccountStatus = {
+  id?: string;
+  chargesEnabled?: boolean;
+  payoutsEnabled?: boolean;
+  detailsSubmitted?: boolean;
+  disabledReason?: string | null;
+};
+
+const STRIPE_CONNECT_RETURN_PATH = '/provider/connect/return';
+const STRIPE_CONNECT_REFRESH_PATH = '/provider/connect/refresh';
+const VENDOR_PORTAL_URL = 'https://bytspot.app/provider';
+
+function getVendorDisplayName() {
+  try {
+    const user = JSON.parse(localStorage.getItem('bytspot_user') || '{}') as { name?: string; businessName?: string };
+    return user.businessName || user.name || localStorage.getItem('bytspot_user_name') || 'Bytspot Vendor';
+  } catch {
+    return localStorage.getItem('bytspot_user_name') || 'Bytspot Vendor';
+  }
+}
+
+function getPayoutStatusLabel(vendor: VendorOnboardingStatus | null, account: StripeConnectAccountStatus | null) {
+  if (account?.payoutsEnabled && account?.chargesEnabled) return 'Payouts Enabled';
+  if (vendor?.onboardingStatus === 'active') return 'Payouts Enabled';
+  if (account?.disabledReason || vendor?.onboardingStatus === 'suspended') return 'Action Required';
+  if (vendor?.stripeAccountId) return 'Action Required';
+  return 'Not Connected';
+}
+
 export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [systemHealth, setSystemHealth] = useState<SystemHealth>(generateMockSystemHealth());
@@ -44,6 +86,11 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
   const [recentEvents, setRecentEvents] = useState<GeofenceEvent[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState(0);
+  const [vendorOnboarding, setVendorOnboarding] = useState<VendorOnboardingStatus | null>(null);
+  const [connectAccount, setConnectAccount] = useState<StripeConnectAccountStatus | null>(null);
+  const [connectLoading, setConnectLoading] = useState(false);
+  const [connectStarting, setConnectStarting] = useState(false);
+  const [connectMessage, setConnectMessage] = useState<string | null>(null);
 
   const springConfig = {
     type: "spring" as const,
@@ -64,6 +111,53 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
   useEffect(() => {
     setRecentEvents(generateMockRecentEvents());
   }, []);
+
+  const syncStripeConnect = useCallback(async (source: 'initial' | 'return' | 'manual' = 'manual') => {
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token || token === 'beta_guest') {
+      setConnectMessage('Sign in with a vendor account to connect Stripe payouts.');
+      return;
+    }
+
+    setConnectLoading(true);
+    try {
+      const result = await trpc.vendors.syncOnboarding.mutate();
+      setVendorOnboarding(result?.vendor ?? null);
+      setConnectAccount(result?.account ?? null);
+
+      const label = getPayoutStatusLabel(result?.vendor ?? null, result?.account ?? null);
+      if (result?.demoMode) {
+        setConnectMessage('Stripe is not configured in this environment yet.');
+      } else if (source === 'return') {
+        setConnectMessage(
+          label === 'Payouts Enabled'
+            ? 'Stripe returned a verified payout account. Marketplace bookings can now route provider payouts.'
+            : 'Stripe returned successfully, but more account details are required before payouts are enabled.',
+        );
+      } else if (!result?.vendor?.stripeAccountId) {
+        setConnectMessage('Connect a Stripe Express account before taking paid marketplace bookings.');
+      } else {
+        setConnectMessage(null);
+      }
+    } catch (err: any) {
+      const message = String(err?.message ?? 'Unable to sync Stripe onboarding status.');
+      setConnectMessage(
+        message.includes('No vendor profile')
+          ? 'No vendor profile is connected yet. Start Stripe onboarding to create one.'
+          : message,
+      );
+    } finally {
+      setConnectLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === STRIPE_CONNECT_REFRESH_PATH) {
+      setConnectMessage('Your Stripe onboarding link expired. Generate a fresh secure link to continue.');
+    }
+    void syncStripeConnect(path === STRIPE_CONNECT_RETURN_PATH ? 'return' : 'initial');
+  }, [syncStripeConnect]);
 
   // Trip playback
   useEffect(() => {
@@ -109,6 +203,33 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
     const seconds = Math.floor((ms % 60000) / 1000);
     return `${minutes}m ${seconds}s`;
   };
+
+  const startStripeConnect = async () => {
+    if (connectStarting) return;
+    setConnectStarting(true);
+    setConnectMessage(null);
+
+    try {
+      const result = await trpc.vendors.startOnboarding.mutate({
+        displayName: vendorOnboarding?.displayName || getVendorDisplayName(),
+        refreshPath: STRIPE_CONNECT_REFRESH_PATH,
+        returnPath: STRIPE_CONNECT_RETURN_PATH,
+      });
+      if (result?.vendor) setVendorOnboarding(result.vendor);
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      setConnectMessage(result?.message ?? 'Stripe onboarding is not available yet.');
+    } catch (err: any) {
+      setConnectMessage(err?.message ?? 'Unable to start Stripe onboarding.');
+    } finally {
+      setConnectStarting(false);
+    }
+  };
+
+  const payoutStatusLabel = getPayoutStatusLabel(vendorOnboarding, connectAccount);
+  const payoutReady = payoutStatusLabel === 'Payouts Enabled';
 
   return (
     <div className="min-h-screen bg-[#000000] pb-24">
@@ -181,6 +302,86 @@ export function DashboardFusionEngine({ isDarkMode }: DashboardFusionEngineProps
               'Demand-window alerts for staffing, patch placement, and boosted availability',
             ]}
           />
+
+          <motion.div
+            className="rounded-[24px] border-2 border-cyan-300/25 bg-gradient-to-br from-cyan-500/12 to-violet-500/8 p-5 backdrop-blur-xl"
+            data-testid="stripe-connect-payout-panel"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.02 }}
+          >
+            <div className="mb-4 flex items-start gap-3">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${payoutReady ? 'bg-emerald-400/20' : 'bg-cyan-400/20'}`}>
+                {payoutReady ? <ShieldCheck className="h-6 w-6 text-emerald-200" /> : <Wallet className="h-6 w-6 text-cyan-200" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <h2 className="text-[18px] text-white" style={{ fontWeight: 800 }}>Stripe Connect Payouts</h2>
+                  <span data-testid="stripe-connect-status-badge" className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${payoutReady ? 'bg-emerald-400/20 text-emerald-100' : 'bg-amber-400/20 text-amber-100'}`} style={{ fontWeight: 850 }}>
+                    {connectLoading ? 'Syncing' : payoutStatusLabel}
+                  </span>
+                </div>
+                <p className="text-[13px] leading-5 text-white/65">
+                  Vendor Premium payout readiness for marketplace bookings. Stripe Express verifies the provider, then Bytspot routes destination-charge payouts to the connected account.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Account</p>
+                <p className="mt-1 truncate text-[13px] text-white" style={{ fontWeight: 750 }}>
+                  {vendorOnboarding?.stripeAccountId ?? connectAccount?.id ?? 'Not connected'}
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Charges</p>
+                <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 750 }}>
+                  {connectAccount?.chargesEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Pending'}
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-white/10 bg-black/25 p-3">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>Payouts</p>
+                <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 750 }}>
+                  {connectAccount?.payoutsEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Action needed'}
+                </p>
+              </div>
+            </div>
+
+            {connectMessage && (
+              <p className="mt-3 rounded-[14px] border border-white/10 bg-white/8 px-3 py-2 text-[12px] leading-5 text-white/70">
+                {connectMessage}
+              </p>
+            )}
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
+              <button
+                type="button"
+                onClick={startStripeConnect}
+                disabled={connectStarting}
+                data-testid="stripe-connect-onboarding-cta"
+                className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-white px-4 py-3 text-[13px] text-black shadow-lg disabled:opacity-60"
+                style={{ fontWeight: 850 }}
+              >
+                {connectStarting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                {payoutReady ? 'Update Stripe Payout Account' : 'Connect Stripe for Payouts'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void syncStripeConnect('manual')}
+                disabled={connectLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-[16px] border border-white/15 bg-white/10 px-4 py-3 text-[13px] text-white disabled:opacity-60"
+                style={{ fontWeight: 850 }}
+              >
+                <RefreshCw className={`h-4 w-4 ${connectLoading ? 'animate-spin' : ''}`} />
+                Sync Status
+              </button>
+            </div>
+
+            <p className="mt-3 text-[11px] leading-5 text-white/45">
+              Vendor portal: <span className="text-cyan-200">{VENDOR_PORTAL_URL}</span>
+            </p>
+          </motion.div>
 
           {/* Key Metrics */}
           <div className="grid grid-cols-2 gap-3">

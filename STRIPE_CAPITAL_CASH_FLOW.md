@@ -3,8 +3,8 @@
 This artifact uses standard Transaction Metadata, Revenue Lifecycle, and Efficiency Metrics terminology. Implementation-specific scoring details are intentionally omitted.
 
 This artifact maps Bytspot revenue streams to the approved entity structure and the current code paths that
-will support a Stripe Capital review. It distinguishes **implemented** subscription cash flow from **next-slice**
-marketplace cash flow that still needs Stripe Connect onboarding and destination-charge payment creation.
+will support a Stripe Capital review. It distinguishes implemented subscription cash flow from marketplace
+cash flow now backed by Stripe Connect onboarding, destination-charge payment creation, and frontend payout status sync.
 
 ## Entity Map
 
@@ -49,6 +49,7 @@ marketplace cash flow that still needs Stripe Connect onboarding and destination
 - Subscriptions already use plan metadata and map webhook events to the correct user entitlement flags.
 - `vendors.startOnboarding` creates Stripe Express accounts, generates account links, and stores `Vendor.stripeAccountId`.
 - `vendors.syncOnboarding` and `vendors.connectWebhook` mirror Connect readiness into `Vendor.onboardingStatus`.
+- The Vendor Dashboard Fusion Engine surface now exposes a **Connect Stripe for Payouts** CTA, redirects vendors into Stripe-hosted onboarding, and calls `vendors.syncOnboarding` when Stripe returns to `/provider/connect/return`.
 - `booking.createCheckout` creates pending marketplace bookings, Stripe Checkout Sessions, destination-charge PaymentIntents, and `application_fee_amount` values.
 - `HardwarePatch` can bind to a vendor, service, or venue. Service binding also writes `VendorService.patchId`.
 - `PointTransaction.entity` and `Booking.entity` now attach each money movement to the owning subsidiary for Stripe Capital audit exports.
@@ -60,8 +61,9 @@ marketplace cash flow that still needs Stripe Connect onboarding and destination
 2. **Point redemption ledger:** On `checkout.session.completed`, point redemptions create `PointTransaction` rows with `stripeSessionId`, optional `stripePaymentIntentId`, and `entity`.
 3. **Marketplace GMV:** `booking.createCheckout` creates a pending `Booking`, then a Stripe Checkout Session with `payment_intent_data.application_fee_amount` and `transfer_data.destination`.
 4. **Vendor payout proof:** `Booking.stripeTransferDestination` stores the connected account, while session/payment metadata carries `vendorId`, `serviceId`, `bookingId`, `entity`, `platformFeeCents`, and payout estimate.
-5. **Webhook confirmation:** Completed payment-mode sessions update the booking to `paid`, persist `stripeSessionId` / `stripePaymentIntentId`, and ledger any marketplace point redemption.
-6. **Refund/dispute handling:** Refund and dispute webhooks update booking status and restore marketplace point redemptions through `MARKETPLACE_CREDIT_REVERSAL` ledger rows tied to Stripe refund/dispute IDs.
+5. **Frontend payout readiness:** Vendors access `https://bytspot.app/provider`, open the Vendor Dashboard Fusion Engine, connect Stripe for payouts, and see `Payouts Enabled` or `Action Required` from the synced Connect account state.
+6. **Webhook confirmation:** Completed payment-mode sessions update the booking to `paid`, persist `stripeSessionId` / `stripePaymentIntentId`, and ledger any marketplace point redemption.
+7. **Refund/dispute handling:** Refund and dispute webhooks update booking status and restore marketplace point redemptions through `MARKETPLACE_CREDIT_REVERSAL` ledger rows tied to Stripe refund/dispute IDs.
 
 ## Recommended Next Implementation Slice
 

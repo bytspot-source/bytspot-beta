@@ -58,7 +58,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
         }
 
         const res = await trpc.providers.getStatus.query();
-        if (res.host) {
+        if (res?.host) {
           const { status } = res.host;
           if (status === 'approved' || status === 'pending') {
             setCurrentScreen('dashboard');

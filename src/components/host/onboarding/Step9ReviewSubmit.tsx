@@ -71,8 +71,9 @@ export function Step9ReviewSubmit({ onComplete, data, onEdit }: Step9ReviewSubmi
       title: 'Payout',
       step: 8,
       items: [
-        { label: 'Account Holder', value: data.payout?.bankAccount.accountHolder },
-        { label: 'Account Type', value: data.payout?.bankAccount.accountType },
+        { label: 'Stripe', value: data.payout?.stripeConnect?.onboardingStarted ? 'Connect Started' : 'Not Started' },
+        { label: 'Account Holder', value: data.payout?.bankAccount?.accountHolder },
+        { label: 'Account Type', value: data.payout?.bankAccount?.accountType },
         { label: 'Schedule', value: data.payout?.schedule },
       ],
     },
@@ -174,6 +175,7 @@ export function Step9ReviewSubmit({ onComplete, data, onEdit }: Step9ReviewSubmi
         transition={{ ...springConfig, delay: 0.45 }}
       >
         <motion.button
+          data-testid="provider-submit-application"
           onClick={onComplete}
           className="w-full py-4 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white shadow-2xl"
           whileTap={{ scale: 0.98 }}

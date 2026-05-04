@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { MapPin, Upload, Zap, Shield, Clock, Car } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
 
 interface Step4ListingDetailsProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['listing'];
-  hostType?: 'venue' | 'parking' | 'valet';
+  hostType?: ProviderOnboardingType;
 }
 
 export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step4ListingDetailsProps) {
-  const [address, setAddress] = useState(initialValue?.location.address || '');
-  const [notes, setNotes] = useState(initialValue?.location.notes || '');
+  const [address, setAddress] = useState(initialValue?.location?.address || '');
+  const [notes, setNotes] = useState(initialValue?.location?.notes || '');
   const [spotType, setSpotType] = useState<'outdoor' | 'covered' | 'garage' | 'valet'>(
     initialValue?.spotType || 'outdoor'
   );
@@ -19,14 +19,14 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
     initialValue?.size || 'standard'
   );
   const [amenities, setAmenities] = useState({
-    evCharging: initialValue?.amenities.evCharging || undefined,
-    covered: initialValue?.amenities.covered || false,
-    security: initialValue?.amenities.security || false,
-    gated: initialValue?.amenities.gated || false,
-    access24: initialValue?.amenities.access24 || false,
-    restroom: initialValue?.amenities.restroom || false,
-    attendant: initialValue?.amenities.attendant || false,
-    accessible: initialValue?.amenities.accessible || false,
+    evCharging: initialValue?.amenities?.evCharging || undefined,
+    covered: initialValue?.amenities?.covered || false,
+    security: initialValue?.amenities?.security || false,
+    gated: initialValue?.amenities?.gated || false,
+    access24: initialValue?.amenities?.access24 || false,
+    restroom: initialValue?.amenities?.restroom || false,
+    attendant: initialValue?.amenities?.attendant || false,
+    accessible: initialValue?.amenities?.accessible || false,
   });
 
   const springConfig = {
@@ -112,6 +112,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
               <MapPin className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-listing-address"
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -122,6 +123,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
           </div>
           
           <input
+            data-testid="provider-listing-notes"
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -146,6 +148,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
               return (
                 <button
                   key={type.id}
+                  data-testid={`provider-listing-spot-type-${type.id}`}
                   onClick={() => setSpotType(type.id)}
                   className={`p-4 rounded-[16px] border-2 transition-all ${
                     spotType === type.id
@@ -176,6 +179,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
             {sizes.map((s) => (
               <button
                 key={s.id}
+                data-testid={`provider-listing-size-${s.id}`}
                 onClick={() => setSize(s.id)}
                 className={`p-3 rounded-[16px] border-2 transition-all ${
                   size === s.id
@@ -214,6 +218,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
               return (
                 <button
                   key={amenity.key}
+                  data-testid={`provider-listing-amenity-${amenity.key}`}
                   onClick={() => toggleAmenity(amenity.key)}
                   className={`w-full flex items-center gap-3 p-4 rounded-[16px] border-2 transition-all ${
                     amenities[amenity.key]
@@ -277,6 +282,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
         transition={{ ...springConfig, delay: 0.35 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           disabled={!isValid()}
           className={`w-full py-4 rounded-full shadow-xl transition-all ${

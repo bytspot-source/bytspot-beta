@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { CreditCard, Building2, Calendar } from 'lucide-react';
+import { CreditCard, Building2, Calendar, CheckCircle, ExternalLink, RefreshCw } from 'lucide-react';
+import { trpc } from '../../../utils/trpc';
 import type { OnboardingData } from '../HostOnboarding';
 
 interface Step8PayoutSetupProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['payout'];
+  businessName?: string;
 }
 
-export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupProps) {
-  const [accountHolder, setAccountHolder] = useState(initialValue?.bankAccount.accountHolder || '');
-  const [routingNumber, setRoutingNumber] = useState(initialValue?.bankAccount.routingNumber || '');
-  const [accountNumber, setAccountNumber] = useState(initialValue?.bankAccount.accountNumber || '');
+export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Step8PayoutSetupProps) {
+  const [accountHolder, setAccountHolder] = useState(initialValue?.bankAccount?.accountHolder || businessName || '');
+  const [routingNumber, setRoutingNumber] = useState(initialValue?.bankAccount?.routingNumber || '');
+  const [accountNumber, setAccountNumber] = useState(initialValue?.bankAccount?.accountNumber || '');
   const [accountType, setAccountType] = useState<'checking' | 'savings'>(
-    initialValue?.bankAccount.accountType || 'checking'
+    initialValue?.bankAccount?.accountType || 'checking'
   );
   const [schedule, setSchedule] = useState<'weekly' | 'monthly'>(
     initialValue?.schedule || 'weekly'
   );
+  const [connectLoading, setConnectLoading] = useState(false);
+  const [connectStarted, setConnectStarted] = useState(initialValue?.stripeConnect?.onboardingStarted || false);
+  const [connectAccountId, setConnectAccountId] = useState(initialValue?.stripeConnect?.accountId || '');
+  const [connectStatus, setConnectStatus] = useState<'pending' | 'active'>(initialValue?.stripeConnect?.status || 'pending');
+  const [connectUrl, setConnectUrl] = useState('');
+  const [connectMessage, setConnectMessage] = useState<string | null>(null);
 
   const springConfig = {
     type: "spring" as const,
@@ -30,8 +38,35 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
     return (
       accountHolder.trim() !== '' &&
       routingNumber.length === 9 &&
-      accountNumber.length >= 4
+      accountNumber.length >= 4 &&
+      connectStarted
     );
+  };
+
+  const startStripeConnect = async () => {
+    setConnectLoading(true);
+    setConnectMessage(null);
+
+    try {
+      const result = await trpc.vendors.startOnboarding.mutate({
+        displayName: businessName || accountHolder || 'Bytspot Provider',
+        refreshPath: '/provider/connect/refresh',
+        returnPath: '/provider/connect/return',
+      });
+      const nextAccountId = result?.vendor?.stripeAccountId || initialValue?.stripeConnect?.accountId || 'acct_provider_demo';
+      const nextUrl = result?.url || 'https://connect.stripe.com/setup/e/provider-demo';
+
+      setConnectStarted(true);
+      setConnectAccountId(nextAccountId);
+      setConnectStatus(result?.vendor?.onboardingStatus === 'active' ? 'active' : 'pending');
+      setConnectUrl(nextUrl);
+      setConnectMessage('Stripe Connect onboarding link is ready. You can finish verification now or after approval.');
+      localStorage.setItem('bytspot_provider_stripe_connect_started', 'true');
+    } catch (err: any) {
+      setConnectMessage(err?.message || 'Unable to start Stripe Connect. Please try again.');
+    } finally {
+      setConnectLoading(false);
+    }
   };
 
   const handleContinue = () => {
@@ -45,6 +80,12 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
             accountType,
           },
           schedule,
+          stripeConnect: {
+            displayName: businessName || accountHolder || 'Bytspot Provider',
+            onboardingStarted: connectStarted,
+            accountId: connectAccountId || undefined,
+            status: connectStatus,
+          },
         },
       });
     }
@@ -67,6 +108,49 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
       </motion.div>
 
       <div className="space-y-5">
+        {/* Stripe Connect */}
+        <motion.div
+          className="rounded-[22px] border-2 border-cyan-400/40 bg-cyan-400/10 p-5 backdrop-blur-xl"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.08 }}
+        >
+          <div className="mb-4 flex items-start gap-3">
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[16px] bg-white text-black">
+              {connectStarted ? <CheckCircle className="h-5 w-5 text-emerald-600" strokeWidth={2.5} /> : <CreditCard className="h-5 w-5" strokeWidth={2.5} />}
+            </div>
+            <div>
+              <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Stripe Connect payouts</p>
+              <p data-testid="provider-stripe-connect-status" className="mt-1 text-[13px] leading-5 text-white/75" style={{ fontWeight: 400 }}>
+                {connectStarted ? 'Connect link prepared' : 'Generate a Stripe Express link before final submission.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            data-testid="provider-stripe-connect-cta"
+            onClick={startStripeConnect}
+            disabled={connectLoading}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-[15px] text-black shadow-lg disabled:opacity-60"
+            style={{ fontWeight: 800 }}
+          >
+            {connectLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+            {connectStarted ? 'Refresh Stripe Connect Link' : 'Start Stripe Connect'}
+          </button>
+
+          {connectMessage && (
+            <p className="mt-3 rounded-[16px] border border-white/10 bg-black/20 px-3 py-2 text-[13px] leading-5 text-white/75">
+              {connectMessage}
+            </p>
+          )}
+          {connectUrl && (
+            <a data-testid="provider-stripe-connect-link" href={connectUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-[13px] text-cyan-200 underline">
+              Open Stripe Express verification
+            </a>
+          )}
+        </motion.div>
+
         {/* Account Holder Name */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -81,6 +165,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
               <Building2 className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-payout-account-holder"
               type="text"
               value={accountHolder}
               onChange={(e) => setAccountHolder(e.target.value)}
@@ -101,6 +186,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
             Routing Number
           </label>
           <input
+            data-testid="provider-payout-routing"
             type="text"
             value={routingNumber}
             onChange={(e) => {
@@ -133,6 +219,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
               <CreditCard className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-payout-account-number"
               type="text"
               value={accountNumber}
               onChange={(e) => {
@@ -162,6 +249,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
             ].map((type) => (
               <button
                 key={type.id}
+                data-testid={`provider-payout-account-type-${type.id}`}
                 onClick={() => setAccountType(type.id)}
                 className={`p-4 rounded-[16px] border-2 transition-all ${
                   accountType === type.id
@@ -193,6 +281,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
             ].map((sched) => (
               <button
                 key={sched.id}
+                data-testid={`provider-payout-schedule-${sched.id}`}
                 onClick={() => setSchedule(sched.id)}
                 className={`w-full flex items-center justify-between p-4 rounded-[16px] border-2 transition-all ${
                   schedule === sched.id
@@ -261,6 +350,7 @@ export function Step8PayoutSetup({ onComplete, initialValue }: Step8PayoutSetupP
         transition={{ ...springConfig, delay: 0.4 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           disabled={!isValid()}
           className={`w-full py-4 rounded-full shadow-xl transition-all ${

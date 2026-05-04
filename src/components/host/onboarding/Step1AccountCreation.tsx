@@ -113,6 +113,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               <Mail className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-account-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -137,6 +138,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               <Phone className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-account-phone"
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -161,6 +163,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               <Lock className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-account-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -197,6 +200,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
       >
         <label className="flex items-start gap-3 cursor-pointer">
           <input
+            data-testid="provider-account-terms"
             type="checkbox"
             checked={termsAccepted}
             onChange={(e) => setTermsAccepted(e.target.checked)}
@@ -222,6 +226,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         transition={{ ...springConfig, delay: 0.5 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           disabled={!isValid()}
           className={`w-full py-4 rounded-full shadow-xl transition-all ${

@@ -38,6 +38,17 @@ async function installProviderLandingMocks(page: Page) {
   });
 }
 
+async function expectOnboardingStep(page: Page, step: number) {
+  await expect(page.getByTestId('provider-onboarding-root')).toHaveAttribute('data-current-step', String(step), { timeout: 15_000 });
+  await expect(page.getByTestId('provider-onboarding-progress')).toContainText(`Step ${step} of 10`);
+}
+
+async function continueOnboarding(page: Page) {
+  const cta = page.getByTestId('provider-onboarding-continue');
+  await cta.scrollIntoViewIfNeeded();
+  await cta.click();
+}
+
 test.describe('Provider landing route', () => {
   test.beforeEach(async ({ page }) => {
     await installProviderLandingMocks(page);
@@ -136,6 +147,93 @@ test.describe('Provider landing route', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/provider/onboarding');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('event');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_entry_source'))).toBe('provider-route');
+  });
+
+  test('runs the selected Provider role through full onboarding with state preserved and Stripe Connect started', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/provider');
+    await expect(page.getByTestId('provider-landing-root')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('provider-role-tile-event').click();
+    await page.getByTestId('provider-start-cta').click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/provider/onboarding');
+
+    await expectOnboardingStep(page, 1);
+    await page.getByTestId('provider-account-email').fill('phase4.provider@bytspot.test');
+    await page.getByTestId('provider-account-phone').fill('4155550142');
+    await page.getByTestId('provider-account-password').fill('securepass123');
+    await page.getByTestId('provider-account-terms').check();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 2);
+    await expect(page.getByTestId('provider-onboarding-type-event')).toHaveAttribute('aria-pressed', 'true');
+    await continueOnboarding(page);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_selected_type'))).toBe('event');
+
+    await expectOnboardingStep(page, 3);
+    await page.getByTestId('provider-business-legal-name').fill('Bytspot Events LLC');
+    await page.getByTestId('provider-business-contact-name').fill('Jordan Provider');
+    await page.getByTestId('provider-business-contact-title').fill('Operations Lead');
+    await page.getByTestId('provider-business-street').fill('100 Festival Way');
+    await page.getByTestId('provider-business-city').fill('Detroit');
+    await page.getByTestId('provider-business-state').fill('MI');
+    await page.getByTestId('provider-business-zip').fill('48226');
+    await page.getByTestId('provider-business-spots').fill('60');
+    await page.getByTestId('provider-business-tax-id').fill('38-1234567');
+    await continueOnboarding(page);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_name'))).toBe('Bytspot Events LLC');
+
+    await expectOnboardingStep(page, 4);
+    await page.getByTestId('provider-listing-address').fill('100 Festival Way Lot B');
+    await page.getByTestId('provider-listing-notes').fill('Use the north gate near the blue tower.');
+    await page.getByTestId('provider-listing-spot-type-covered').click();
+    await page.getByTestId('provider-listing-size-large').click();
+    await page.getByTestId('provider-listing-amenity-security').click();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 5);
+    await page.getByTestId('provider-onboarding-back').click();
+    await expectOnboardingStep(page, 4);
+    await expect(page.getByTestId('provider-listing-address')).toHaveValue('100 Festival Way Lot B');
+    await expect(page.getByTestId('provider-listing-notes')).toHaveValue('Use the north gate near the blue tower.');
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 5);
+    await page.getByTestId('provider-pricing-hourly').fill('18');
+    await page.getByTestId('provider-pricing-daily').fill('80');
+    await page.getByTestId('provider-pricing-monthly').fill('320');
+    await page.getByTestId('provider-pricing-dynamic').click();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 6);
+    await page.getByTestId('provider-availability-min-booking').selectOption('2');
+    await page.getByTestId('provider-availability-policy-moderate').click();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 7);
+    await page.getByTestId('provider-verification-id-upload').click();
+    await page.getByTestId('provider-verification-license-upload').click();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 8);
+    await expect(page.getByTestId('provider-payout-account-holder')).toHaveValue('Bytspot Events LLC');
+    await page.getByTestId('provider-stripe-connect-cta').click();
+    await expect(page.getByTestId('provider-stripe-connect-status')).toContainText('Connect link prepared');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_stripe_connect_started'))).toBe('true');
+    await page.getByTestId('provider-payout-routing').fill('021000021');
+    await page.getByTestId('provider-payout-account-number').fill('123456789');
+    await page.getByTestId('provider-payout-schedule-monthly').click();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 9);
+    await expect(page.getByRole('heading', { name: 'Review & Submit' })).toBeVisible();
+    await expect(page.getByText('Event', { exact: true })).toBeVisible();
+    await expect(page.getByText('Bytspot Events LLC')).toBeVisible();
+    await expect(page.getByText('Connect Started')).toBeVisible();
+
+    await page.getByTestId('provider-submit-application').click();
+    await expectOnboardingStep(page, 10);
+    await expect(page.getByRole('heading', { name: 'Application Submitted!' })).toBeVisible();
   });
 
   test('back-to-Parker control is announced for screen readers', async ({ page }) => {

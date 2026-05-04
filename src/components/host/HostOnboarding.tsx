@@ -22,7 +22,7 @@ export interface OnboardingData {
   };
   
   // Step 2: Host Type
-  hostType?: 'venue' | 'parking' | 'valet';
+  hostType?: ProviderOnboardingType;
   
   // Step 3: Business Info
   businessInfo?: {
@@ -104,6 +104,12 @@ export interface OnboardingData {
   
   // Step 8: Payout
   payout?: {
+    stripeConnect?: {
+      displayName: string;
+      onboardingStarted: boolean;
+      accountId?: string;
+      status: 'pending' | 'active';
+    };
     bankAccount: {
       accountHolder: string;
       routingNumber: string;
@@ -114,6 +120,22 @@ export interface OnboardingData {
   };
 }
 
+export type ProviderOnboardingType = 'venue' | 'parking' | 'event' | 'valet';
+
+const providerRoleToHostType: Record<string, ProviderOnboardingType> = {
+  parking: 'parking',
+  venue: 'venue',
+  event: 'event',
+  service: 'valet',
+};
+
+function getInitialOnboardingData(): OnboardingData {
+  if (typeof window === 'undefined') return {};
+  const selectedRole = localStorage.getItem('bytspot_provider_role') || '';
+  const hostType = providerRoleToHostType[selectedRole];
+  return hostType ? { hostType } : {};
+}
+
 interface HostOnboardingProps {
   isDarkMode: boolean;
   onComplete: () => void;
@@ -121,16 +143,16 @@ interface HostOnboardingProps {
 
 export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [onboardingData, setOnboardingData] = useState<OnboardingData>({});
+  const [onboardingData, setOnboardingData] = useState<OnboardingData>(() => getInitialOnboardingData());
 
   const totalSteps = 10;
 
   // Load saved progress from API on mount
   useEffect(() => {
     trpc.providers.getStatus.query().then((res) => {
-      if (res.host?.onboardingData) {
+      if (res?.host?.onboardingData) {
         const { currentStep, onboardingData: saved } = res.host;
-        setOnboardingData((saved as OnboardingData) || {});
+        setOnboardingData({ ...getInitialOnboardingData(), ...((saved as OnboardingData) || {}) });
         // Resume from saved step only if still in draft
         if (res.host.status === 'draft' && currentStep > 1) {
           setCurrentStep(currentStep);
@@ -143,6 +165,10 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
   const saveProgress = (step: number, data: Partial<OnboardingData>) => {
     const updatedData = { ...onboardingData, ...data };
     setOnboardingData(updatedData);
+    if (updatedData.hostType) localStorage.setItem('bytspot_provider_selected_type', updatedData.hostType);
+    if (updatedData.businessInfo?.legalName || updatedData.businessInfo?.contactName) {
+      localStorage.setItem('bytspot_provider_business_name', updatedData.businessInfo.legalName || updatedData.businessInfo.contactName);
+    }
     trpc.providers.saveHostProgress.mutate({ currentStep: step, onboardingData: updatedData as Record<string, unknown> }).catch(() => {
       // Silently ignore network errors during draft saves
     });
@@ -176,11 +202,11 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
   };
 
   return (
-    <div className="min-h-screen pt-20 pb-24">
+    <div data-testid="provider-onboarding-root" data-current-step={currentStep} className="min-h-screen pt-20 pb-24">
       {/* Progress Bar */}
       <div className="px-8 mb-8">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[13px] text-white/80" style={{ fontWeight: 600 }}>
+          <span data-testid="provider-onboarding-progress" className="text-[13px] text-white/80" style={{ fontWeight: 600 }}>
             Step {currentStep} of {totalSteps}
           </span>
           <span className="text-[13px] text-white/60" style={{ fontWeight: 500 }}>
@@ -265,6 +291,7 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
           <Step8PayoutSetup
             onComplete={handleStepComplete}
             initialValue={onboardingData.payout}
+            businessName={onboardingData.businessInfo?.legalName || onboardingData.businessInfo?.contactName || onboardingData.account?.email}
           />
         )}
         
@@ -289,6 +316,7 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
         <div className="px-8 mt-6">
           <motion.button
             onClick={handleBack}
+            data-testid="provider-onboarding-back"
             className="w-full py-3 rounded-full border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white"
             whileTap={{ scale: 0.98 }}
           >

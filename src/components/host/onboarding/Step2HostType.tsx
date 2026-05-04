@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Building2, Car, Users } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
 
 interface Step2HostTypeProps {
   onComplete: (data: Partial<OnboardingData>) => void;
-  initialValue?: 'venue' | 'parking' | 'valet';
+  initialValue?: ProviderOnboardingType;
 }
 
 export function Step2HostType({ onComplete, initialValue }: Step2HostTypeProps) {
-  const [selectedType, setSelectedType] = useState<'venue' | 'parking' | 'valet' | undefined>(initialValue);
+  const [selectedType, setSelectedType] = useState<ProviderOnboardingType | undefined>(initialValue);
 
   const springConfig = {
     type: "spring" as const,
@@ -36,16 +36,24 @@ export function Step2HostType({ onComplete, initialValue }: Step2HostTypeProps) 
       bgGradient: 'from-cyan-500/30 to-blue-500/30',
     },
     {
+      id: 'event' as const,
+      title: 'Event Partner',
+      description: 'Temporary access, guest flow, and live event demand windows',
+      icon: Building2,
+      gradient: 'from-orange-500 to-rose-500',
+      bgGradient: 'from-orange-500/30 to-rose-500/30',
+    },
+    {
       id: 'valet' as const,
-      title: 'Valet Service',
-      description: 'Professional valet and concierge services',
+      title: 'Valet / Service Team',
+      description: 'Professional valet, dispatch, and provider service operations',
       icon: Users,
       gradient: 'from-green-500 to-emerald-500',
       bgGradient: 'from-green-500/30 to-emerald-500/30',
     },
   ];
 
-  const handleSelectType = (type: 'venue' | 'parking' | 'valet') => {
+  const handleSelectType = (type: ProviderOnboardingType) => {
     setSelectedType(type);
   };
 
@@ -81,6 +89,8 @@ export function Step2HostType({ onComplete, initialValue }: Step2HostTypeProps) 
           return (
             <motion.button
               key={type.id}
+              data-testid={`provider-onboarding-type-${type.id}`}
+              aria-pressed={isSelected}
               onClick={() => handleSelectType(type.id)}
               className={`w-full rounded-[20px] p-6 border-2 transition-all duration-300 ${
                 isSelected
@@ -149,6 +159,7 @@ export function Step2HostType({ onComplete, initialValue }: Step2HostTypeProps) 
         <motion.button
           onClick={handleContinue}
           disabled={!selectedType}
+          data-testid="provider-onboarding-continue"
           className={`w-full py-4 rounded-full shadow-xl transition-all duration-300 ${
             selectedType
               ? 'bg-gradient-to-r from-purple-500 to-cyan-500 text-white cursor-pointer'

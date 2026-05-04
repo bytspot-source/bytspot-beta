@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Upload, Shield, CheckCircle } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
 
 interface Step7VerificationProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['verification'];
-  hostType?: 'venue' | 'parking' | 'valet';
+  hostType?: ProviderOnboardingType;
 }
 
 export function Step7Verification({ onComplete, initialValue, hostType }: Step7VerificationProps) {
@@ -20,7 +20,7 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
     mass: 0.8,
   };
 
-  const isCommercial = hostType === 'parking' || hostType === 'valet';
+  const isCommercial = hostType === 'parking' || hostType === 'event' || hostType === 'valet';
 
   const handleContinue = () => {
     onComplete({
@@ -64,6 +64,7 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
             Government ID
           </label>
           <button
+            data-testid="provider-verification-id-upload"
             onClick={() => setIdUploaded(true)}
             className="w-full border-2 border-dashed border-white/30 rounded-[20px] p-8 text-center bg-[#1C1C1E]/80 backdrop-blur-xl hover:border-purple-500/50 transition-colors"
           >
@@ -102,6 +103,7 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
               Business License
             </label>
             <button
+              data-testid="provider-verification-license-upload"
               onClick={() => setLicenseUploaded(true)}
               className="w-full border-2 border-dashed border-white/30 rounded-[20px] p-8 text-center bg-[#1C1C1E]/80 backdrop-blur-xl hover:border-purple-500/50 transition-colors"
             >
@@ -155,6 +157,7 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
         transition={{ ...springConfig, delay: 0.4 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           className="w-full py-4 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white shadow-xl"
           whileTap={{ scale: 0.98 }}

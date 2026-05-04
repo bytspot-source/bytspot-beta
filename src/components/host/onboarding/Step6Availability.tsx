@@ -91,6 +91,7 @@ export function Step6Availability({ onComplete, initialValue }: Step6Availabilit
             ].map((mode) => (
               <button
                 key={mode.id}
+                data-testid={`provider-availability-mode-${mode.id}`}
                 onClick={() => setAvailabilityMode(mode.id)}
                 className={`w-full flex items-center justify-between p-4 rounded-[16px] border-2 transition-all ${
                   availabilityMode === mode.id
@@ -147,6 +148,7 @@ export function Step6Availability({ onComplete, initialValue }: Step6Availabilit
                 Minimum Booking
               </div>
               <select
+                data-testid="provider-availability-min-booking"
                 value={minBooking}
                 onChange={(e) => setMinBooking(parseInt(e.target.value))}
                 className="w-full px-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white outline-none focus:border-purple-500/50"
@@ -178,6 +180,7 @@ export function Step6Availability({ onComplete, initialValue }: Step6Availabilit
             ].map((policy) => (
               <button
                 key={policy.id}
+                data-testid={`provider-availability-policy-${policy.id}`}
                 onClick={() => setCancellationPolicy(policy.id)}
                 className={`w-full flex items-center justify-between p-4 rounded-[16px] border-2 transition-all ${
                   cancellationPolicy === policy.id
@@ -223,6 +226,7 @@ export function Step6Availability({ onComplete, initialValue }: Step6Availabilit
         transition={{ ...springConfig, delay: 0.4 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           className="w-full py-4 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white shadow-xl"
           whileTap={{ scale: 0.98 }}

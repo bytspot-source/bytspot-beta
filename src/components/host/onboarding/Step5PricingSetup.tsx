@@ -145,6 +145,7 @@ export function Step5PricingSetup({ onComplete, initialValue, listing }: Step5Pr
                     <DollarSign className="w-5 h-5 text-white/60" strokeWidth={2.5} />
                   </div>
                   <input
+                    data-testid="provider-pricing-hourly"
                     type="number"
                     value={hourly}
                     onChange={(e) => setHourly(parseFloat(e.target.value) || 0)}
@@ -174,6 +175,7 @@ export function Step5PricingSetup({ onComplete, initialValue, listing }: Step5Pr
                     <DollarSign className="w-5 h-5 text-white/60" strokeWidth={2.5} />
                   </div>
                   <input
+                    data-testid="provider-pricing-daily"
                     type="number"
                     value={daily}
                     onChange={(e) => setDaily(parseFloat(e.target.value) || 0)}
@@ -203,6 +205,7 @@ export function Step5PricingSetup({ onComplete, initialValue, listing }: Step5Pr
                     <DollarSign className="w-5 h-5 text-white/60" strokeWidth={2.5} />
                   </div>
                   <input
+                    data-testid="provider-pricing-monthly"
                     type="number"
                     value={monthly}
                     onChange={(e) => setMonthly(parseFloat(e.target.value) || 0)}
@@ -236,6 +239,7 @@ export function Step5PricingSetup({ onComplete, initialValue, listing }: Step5Pr
           
           <div className="space-y-3">
             <button
+              data-testid="provider-pricing-dynamic"
               onClick={() => setDynamicEnabled(!dynamicEnabled)}
               className={`w-full flex items-center justify-between p-4 rounded-[16px] border-2 transition-all ${
                 dynamicEnabled
@@ -330,6 +334,7 @@ export function Step5PricingSetup({ onComplete, initialValue, listing }: Step5Pr
         transition={{ ...springConfig, delay: 0.45 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           className="w-full py-4 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white shadow-xl"
           whileTap={{ scale: 0.98 }}

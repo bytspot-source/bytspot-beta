@@ -1,21 +1,21 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Building2, User, MapPin, Hash } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
 
 interface Step3BusinessInfoProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['businessInfo'];
-  hostType?: 'venue' | 'parking' | 'valet';
+  hostType?: ProviderOnboardingType;
 }
 
 export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3BusinessInfoProps) {
   const [contactName, setContactName] = useState(initialValue?.contactName || '');
   const [contactTitle, setContactTitle] = useState(initialValue?.contactTitle || '');
-  const [street, setStreet] = useState(initialValue?.address.street || '');
-  const [city, setCity] = useState(initialValue?.address.city || '');
-  const [state, setState] = useState(initialValue?.address.state || '');
-  const [zipCode, setZipCode] = useState(initialValue?.address.zipCode || '');
+  const [street, setStreet] = useState(initialValue?.address?.street || '');
+  const [city, setCity] = useState(initialValue?.address?.city || '');
+  const [state, setState] = useState(initialValue?.address?.state || '');
+  const [zipCode, setZipCode] = useState(initialValue?.address?.zipCode || '');
   const [numberOfSpots, setNumberOfSpots] = useState(initialValue?.numberOfSpots || 1);
   const [legalName, setLegalName] = useState(initialValue?.legalName || '');
   const [taxId, setTaxId] = useState(initialValue?.taxId || '');
@@ -27,7 +27,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
     mass: 0.8,
   };
 
-  const isCommercial = hostType === 'parking' || hostType === 'valet';
+  const isCommercial = hostType === 'parking' || hostType === 'event' || hostType === 'valet';
 
   const isValid = () => {
     return (
@@ -69,7 +69,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
           Business Information
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          Tell us about your {hostType === 'venue' ? 'venue' : hostType === 'parking' ? 'parking operation' : 'valet service'}
+          Tell us about your {hostType === 'venue' ? 'venue' : hostType === 'parking' ? 'parking operation' : hostType === 'event' ? 'event operation' : 'valet service'}
         </p>
       </motion.div>
 
@@ -89,6 +89,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
                 <Building2 className="w-5 h-5 text-white/60" strokeWidth={2.5} />
               </div>
               <input
+                data-testid="provider-business-legal-name"
                 type="text"
                 value={legalName}
                 onChange={(e) => setLegalName(e.target.value)}
@@ -114,6 +115,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
               <User className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-business-contact-name"
               type="text"
               value={contactName}
               onChange={(e) => setContactName(e.target.value)}
@@ -135,6 +137,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
               Title / Role <span className="text-white/50">(Optional)</span>
             </label>
             <input
+              data-testid="provider-business-contact-title"
               type="text"
               value={contactTitle}
               onChange={(e) => setContactTitle(e.target.value)}
@@ -160,6 +163,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
                 <MapPin className="w-5 h-5 text-white/60" strokeWidth={2.5} />
               </div>
               <input
+                data-testid="provider-business-street"
                 type="text"
                 value={street}
                 onChange={(e) => setStreet(e.target.value)}
@@ -171,6 +175,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
             
             <div className="grid grid-cols-2 gap-3">
               <input
+                data-testid="provider-business-city"
                 type="text"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
@@ -179,6 +184,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
                 style={{ fontSize: '17px', fontWeight: 400 }}
               />
               <input
+                data-testid="provider-business-state"
                 type="text"
                 value={state}
                 onChange={(e) => setState(e.target.value)}
@@ -189,6 +195,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
             </div>
             
             <input
+              data-testid="provider-business-zip"
               type="text"
               value={zipCode}
               onChange={(e) => setZipCode(e.target.value)}
@@ -213,6 +220,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
               <Hash className="w-5 h-5 text-white/60" strokeWidth={2.5} />
             </div>
             <input
+              data-testid="provider-business-spots"
               type="number"
               min="1"
               value={numberOfSpots}
@@ -234,6 +242,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
               Tax ID / EIN
             </label>
             <input
+              data-testid="provider-business-tax-id"
               type="text"
               value={taxId}
               onChange={(e) => setTaxId(e.target.value)}
@@ -256,6 +265,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
         transition={{ ...springConfig, delay: 0.4 }}
       >
         <motion.button
+          data-testid="provider-onboarding-continue"
           onClick={handleContinue}
           disabled={!isValid()}
           className={`w-full py-4 rounded-full shadow-xl transition-all ${

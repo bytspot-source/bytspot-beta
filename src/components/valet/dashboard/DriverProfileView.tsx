@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { mockDriverProfile } from '../../../utils/valetMockData';
+// SHARED: LocationSettings exposes a userRole='parker'|'driver' API and is intentionally
+// shared between the Parker consumer shell and the Valet driver shell.
 import { LocationSettings } from '../../LocationSettings';
 import { DriverGearRegistry } from './DriverGearRegistry';
 import { DriverAccountSettings } from './DriverAccountSettings';

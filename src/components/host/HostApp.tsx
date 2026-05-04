@@ -78,7 +78,11 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
   }, []);
 
   useEffect(() => {
-    const refreshAccess = () => setDashboardAccess(readProviderDashboardAccess());
+    const refreshAccess = () => {
+      const nextAccess = readProviderDashboardAccess();
+      setDashboardAccess(nextAccess);
+      setDashboardView((currentView) => canAccessDashboardView(nextAccess, currentView) ? currentView : firstAllowedDashboardView(nextAccess));
+    };
     window.addEventListener('storage', refreshAccess);
     window.addEventListener('bytspot:provider-access-updated', refreshAccess);
     return () => {

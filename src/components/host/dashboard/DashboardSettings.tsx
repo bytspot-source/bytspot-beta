@@ -15,7 +15,7 @@ import {
   MapPin,
   Shield
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { roleLabel, type ProviderBusinessMode, type ProviderDashboardAccess, type ProviderRole } from './providerDashboardAccess';
 
 interface DashboardSettingsProps {
@@ -35,6 +35,26 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
     damping: 30,
     mass: 0.8,
   };
+
+  const tone = {
+    page: isDarkMode ? 'text-white' : 'text-slate-950',
+    strong: isDarkMode ? 'text-white' : 'text-slate-950',
+    body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
+    muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
+    faint: isDarkMode ? 'text-slate-400' : 'text-slate-500',
+    panel: isDarkMode ? 'border-white/25 bg-[#1C1C1E]/88' : 'border-slate-200 bg-white/90',
+    rowBorder: isDarkMode ? 'border-white/10' : 'border-slate-200',
+    rowHover: isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50',
+    iconBubble: isDarkMode ? 'bg-[#2C2C2E]/70 border-white/20' : 'bg-slate-100 border-slate-200',
+    workspace: isDarkMode ? 'border-cyan-300/25 bg-cyan-500/10' : 'border-cyan-200 bg-cyan-50/80',
+    quick: isDarkMode ? 'border-white/25 bg-gradient-to-br from-purple-500/10 to-cyan-500/10' : 'border-slate-200 bg-gradient-to-br from-purple-50 to-cyan-50',
+    danger: isDarkMode ? 'border-red-500/50 bg-red-500/10' : 'border-red-200 bg-red-50',
+  };
+
+  useEffect(() => {
+    setSelectedRole(access.role);
+    setBusinessMode(access.businessMode);
+  }, [access.role, access.businessMode]);
 
   const accountSettings = [
     {
@@ -109,85 +129,85 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
   };
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${tone.page}`}>
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
-        <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
+        <h1 className={`text-[34px] mb-2 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Settings
         </h1>
-        <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
+        <p className={`text-[17px] ${tone.body}`} style={{ fontWeight: 500 }}>
           Manage your account and preferences
         </p>
       </motion.div>
 
       {/* Account Information Card */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
       >
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 flex items-center justify-center">
-            <User className="w-8 h-8 text-white" strokeWidth={2.5} />
+          <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/30 to-cyan-500/30 border-2 flex items-center justify-center ${isDarkMode ? 'border-white/30' : 'border-slate-200'}`}>
+            <User className={`w-8 h-8 ${isDarkMode ? 'text-white' : 'text-slate-800'}`} strokeWidth={2.5} />
           </div>
           
           <div>
-            <h2 className="text-[20px] text-white mb-1" style={{ fontWeight: 600 }}>
+            <h2 className={`text-[20px] mb-1 ${tone.strong}`} style={{ fontWeight: 700 }}>
               Alex Johnson
             </h2>
-            <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
+            <p className={`text-[15px] ${tone.muted}`} style={{ fontWeight: 500 }}>
               Host since October 2025
             </p>
           </div>
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-[15px] text-white/90">
-            <Mail className="w-4 h-4 text-white/70" strokeWidth={2.5} />
+          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+            <Mail className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
             <span>alex.johnson@example.com</span>
           </div>
           
-          <div className="flex items-center gap-2 text-[15px] text-white/90">
-            <Phone className="w-4 h-4 text-white/70" strokeWidth={2.5} />
+          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+            <Phone className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
             <span>+1 (555) 123-4567</span>
           </div>
           
-          <div className="flex items-center gap-2 text-[15px] text-white/90">
-            <MapPin className="w-4 h-4 text-white/70" strokeWidth={2.5} />
+          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+            <MapPin className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
             <span>San Francisco, CA</span>
           </div>
         </div>
       </motion.div>
 
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-cyan-300/25 bg-cyan-500/10 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.workspace}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.15 }}
       >
-        <h2 className="text-[20px] text-white mb-2" style={{ fontWeight: 800 }}>Workspace access</h2>
-        <p className="mb-4 text-[13px] leading-5 text-white/60">Preview how the dashboard adapts for Owners, Managers, Staff, and smaller cottage businesses. Production roles should come from account metadata.</p>
+        <h2 className={`text-[20px] mb-2 ${tone.strong}`} style={{ fontWeight: 800 }}>Workspace access</h2>
+        <p className={`mb-4 text-[13px] leading-5 ${tone.body}`}>Preview how the dashboard adapts for Owners, Managers, Staff, and smaller cottage businesses. Changes are saved locally and applied immediately to navigation permissions.</p>
         <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <p className="mb-2 text-[12px] uppercase tracking-[0.16em] text-white/45" style={{ fontWeight: 800 }}>Role</p>
+            <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Role</p>
             <div className="grid grid-cols-3 gap-2">
               {(['owner', 'manager', 'staff'] as ProviderRole[]).map((role) => (
-                <button key={role} onClick={() => updateAccessPreview(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-white/10 bg-black/20 text-white/55'}`} style={{ fontWeight: 800 }}>
+                <button key={role} data-testid={`provider-role-${role}`} onClick={() => updateAccessPreview(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? (isDarkMode ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-cyan-400 bg-cyan-100 text-cyan-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {roleLabel(role)}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <p className="mb-2 text-[12px] uppercase tracking-[0.16em] text-white/45" style={{ fontWeight: 800 }}>Business mode</p>
+            <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Business mode</p>
             <div className="grid grid-cols-2 gap-2">
               {(['standard', 'cottage'] as ProviderBusinessMode[]).map((mode) => (
-                <button key={mode} onClick={() => updateAccessPreview(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-white/10 bg-black/20 text-white/55'}`} style={{ fontWeight: 800 }}>
+                <button key={mode} data-testid={`provider-mode-${mode}`} onClick={() => updateAccessPreview(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? (isDarkMode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-emerald-400 bg-emerald-100 text-emerald-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {mode}
                 </button>
               ))}
@@ -198,12 +218,12 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Account Settings */}
       <div>
-        <h2 className="text-[20px] text-white mb-4 px-2" style={{ fontWeight: 600 }}>
+        <h2 className={`text-[20px] mb-4 px-2 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Account
         </h2>
         
         <motion.div
-          className="rounded-[20px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden"
+          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.2 }}
@@ -214,26 +234,26 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
-                className={`w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors ${
-                  index !== accountSettings.length - 1 ? 'border-b-2 border-white/10' : ''
+                className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
+                  index !== accountSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}
                 whileTap={{ scale: 0.98 }}
                 transition={springConfig}
               >
-                <div className={`w-10 h-10 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center`}>
+                <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center ${tone.iconBubble}`}>
                   <Icon className={`w-5 h-5 ${setting.color}`} strokeWidth={2.5} />
                 </div>
 
                 <div className="flex-1 text-left">
-                  <div className="text-[15px] text-white mb-0.5" style={{ fontWeight: 600 }}>
+                  <div className={`text-[15px] mb-0.5 ${tone.strong}`} style={{ fontWeight: 700 }}>
                     {setting.label}
                   </div>
-                  <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                  <div className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 500 }}>
                     {setting.description}
                   </div>
                 </div>
 
-                <ChevronRight className="w-5 h-5 text-white/50" strokeWidth={2.5} />
+                <ChevronRight className={`w-5 h-5 ${tone.faint}`} strokeWidth={2.5} />
               </motion.button>
             );
           })}
@@ -242,12 +262,12 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Preferences */}
       <div>
-        <h2 className="text-[20px] text-white mb-4 px-2" style={{ fontWeight: 600 }}>
+        <h2 className={`text-[20px] mb-4 px-2 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Preferences
         </h2>
         
         <motion.div
-          className="rounded-[20px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden"
+          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
@@ -258,26 +278,26 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
-                className={`w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors ${
-                  index !== preferencesSettings.length - 1 ? 'border-b-2 border-white/10' : ''
+                className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
+                  index !== preferencesSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}
                 whileTap={{ scale: 0.98 }}
                 transition={springConfig}
               >
-                <div className={`w-10 h-10 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center`}>
+                <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center ${tone.iconBubble}`}>
                   <Icon className={`w-5 h-5 ${setting.color}`} strokeWidth={2.5} />
                 </div>
 
                 <div className="flex-1 text-left">
-                  <div className="text-[15px] text-white mb-0.5" style={{ fontWeight: 600 }}>
+                  <div className={`text-[15px] mb-0.5 ${tone.strong}`} style={{ fontWeight: 700 }}>
                     {setting.label}
                   </div>
-                  <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                  <div className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 500 }}>
                     {setting.description}
                   </div>
                 </div>
 
-                <ChevronRight className="w-5 h-5 text-white/50" strokeWidth={2.5} />
+                <ChevronRight className={`w-5 h-5 ${tone.faint}`} strokeWidth={2.5} />
               </motion.button>
             );
           })}
@@ -286,22 +306,22 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Quick Toggles */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/10 to-cyan-500/10 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.quick}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.4 }}
       >
-        <h3 className="text-[17px] text-white mb-4" style={{ fontWeight: 600 }}>
+        <h3 className={`text-[17px] mb-4 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Quick Settings
         </h3>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
+              <div className={`text-[15px] mb-1 ${tone.strong}`} style={{ fontWeight: 700 }}>
                 Push Notifications
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+              <div className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 500 }}>
                 Get alerts for new bookings
               </div>
             </div>
@@ -309,7 +329,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <button
               onClick={() => setNotificationsEnabled(!notificationsEnabled)}
               className={`w-12 h-7 rounded-full transition-colors ${
-                notificationsEnabled ? 'bg-green-500' : 'bg-white/20'
+                notificationsEnabled ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
               }`}
             >
               <motion.div
@@ -322,10 +342,10 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
+              <div className={`text-[15px] mb-1 ${tone.strong}`} style={{ fontWeight: 700 }}>
                 Instant Book
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+              <div className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 500 }}>
                 Allow guests to book without approval
               </div>
             </div>
@@ -333,7 +353,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <button
               onClick={() => setInstantBook(!instantBook)}
               className={`w-12 h-7 rounded-full transition-colors ${
-                instantBook ? 'bg-green-500' : 'bg-white/20'
+                instantBook ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
               }`}
             >
               <motion.div
@@ -348,12 +368,12 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Support & Legal */}
       <div>
-        <h2 className="text-[20px] text-white mb-4 px-2" style={{ fontWeight: 600 }}>
+        <h2 className={`text-[20px] mb-4 px-2 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Support & Legal
         </h2>
         
         <motion.div
-          className="rounded-[20px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden"
+          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.5 }}
@@ -364,26 +384,26 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
-                className={`w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors ${
-                  index !== supportSettings.length - 1 ? 'border-b-2 border-white/10' : ''
+                className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
+                  index !== supportSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}
                 whileTap={{ scale: 0.98 }}
                 transition={springConfig}
               >
-                <div className={`w-10 h-10 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center`}>
+                <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center ${tone.iconBubble}`}>
                   <Icon className={`w-5 h-5 ${setting.color}`} strokeWidth={2.5} />
                 </div>
 
                 <div className="flex-1 text-left">
-                  <div className="text-[15px] text-white mb-0.5" style={{ fontWeight: 600 }}>
+                  <div className={`text-[15px] mb-0.5 ${tone.strong}`} style={{ fontWeight: 700 }}>
                     {setting.label}
                   </div>
-                  <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                  <div className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 500 }}>
                     {setting.description}
                   </div>
                 </div>
 
-                <ChevronRight className="w-5 h-5 text-white/50" strokeWidth={2.5} />
+                <ChevronRight className={`w-5 h-5 ${tone.faint}`} strokeWidth={2.5} />
               </motion.button>
             );
           })}
@@ -392,7 +412,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Danger Zone */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-red-500/50 bg-red-500/10 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.danger}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.6 }}
@@ -418,14 +438,14 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
           </span>
         </motion.button>
 
-        <p className="text-center text-[13px] text-red-300/70 mt-3" style={{ fontWeight: 400 }}>
+        <p className={`text-center text-[13px] mt-3 ${isDarkMode ? 'text-red-200' : 'text-red-700'}`} style={{ fontWeight: 500 }}>
           This action will clear your host profile and restart onboarding
         </p>
       </motion.div>
 
       {/* App Version */}
       <div className="text-center py-4">
-        <p className="text-[13px] text-white/50" style={{ fontWeight: 400 }}>
+        <p className={`text-[13px] ${tone.faint}`} style={{ fontWeight: 500 }}>
           Bytspot Host Dashboard v1.0.0
         </p>
       </div>

@@ -237,4 +237,26 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
     expect(calls.some((call) => call.procedure.includes('vendors.updateService') && (call.input as any)?.priceCents === 17500)).toBeTruthy();
   });
+
+  test('settings role and business mode controls refresh dashboard access immediately', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync);
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.getByText('Owner · Standard')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('provider-role-staff').click();
+    await expect(page.getByText('Staff · Standard')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Listings', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('provider-role-staff')).toHaveClass(/bg-cyan/);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('staff');
+
+    await page.getByTestId('provider-role-owner').click();
+    await page.getByTestId('provider-mode-cottage').click();
+    await expect(page.getByText('Owner · Cottage')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_mode'))).toBe('cottage');
+  });
 });

@@ -43,7 +43,7 @@ export function vendorServiceToCard(
 
   return {
     id: stableNumericId(service.id, 30_000 + index),
-    type: 'entertainment',
+    type: 'service',
     name: service.title,
     image: resolveVenuePhoto({ category: 'entertainment', name: service.title }),
     distance: formatMetersDistance(opts.distanceMeters),
@@ -60,11 +60,13 @@ export function vendorServiceToCard(
     verified: patchVerified,
     entryType: 'paid',
     entryPrice: price,
+    availability: 'Available',
     vendorServiceId: service.id,
     vendorId: service.vendor.id,
     patchId: service.patch?.id ?? null,
     patchUid: service.patch?.uid ?? null,
     platformFeeCents: service.cashFlow?.platformFeeCents,
     providerPayoutEstimateCents: service.cashFlow?.providerPayoutEstimateCents,
+    vendorServiceStatus: 'active',
   } as DiscoverCard;
 }

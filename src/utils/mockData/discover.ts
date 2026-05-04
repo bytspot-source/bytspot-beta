@@ -28,7 +28,7 @@
  * - Extended fields (amenities, hours, promotions) shown in detail modal only
  */
 
-export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness';
+export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service';
 
 export interface DiscoverCard {
   id: number;
@@ -86,9 +86,83 @@ export interface DiscoverCard {
   patchUid?: string | null; // Physical patch UID, when available
   providerPayoutEstimateCents?: number; // Display/analytics only; checkout recalculates server-side
   platformFeeCents?: number; // Display/analytics only; checkout recalculates server-side
+  vendorServiceStatus?: 'active' | 'draft' | 'archived'; // Mock/API activation state for bookable services
 }
 
+export const mockVendorServiceCards: DiscoverCard[] = [
+  {
+    id: 30001,
+    type: 'service',
+    name: 'VIP Arrival',
+    image: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=800',
+    distance: '0.1 mi',
+    price: '$150.00',
+    rating: 4.9,
+    availability: 'Available',
+    description: 'Door-to-table escort with verified provider handoff and arrival coordination.',
+    location: 'Midtown Hosts',
+    features: ['Bookable vendor service', 'Midtown Hosts', '90 min', 'Patch-verified', 'Connect-ready provider'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: '$150.00',
+    vendorServiceId: 'svc-vip-arrival',
+    vendorId: 'vendor-midtown',
+    patchId: 'patch-vip',
+    patchUid: '04A1B2C3D4E5F6',
+    platformFeeCents: 1200,
+    providerPayoutEstimateCents: 13800,
+    vendorServiceStatus: 'active',
+  },
+  {
+    id: 30002,
+    type: 'service',
+    name: 'Night Market Table Assist',
+    image: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800',
+    distance: '0.3 mi',
+    price: '$85.00',
+    rating: 4.8,
+    availability: 'Available',
+    description: 'Provider-guided table setup, queue handoff, and guest coordination for busy markets.',
+    location: 'Market Concierge Co.',
+    features: ['Bookable vendor service', 'Market Concierge Co.', '45 min', 'Patch-verified'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: '$85.00',
+    vendorServiceId: 'svc-market-table-assist',
+    vendorId: 'vendor-market-concierge',
+    patchId: 'patch-market-assist',
+    patchUid: '04F1E2D3C4B5A6',
+    platformFeeCents: 680,
+    providerPayoutEstimateCents: 7820,
+    vendorServiceStatus: 'active',
+  },
+  {
+    id: 30003,
+    type: 'service',
+    name: 'Private Art Walk',
+    image: 'https://images.unsplash.com/photo-1545987796-200677ee1011?w=800',
+    distance: '0.6 mi',
+    price: '$120.00',
+    rating: 4.9,
+    availability: 'Available',
+    description: 'A local provider-led gallery route with timed entry support and access tips.',
+    location: 'Culture Loop ATL',
+    features: ['Bookable vendor service', 'Culture Loop ATL', '60 min', 'Connect-ready provider'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: '$120.00',
+    vendorServiceId: 'svc-private-art-walk',
+    vendorId: 'vendor-culture-loop',
+    patchId: null,
+    patchUid: null,
+    platformFeeCents: 960,
+    providerPayoutEstimateCents: 11040,
+    vendorServiceStatus: 'active',
+  },
+];
+
 export const discoverCards: DiscoverCard[] = [
+  ...mockVendorServiceCards,
   // Parking
   {
     id: 1,

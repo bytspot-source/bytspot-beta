@@ -15,9 +15,10 @@ test('vendorServiceToCard maps patch-verified services into paid discover cards'
     cashFlow: { platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
   }, 0, { patchVerified: true, distanceMeters: 96 });
 
-  assert.equal(card.type, 'entertainment');
+  assert.equal(card.type, 'service');
   assert.equal(card.entryType, 'paid');
   assert.equal(card.entryPrice, '$150.00');
+  assert.equal(card.vendorServiceStatus, 'active');
   assert.equal(card.vendorServiceId, 'svc-1');
   assert.equal(card.patchId, 'patch-1');
   assert.equal(card.verified, true);

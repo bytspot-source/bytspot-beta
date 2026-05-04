@@ -1,22 +1,46 @@
 import { expect, type Page, test } from '@playwright/test';
 
 const TEST_COORDS = { lat: 33.789, lng: -84.384 };
-const VENDOR_SERVICE = {
-  id: 'svc-vip-arrival',
-  title: 'VIP Arrival',
-  description: 'Door-to-table escort with verified provider handoff.',
-  priceCents: 15000,
-  currency: 'USD',
-  durationMins: 90,
-  vendor: { id: 'vendor-midtown', displayName: 'Midtown Hosts', onboardingStatus: 'active' },
-  patch: { id: 'patch-vip', uid: '04A1B2C3D4E5F6', label: 'VIP Booth' },
-  cashFlow: { platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
-};
+const VENDOR_SERVICES = [
+  {
+    id: 'svc-vip-arrival',
+    title: 'VIP Arrival',
+    description: 'Door-to-table escort with verified provider handoff.',
+    priceCents: 15000,
+    currency: 'USD',
+    durationMins: 90,
+    vendor: { id: 'vendor-midtown', displayName: 'Midtown Hosts', onboardingStatus: 'active' },
+    patch: { id: 'patch-vip', uid: '04A1B2C3D4E5F6', label: 'VIP Booth' },
+    cashFlow: { platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+  },
+  {
+    id: 'svc-market-table-assist',
+    title: 'Night Market Table Assist',
+    description: 'Queue handoff and table setup for busy markets.',
+    priceCents: 8500,
+    currency: 'USD',
+    durationMins: 45,
+    vendor: { id: 'vendor-market-concierge', displayName: 'Market Concierge Co.', onboardingStatus: 'active' },
+    patch: { id: 'patch-market-assist', uid: '04F1E2D3C4B5A6', label: 'Market Desk' },
+    cashFlow: { platformFeeCents: 680, providerPayoutEstimateCents: 7820, commissionBps: 800 },
+  },
+  {
+    id: 'svc-private-art-walk',
+    title: 'Private Art Walk',
+    description: 'Provider-led gallery route with timed entry support.',
+    priceCents: 12000,
+    currency: 'USD',
+    durationMins: 60,
+    vendor: { id: 'vendor-culture-loop', displayName: 'Culture Loop ATL', onboardingStatus: 'active' },
+    patch: null,
+    cashFlow: { platformFeeCents: 960, providerPayoutEstimateCents: 11040, commissionBps: 800 },
+  },
+];
 
 test.use({ geolocation: { latitude: TEST_COORDS.lat, longitude: TEST_COORDS.lng }, permissions: ['geolocation'] });
 
 async function installVendorServiceMocks(page: Page) {
-  await page.addInitScript(({ service }) => {
+  await page.addInitScript(({ services }) => {
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     if ('serviceWorker' in navigator) {
       try {
@@ -58,7 +82,8 @@ async function installVendorServiceMocks(page: Page) {
       const body = readJsonBody(init?.body);
       const results = procedures.map((procedure) => {
         if (procedure.includes('venues.list')) return { result: { data: { venues: [] } } };
-        if (procedure.includes('vendors.search')) return { result: { data: { services: [service], count: 1 } } };
+        if (procedure.includes('vendors.search')) return { result: { data: { services, count: services.length } } };
+        if (procedure.includes('vendors.getByPatch')) return { result: { data: { service: services[0] } } };
         if (procedure.includes('booking.createCheckout')) {
           const jsonInput = firstJsonInput(body) as Record<string, unknown> | null;
           // @ts-expect-error Playwright exposed binding
@@ -74,7 +99,7 @@ async function installVendorServiceMocks(page: Page) {
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { service: VENDOR_SERVICE });
+  }, { services: VENDOR_SERVICES });
 }
 
 async function enterMainApp(page: Page) {
@@ -86,12 +111,36 @@ async function enterMainApp(page: Page) {
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 }
 
-async function openVendorServiceCard(page: Page) {
+async function openVendorServiceCard(page: Page, serviceId = 'svc-vip-arrival') {
   await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
-  await expect(page.getByText('VIP Arrival')).toBeVisible({ timeout: 15_000 });
-  await page.getByText('VIP Arrival').click({ force: true });
+  const serviceCard = page.getByTestId(`vendor-service-quick-card-${serviceId}`);
+  await expect(serviceCard).toBeVisible({ timeout: 15_000 });
+  await serviceCard.scrollIntoViewIfNeeded();
+  await serviceCard.click({ force: true });
   await expect(page.getByTestId('vendor-service-booking-sheet')).toBeVisible({ timeout: 10_000 });
 }
+
+test('vendor service discovery cards all render as active and interactable', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await enterMainApp(page);
+  await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
+
+  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
+  for (const service of VENDOR_SERVICES) {
+    const quickCard = page.getByTestId(`vendor-service-quick-card-${service.id}`);
+    await expect(quickCard).toBeVisible();
+    await expect(quickCard).toContainText(service.title);
+    await expect(quickCard).toContainText('Active');
+
+    await quickCard.scrollIntoViewIfNeeded();
+    await quickCard.click({ force: true });
+    const sheet = page.getByTestId('vendor-service-booking-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByText(service.title)).toBeVisible();
+    await sheet.getByRole('button', { name: 'Not now' }).click({ force: true });
+    await expect(sheet).toBeHidden();
+  }
+});
 
 test('vendor service discovery card starts booking checkout', async ({ page }) => {
   const bookingPayloads: unknown[] = [];

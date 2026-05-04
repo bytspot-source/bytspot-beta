@@ -24,6 +24,7 @@ function getTypeColor(type: CardType): string {
     case 'nightlife': return 'from-fuchsia-600 to-pink-500';
     case 'entertainment': return 'from-violet-500 to-purple-500';
     case 'fitness': return 'from-green-500 to-emerald-500';
+    case 'service': return 'from-cyan-400 to-violet-500';
     default: return 'from-gray-500 to-gray-600';
   }
 }
@@ -42,6 +43,7 @@ function normalizeCardType(type: string | null | undefined): CardType | null {
     'nightlife',
     'entertainment',
     'fitness',
+    'service',
   ];
 
   return validTypes.includes(normalized as CardType)
@@ -77,7 +79,7 @@ function toEventDiscoverCard(event: AppEvent, index: number): DiscoverCard {
 }
 
 function isVendorServiceCard(card: DiscoverCard): boolean {
-  return Boolean(card.vendorServiceId);
+  return Boolean(card.vendorServiceId && card.vendorServiceStatus !== 'draft' && card.vendorServiceStatus !== 'archived');
 }
 
 function hasCheckoutAuth(): boolean {
@@ -123,6 +125,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     const dragStartTimeRef = useRef<number>(0);
     const hasDraggedRef = useRef<boolean>(false);
     const isEventCard = card.type === 'entertainment' && (!!card.eventDate || !!card.eventTime);
+    const isServiceCard = isVendorServiceCard(card);
 
     const handlePan = (_event: any, info: PanInfo) => {
       if (exitX !== null) return;
@@ -186,13 +189,13 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
         style={{ touchAction: 'none' }}
       >
         <motion.div
-          className="w-full h-full rounded-[32px] overflow-hidden border-4 border-white/30 shadow-2xl bg-[#1C1C1E] flex flex-col"
+          className={`w-full h-full rounded-[32px] overflow-hidden border-4 shadow-2xl bg-[#1C1C1E] flex flex-col ${isServiceCard ? 'border-cyan-300/70 shadow-cyan-500/20' : 'border-white/30'}`}
           onClick={handleCardTap}
           whileTap={{ scale: 0.98 }}
         >
           <div className="relative flex-shrink-0" style={{ height: '240px' }}>
             <img src={card.image} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+            <div className={`absolute inset-0 ${isServiceCard ? 'bg-gradient-to-b from-black/15 via-black/25 to-black/95' : 'bg-gradient-to-b from-transparent via-transparent to-black/80'}`} />
             <AnimatePresence>
               {isDragging && (Math.abs(dragX) > 30 || Math.abs(dragY) > 30) && (
                 <motion.div className="absolute inset-0 flex items-center justify-center pointer-events-none"
@@ -220,7 +223,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
             </AnimatePresence>
             <div className="absolute top-4 right-4 flex flex-col items-end gap-1.5">
               <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${getTypeColor(card.type)} border-2 border-white/30 shadow-lg`}>
-                <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{isEventCard ? 'event' : card.type}</span>
+                  <span className="text-[12px] text-white capitalize" style={{ fontWeight: 700 }}>{isServiceCard ? 'service' : isEventCard ? 'event' : card.type}</span>
               </div>
               {/* Entry type badge — Free (green) or Paid entry (amber with price) */}
               {card.entryType === 'paid' ? (
@@ -247,6 +250,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               )}
             </div>
             <div className="absolute bottom-0 left-0 right-0 p-5">
+              <div className={isServiceCard ? 'rounded-3xl border border-white/15 bg-black/55 p-3 shadow-2xl backdrop-blur-md' : ''}>
               <div className="flex items-center gap-2 mb-1.5">
                 <h2 className="text-title-2 text-white drop-shadow-lg">{card.name}</h2>
                 {card.verified && (
@@ -255,6 +259,11 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                   </div>
                 )}
               </div>
+              {isServiceCard && (
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-300/35 bg-cyan-300/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-cyan-100">
+                  <CreditCard className="h-3 w-3" strokeWidth={2.6} /> Ready to book
+                </div>
+              )}
               <div className="flex items-center gap-3 text-white/90 drop-shadow-md flex-wrap">
                 {isEventCard ? (
                   <>
@@ -283,14 +292,15 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                   </>
                 )}
               </div>
+              </div>
             </div>
           </div>
           <div className="flex-1 flex flex-col p-4 bg-[#1C1C1E] gap-2">
             {card.description && (<p className="text-[13px] text-white/80 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
             {card.entryType === 'paid' && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
-                <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-400/25">
-                  <span className="text-[11px] text-amber-200 whitespace-nowrap" style={{ fontWeight: 600 }}>Paid entry</span>
+                <div className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-cyan-400/15 border-cyan-300/35' : 'bg-amber-500/10 border-amber-400/25'}`}>
+                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-cyan-100' : 'text-amber-200'}`} style={{ fontWeight: 700 }}>{isServiceCard ? 'Bookable service' : 'Paid entry'}</span>
                 </div>
                 <div className="px-2.5 py-1 rounded-full bg-fuchsia-500/10 border border-fuchsia-400/25 flex items-center gap-1.5">
                   <Ticket className="w-3 h-3 text-fuchsia-300" strokeWidth={2.4} />
@@ -391,6 +401,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const cards = [...apiCards, ...googleCards].filter(card =>
     !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
   );
+  const vendorServiceCards = cards.filter(isVendorServiceCard);
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
 
@@ -790,6 +801,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             { label: '☕ Coffee',        value: 'coffee' },
             { label: '🛍️ Shopping',     value: 'shopping' },
             { label: '🎭 Events',        value: 'entertainment' },
+            { label: '🛎 Services',      value: 'service' },
             { label: '💪 Fitness',       value: 'fitness' },
             { label: '🚕 Valet',          value: 'valet' },
             { label: '🅿️ Parking',      value: 'parking' },
@@ -888,6 +900,46 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           </motion.button>
         </div>
       </div>
+
+      {vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
+        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable vendor services" data-testid="vendor-service-card-rail">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable services</p>
+              <p className="text-[12px] text-white/50" style={{ fontWeight: 600 }}>Verified providers ready for Stripe checkout</p>
+            </div>
+            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{vendorServiceCards.length} active</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            {vendorServiceCards.map((card) => (
+              <button
+                key={card.vendorServiceId ?? card.id}
+                type="button"
+                data-testid={`vendor-service-quick-card-${card.vendorServiceId}`}
+                onClick={() => handleCardClick(card)}
+                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-300/25 bg-gradient-to-br from-cyan-400/18 via-white/8 to-violet-500/16 p-3 text-left shadow-lg shadow-cyan-500/10 active:scale-[0.98]"
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="line-clamp-1 text-[15px] text-white" style={{ fontWeight: 850 }}>{card.name}</p>
+                    <p className="line-clamp-1 text-[12px] text-cyan-100/75" style={{ fontWeight: 700 }}>{card.location ?? 'Bytspot provider'}</p>
+                  </div>
+                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-black" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
+                </div>
+                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white/70" style={{ fontWeight: 600 }}>{card.description}</p>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-2.5 py-1 text-[11px] text-white/80" style={{ fontWeight: 750 }}>
+                    <Shield className="h-3 w-3 text-cyan-200" strokeWidth={2.6} /> Active
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>
+                    Book <CreditCard className="h-3 w-3" strokeWidth={2.6} />
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Empty saved state */}
       {showSavedOnly && filteredCards.length === 0 && !loading && (

@@ -64,3 +64,4 @@ yarn-error.log*
 /rerun_auth_*.txt
 /ticketing-spec-*.txt
 
+/artifacts/

@@ -260,8 +260,7 @@ export function useVenues(): UseVenuesResult {
         }
       }
 
-      const liveCards = Array.from(cardsByServiceId.values());
-      return liveCards.length ? liveCards : mockVendorServiceCards;
+      return Array.from(cardsByServiceId.values());
     } catch (err: any) {
       console.warn('[useVenues] Vendor services unavailable:', err?.message);
       return mockVendorServiceCards;

@@ -37,10 +37,43 @@ const VENDOR_SERVICES = [
   },
 ];
 
+const LIVE_VENUES = [
+  {
+    id: 'venue-standard-garage',
+    name: 'Standard API Garage',
+    slug: 'standard-api-garage',
+    address: '100 Live API Way NE',
+    category: 'parking',
+    lat: 33.7901,
+    lng: -84.3852,
+    imageUrl: '',
+    entryType: 'free',
+    entryPrice: null,
+    ticketUrl: null,
+    crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 },
+    parking: { totalAvailable: 18, spots: [{ name: 'Main Deck', type: 'garage', available: 18, total: 40, pricePerHr: 7 }] },
+  },
+  {
+    id: 'venue-standard-lounge',
+    name: 'Standard API Lounge',
+    slug: 'standard-api-lounge',
+    address: '200 Live API Ave NE',
+    category: 'nightlife',
+    lat: 33.791,
+    lng: -84.386,
+    imageUrl: '',
+    entryType: 'paid',
+    entryPrice: '$20',
+    ticketUrl: null,
+    crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 4 },
+    parking: { totalAvailable: 0, spots: [] },
+  },
+];
+
 test.use({ geolocation: { latitude: TEST_COORDS.lat, longitude: TEST_COORDS.lng }, permissions: ['geolocation'] });
 
 async function installVendorServiceMocks(page: Page) {
-  await page.addInitScript(({ services }) => {
+  await page.addInitScript(({ services, venues }) => {
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     if ('serviceWorker' in navigator) {
       try {
@@ -81,7 +114,7 @@ async function installVendorServiceMocks(page: Page) {
       const procedures = match ? match[1].split(',') : ['unknown'];
       const body = readJsonBody(init?.body);
       const results = procedures.map((procedure) => {
-        if (procedure.includes('venues.list')) return { result: { data: { venues: [] } } };
+        if (procedure.includes('venues.list')) return { result: { data: { venues } } };
         if (procedure.includes('vendors.search')) return { result: { data: { services, count: services.length } } };
         if (procedure.includes('vendors.getByPatch')) return { result: { data: { service: services[0] } } };
         if (procedure.includes('booking.createCheckout')) {
@@ -99,7 +132,7 @@ async function installVendorServiceMocks(page: Page) {
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { services: VENDOR_SERVICES });
+  }, { services: VENDOR_SERVICES, venues: LIVE_VENUES });
 }
 
 async function enterMainApp(page: Page) {
@@ -140,6 +173,19 @@ test('vendor service discovery cards all render as active and interactable', asy
     await sheet.getByRole('button', { name: 'Not now' }).click({ force: true });
     await expect(sheet).toBeHidden();
   }
+});
+
+test('standard API cards remain in the default Discover swipe deck', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await enterMainApp(page);
+  await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
+
+  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
+  const standardCard = page.getByTestId('discover-swipe-card-1');
+  await expect(standardCard).toBeVisible({ timeout: 15_000 });
+  await expect(standardCard).toContainText('Standard API Garage');
+  await expect(standardCard).toContainText('18 spots');
+  await expect(page.getByTestId('vendor-service-quick-card-svc-vip-arrival')).toBeVisible();
 });
 
 test('vendor service discovery card starts booking checkout', async ({ page }) => {

@@ -402,6 +402,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
   );
   const vendorServiceCards = cards.filter(isVendorServiceCard);
+  const standardDeckCards = cards.filter(card => !isVendorServiceCard(card));
+  const defaultDeckCards = standardDeckCards.length > 0 ? standardDeckCards : cards;
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
 
@@ -441,7 +443,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     ? eventCards
     : appliedFilter
       ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
-      : cards;
+      : defaultDeckCards;
 
   // 1b. Entry type filter (composable with category)
   if (entryTypeFilter !== 'all') {

@@ -338,8 +338,9 @@ test.describe('App Navigation Flow', () => {
     await expect(page.getByRole('heading', { name: 'Onboard fast. Start earning.' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Patches can be established and used')).toBeVisible();
 
-    await page.getByRole('button', { name: /Venue Vendor/i }).click();
-    await page.getByRole('button', { name: 'Start Venue Vendor Onboarding' }).click();
+    await page.getByTestId('provider-role-tile-venue').click();
+    await expect(page.getByTestId('provider-role-tile-venue')).toHaveAttribute('aria-checked', 'true');
+    await page.getByTestId('provider-start-cta').click();
 
     await expect(page).toHaveURL(/\/provider\/onboarding$/);
     await expect(page.getByRole('heading', { name: 'Create Your Account' })).toBeVisible({ timeout: 10_000 });

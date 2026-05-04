@@ -113,7 +113,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [isHost, setIsHost] = useState(false);
   const [isValet, setIsValet] = useState(false);
-  const isDarkMode = true; // Fixed to dark mode
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const themeParam = new URLSearchParams(window.location.search).get('theme');
+    if (themeParam === 'light') return false;
+    if (themeParam === 'dark') return true;
+    return localStorage.getItem('bytspot_theme') !== 'light';
+  });
 
   const { isOnline, isOffline } = useOffline();
   const { city: userCity, coords: cityCoords } = useCity();
@@ -181,6 +186,28 @@ export default function App() {
     localStorage.setItem('bytspot_profile_focus', 'tickets');
     setCurrentScreen('main');
     setActiveTab('profile');
+  }, []);
+
+  useEffect(() => {
+    const refreshTheme = () => {
+      const themeParam = new URLSearchParams(window.location.search).get('theme');
+      if (themeParam === 'light') {
+        setIsDarkMode(false);
+        return;
+      }
+      if (themeParam === 'dark') {
+        setIsDarkMode(true);
+        return;
+      }
+      setIsDarkMode(localStorage.getItem('bytspot_theme') !== 'light');
+    };
+
+    window.addEventListener('storage', refreshTheme);
+    window.addEventListener('bytspot:theme-updated', refreshTheme);
+    return () => {
+      window.removeEventListener('storage', refreshTheme);
+      window.removeEventListener('bytspot:theme-updated', refreshTheme);
+    };
   }, []);
 
   useEffect(() => {

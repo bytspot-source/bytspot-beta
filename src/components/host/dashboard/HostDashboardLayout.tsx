@@ -62,10 +62,52 @@ export function HostDashboardLayout({
     { id: 'fusion-engine' as const, label: 'Background Configuration', description: 'Payouts, optimization, diagnostics', icon: Activity },
   ].filter((item) => access.allowedViews.includes(item.id));
 
+  const palette = isDarkMode
+    ? {
+        shell: 'bg-[#000000]',
+        chrome: 'bg-[#1C1C1E]/95 border-white/30',
+        chromeSoft: 'bg-[#1C1C1E]/80 border-white/30',
+        title: 'text-white',
+        subtle: 'text-white/70',
+        faint: 'text-white/45',
+        pill: 'border-white/12 bg-white/8 text-white/55',
+        navInactive: 'bg-[#2C2C2E]/60 border-white/20 hover:border-white/30 text-white/70',
+        navActive: 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-white/30 text-white',
+        advLabel: 'text-white/40',
+        advInactive: 'bg-black/20 border-white/10 hover:border-white/25 text-white/70',
+        advActive: 'bg-cyan-500/15 border-cyan-300/35 text-white',
+        advIconActive: 'text-cyan-200',
+        advIconInactive: 'text-white/55',
+        advDescription: 'text-white/40',
+        divider: 'border-white/10',
+        closeBtn: 'bg-[#2C2C2E]/60 border-white/30 text-white',
+        overlay: 'bg-black/60',
+      }
+    : {
+        shell: 'bg-slate-50',
+        chrome: 'bg-white/95 border-slate-200',
+        chromeSoft: 'bg-white/90 border-slate-200',
+        title: 'text-slate-900',
+        subtle: 'text-slate-600',
+        faint: 'text-slate-500',
+        pill: 'border-slate-200 bg-slate-100 text-slate-600',
+        navInactive: 'bg-white border-slate-200 hover:border-slate-300 text-slate-700',
+        navActive: 'bg-gradient-to-br from-purple-500/15 to-cyan-500/15 border-cyan-400 text-slate-900',
+        advLabel: 'text-slate-500',
+        advInactive: 'bg-white border-slate-200 hover:border-slate-300 text-slate-700',
+        advActive: 'bg-cyan-50 border-cyan-400 text-slate-900',
+        advIconActive: 'text-cyan-700',
+        advIconInactive: 'text-slate-500',
+        advDescription: 'text-slate-500',
+        divider: 'border-slate-200',
+        closeBtn: 'bg-white border-slate-200 text-slate-700',
+        overlay: 'bg-slate-900/40',
+      };
+
   return (
-    <div className="min-h-screen bg-[#000000]">
+    <div className={`min-h-screen ${palette.shell}`}>
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 bg-[#1C1C1E]/95 backdrop-blur-xl border-b-2 border-white/30">
+      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 backdrop-blur-xl border-b-2 ${palette.chrome}`}>
         <div className="flex items-center justify-between max-w-[393px] mx-auto">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -73,32 +115,32 @@ export function HostDashboardLayout({
           >
             <Menu className="w-5 h-5 text-white" strokeWidth={2.5} />
           </button>
-          
-          <h1 className="text-[20px] text-white" style={{ fontWeight: 600 }}>
+
+          <h1 className={`text-[20px] ${palette.title}`} style={{ fontWeight: 600 }}>
             Host Dashboard
           </h1>
-          
+
           {onBackToMain && (
             <button
               onClick={onBackToMain}
-              className="w-10 h-10 rounded-full flex items-center justify-center bg-[#1C1C1E]/80 backdrop-blur-xl border-2 border-white/30 tap-target"
+              className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl border-2 tap-target ${palette.chromeSoft}`}
             >
-              <Home className="w-5 h-5 text-white" strokeWidth={2.5} />
+              <Home className={`w-5 h-5 ${palette.title}`} strokeWidth={2.5} />
             </button>
           )}
         </div>
       </div>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block fixed left-0 top-0 bottom-0 w-64 bg-[#1C1C1E]/95 backdrop-blur-xl border-r-2 border-white/30 p-6">
+      <aside className={`hidden lg:block fixed left-0 top-0 bottom-0 w-64 backdrop-blur-xl border-r-2 p-6 ${palette.chrome}`}>
         <div className="mb-8">
           <h1 className="text-[28px] text-brand-gradient mb-2" style={{ fontWeight: 700 }}>
             Bytspot
           </h1>
-          <p className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
+          <p className={`text-[15px] ${palette.subtle}`} style={{ fontWeight: 500 }}>
             Host Dashboard
           </p>
-          <div className="mt-3 inline-flex rounded-full border border-white/12 bg-white/8 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>
+          <div className={`mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
             {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
           </div>
         </div>
@@ -107,21 +149,19 @@ export function HostDashboardLayout({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentView === item.id;
-            
+
             return (
               <motion.button
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                  isActive
-                    ? 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30'
-                    : 'bg-[#2C2C2E]/60 border-2 border-white/20 hover:border-white/30'
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors border-2 ${
+                  isActive ? palette.navActive : palette.navInactive
                 }`}
                 whileTap={{ scale: 0.98 }}
                 transition={springConfig}
               >
-                <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} strokeWidth={2.5} />
-                <span className={`text-[15px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: isActive ? 600 : 500 }}>
+                <Icon className="w-5 h-5" strokeWidth={2.5} />
+                <span className="text-[15px]" style={{ fontWeight: isActive ? 600 : 500 }}>
                   {item.label}
                 </span>
               </motion.button>
@@ -130,8 +170,8 @@ export function HostDashboardLayout({
         </nav>
 
         {advancedItems.length > 0 && (
-        <div className="mt-7 border-t border-white/10 pt-5">
-          <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
+        <div className={`mt-7 border-t pt-5 ${palette.divider}`}>
+          <div className={`mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] ${palette.advLabel}`} style={{ fontWeight: 800 }}>
             <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
             Advanced settings
           </div>
@@ -144,20 +184,18 @@ export function HostDashboardLayout({
                 <motion.button
                   key={item.id}
                   onClick={() => onViewChange(item.id)}
-                  className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-colors ${
-                    isActive
-                      ? 'bg-cyan-500/15 border-2 border-cyan-300/35'
-                      : 'bg-black/20 border-2 border-white/10 hover:border-white/25'
+                  className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-colors border-2 ${
+                    isActive ? palette.advActive : palette.advInactive
                   }`}
                   whileTap={{ scale: 0.98 }}
                   transition={springConfig}
                 >
-                  <Icon className={`mt-0.5 w-5 h-5 ${isActive ? 'text-cyan-200' : 'text-white/55'}`} strokeWidth={2.5} />
+                  <Icon className={`mt-0.5 w-5 h-5 ${isActive ? palette.advIconActive : palette.advIconInactive}`} strokeWidth={2.5} />
                   <span className="text-left">
-                    <span className={`block text-[14px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: 700 }}>
+                    <span className="block text-[14px]" style={{ fontWeight: 700 }}>
                       {item.label}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-white/40" style={{ fontWeight: 500 }}>
+                    <span className={`mt-0.5 block text-[11px] ${palette.advDescription}`} style={{ fontWeight: 500 }}>
                       {item.description}
                     </span>
                   </span>
@@ -172,12 +210,12 @@ export function HostDashboardLayout({
           <div className="absolute bottom-6 left-6 right-6">
             <motion.button
               onClick={onBackToMain}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#2C2C2E]/60 border-2 border-white/20 hover:border-white/30"
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
               whileTap={{ scale: 0.98 }}
               transition={springConfig}
             >
-              <LogOut className="w-5 h-5 text-white/70" strokeWidth={2.5} />
-              <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
+              <LogOut className="w-5 h-5" strokeWidth={2.5} />
+              <span className="text-[15px]" style={{ fontWeight: 500 }}>
                 Back to Parker
               </span>
             </motion.button>
@@ -190,15 +228,15 @@ export function HostDashboardLayout({
         {sidebarOpen && (
           <>
             <motion.div
-              className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+              className={`lg:hidden fixed inset-0 backdrop-blur-sm z-50 ${palette.overlay}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSidebarOpen(false)}
             />
-            
+
             <motion.aside
-              className="lg:hidden fixed top-0 left-0 bottom-0 w-[280px] bg-[#1C1C1E]/95 backdrop-blur-xl border-r-2 border-white/30 z-50 p-6"
+              className={`lg:hidden fixed top-0 left-0 bottom-0 w-[280px] backdrop-blur-xl border-r-2 z-50 p-6 ${palette.chrome}`}
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
@@ -209,19 +247,19 @@ export function HostDashboardLayout({
                   <h1 className="text-[24px] text-brand-gradient mb-1" style={{ fontWeight: 700 }}>
                     Bytspot
                   </h1>
-                  <p className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                  <p className={`text-[13px] ${palette.subtle}`} style={{ fontWeight: 500 }}>
                     Host Dashboard
                   </p>
-                  <div className="mt-2 inline-flex rounded-full border border-white/12 bg-white/8 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45" style={{ fontWeight: 800 }}>
+                  <div className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
                     {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
                   </div>
                 </div>
-                
+
                 <button
                   onClick={() => setSidebarOpen(false)}
-                  className="w-9 h-9 rounded-full flex items-center justify-center bg-[#2C2C2E]/60 border-2 border-white/30"
+                  className={`w-9 h-9 rounded-full flex items-center justify-center border-2 ${palette.closeBtn}`}
                 >
-                  <X className="w-5 h-5 text-white" strokeWidth={2.5} />
+                  <X className="w-5 h-5" strokeWidth={2.5} />
                 </button>
               </div>
 
@@ -229,7 +267,7 @@ export function HostDashboardLayout({
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = currentView === item.id;
-                  
+
                   return (
                     <motion.button
                       key={item.id}
@@ -237,16 +275,14 @@ export function HostDashboardLayout({
                         onViewChange(item.id);
                         setSidebarOpen(false);
                       }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${
-                        isActive
-                          ? 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30'
-                          : 'bg-[#2C2C2E]/60 border-2 border-white/20'
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${
+                        isActive ? palette.navActive : palette.navInactive
                       }`}
                       whileTap={{ scale: 0.98 }}
                       transition={springConfig}
                     >
-                      <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} strokeWidth={2.5} />
-                      <span className={`text-[15px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: isActive ? 600 : 500 }}>
+                      <Icon className="w-5 h-5" strokeWidth={2.5} />
+                      <span className="text-[15px]" style={{ fontWeight: isActive ? 600 : 500 }}>
                         {item.label}
                       </span>
                     </motion.button>
@@ -255,8 +291,8 @@ export function HostDashboardLayout({
               </nav>
 
               {advancedItems.length > 0 && (
-              <div className="mt-6 border-t border-white/10 pt-5">
-                <div className="mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] text-white/40" style={{ fontWeight: 800 }}>
+              <div className={`mt-6 border-t pt-5 ${palette.divider}`}>
+                <div className={`mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] ${palette.advLabel}`} style={{ fontWeight: 800 }}>
                   <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
                   Advanced settings
                 </div>
@@ -272,20 +308,18 @@ export function HostDashboardLayout({
                           onViewChange(item.id);
                           setSidebarOpen(false);
                         }}
-                        className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl ${
-                          isActive
-                            ? 'bg-cyan-500/15 border-2 border-cyan-300/35'
-                            : 'bg-black/20 border-2 border-white/10'
+                        className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border-2 ${
+                          isActive ? palette.advActive : palette.advInactive
                         }`}
                         whileTap={{ scale: 0.98 }}
                         transition={springConfig}
                       >
-                        <Icon className={`mt-0.5 w-5 h-5 ${isActive ? 'text-cyan-200' : 'text-white/55'}`} strokeWidth={2.5} />
+                        <Icon className={`mt-0.5 w-5 h-5 ${isActive ? palette.advIconActive : palette.advIconInactive}`} strokeWidth={2.5} />
                         <span className="text-left">
-                          <span className={`block text-[14px] ${isActive ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: 700 }}>
+                          <span className="block text-[14px]" style={{ fontWeight: 700 }}>
                             {item.label}
                           </span>
-                          <span className="mt-0.5 block text-[11px] text-white/40" style={{ fontWeight: 500 }}>
+                          <span className={`mt-0.5 block text-[11px] ${palette.advDescription}`} style={{ fontWeight: 500 }}>
                             {item.description}
                           </span>
                         </span>
@@ -300,12 +334,12 @@ export function HostDashboardLayout({
                 <div className="absolute bottom-6 left-6 right-6">
                   <motion.button
                     onClick={onBackToMain}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#2C2C2E]/60 border-2 border-white/20"
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
                     whileTap={{ scale: 0.98 }}
                     transition={springConfig}
                   >
-                    <LogOut className="w-5 h-5 text-white/70" strokeWidth={2.5} />
-                    <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
+                    <LogOut className="w-5 h-5" strokeWidth={2.5} />
+                    <span className="text-[15px]" style={{ fontWeight: 500 }}>
                       Back to Parker
                     </span>
                   </motion.button>

@@ -132,12 +132,12 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
   // Show loading state
   if (isLoading) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-[#000000] flex items-center justify-center">
+      <div className={`relative min-h-screen overflow-hidden flex items-center justify-center ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <div className="w-8 h-8 rounded-full border-4 border-white/30 border-t-white animate-spin" />
+            <div className={`w-8 h-8 rounded-full border-4 ${isDarkMode ? 'border-white/30 border-t-white' : 'border-slate-300 border-t-slate-700'} animate-spin`} />
           </div>
-          <p className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
+          <p className={`text-[15px] ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`} style={{ fontWeight: 500 }}>
             Loading Host Dashboard...
           </p>
         </div>
@@ -146,11 +146,11 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#000000]">
+    <div className={`relative min-h-screen overflow-hidden ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`}>
       {/* Background gradients - Only show on landing and onboarding */}
       {currentScreen !== 'dashboard' && (
         <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-[#000000]" />
+          <div className={`absolute inset-0 ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`} />
           <div className="absolute inset-0 opacity-30 pointer-events-none">
             <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[500px] h-[500px]" 
                  style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.18) 0%, transparent 70%)' }} />

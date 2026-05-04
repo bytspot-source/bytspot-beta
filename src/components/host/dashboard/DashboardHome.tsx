@@ -61,7 +61,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
             <h1 className="max-w-2xl text-[36px] leading-[1.02] text-white lg:text-[48px]" style={{ fontWeight: 850 }}>
               {access.role === 'staff' ? 'Today’s operations are ready.' : access.isCottage ? 'Your cottage business is ready for bookings.' : 'Your marketplace is healthy and ready for bookings.'}
             </h1>
-            <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/82 lg:text-[16px]">
+            <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/90 lg:text-[16px]">
               {guidanceForRole(access)}
             </p>
           </div>
@@ -70,7 +70,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[12px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 800 }}>Next payout</p>
+                <p className="text-[12px] uppercase tracking-[0.18em] text-white/80" style={{ fontWeight: 800 }}>Next payout</p>
                 <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>${nextPayout.toLocaleString()}</p>
               </div>
               <div className="rounded-2xl bg-emerald-400/14 px-3 py-2 text-right text-emerald-100">
@@ -81,16 +81,16 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
               <div className="h-full w-[82%] rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300" />
             </div>
-            <p className="mt-3 text-[12px] leading-5 text-white/50">82% of this week’s expected payout volume has already been captured.</p>
+            <p className="mt-3 text-[12px] leading-5 text-white/80">82% of this week’s expected payout volume has already been captured.</p>
           </div>
           ) : (
-          <div className="rounded-[26px] border border-cyan-200/24 bg-cyan-400/[0.085] p-4 backdrop-blur-xl">
-            <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-100/85" style={{ fontWeight: 850 }}>Today’s operating plan</p>
+          <div className="rounded-[26px] border border-cyan-200/40 bg-cyan-950/70 p-5 shadow-[0_18px_60px_rgba(34,211,238,0.12)] backdrop-blur-xl">
+            <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Today’s operating plan</p>
             <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>{activeBookings.length} active · {upcomingBookings.length} upcoming</p>
-            <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/88">
-              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">1. Open each active booking and confirm vehicle/location details.</li>
-              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">2. Keep the calendar updated before handoff windows.</li>
-              <li className="rounded-2xl border border-white/10 bg-black/24 px-3 py-2">3. Escalate payout or account questions to the Owner.</li>
+            <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/95">
+              <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">1. Open each active booking and confirm vehicle/location details.</li>
+              <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">2. Keep the calendar updated before handoff windows.</li>
+              <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">3. Escalate payout or account questions to the Owner.</li>
             </ol>
           </div>
           )}
@@ -112,9 +112,9 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                   </span>
                 )}
               </div>
-              <p className="text-[13px] text-white/78" style={{ fontWeight: 750 }}>{card.title}</p>
+              <p className="text-[13px] text-white/90" style={{ fontWeight: 800 }}>{card.title}</p>
               <p className="mt-1 text-[31px] leading-none text-white" style={{ fontWeight: 850 }}>{card.value}</p>
-              <p className="mt-3 text-[12px] leading-5 text-white/72">{card.detail}</p>
+              <p className="mt-3 text-[12px] leading-5 text-white/90">{card.detail}</p>
             </motion.div>
           );
         })}
@@ -127,10 +127,10 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Earnings momentum</h2>
-              <p className="mt-1 text-[14px] text-white/55">Daily revenue from confirmed marketplace bookings.</p>
+              <p className="mt-1 text-[14px] text-white/80">Daily revenue from confirmed marketplace bookings.</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/6 px-4 py-2 text-right">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-white/40" style={{ fontWeight: 800 }}>This month</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-white/90" style={{ fontWeight: 800 }}>This month</p>
               <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>${mockEarnings.thisMonthEarnings.toLocaleString()}</p>
             </div>
           </div>
@@ -153,13 +153,13 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           </div>
           </>
           ) : (
-          <div className="rounded-[22px] border border-cyan-200/18 bg-cyan-300/[0.07] p-5">
+          <div className="rounded-[22px] border border-cyan-200/40 bg-slate-900/95 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.45)]">
             <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Operational guidance</h2>
-            <p className="mt-2 text-[14px] leading-6 text-white/82">Financial trends are Owner-only. This workspace keeps your role focused on bookings, calendars, listing quality, and customer handoffs.</p>
+            <p className="mt-2 text-[14px] leading-6 text-white/90">Financial trends are Owner-only. This workspace keeps your role focused on bookings, calendars, listing quality, and customer handoffs.</p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Check active bookings</div>
-              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Confirm upcoming arrivals</div>
-              <div className="rounded-2xl border border-white/10 bg-black/24 p-3 text-white/86">Report listing issues</div>
+              <div className="rounded-2xl border border-cyan-100/20 bg-cyan-950/60 p-3 text-white/95">Check active bookings</div>
+              <div className="rounded-2xl border border-cyan-100/20 bg-cyan-950/60 p-3 text-white/95">Confirm upcoming arrivals</div>
+              <div className="rounded-2xl border border-cyan-100/20 bg-cyan-950/60 p-3 text-white/95">Report listing issues</div>
             </div>
           </div>
           )}
@@ -169,7 +169,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-[21px] text-white" style={{ fontWeight: 800 }}>Today’s focus</h2>
-              <p className="mt-1 text-[13px] text-white/76">Recommended next moves.</p>
+              <p className="mt-1 text-[13px] text-white/90">Recommended next moves.</p>
             </div>
             <ArrowUpRight className="h-5 w-5 text-cyan-200" />
           </div>
@@ -177,14 +177,14 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
             {actionItems.map((item) => {
               const Icon = item.icon;
               return (
-                <button key={item.title} className="w-full rounded-[18px] border border-white/10 bg-white/[0.04] p-4 text-left transition hover:border-cyan-200/30 hover:bg-cyan-300/[0.07]">
+                <button key={item.title} className="w-full rounded-[18px] border border-white/20 bg-white/10 p-4 text-left transition hover:border-cyan-200/40 hover:bg-cyan-300/10">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
                       <Icon className="h-5 w-5 text-cyan-100" strokeWidth={2.5} />
                     </div>
                     <div>
                       <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>{item.title}</p>
-                      <p className="mt-1 text-[12px] leading-5 text-white/76">{item.detail}</p>
+                      <p className="mt-1 text-[12px] leading-5 text-white/90">{item.detail}</p>
                     </div>
                   </div>
                 </button>
@@ -208,11 +208,11 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
-                    <p className="mt-1 text-[12px] text-white/50">{booking.listingTitle}</p>
+                    <p className="mt-1 text-[12px] text-white/80">{booking.listingTitle}</p>
                   </div>
                   <p className="text-[17px] text-emerald-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/48">
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/80">
                   <Clock className="h-3.5 w-3.5" />
                   <span>{booking.duration}</span>
                   <span>•</span>
@@ -226,7 +226,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
         <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.44 }}>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Upcoming</h2>
-            <span className="text-[12px] text-white/45" style={{ fontWeight: 700 }}>Next 72 hours</span>
+            <span className="text-[12px] text-white/80" style={{ fontWeight: 750 }}>Next 72 hours</span>
           </div>
           <div className="space-y-3">
             {upcomingBookings.map((booking) => {
@@ -237,11 +237,11 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
-                      <p className="mt-1 text-[12px] text-white/50">{booking.listingTitle}</p>
+                      <p className="mt-1 text-[12px] text-white/80">{booking.listingTitle}</p>
                     </div>
                     <p className="text-[17px] text-cyan-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/48">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/80">
                     <Calendar className="h-3.5 w-3.5" />
                     <span>{formattedDate}</span>
                     <span>•</span>

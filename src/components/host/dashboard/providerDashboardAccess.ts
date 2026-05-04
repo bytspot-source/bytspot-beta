@@ -14,10 +14,10 @@ export type ProviderDashboardAccess = {
   allowedViews: DashboardView[];
 };
 
-const OWNER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'earnings', 'reviews', 'calendar', 'patches', 'compliance', 'settings', 'fusion-engine'];
+const OWNER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'earnings', 'reviews', 'calendar', 'patches', 'compliance', 'settings'];
 const MANAGER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'reviews', 'calendar', 'patches', 'settings'];
 const STAFF_VIEWS: DashboardView[] = ['overview', 'bookings', 'calendar', 'settings'];
-const COTTAGE_OWNER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'earnings', 'calendar', 'patches', 'settings', 'fusion-engine'];
+const COTTAGE_OWNER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'earnings', 'calendar', 'patches', 'settings'];
 
 function normalizeRole(value: unknown): ProviderRole {
   const normalized = String(value ?? '').toLowerCase();
@@ -66,8 +66,8 @@ export function readProviderDashboardAccess(): ProviderDashboardAccess {
     isCottage: businessMode === 'cottage',
     canSeeFinancials: role === 'owner',
     canManagePayouts: role === 'owner',
-    canSeeAdvancedConfig: role === 'owner',
-    canSeeEnterpriseTelemetry: role === 'owner' && businessMode !== 'cottage',
+    canSeeAdvancedConfig: false,
+    canSeeEnterpriseTelemetry: false,
     allowedViews: baseViews,
   };
 }
@@ -88,5 +88,5 @@ export function guidanceForRole(access: ProviderDashboardAccess): string {
   if (access.role === 'staff') return 'Staff mode shows only the tasks needed to operate today: arrivals, active bookings, and schedule handoffs.';
   if (access.role === 'manager') return 'Manager mode focuses on listings, bookings, calendars, reviews, and patch operations while keeping payout settings owner-only.';
   if (access.isCottage) return 'Cottage mode keeps your workspace lightweight: bookings, listings, patches, payouts, and a simple setup path.';
-  return 'Owner mode includes full financials, Stripe Connect payouts, compliance, and advanced diagnostics.';
+  return 'Owner mode includes full financials, Stripe Connect payouts, compliance, listings, bookings, and calendar operations.';
 }

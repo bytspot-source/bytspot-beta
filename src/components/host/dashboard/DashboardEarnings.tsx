@@ -1,16 +1,19 @@
 import { motion } from 'motion/react';
 import { DollarSign, TrendingUp, Calendar, CreditCard, ArrowUpRight } from 'lucide-react';
 import { mockEarnings } from '../../../utils/hostMockData';
+import type { ProviderReviewState } from '../../../utils/providerApproval';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardEarningsProps {
   isDarkMode: boolean;
   access: ProviderDashboardAccess;
+  reviewState?: ProviderReviewState | null;
 }
 
-export function DashboardEarnings({ isDarkMode, access }: DashboardEarningsProps) {
+export function DashboardEarnings({ isDarkMode, access, reviewState }: DashboardEarningsProps) {
   const earnings = mockEarnings;
+  const approved = reviewState?.status === 'approved';
 
   const springConfig = {
     type: "spring" as const,
@@ -67,6 +70,20 @@ export function DashboardEarnings({ isDarkMode, access }: DashboardEarningsProps
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
           Track your revenue and payouts
+        </p>
+      </motion.div>
+
+      <motion.div
+        data-testid="provider-earnings-review-state"
+        className={`rounded-[22px] border-2 p-5 ${approved ? 'border-emerald-300/25 bg-emerald-400/12' : 'border-amber-300/25 bg-amber-400/12'} text-white`}
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.08 }}
+      >
+        <p className="text-[12px] uppercase tracking-[0.18em] text-white/70" style={{ fontWeight: 850 }}>Provider review</p>
+        <h2 className="mt-2 text-[22px]" style={{ fontWeight: 850 }}>{reviewState?.label ?? 'Pending Verification'}</h2>
+        <p className="mt-2 max-w-2xl text-[14px] leading-6 text-white/72">
+          {approved ? 'Payouts and marketplace revenue tracking are cleared for normal operation.' : 'Revenue tracking remains available, but payouts stay in verification hold until required metadata and Stripe Connect are approved.'}
         </p>
       </motion.div>
 
@@ -271,7 +288,7 @@ export function DashboardEarnings({ isDarkMode, access }: DashboardEarningsProps
               Next Payout
             </h3>
             <p className="text-[15px] text-white/70 mb-4" style={{ fontWeight: 400 }}>
-              Your earnings are automatically transferred every Monday
+              {approved ? 'Your earnings are automatically transferred every Monday' : 'Payout release begins after manual verification is complete'}
             </p>
             <div className="text-[28px] text-green-400" style={{ fontWeight: 700 }}>
               ${earnings.pendingPayouts}

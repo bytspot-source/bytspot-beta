@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { trpc } from '../../utils/trpc';
+import { evaluateProviderApplication, persistProviderReviewState, readProviderReviewState, type ProviderReviewState } from '../../utils/providerApproval';
 import { HostLanding } from './HostLanding';
 import { HostOnboarding } from './HostOnboarding';
 import { HostDashboardLayout, type DashboardView } from './dashboard/HostDashboardLayout';
@@ -12,7 +13,6 @@ import { DashboardReviews } from './dashboard/DashboardReviews';
 import { DashboardCalendar } from './dashboard/DashboardCalendar';
 import { DashboardPatches } from './dashboard/DashboardPatches';
 import { DashboardSettings } from './dashboard/DashboardSettings';
-import { DashboardFusionEngine } from './dashboard/DashboardFusionEngine';
 import { DashboardCompliance } from './dashboard/DashboardCompliance';
 import { ArrowLeft } from 'lucide-react';
 import {
@@ -35,6 +35,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
   const [currentScreen, setCurrentScreen] = useState<HostScreen>(initialScreen);
   const [dashboardView, setDashboardView] = useState<DashboardView>(initialDashboardView);
   const [dashboardAccess, setDashboardAccess] = useState<ProviderDashboardAccess>(() => readProviderDashboardAccess());
+  const [providerReviewState, setProviderReviewState] = useState<ProviderReviewState | null>(() => readProviderReviewState());
   const [isLoading, setIsLoading] = useState(true);
   
   const springConfig = {
@@ -60,6 +61,11 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
         const res = await trpc.providers.getStatus.query();
         if (res?.host) {
           const { status } = res.host;
+          if (res.host.onboardingData) {
+            const reviewState = evaluateProviderApplication(res.host.onboardingData);
+            persistProviderReviewState(reviewState);
+            setProviderReviewState(reviewState);
+          }
           if (status === 'approved' || status === 'pending') {
             setCurrentScreen('dashboard');
           } else if (status === 'draft') {
@@ -83,11 +89,14 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
       setDashboardAccess(nextAccess);
       setDashboardView((currentView) => canAccessDashboardView(nextAccess, currentView) ? currentView : firstAllowedDashboardView(nextAccess));
     };
+    const refreshReview = () => setProviderReviewState(readProviderReviewState());
     window.addEventListener('storage', refreshAccess);
     window.addEventListener('bytspot:provider-access-updated', refreshAccess);
+    window.addEventListener('bytspot:provider-review-updated', refreshReview);
     return () => {
       window.removeEventListener('storage', refreshAccess);
       window.removeEventListener('bytspot:provider-access-updated', refreshAccess);
+      window.removeEventListener('bytspot:provider-review-updated', refreshReview);
     };
   }, []);
 
@@ -100,32 +109,30 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
   // Render dashboard content based on current view
   const renderDashboardContent = () => {
     if (!canAccessDashboardView(dashboardAccess, dashboardView)) {
-      return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
+      return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
     }
 
     switch (dashboardView) {
       case 'overview':
-        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
       case 'listings':
         return <DashboardListings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'bookings':
         return <DashboardBookings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'earnings':
-        return <DashboardEarnings isDarkMode={isDarkMode} access={dashboardAccess} />;
+        return <DashboardEarnings isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
       case 'reviews':
         return <DashboardReviews isDarkMode={isDarkMode} />;
       case 'calendar':
         return <DashboardCalendar isDarkMode={isDarkMode} />;
       case 'patches':
         return <DashboardPatches isDarkMode={isDarkMode} access={dashboardAccess} />;
-      case 'fusion-engine':
-        return <DashboardFusionEngine isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'compliance':
         return <DashboardCompliance isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'settings':
         return <DashboardSettings isDarkMode={isDarkMode} access={dashboardAccess} />;
       default:
-        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
     }
   };
 
@@ -205,7 +212,10 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
             >
               <HostOnboarding
                 isDarkMode={isDarkMode}
-                onComplete={() => setCurrentScreen('dashboard')}
+                onComplete={() => {
+                  setProviderReviewState(readProviderReviewState());
+                  setCurrentScreen('dashboard');
+                }}
               />
             </motion.div>
           )}
@@ -224,6 +234,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
                 onViewChange={setDashboardView}
                 onBackToMain={onBackToMain}
                 access={dashboardAccess}
+                reviewState={providerReviewState}
               >
                 <AnimatePresence mode="wait">
                   <motion.div

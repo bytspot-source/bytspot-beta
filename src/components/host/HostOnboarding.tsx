@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { trpc } from '../../utils/trpc';
 import { toast } from 'sonner@2.0.3';
+import { evaluateProviderApplication, persistProviderReviewState } from '../../utils/providerApproval';
 import { Step1AccountCreation } from './onboarding/Step1AccountCreation';
 import { Step2HostType } from './onboarding/Step2HostType';
 import { Step3BusinessInfo } from './onboarding/Step3BusinessInfo';
@@ -190,6 +191,9 @@ export function HostOnboarding({ isDarkMode, onComplete }: HostOnboardingProps) 
   };
 
   const handleSubmit = async () => {
+    const reviewState = evaluateProviderApplication(onboardingData);
+    persistProviderReviewState(reviewState);
+
     try {
       await trpc.providers.submitHostApplication.mutate();
       setCurrentStep(10); // Go to completion screen

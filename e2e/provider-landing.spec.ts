@@ -234,6 +234,27 @@ test.describe('Provider landing route', () => {
     await page.getByTestId('provider-submit-application').click();
     await expectOnboardingStep(page, 10);
     await expect(page.getByRole('heading', { name: 'Application Submitted!' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Go to Dashboard' }).click();
+    await expect(page.getByTestId('provider-dashboard-review-state')).toContainText('Pending Verification');
+    await expect(page.getByTestId('provider-dashboard-review-reasons')).toContainText('Stripe Connect must be active');
+  });
+
+  test('shows approved provider dashboard state when mandatory metadata and Stripe Connect are active', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.addInitScript(() => {
+      localStorage.setItem('bytspot_provider_review_state', JSON.stringify({
+        status: 'approved',
+        label: 'Approved',
+        reasons: [],
+        checks: { businessLegalName: true, taxId: true, verifiedAddress: true, stripeConnectActive: true },
+        updatedAt: '2026-05-04T00:00:00.000Z',
+      }));
+    });
+
+    await page.goto('/provider/connect/return');
+    await expect(page.getByTestId('provider-dashboard-review-state')).toContainText('Approved', { timeout: 15_000 });
+    await expect(page.getByText('Your marketplace is approved and ready for bookings.')).toBeVisible();
   });
 
   test('back-to-Parker control is announced for screen readers', async ({ page }) => {

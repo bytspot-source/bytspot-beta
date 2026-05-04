@@ -820,7 +820,7 @@ export default function App() {
           <HostApp
             isDarkMode={isDarkMode}
             initialScreen={isStripeConnectReturn ? 'dashboard' : 'onboarding'}
-            initialDashboardView={isStripeConnectReturn ? 'fusion-engine' : undefined}
+            initialDashboardView={isStripeConnectReturn ? 'overview' : undefined}
             onBackToMain={openProviderLanding}
           />
         </Suspense>

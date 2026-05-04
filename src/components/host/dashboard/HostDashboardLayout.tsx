@@ -10,15 +10,14 @@ import {
   X,
   LogOut,
   Home,
-  Activity,
   Shield,
   Radio,
-  SlidersHorizontal
 } from 'lucide-react';
 import { useState } from 'react';
 import { type ProviderDashboardAccess, roleLabel } from './providerDashboardAccess';
+import type { ProviderReviewState } from '../../../utils/providerApproval';
 
-export type DashboardView = 'overview' | 'listings' | 'bookings' | 'earnings' | 'reviews' | 'calendar' | 'patches' | 'settings' | 'fusion-engine' | 'compliance';
+export type DashboardView = 'overview' | 'listings' | 'bookings' | 'earnings' | 'reviews' | 'calendar' | 'patches' | 'settings' | 'compliance';
 
 interface HostDashboardLayoutProps {
   isDarkMode: boolean;
@@ -27,6 +26,7 @@ interface HostDashboardLayoutProps {
   onBackToMain?: () => void;
   children: React.ReactNode;
   access: ProviderDashboardAccess;
+  reviewState?: ProviderReviewState | null;
 }
 
 export function HostDashboardLayout({ 
@@ -36,6 +36,7 @@ export function HostDashboardLayout({
   onBackToMain,
   children,
   access,
+  reviewState,
 }: HostDashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -56,10 +57,6 @@ export function HostDashboardLayout({
     { id: 'patches' as const, label: 'Patches', icon: Radio },
     { id: 'compliance' as const, label: 'Compliance', icon: Shield },
     { id: 'settings' as const, label: 'Settings', icon: Settings },
-  ].filter((item) => access.allowedViews.includes(item.id));
-
-  const advancedItems = [
-    { id: 'fusion-engine' as const, label: 'Background Configuration', description: 'Payouts, optimization, diagnostics', icon: Activity },
   ].filter((item) => access.allowedViews.includes(item.id));
 
   const palette = isDarkMode
@@ -143,6 +140,11 @@ export function HostDashboardLayout({
           <div className={`mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
             {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
           </div>
+          {reviewState && (
+            <div data-testid="provider-dashboard-review-badge" className={`mt-2 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100'}`} style={{ fontWeight: 850 }}>
+              {reviewState.label}
+            </div>
+          )}
         </div>
 
         <nav className="space-y-2">
@@ -168,43 +170,6 @@ export function HostDashboardLayout({
             );
           })}
         </nav>
-
-        {advancedItems.length > 0 && (
-        <div className={`mt-7 border-t pt-5 ${palette.divider}`}>
-          <div className={`mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] ${palette.advLabel}`} style={{ fontWeight: 800 }}>
-            <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
-            Advanced settings
-          </div>
-          <div className="space-y-2">
-            {advancedItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = currentView === item.id;
-
-              return (
-                <motion.button
-                  key={item.id}
-                  onClick={() => onViewChange(item.id)}
-                  className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-colors border-2 ${
-                    isActive ? palette.advActive : palette.advInactive
-                  }`}
-                  whileTap={{ scale: 0.98 }}
-                  transition={springConfig}
-                >
-                  <Icon className={`mt-0.5 w-5 h-5 ${isActive ? palette.advIconActive : palette.advIconInactive}`} strokeWidth={2.5} />
-                  <span className="text-left">
-                    <span className="block text-[14px]" style={{ fontWeight: 700 }}>
-                      {item.label}
-                    </span>
-                    <span className={`mt-0.5 block text-[11px] ${palette.advDescription}`} style={{ fontWeight: 500 }}>
-                      {item.description}
-                    </span>
-                  </span>
-                </motion.button>
-              );
-            })}
-          </div>
-        </div>
-        )}
 
         {onBackToMain && (
           <div className="absolute bottom-6 left-6 right-6">
@@ -253,6 +218,11 @@ export function HostDashboardLayout({
                   <div className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
                     {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
                   </div>
+                  {reviewState && (
+                    <div data-testid="provider-dashboard-mobile-review-badge" className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100'}`} style={{ fontWeight: 850 }}>
+                      {reviewState.label}
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -289,46 +259,6 @@ export function HostDashboardLayout({
                   );
                 })}
               </nav>
-
-              {advancedItems.length > 0 && (
-              <div className={`mt-6 border-t pt-5 ${palette.divider}`}>
-                <div className={`mb-3 flex items-center gap-2 px-2 text-[11px] uppercase tracking-[0.16em] ${palette.advLabel}`} style={{ fontWeight: 800 }}>
-                  <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  Advanced settings
-                </div>
-                <div className="space-y-2">
-                  {advancedItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = currentView === item.id;
-
-                    return (
-                      <motion.button
-                        key={item.id}
-                        onClick={() => {
-                          onViewChange(item.id);
-                          setSidebarOpen(false);
-                        }}
-                        className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border-2 ${
-                          isActive ? palette.advActive : palette.advInactive
-                        }`}
-                        whileTap={{ scale: 0.98 }}
-                        transition={springConfig}
-                      >
-                        <Icon className={`mt-0.5 w-5 h-5 ${isActive ? palette.advIconActive : palette.advIconInactive}`} strokeWidth={2.5} />
-                        <span className="text-left">
-                          <span className="block text-[14px]" style={{ fontWeight: 700 }}>
-                            {item.label}
-                          </span>
-                          <span className={`mt-0.5 block text-[11px] ${palette.advDescription}`} style={{ fontWeight: 500 }}>
-                            {item.description}
-                          </span>
-                        </span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </div>
-              )}
 
               {onBackToMain && (
                 <div className="absolute bottom-6 left-6 right-6">

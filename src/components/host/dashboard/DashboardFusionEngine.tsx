@@ -22,8 +22,7 @@ import {
   ShieldCheck,
   Wallet
 } from 'lucide-react';
-import { useCallback, useState, useEffect } from 'react';
-import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import { trpc } from '../../../utils/trpc';
 import { guidanceForRole, type ProviderDashboardAccess } from './providerDashboardAccess';
 import { 
@@ -34,7 +33,6 @@ import {
   type TripData,
   type SystemHealth,
   type GeofenceEvent,
-  type FusionDataPoint
 } from '../../../utils/fusionEngineMockData';
 
 interface DashboardFusionEngineProps {
@@ -63,6 +61,12 @@ type StripeConnectAccountStatus = {
 const STRIPE_CONNECT_RETURN_PATH = '/provider/connect/return';
 const STRIPE_CONNECT_REFRESH_PATH = '/provider/connect/refresh';
 const VENDOR_PORTAL_URL = 'https://bytspot.app/provider';
+
+const sensorToneClasses = {
+  green: { text: 'text-green-400', bar: 'bg-gradient-to-r from-green-500 to-green-400' },
+  yellow: { text: 'text-yellow-400', bar: 'bg-gradient-to-r from-yellow-500 to-yellow-400' },
+  red: { text: 'text-red-400', bar: 'bg-gradient-to-r from-red-500 to-red-400' },
+};
 
 function getVendorDisplayName() {
   try {
@@ -232,14 +236,9 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
 
   const payoutStatusLabel = getPayoutStatusLabel(vendorOnboarding, connectAccount);
   const payoutReady = payoutStatusLabel === 'Payouts Enabled';
-  const viewModes = [
+  const viewModes = useMemo(() => [
     { id: 'overview' as const, label: 'Payouts & Readiness', icon: Wallet },
-    ...(!access.isCottage && access.canSeeEnterpriseTelemetry ? [
-      { id: 'trip-replay' as const, label: 'Trip Replay', icon: Play },
-      { id: 'live-monitor' as const, label: 'Live Monitor', icon: MapPin },
-      { id: 'events' as const, label: 'Event Log', icon: AlertCircle },
-    ] : []),
-  ];
+  ], []);
 
   useEffect(() => {
     if (!viewModes.some((mode) => mode.id === viewMode)) setViewMode('overview');
@@ -252,10 +251,10 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
         <div className="mb-6 flex items-center justify-between">
           <div>
             <p className="mb-2 text-[12px] uppercase tracking-[0.22em] text-cyan-200/70" style={{ fontWeight: 850 }}>
-              Advanced settings
+              Provider settings
             </p>
             <h1 className="text-title-1 text-white mb-1">
-              Background Configuration
+              Review & payout readiness
             </h1>
             <p className="text-[15px] text-white/70">
               {guidanceForRole(access)}
@@ -306,15 +305,9 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       {viewMode === 'overview' && (
         <div className="px-4 py-6 space-y-6">
           {!access.isCottage && (
-          <ProviderPremiumGate
-            title="AI Dispatch Optimization"
-            description="Vendor Premium unlocks optimization-based resource recommendations and payout intelligence while keeping diagnostics visible."
-            features={[
-              'Resource allocation suggestions for lots, valet lanes, and event checkpoints',
-              'Premium payout recommendations using Efficiency Metrics',
-              'Demand-window alerts for staffing, patch placement, and boosted availability',
-            ]}
-          />
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4 text-[13px] leading-6 text-white/62">
+              This page is limited to deterministic provider readiness, Stripe payout status, and operational metadata. Backend-only analytics are not exposed in dashboard navigation.
+            </div>
           )}
 
           <motion.div
@@ -499,6 +492,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 };
                 const Icon = icons[sensor as keyof typeof icons];
                 const color = percentage > 90 ? 'green' : percentage > 75 ? 'yellow' : 'red';
+                const tone = sensorToneClasses[color];
                 
                 return (
                   <div key={sensor}>
@@ -509,13 +503,13 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                           {sensor.toUpperCase()}
                         </span>
                       </div>
-                      <span className={`text-[15px] text-${color}-400`} style={{ fontWeight: 700 }}>
+                      <span className={`text-[15px] ${tone.text}`} style={{ fontWeight: 700 }}>
                         {percentage.toFixed(1)}%
                       </span>
                     </div>
                     <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                       <motion.div
-                        className={`h-full rounded-full bg-gradient-to-r from-${color}-500 to-${color}-400`}
+                        className={`h-full rounded-full ${tone.bar}`}
                         initial={{ width: 0 }}
                         animate={{ width: `${percentage}%` }}
                         transition={{ duration: 1, delay: 0.3 + index * 0.1 }}
@@ -892,12 +886,10 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             </div>
             <div>
               <h4 className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                Backend Fusion Engine Ready
+                Backend services ready
               </h4>
               <p className="text-[13px] text-white/80 leading-relaxed">
-                This diagnostic interface visualizes real-time outputs from the Sensor Fusion Engine. 
-                Connect your backend Kalman Filter, trilateration, and state machine outputs here for 
-                live monitoring, dispute resolution, and quality assurance.
+                Dashboard approval and payout readiness are based on explicit provider metadata and Stripe state. Backend-only intelligence should remain server-side and should not expose protected implementation details in the provider dashboard.
               </p>
             </div>
           </div>

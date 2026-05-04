@@ -14,20 +14,24 @@ import {
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { mockBookings, mockDashboardStats, mockEarnings, mockListings } from '../../../utils/hostMockData';
+import type { ProviderReviewState } from '../../../utils/providerApproval';
 import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
   access: ProviderDashboardAccess;
+  reviewState?: ProviderReviewState | null;
 }
 
-export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
+export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHomeProps) {
   const stats = mockDashboardStats;
   const activeBookings = mockBookings.filter((booking) => booking.status === 'active');
   const upcomingBookings = mockBookings.filter((booking) => booking.status === 'upcoming').slice(0, 3);
   const activeListings = mockListings.filter((listing) => listing.status === 'active');
   const listingHealth = Math.round((activeListings.length / Math.max(1, mockListings.length)) * 100);
   const nextPayout = mockEarnings.pendingPayouts;
+  const approved = reviewState?.status === 'approved';
+  const reviewLabel = reviewState?.label ?? 'Pending Verification';
 
   const springConfig = {
     type: 'spring' as const,
@@ -44,7 +48,7 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
   ];
 
   const actionItems = [
-    { title: access.canManagePayouts ? 'Review payout setup' : 'Review today’s handoffs', detail: access.canManagePayouts ? `$${nextPayout.toLocaleString()} pending` : 'Keep arrivals and departures current', icon: access.canManagePayouts ? Wallet : Clock },
+    { title: access.canManagePayouts ? (approved ? 'Review payout setup' : 'Complete verification') : 'Review today’s handoffs', detail: access.canManagePayouts ? (approved ? `$${nextPayout.toLocaleString()} pending` : 'Resolve required metadata before payouts go live') : 'Keep arrivals and departures current', icon: access.canManagePayouts ? Wallet : Clock },
     { title: 'Improve listing health', detail: 'Add photos and availability windows', icon: MapPin },
     { title: 'Confirm upcoming bookings', detail: `${upcomingBookings.length} reservations need attention`, icon: CheckCircle2 },
   ];
@@ -58,12 +62,21 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
               <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
               {roleLabel(access.role)} command center · {access.isCottage ? 'Cottage business' : 'Provider business'}
             </div>
+            <div data-testid="provider-dashboard-review-state" className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] ${approved ? 'border-emerald-300/25 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/25 bg-amber-400/12 text-amber-100'}`} style={{ fontWeight: 850 }}>
+              <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.5} />
+              {reviewLabel}
+            </div>
             <h1 className="max-w-2xl text-[36px] leading-[1.02] text-white lg:text-[48px]" style={{ fontWeight: 850 }}>
-              {access.role === 'staff' ? 'Today’s operations are ready.' : access.isCottage ? 'Your cottage business is ready for bookings.' : 'Your marketplace is healthy and ready for bookings.'}
+              {approved ? (access.role === 'staff' ? 'Today’s operations are ready.' : access.isCottage ? 'Your cottage business is ready for bookings.' : 'Your marketplace is approved and ready for bookings.') : 'Your provider application is pending verification.'}
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/90 lg:text-[16px]">
-              {guidanceForRole(access)}
+              {approved ? guidanceForRole(access) : 'We found metadata that requires manual verification before marketplace payouts and automatic booking expansion are enabled.'}
             </p>
+            {!approved && reviewState?.reasons?.length ? (
+              <ul className="mt-4 grid gap-2 text-[13px] leading-5 text-amber-50/90" data-testid="provider-dashboard-review-reasons">
+                {reviewState.reasons.map((reason) => <li key={reason} className="rounded-2xl border border-amber-200/15 bg-amber-400/10 px-3 py-2">{reason}</li>)}
+              </ul>
+            ) : null}
           </div>
 
           {access.canSeeFinancials ? (
@@ -74,14 +87,14 @@ export function DashboardHome({ isDarkMode, access }: DashboardHomeProps) {
                 <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>${nextPayout.toLocaleString()}</p>
               </div>
               <div className="rounded-2xl bg-emerald-400/14 px-3 py-2 text-right text-emerald-100">
-                <p className="text-[11px]" style={{ fontWeight: 800 }}>On track</p>
-                <p className="text-[12px] text-emerald-100/70">Stripe-ready</p>
+                <p className="text-[11px]" style={{ fontWeight: 800 }}>{approved ? 'On track' : 'Hold'}</p>
+                <p className="text-[12px] text-emerald-100/70">{approved ? 'Stripe-ready' : 'Verification'}</p>
               </div>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
               <div className="h-full w-[82%] rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300" />
             </div>
-            <p className="mt-3 text-[12px] leading-5 text-white/80">82% of this week’s expected payout volume has already been captured.</p>
+            <p className="mt-3 text-[12px] leading-5 text-white/80">{approved ? '82% of this week’s expected payout volume has already been captured.' : 'Revenue tracking remains visible, but payout release waits for manual verification.'}</p>
           </div>
           ) : (
           <div className="rounded-[26px] border border-cyan-200/40 bg-cyan-950/70 p-5 shadow-[0_18px_60px_rgba(34,211,238,0.12)] backdrop-blur-xl">

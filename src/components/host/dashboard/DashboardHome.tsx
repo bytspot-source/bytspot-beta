@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowUpRight,
@@ -6,18 +7,41 @@ import {
   ClipboardList,
   Clock,
   DollarSign,
+  ExternalLink,
   Inbox,
   LineChart as LineChartIcon,
   MapPin,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Star,
   Wallet,
 } from 'lucide-react';
 import type { ProviderReviewState } from '../../../utils/providerApproval';
-import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { useProviderDashboardData, type DashboardConnectStatus } from '../../../utils/providerDashboardData';
+import { trpc } from '../../../utils/trpc';
 import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
 import type { DashboardView } from './HostDashboardLayout';
+
+const STRIPE_CONNECT_RETURN_PATH = '/provider/connect/return';
+const STRIPE_CONNECT_REFRESH_PATH = '/provider/connect/refresh';
+
+type PayoutStatusLabel = 'Payouts Enabled' | 'Action Required' | 'Not Connected';
+
+function getPayoutStatusLabel(connect: DashboardConnectStatus): PayoutStatusLabel {
+  if (connect.payoutsEnabled && connect.chargesEnabled) return 'Payouts Enabled';
+  if (connect.connected || connect.disabledReason) return 'Action Required';
+  return 'Not Connected';
+}
+
+function getVendorDisplayName(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem('bytspot_user') || '{}') as { name?: string; businessName?: string };
+    return user.businessName || user.name || localStorage.getItem('bytspot_user_name') || 'Bytspot Provider';
+  } catch {
+    return localStorage.getItem('bytspot_user_name') || 'Bytspot Provider';
+  }
+}
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
@@ -33,6 +57,32 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
   const reviewLabel = reviewState?.label ?? 'Pending Verification';
   const stripeConnected = data.connect.connected;
   const stripeReady = approved && data.connect.payoutsEnabled;
+  const payoutStatusLabel = getPayoutStatusLabel(data.connect);
+  const payoutsEnabled = payoutStatusLabel === 'Payouts Enabled';
+  const [connectStarting, setConnectStarting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  const handleConnectStripe = async () => {
+    if (connectStarting) return;
+    setConnectStarting(true);
+    setConnectError(null);
+    try {
+      const result = await trpc.vendors.startOnboarding.mutate({
+        displayName: data.vendor?.displayName || getVendorDisplayName(),
+        refreshPath: STRIPE_CONNECT_REFRESH_PATH,
+        returnPath: STRIPE_CONNECT_RETURN_PATH,
+      });
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      setConnectError(result?.message ?? 'Stripe onboarding is not available yet.');
+    } catch (err: any) {
+      setConnectError(err?.message ?? 'Unable to start Stripe onboarding.');
+    } finally {
+      setConnectStarting(false);
+    }
+  };
 
   const springConfig = {
     type: 'spring' as const,
@@ -83,12 +133,6 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
     },
   ];
 
-  const payoutHeadline = !approved
-    ? 'Hold'
-    : !stripeConnected ? 'Setup' : !stripeReady ? 'Action' : 'On track';
-  const payoutSubline = !approved
-    ? 'Verification'
-    : !stripeConnected ? 'Connect Stripe' : !stripeReady ? 'Stripe details' : 'Stripe-ready';
   const payoutDetail = !approved
     ? 'Revenue tracking remains visible, but payout release waits for manual verification.'
     : !stripeConnected
@@ -160,30 +204,53 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
 
           {access.canSeeFinancials ? (
           <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl" data-testid="provider-dashboard-payout-card">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[12px] uppercase tracking-[0.18em] text-white/80" style={{ fontWeight: 800 }}>Next payout</p>
-                <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>$0</p>
+            <div data-testid="stripe-connect-payout-panel">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.18em] text-white/80" style={{ fontWeight: 800 }}>Next payout</p>
+                  <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>$0</p>
+                </div>
+                <span
+                  data-testid="stripe-connect-status-badge"
+                  className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${payoutsEnabled ? 'bg-emerald-400/18 text-emerald-100 ring-1 ring-emerald-200/20' : 'bg-amber-400/18 text-amber-100 ring-1 ring-amber-200/20'}`}
+                  style={{ fontWeight: 900 }}
+                >
+                  {payoutStatusLabel}
+                </span>
               </div>
-              <div className={`rounded-2xl px-3 py-2 text-right ${stripeReady ? 'bg-emerald-400/14 text-emerald-100' : 'bg-amber-400/14 text-amber-100'}`}>
-                <p className="text-[11px]" style={{ fontWeight: 800 }}>{payoutHeadline}</p>
-                <p className="text-[12px] opacity-70">{payoutSubline}</p>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                <div className={`h-full rounded-full ${payoutsEnabled ? 'w-full bg-gradient-to-r from-emerald-300 to-cyan-300' : 'w-1/3 bg-gradient-to-r from-amber-300 to-orange-300'}`} />
+              </div>
+              <p className="mt-3 text-[12px] leading-5 text-white/80">{payoutDetail}</p>
+              {connectError && (
+                <p className="mt-3 rounded-[14px] border border-amber-200/20 bg-amber-400/10 px-3 py-2 text-[12px] leading-5 text-amber-100">{connectError}</p>
+              )}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {!payoutsEnabled && (
+                  <button
+                    type="button"
+                    onClick={handleConnectStripe}
+                    disabled={connectStarting}
+                    data-testid="stripe-connect-onboarding-cta"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] text-black shadow-lg shadow-cyan-950/10 transition disabled:opacity-60"
+                    style={{ fontWeight: 900 }}
+                  >
+                    {connectStarting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                    {stripeConnected ? 'Update Stripe Payout Account' : 'Connect Stripe for Payouts'}
+                  </button>
+                )}
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => handleAction('settings')}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+                    style={{ fontWeight: 800 }}
+                  >
+                    Open payout settings <ArrowUpRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-              <div className={`h-full rounded-full ${stripeReady ? 'w-full bg-gradient-to-r from-emerald-300 to-cyan-300' : 'w-1/3 bg-gradient-to-r from-amber-300 to-orange-300'}`} />
-            </div>
-            <p className="mt-3 text-[12px] leading-5 text-white/80">{payoutDetail}</p>
-            {onNavigate && (
-              <button
-                type="button"
-                onClick={() => handleAction('settings')}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
-                style={{ fontWeight: 800 }}
-              >
-                Open payout settings <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
           ) : (
           <div className="rounded-[26px] border border-cyan-200/40 bg-cyan-950/70 p-5 shadow-[0_18px_60px_rgba(34,211,238,0.12)] backdrop-blur-xl">

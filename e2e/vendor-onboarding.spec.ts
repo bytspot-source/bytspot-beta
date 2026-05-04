@@ -163,12 +163,7 @@ async function openConnectReturn(page: Page) {
 }
 
 test.describe('Vendor Stripe Connect onboarding', () => {
-  // The legacy DashboardFusionEngine view that exposed `stripe-connect-payout-panel`,
-  // `stripe-connect-status-badge`, and `stripe-connect-onboarding-cta` is no longer
-  // reachable from any provider dashboard route. The Stripe Connect status surface is
-  // being re-implemented on DashboardHome. Re-enable these once the new payout card
-  // exposes the same testids and labels (Not Connected / Payouts Enabled / Action Required).
-  test.skip('shows not connected payout state and starts Stripe onboarding with vendor display name', async ({ page }) => {
+  test('shows not connected payout state and starts Stripe onboarding with vendor display name', async ({ page }) => {
     const startPayloads: unknown[] = [];
     let capturedStripeUrl: string | null = null;
     await page.exposeFunction('__recordStartOnboarding', (payload: unknown) => startPayloads.push(payload));
@@ -189,7 +184,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect.poll(() => capturedStripeUrl).toBe(STRIPE_CONNECT_URL);
   });
 
-  test.skip('syncs active Stripe return state and displays payouts enabled', async ({ page }) => {
+  test('syncs active Stripe return state and displays payouts enabled', async ({ page }) => {
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
     await openConnectReturn(page);
 
@@ -198,7 +193,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(badge).toHaveClass(/text-emerald-100/);
   });
 
-  test.skip('shows action required when Stripe payouts are disabled', async ({ page }) => {
+  test('shows action required when Stripe payouts are disabled', async ({ page }) => {
     await installVendorOnboardingMocks(page, actionRequiredSync);
     await openConnectReturn(page);
 

@@ -1,8 +1,16 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
+// This suite hits the live bytspot-api.onrender.com backend (signup → logout → login)
+// and is therefore opt-in. Set E2E_REAL_BACKEND=1 to run it locally or in CI.
+// Default Playwright runs skip it because Render free-tier cold starts and rate
+// limits make the test environmentally flaky regardless of frontend correctness.
+const REAL_BACKEND_ENABLED = !!process.env.E2E_REAL_BACKEND;
+
+test.skip(!REAL_BACKEND_ENABLED, 'real-backend tests are opt-in; set E2E_REAL_BACKEND=1 to enable');
+
 test('real signup, logout, and login reaches main app', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   const logPath = 'real-auth-run.log';
   fs.writeFileSync(logPath, 'START\n');
@@ -64,10 +72,18 @@ test('real signup, logout, and login reaches main app', async ({ page }) => {
   await page.getByPlaceholder('Full name').fill(name);
   await page.getByPlaceholder('Email address').fill(email);
   await page.getByPlaceholder('Password').fill(password);
-  await page.locator('form').evaluate((form) => (form as HTMLFormElement).requestSubmit());
-  log('signup submitted');
 
-  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 20_000 });
+  const signupResponsePromise = page.waitForResponse(
+    (response) => response.url().includes('/trpc/auth.signup'),
+    { timeout: 60_000 },
+  );
+  await page.getByRole('button', { name: /create account/i }).click();
+  log('signup submitted');
+  const signupResponse = await signupResponsePromise;
+  expect(signupResponse.status(), `signup HTTP ${signupResponse.status()}`).toBe(200);
+  log(`signup response ${signupResponse.status()}`);
+
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 30_000 });
   log('signup reached home');
   await expectLoggedInState();
 
@@ -85,10 +101,18 @@ test('real signup, logout, and login reaches main app', async ({ page }) => {
   log('login mode selected');
   await page.getByPlaceholder('Email address').fill(email);
   await page.getByPlaceholder('Password').fill(password);
-  await page.locator('form').evaluate((form) => (form as HTMLFormElement).requestSubmit());
-  log('login submitted');
 
-  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 20_000 });
+  const loginResponsePromise = page.waitForResponse(
+    (response) => response.url().includes('/trpc/auth.login'),
+    { timeout: 60_000 },
+  );
+  await page.locator('form button[type="submit"]').click();
+  log('login submitted');
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.status(), `login HTTP ${loginResponse.status()}`).toBe(200);
+  log(`login response ${loginResponse.status()}`);
+
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 30_000 });
   log('login reached home');
   await expectLoggedInState();
 

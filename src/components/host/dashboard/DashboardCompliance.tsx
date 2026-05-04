@@ -1,33 +1,31 @@
 import { motion } from 'motion/react';
-import { 
-  Shield, 
-  Check, 
-  AlertTriangle, 
-  Clock, 
-  FileText, 
-  Lock, 
-  Users, 
+import {
+  Shield,
+  AlertTriangle,
+  Clock,
+  FileText,
+  Lock,
   Activity,
   ChevronRight,
   CheckCircle2,
-  XCircle
 } from 'lucide-react';
 import { useState } from 'react';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
 
 interface DashboardComplianceProps {
   isDarkMode: boolean;
   access: ProviderDashboardAccess;
 }
 
-type ComplianceCategory = 'privacy' | 'security' | 'legal' | 'operational';
+type ComplianceStatus = 'complete' | 'partial' | 'pending';
+type ComplianceCategory = 'identity' | 'payouts' | 'catalog' | 'legal';
 
 interface ComplianceItem {
   name: string;
-  status: 'complete' | 'partial' | 'pending';
-  percentage: number;
+  status: ComplianceStatus;
   details: string;
-  evidence?: string;
+  guidance?: string;
 }
 
 interface ComplianceSection {
@@ -36,11 +34,11 @@ interface ComplianceSection {
   icon: any;
   color: string;
   items: ComplianceItem[];
-  overallStatus: 'complete' | 'partial' | 'pending';
 }
 
 export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceProps) {
   const [selectedCategory, setSelectedCategory] = useState<ComplianceCategory | null>(null);
+  const data = useProviderDashboardData();
 
   const springConfig = {
     type: "spring" as const,
@@ -49,194 +47,104 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
     mass: 0.8,
   };
 
+  const profileStatus: ComplianceStatus = data.vendor?.displayName ? 'complete' : 'pending';
+  const approvalStatus: ComplianceStatus =
+    data.vendor?.onboardingStatus === 'active' ? 'complete' :
+    data.vendor?.onboardingStatus ? 'partial' : 'pending';
+  const stripeStatus: ComplianceStatus = !data.authenticated
+    ? 'pending'
+    : data.connect.payoutsEnabled
+      ? 'complete'
+      : data.connect.connected
+        ? 'partial'
+        : 'pending';
+  const taxStatus: ComplianceStatus = data.connect.payoutsEnabled ? 'complete' : 'pending';
+  const catalogStatus: ComplianceStatus = data.activeServices > 0
+    ? 'complete'
+    : data.totalServices > 0
+      ? 'partial'
+      : 'pending';
+
   const complianceSections: ComplianceSection[] = [
     {
-      category: 'privacy',
-      title: 'Privacy & Transparency',
+      category: 'identity',
+      title: 'Business profile',
       icon: Shield,
-      color: 'from-green-500 to-emerald-500',
-      overallStatus: 'complete',
+      color: 'from-purple-500 to-fuchsia-500',
       items: [
         {
-          name: 'Privacy Disclosure',
-          status: 'complete',
-          percentage: 100,
-          details: 'Transparent "What We Collect" and "What We Don\'t Do" sections displayed before signup',
-          evidence: 'DataConsentFlow.tsx lines 96-133',
+          name: 'Display name',
+          status: profileStatus,
+          details: data.vendor?.displayName
+            ? `Listed publicly as "${data.vendor.displayName}".`
+            : 'Add your business name before publishing services.',
+          guidance: profileStatus !== 'complete' ? 'Update from Settings → Business Information.' : undefined,
         },
         {
-          name: 'Graduated Permissions',
-          status: 'complete',
-          percentage: 100,
-          details: 'Location permissions separated from authentication with contextual explanations',
-          evidence: 'LocationPermissionFlow.tsx',
-        },
-        {
-          name: 'Anti-Stalkerware Protection',
-          status: 'complete',
-          percentage: 100,
-          details: 'Explicit statement: "✕ Track you when the app is closed"',
-          evidence: 'DataConsentFlow.tsx line 126',
-        },
-        {
-          name: 'User Data Control',
-          status: 'complete',
-          percentage: 100,
-          details: 'Users can view, modify, and delete their data at any time',
-          evidence: 'ProfileSection.tsx, LocationSettings.tsx',
-        },
-        {
-          name: 'Contextual Permissions',
-          status: 'complete',
-          percentage: 100,
-          details: 'All permissions requested just-in-time with clear justification',
-          evidence: 'Camera, notifications, location all contextual',
+          name: 'Operator approval',
+          status: approvalStatus,
+          details: data.vendor?.onboardingStatus === 'active'
+            ? 'Operator approval is active.'
+            : data.vendor?.onboardingStatus
+              ? `Approval state: ${data.vendor.onboardingStatus}.`
+              : 'Sign in with a provider account to view approval status.',
         },
       ],
     },
     {
-      category: 'security',
-      title: 'Security & Data Protection',
+      category: 'payouts',
+      title: 'Payments & payouts',
       icon: Lock,
-      color: 'from-orange-500 to-amber-500',
-      overallStatus: 'partial',
+      color: 'from-emerald-500 to-teal-500',
       items: [
         {
-          name: 'Client-Side Security',
-          status: 'complete',
-          percentage: 100,
-          details: 'No sensitive data stored in localStorage, secure token handling',
-          evidence: 'React best practices followed',
+          name: 'Stripe Connect',
+          status: stripeStatus,
+          details: data.connect.payoutsEnabled
+            ? 'Stripe payouts are enabled.'
+            : data.connect.connected
+              ? 'Stripe is linked but payouts are not enabled yet.'
+              : 'Connect a Stripe account to receive payouts.',
+          guidance: data.connect.disabledReason ?? undefined,
         },
         {
-          name: 'API Security',
-          status: 'pending',
-          percentage: 0,
-          details: 'JWT authentication ready, awaiting backend implementation',
-          evidence: 'Data structures defined in utils',
+          name: 'Tax & banking details',
+          status: taxStatus,
+          details: 'Tax forms and bank details are collected by Stripe during onboarding.',
         },
+      ],
+    },
+    {
+      category: 'catalog',
+      title: 'Catalog readiness',
+      icon: Activity,
+      color: 'from-cyan-500 to-blue-500',
+      items: [
         {
-          name: 'Encryption (Transit)',
-          status: 'pending',
-          percentage: 0,
-          details: 'TLS 1.3 configuration pending backend deployment',
-          evidence: 'Infrastructure checklist item',
-        },
-        {
-          name: 'Encryption (Rest)',
-          status: 'pending',
-          percentage: 0,
-          details: 'Database encryption pending backend deployment',
-          evidence: 'AWS KMS integration planned',
-        },
-        {
-          name: 'Access Control',
-          status: 'pending',
-          percentage: 0,
-          details: 'Role-based access control pending backend implementation',
-          evidence: 'Admin panel UI ready',
-        },
-        {
-          name: 'Audit Logging',
-          status: 'pending',
-          percentage: 0,
-          details: 'Event log system designed, awaiting backend integration',
-          evidence: 'DashboardFusionEngine.tsx event log',
+          name: 'Active services',
+          status: catalogStatus,
+          details: data.totalServices === 0
+            ? 'No services published yet.'
+            : `${data.activeServices} of ${data.totalServices} services are live.`,
+          guidance: catalogStatus !== 'complete' ? 'Add or activate services from the Listings tab.' : undefined,
         },
       ],
     },
     {
       category: 'legal',
-      title: 'Legal Compliance',
+      title: 'Legal acknowledgements',
       icon: FileText,
-      color: 'from-blue-500 to-cyan-500',
-      overallStatus: 'complete',
+      color: 'from-blue-500 to-indigo-500',
       items: [
         {
-          name: 'GDPR Compliance',
+          name: 'Provider terms of service',
           status: 'complete',
-          percentage: 100,
-          details: 'Articles 6, 7, 13, 15, 17 fully implemented in frontend',
-          evidence: 'Consent, access, deletion all operational',
+          details: 'Provider terms accepted during onboarding.',
         },
         {
-          name: 'CCPA Compliance',
-          status: 'complete',
-          percentage: 100,
-          details: 'Sections 1798.100, 1798.105, 1798.120 fully compliant',
-          evidence: 'No data sale, user deletion, transparent disclosure',
-        },
-        {
-          name: 'iOS Guidelines',
-          status: 'complete',
-          percentage: 100,
-          details: 'Permission justification strings and UX patterns compliant',
-          evidence: 'LocationPermissionFlow.tsx',
-        },
-        {
-          name: 'Contractor Agreement',
-          status: 'complete',
-          percentage: 100,
-          details: 'Independent contractor agreement required before valet work',
-          evidence: 'IndependentContractorAgreement.tsx',
-        },
-        {
-          name: 'Liability Waiver',
-          status: 'complete',
-          percentage: 100,
-          details: 'Customer signs waiver before valet service',
-          evidence: 'ValetLiabilityWaiver.tsx',
-        },
-        {
-          name: 'Vehicle Verification',
-          status: 'complete',
-          percentage: 100,
-          details: 'Mandatory photo documentation before/after service',
-          evidence: 'VehiclePhotoVerification.tsx',
-        },
-      ],
-    },
-    {
-      category: 'operational',
-      title: 'Operational Risk Management',
-      icon: Activity,
-      color: 'from-purple-500 to-fuchsia-500',
-      overallStatus: 'complete',
-      items: [
-        {
-          name: 'Trip Audit Viewer',
-          status: 'complete',
-          percentage: 100,
-          details: 'Full trip replay with sensor fusion breakdown for dispute resolution',
-          evidence: 'DashboardFusionEngine.tsx Trip Replay',
-        },
-        {
-          name: 'Geofence Event Log',
-          status: 'complete',
-          percentage: 100,
-          details: 'Searchable log of all entry/exit events with accuracy data',
-          evidence: 'DashboardFusionEngine.tsx Event Log',
-        },
-        {
-          name: 'System Health Monitoring',
-          status: 'complete',
-          percentage: 100,
-          details: 'Real-time accuracy, latency, and sensor availability tracking',
-          evidence: 'DashboardFusionEngine.tsx System Overview',
-        },
-        {
-          name: 'Quality Assurance Dashboard',
-          status: 'complete',
-          percentage: 100,
-          details: 'Identify accuracy issues and infrastructure gaps',
-          evidence: 'DashboardFusionEngine.tsx Live Monitor',
-        },
-        {
-          name: 'Incident Investigation',
-          status: 'complete',
-          percentage: 100,
-          details: 'High-speed and acceleration detection for safety review',
-          evidence: 'Trip data includes speed/acceleration',
+          name: 'Cancellation policy',
+          status: 'partial',
+          details: 'Default platform cancellation policy applies. Add your own copy per listing if needed.',
         },
       ],
     },
@@ -305,10 +213,16 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
       });
     });
 
+    if (totalItems === 0) return 0;
     return Math.round((completedItems / totalItems) * 100);
   };
 
   const overallCompliance = calculateOverallCompliance();
+  const sectionStatus = (section: ComplianceSection): ComplianceStatus => {
+    if (section.items.every((i) => i.status === 'complete')) return 'complete';
+    if (section.items.some((i) => i.status === 'pending')) return 'pending';
+    return 'partial';
+  };
 
   return (
     <div className="space-y-6">
@@ -319,10 +233,10 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         transition={springConfig}
       >
         <h2 className="text-title-2 mb-2 text-white">
-          Risk Mitigation & Compliance
+          Compliance
         </h2>
         <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-          System-wide compliance status and risk mitigation verification
+          Track the steps required to keep your business in good standing.
         </p>
       </motion.div>
 
@@ -353,7 +267,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
               </span>
             </div>
             <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
-              Ready for Launch
+              Account readiness
             </p>
           </div>
         </div>
@@ -399,7 +313,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
               )}
             </div>
             <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
-              Pending Backend
+              Pending
             </p>
           </div>
         </div>
@@ -440,8 +354,8 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  {getStatusIcon(section.overallStatus)}
-                  <ChevronRight 
+                  {getStatusIcon(sectionStatus(section))}
+                  <ChevronRight
                     className={`w-4 h-4 text-white/40 transition-transform ${
                       selectedCategory === section.category ? 'rotate-90' : ''
                     }`}
@@ -485,11 +399,10 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                       <p className="text-[13px] text-white/70 mb-2" style={{ fontWeight: 400 }}>
                         {item.details}
                       </p>
-                      {item.evidence && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-cyan-400" style={{ fontWeight: 500 }}>
-                          <FileText className="w-3 h-3" strokeWidth={2.5} />
-                          <span>{item.evidence}</span>
-                        </div>
+                      {item.guidance && (
+                        <p className="text-[12px] text-white/55" style={{ fontWeight: 400 }}>
+                          {item.guidance}
+                        </p>
                       )}
                     </div>
                   ))}
@@ -500,107 +413,58 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         })}
       </div>
 
-      {/* Key Achievements */}
-      <motion.div
-        className="rounded-[20px] p-5 border-2 border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/5 backdrop-blur-xl shadow-xl"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.5 }}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <Check className="w-5 h-5 text-green-400" strokeWidth={2.5} />
-          <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-            Key Achievements
-          </h3>
-        </div>
-        <ul className="space-y-2 text-[14px] text-white/90" style={{ fontWeight: 400 }}>
-          <li className="flex items-start gap-2">
-            <span className="text-green-400 mt-0.5">•</span>
-            <span>Privacy-by-design architecture with transparent disclosure</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-green-400 mt-0.5">•</span>
-            <span>Graduated permission system with contextual explanations</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-green-400 mt-0.5">•</span>
-            <span>Legal protection documents for valet liability</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-green-400 mt-0.5">•</span>
-            <span>Admin audit tools for dispute resolution</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-green-400 mt-0.5">•</span>
-            <span>GDPR & CCPA compliant user data controls</span>
-          </li>
-        </ul>
-      </motion.div>
-
-      {/* Next Steps */}
-      <motion.div
-        className="rounded-[20px] p-5 border-2 border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-amber-500/5 backdrop-blur-xl shadow-xl"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.6 }}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <Clock className="w-5 h-5 text-orange-400" strokeWidth={2.5} />
-          <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-            Pending Backend Integration
-          </h3>
-        </div>
-        <ul className="space-y-2 text-[14px] text-white/90" style={{ fontWeight: 400 }}>
-          <li className="flex items-start gap-2">
-            <span className="text-orange-400 mt-0.5">⏳</span>
-            <span>Sensor Fusion Engine (Kalman Filter + Trilateration)</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-orange-400 mt-0.5">⏳</span>
-            <span>API security (TLS 1.3 + JWT authentication)</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-orange-400 mt-0.5">⏳</span>
-            <span>Database encryption (AWS KMS)</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-orange-400 mt-0.5">⏳</span>
-            <span>Audit logging system</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-orange-400 mt-0.5">⏳</span>
-            <span>Final legal review by attorney</span>
-          </li>
-        </ul>
-      </motion.div>
-
-      {/* Documentation Link */}
-      <motion.a
-        href="/RISK_MITIGATION_COMPLIANCE_CHECKLIST.md"
-        target="_blank"
-        className="block rounded-[20px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.7 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-white" strokeWidth={2.5} />
-            </div>
-            <div>
-              <h3 className="text-[15px] mb-0.5 text-white" style={{ fontWeight: 600 }}>
-                Full Compliance Report
-              </h3>
-              <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
-                10,000+ word detailed audit
+      {/* Outstanding items */}
+      {(() => {
+        const outstanding = complianceSections.flatMap((s) =>
+          s.items.filter((i) => i.status !== 'complete').map((i) => ({ section: s.title, ...i }))
+        );
+        if (outstanding.length === 0) {
+          return (
+            <motion.div
+              className="rounded-[20px] p-5 border-2 border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/5 backdrop-blur-xl shadow-xl"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.5 }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="w-5 h-5 text-green-400" strokeWidth={2.5} />
+                <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
+                  You're all set
+                </h3>
+              </div>
+              <p className="text-[14px] text-white/70" style={{ fontWeight: 400 }}>
+                All compliance items are up to date. We'll let you know if anything changes.
               </p>
+            </motion.div>
+          );
+        }
+        return (
+          <motion.div
+            className="rounded-[20px] p-5 border-2 border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-amber-500/5 backdrop-blur-xl shadow-xl"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.5 }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <AlertTriangle className="w-5 h-5 text-orange-400" strokeWidth={2.5} />
+              <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
+                Action items
+              </h3>
             </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-white/40" strokeWidth={2.5} />
-        </div>
-      </motion.a>
+            <ul className="space-y-2 text-[14px] text-white/90" style={{ fontWeight: 400 }}>
+              {outstanding.map((item, idx) => (
+                <li key={`${item.section}-${idx}`} className="flex items-start gap-2">
+                  <span className="text-orange-400 mt-0.5">•</span>
+                  <span>
+                    <span className="text-white/60">{item.section}:</span>{' '}
+                    <span>{item.guidance ?? item.details}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        );
+      })()}
     </div>
   );
 }

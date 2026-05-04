@@ -23,11 +23,52 @@ interface DashboardSettingsProps {
   access: ProviderDashboardAccess;
 }
 
+type StoredUser = {
+  name?: string | null;
+  businessName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  region?: string | null;
+  createdAt?: string | null;
+};
+
+function readStoredUser(): StoredUser | null {
+  try {
+    const raw = localStorage.getItem('bytspot_user');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return parsed as StoredUser;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function readStoredName(fallback?: string | null): string | null {
+  try {
+    const direct = localStorage.getItem('bytspot_user_name');
+    if (direct && direct.trim()) return direct.trim();
+  } catch {
+    /* ignore */
+  }
+  return fallback ?? null;
+}
+
+function formatJoined(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
 export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [instantBook, setInstantBook] = useState(true);
   const [selectedRole, setSelectedRole] = useState<ProviderRole>(access.role);
   const [businessMode, setBusinessMode] = useState<ProviderBusinessMode>(access.businessMode);
+  const [storedUser, setStoredUser] = useState<StoredUser | null>(() => readStoredUser());
+  const [displayName, setDisplayName] = useState<string | null>(() => readStoredName(readStoredUser()?.name));
 
   const springConfig = {
     type: "spring" as const,
@@ -55,6 +96,28 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
     setSelectedRole(access.role);
     setBusinessMode(access.businessMode);
   }, [access.role, access.businessMode]);
+
+  useEffect(() => {
+    const refresh = () => {
+      const next = readStoredUser();
+      setStoredUser(next);
+      setDisplayName(readStoredName(next?.name));
+    };
+    window.addEventListener('storage', refresh);
+    window.addEventListener('bytspot:user-updated', refresh as EventListener);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('bytspot:user-updated', refresh as EventListener);
+    };
+  }, []);
+
+  const profileName = displayName ?? storedUser?.businessName ?? 'Your business';
+  const profileEmail = storedUser?.email ?? null;
+  const profilePhone = storedUser?.phone ?? null;
+  const profileLocation = storedUser?.city
+    ? [storedUser.city, storedUser.region].filter(Boolean).join(', ')
+    : null;
+  const joinedLabel = formatJoined(storedUser?.createdAt);
 
   const accountSettings = [
     {
@@ -158,29 +221,43 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
           
           <div>
             <h2 className={`text-[20px] mb-1 ${tone.strong}`} style={{ fontWeight: 700 }}>
-              Alex Johnson
+              {profileName}
             </h2>
-            <p className={`text-[15px] ${tone.muted}`} style={{ fontWeight: 500 }}>
-              Host since October 2025
-            </p>
+            {joinedLabel && (
+              <p className={`text-[15px] ${tone.muted}`} style={{ fontWeight: 500 }}>
+                Joined {joinedLabel}
+              </p>
+            )}
           </div>
         </div>
 
         <div className="space-y-2">
-          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
-            <Mail className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
-            <span>alex.johnson@example.com</span>
-          </div>
-          
-          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
-            <Phone className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
-            <span>+1 (555) 123-4567</span>
-          </div>
-          
-          <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
-            <MapPin className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
-            <span>San Francisco, CA</span>
-          </div>
+          {profileEmail && (
+            <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+              <Mail className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
+              <span>{profileEmail}</span>
+            </div>
+          )}
+
+          {profilePhone && (
+            <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+              <Phone className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
+              <span>{profilePhone}</span>
+            </div>
+          )}
+
+          {profileLocation && (
+            <div className={`flex items-center gap-2 text-[15px] ${tone.body}`}>
+              <MapPin className={`w-4 h-4 ${tone.faint}`} strokeWidth={2.5} />
+              <span>{profileLocation}</span>
+            </div>
+          )}
+
+          {!profileEmail && !profilePhone && !profileLocation && (
+            <p className={`text-[13px] ${tone.faint}`} style={{ fontWeight: 500 }}>
+              Add your contact details from Personal Information.
+            </p>
+          )}
         </div>
       </motion.div>
 
@@ -191,7 +268,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         transition={{ ...springConfig, delay: 0.15 }}
       >
         <h2 className={`text-[20px] mb-2 ${tone.strong}`} style={{ fontWeight: 800 }}>Workspace access</h2>
-        <p className={`mb-4 text-[13px] leading-5 ${tone.body}`}>Preview how the dashboard adapts for Owners, Managers, Staff, and smaller cottage businesses. Changes are saved locally and applied immediately to navigation permissions.</p>
+        <p className={`mb-4 text-[13px] leading-5 ${tone.body}`}>Choose your role on this device and whether you're running a standard or cottage business. Navigation and permissions update immediately.</p>
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Role</p>

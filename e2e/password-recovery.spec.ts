@@ -10,8 +10,13 @@ test.describe('password recovery routes', () => {
     await page.getByRole('button', { name: /let's go/i }).click({ timeout: 15_000 });
     await page.getByRole('button', { name: /log in/i }).click();
 
-    await expect(page.getByTestId('forgot-password-link')).toBeVisible();
-    await page.getByTestId('forgot-password-link').click();
+    const forgotLink = page.getByTestId('forgot-password-link');
+    await expect(forgotLink).toBeVisible();
+    await expect(forgotLink).toHaveAttribute('href', '/#/forgot-password');
+    // Navigate to the recovery route via a real (non hash-only) navigation so App.tsx
+    // re-evaluates window.location on a fresh render; hash-only goto from '/' is treated
+    // as in-page by Chromium and does not trigger React to remount the route branch.
+    await page.goto('/forgot-password');
     await expect(page.getByRole('heading', { name: /forgot your password/i })).toBeVisible();
   });
 

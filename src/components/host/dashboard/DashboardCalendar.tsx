@@ -1,15 +1,20 @@
 import { motion } from 'motion/react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, MapPin, Clock, User } from 'lucide-react';
-import { mockCalendarBookings } from '../../../utils/hostMockData';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useMemo } from 'react';
 
 interface DashboardCalendarProps {
   isDarkMode: boolean;
 }
 
+const formatIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
-  const [currentDate, setCurrentDate] = useState(new Date(2025, 9, 10)); // October 10, 2025
-  const [selectedDate, setSelectedDate] = useState<string>('2025-10-10');
+  void isDarkMode;
+  const today = useMemo(() => new Date(), []);
+  const todayIso = useMemo(() => formatIso(today), [today]);
+  const [currentDate, setCurrentDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso);
 
   const springConfig = {
     type: "spring" as const,
@@ -47,17 +52,9 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
     [currentDate]
   );
 
-  // Check if date has bookings (memoized for performance)
-  const hasBookings = (day: number) => {
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return mockCalendarBookings.some(b => b.date === dateStr);
-  };
-
-  // Get selected day bookings - memoized
-  const selectedDayBookings = useMemo(() => 
-    mockCalendarBookings.filter(b => b.date === selectedDate),
-    [selectedDate]
-  );
+  // Live booking sources are not yet wired in; keep deterministic empty state.
+  const hasBookings = (_day: number) => false;
+  const selectedDayBookings: never[] = [];
 
   const goToPreviousMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -148,7 +145,7 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
             const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isSelected = dateStr === selectedDate;
             const hasBooking = hasBookings(day);
-            const isToday = dateStr === '2025-10-10'; // Current date in our mock
+            const isToday = dateStr === todayIso;
 
             return (
               <motion.button
@@ -207,47 +204,17 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
           </div>
         </div>
 
-        {selectedDayBookings.length > 0 ? (
-          <div className="space-y-3">
-            {selectedDayBookings.map((booking, index) => (
-              <motion.div
-                key={index}
-                className="rounded-xl p-4 bg-[#2C2C2E]/60 border-2 border-white/10"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ ...springConfig, delay: 0.3 + index * 0.05 }}
-              >
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 flex items-center justify-center flex-shrink-0">
-                    <User className="w-5 h-5 text-white" strokeWidth={2.5} />
-                  </div>
-
-                  <div className="flex-1">
-                    <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                      {booking.guest}
-                    </div>
-                    <div className="flex items-center gap-2 text-[13px] text-white/70">
-                      <Clock className="w-3.5 h-3.5" strokeWidth={2.5} />
-                      <span>{booking.time}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 text-[13px] text-white/90">
-                  <MapPin className="w-3.5 h-3.5 text-purple-400" strokeWidth={2.5} />
-                  <span style={{ fontWeight: 500 }}>{booking.listing}</span>
-                </div>
-              </motion.div>
-            ))}
+        <div className="text-center py-10" data-testid="provider-calendar-empty">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+            <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
           </div>
-        ) : (
-          <div className="text-center py-8">
-            <CalendarIcon className="w-12 h-12 text-white/30 mx-auto mb-3" strokeWidth={1.5} />
-            <p className="text-[15px] text-white/50" style={{ fontWeight: 400 }}>
-              No bookings for this date
-            </p>
-          </div>
-        )}
+          <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+            No bookings scheduled
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+            Confirmed bookings on this date will appear here with arrival times and listing details.
+          </p>
+        </div>
       </motion.div>
 
       {/* Legend */}

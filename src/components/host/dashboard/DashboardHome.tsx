@@ -3,35 +3,36 @@ import {
   ArrowUpRight,
   Calendar,
   CheckCircle2,
+  ClipboardList,
   Clock,
   DollarSign,
+  Inbox,
+  LineChart as LineChartIcon,
   MapPin,
   ShieldCheck,
   Sparkles,
   Star,
-  TrendingUp,
   Wallet,
 } from 'lucide-react';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { mockBookings, mockDashboardStats, mockEarnings, mockListings } from '../../../utils/hostMockData';
 import type { ProviderReviewState } from '../../../utils/providerApproval';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
 import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
+import type { DashboardView } from './HostDashboardLayout';
 
 interface DashboardHomeProps {
   isDarkMode: boolean;
   access: ProviderDashboardAccess;
   reviewState?: ProviderReviewState | null;
+  onNavigate?: (view: DashboardView) => void;
 }
 
-export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHomeProps) {
-  const stats = mockDashboardStats;
-  const activeBookings = mockBookings.filter((booking) => booking.status === 'active');
-  const upcomingBookings = mockBookings.filter((booking) => booking.status === 'upcoming').slice(0, 3);
-  const activeListings = mockListings.filter((listing) => listing.status === 'active');
-  const listingHealth = Math.round((activeListings.length / Math.max(1, mockListings.length)) * 100);
-  const nextPayout = mockEarnings.pendingPayouts;
+export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: DashboardHomeProps) {
+  void isDarkMode;
+  const data = useProviderDashboardData();
   const approved = reviewState?.status === 'approved';
   const reviewLabel = reviewState?.label ?? 'Pending Verification';
+  const stripeConnected = data.connect.connected;
+  const stripeReady = approved && data.connect.payoutsEnabled;
 
   const springConfig = {
     type: 'spring' as const,
@@ -40,18 +41,96 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
     mass: 0.8,
   };
 
+  const totalListings = data.totalServices;
+  const activeListings = data.activeServices;
+  const listingHealth = data.listingHealth;
+  const dash = '—';
+
   const priorityCards = [
-    { title: access.canSeeFinancials ? 'Total earnings' : 'Operational role', value: access.canSeeFinancials ? `$${mockEarnings.totalEarnings.toLocaleString()}` : roleLabel(access.role), detail: access.canSeeFinancials ? `+$${mockEarnings.thisMonthEarnings.toLocaleString()} this month` : access.role === 'manager' ? 'Payout settings stay owner-only' : 'Revenue hidden for this role', icon: access.canSeeFinancials ? DollarSign : ShieldCheck, tone: 'from-emerald-400/22 to-cyan-400/10' },
-    { title: 'Active bookings', value: activeBookings.length.toString(), detail: `${upcomingBookings.length} upcoming reservations`, icon: Calendar, tone: 'from-cyan-400/22 to-blue-500/10' },
-    { title: 'Listing health', value: `${listingHealth}%`, detail: `${activeListings.length}/${mockListings.length} listings live`, icon: ShieldCheck, tone: 'from-violet-400/22 to-fuchsia-500/10' },
-    { title: 'Guest rating', value: stats.averageRating.toFixed(1), detail: 'High-trust marketplace profile', icon: Star, tone: 'from-amber-300/22 to-orange-500/10' },
+    {
+      title: access.canSeeFinancials ? 'Total earnings' : 'Operational role',
+      value: access.canSeeFinancials ? (data.loading ? dash : '$0') : roleLabel(access.role),
+      detail: access.canSeeFinancials
+        ? (data.loading ? 'Syncing payout history' : 'Tracked once Stripe payouts settle')
+        : access.role === 'manager' ? 'Payout settings stay owner-only' : 'Revenue hidden for this role',
+      icon: access.canSeeFinancials ? DollarSign : ShieldCheck,
+      tone: 'from-emerald-400/22 to-cyan-400/10',
+    },
+    {
+      title: 'Active bookings',
+      value: '0',
+      detail: data.loading ? 'Loading bookings' : 'Confirmed reservations appear here automatically',
+      icon: Calendar,
+      tone: 'from-cyan-400/22 to-blue-500/10',
+    },
+    {
+      title: 'Listing health',
+      value: data.loading ? dash : totalListings === 0 ? '0%' : `${listingHealth}%`,
+      detail: data.loading
+        ? 'Loading services'
+        : totalListings === 0
+          ? 'Publish your first marketplace service'
+          : `${activeListings}/${totalListings} services live`,
+      icon: ShieldCheck,
+      tone: 'from-violet-400/22 to-fuchsia-500/10',
+    },
+    {
+      title: 'Guest rating',
+      value: dash,
+      detail: 'Tracking activates after the first guest review',
+      icon: Star,
+      tone: 'from-amber-300/22 to-orange-500/10',
+    },
   ];
 
-  const actionItems = [
-    { title: access.canManagePayouts ? (approved ? 'Review payout setup' : 'Complete verification') : 'Review today’s handoffs', detail: access.canManagePayouts ? (approved ? `$${nextPayout.toLocaleString()} pending` : 'Resolve required metadata before payouts go live') : 'Keep arrivals and departures current', icon: access.canManagePayouts ? Wallet : Clock },
-    { title: 'Improve listing health', detail: 'Add photos and availability windows', icon: MapPin },
-    { title: 'Confirm upcoming bookings', detail: `${upcomingBookings.length} reservations need attention`, icon: CheckCircle2 },
-  ];
+  const payoutHeadline = !approved
+    ? 'Hold'
+    : !stripeConnected ? 'Setup' : !stripeReady ? 'Action' : 'On track';
+  const payoutSubline = !approved
+    ? 'Verification'
+    : !stripeConnected ? 'Connect Stripe' : !stripeReady ? 'Stripe details' : 'Stripe-ready';
+  const payoutDetail = !approved
+    ? 'Revenue tracking remains visible, but payout release waits for manual verification.'
+    : !stripeConnected
+      ? 'Connect a Stripe Express account to enable marketplace payouts.'
+      : !stripeReady
+        ? 'Stripe is connected. Finish remaining identity, tax, or bank verification to release payouts.'
+        : 'Stripe Connect is verified. The next confirmed booking will be eligible for automatic payout.';
+
+  const actionItems: Array<{ title: string; detail: string; icon: typeof Wallet; target: DashboardView }> = access.canManagePayouts
+    ? [
+        {
+          title: approved && stripeReady ? 'Review payout settings' : approved ? 'Finish Stripe verification' : 'Complete provider verification',
+          detail: approved && stripeReady
+            ? 'Confirm bank account, tax ID, and payout schedule.'
+            : approved
+              ? 'Resolve remaining Stripe Connect requirements to enable payouts.'
+              : 'Resolve required metadata before payouts go live.',
+          icon: Wallet,
+          target: 'settings',
+        },
+        {
+          title: totalListings === 0 ? 'Publish your first service' : 'Refine listing health',
+          detail: totalListings === 0 ? 'Add a marketplace service so guests can book.' : 'Update pricing, photos, and availability windows.',
+          icon: MapPin,
+          target: 'listings',
+        },
+        {
+          title: 'Review the booking queue',
+          detail: 'Confirm arrivals and prepare access instructions.',
+          icon: CheckCircle2,
+          target: 'bookings',
+        },
+      ]
+    : [
+        { title: 'Review today’s bookings', detail: 'Keep arrivals and departures current.', icon: Clock, target: 'bookings' },
+        { title: 'Open the team calendar', detail: 'Coordinate handoffs across the schedule.', icon: Calendar, target: 'calendar' },
+        { title: 'Audit listing details', detail: totalListings === 0 ? 'No services published yet.' : 'Confirm published services and access notes.', icon: MapPin, target: 'listings' },
+      ];
+
+  const handleAction = (target: DashboardView) => {
+    if (onNavigate) onNavigate(target);
+  };
 
   return (
     <div className="space-y-6">
@@ -80,28 +159,38 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
           </div>
 
           {access.canSeeFinancials ? (
-          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl">
+          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl" data-testid="provider-dashboard-payout-card">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[12px] uppercase tracking-[0.18em] text-white/80" style={{ fontWeight: 800 }}>Next payout</p>
-                <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>${nextPayout.toLocaleString()}</p>
+                <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>$0</p>
               </div>
-              <div className="rounded-2xl bg-emerald-400/14 px-3 py-2 text-right text-emerald-100">
-                <p className="text-[11px]" style={{ fontWeight: 800 }}>{approved ? 'On track' : 'Hold'}</p>
-                <p className="text-[12px] text-emerald-100/70">{approved ? 'Stripe-ready' : 'Verification'}</p>
+              <div className={`rounded-2xl px-3 py-2 text-right ${stripeReady ? 'bg-emerald-400/14 text-emerald-100' : 'bg-amber-400/14 text-amber-100'}`}>
+                <p className="text-[11px]" style={{ fontWeight: 800 }}>{payoutHeadline}</p>
+                <p className="text-[12px] opacity-70">{payoutSubline}</p>
               </div>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full w-[82%] rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300" />
+              <div className={`h-full rounded-full ${stripeReady ? 'w-full bg-gradient-to-r from-emerald-300 to-cyan-300' : 'w-1/3 bg-gradient-to-r from-amber-300 to-orange-300'}`} />
             </div>
-            <p className="mt-3 text-[12px] leading-5 text-white/80">{approved ? '82% of this week’s expected payout volume has already been captured.' : 'Revenue tracking remains visible, but payout release waits for manual verification.'}</p>
+            <p className="mt-3 text-[12px] leading-5 text-white/80">{payoutDetail}</p>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => handleAction('settings')}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+                style={{ fontWeight: 800 }}
+              >
+                Open payout settings <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           ) : (
           <div className="rounded-[26px] border border-cyan-200/40 bg-cyan-950/70 p-5 shadow-[0_18px_60px_rgba(34,211,238,0.12)] backdrop-blur-xl">
             <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Today’s operating plan</p>
-            <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>{activeBookings.length} active · {upcomingBookings.length} upcoming</p>
+            <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>0 active · 0 upcoming</p>
             <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/95">
-              <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">1. Open each active booking and confirm vehicle/location details.</li>
+              <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">1. Open each active booking and confirm vehicle and location details.</li>
               <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">2. Keep the calendar updated before handoff windows.</li>
               <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">3. Escalate payout or account questions to the Owner.</li>
             </ol>
@@ -119,11 +208,6 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-black/25">
                   <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
                 </div>
-                {index === 0 && access.canSeeFinancials && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 800 }}>
-                    <TrendingUp className="h-3 w-3" /> +{stats.monthlyGrowth}%
-                  </span>
-                )}
               </div>
               <p className="text-[13px] text-white/90" style={{ fontWeight: 800 }}>{card.title}</p>
               <p className="mt-1 text-[31px] leading-none text-white" style={{ fontWeight: 850 }}>{card.value}</p>
@@ -144,25 +228,25 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/6 px-4 py-2 text-right">
               <p className="text-[11px] uppercase tracking-[0.14em] text-white/90" style={{ fontWeight: 800 }}>This month</p>
-              <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>${mockEarnings.thisMonthEarnings.toLocaleString()}</p>
+              <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>$0</p>
             </div>
           </div>
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockEarnings.chartData}>
-                <defs>
-                  <linearGradient id="earningsFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.38} />
-                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                <XAxis dataKey="date" stroke="rgba(255,255,255,0.45)" tickLine={false} axisLine={false} style={{ fontSize: '12px' }} />
-                <YAxis stroke="rgba(255,255,255,0.35)" tickLine={false} axisLine={false} style={{ fontSize: '12px' }} />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(17,17,20,0.96)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '16px', color: '#fff' }} />
-                <Area type="monotone" dataKey="earnings" stroke="#22d3ee" strokeWidth={3} fill="url(#earningsFill)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="flex h-[260px] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/12 bg-black/25 px-6 text-center" data-testid="provider-dashboard-earnings-empty">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
+              <LineChartIcon className="h-6 w-6 text-cyan-200" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>Earnings will appear after your first payout</p>
+            <p className="max-w-md text-[13px] leading-5 text-white/80">{stripeReady ? 'Stripe Connect is verified. Confirmed bookings will populate this chart automatically.' : 'Finish Stripe verification to start tracking confirmed booking revenue here.'}</p>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => handleAction(stripeReady ? 'earnings' : 'settings')}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-cyan-200/40 bg-cyan-300/10 px-3 py-1.5 text-[12px] text-cyan-100 transition hover:bg-cyan-300/20"
+                style={{ fontWeight: 800 }}
+              >
+                {stripeReady ? 'Open earnings' : 'Open payout settings'} <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           </>
           ) : (
@@ -186,17 +270,25 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
             </div>
             <ArrowUpRight className="h-5 w-5 text-cyan-200" />
           </div>
-          <div className="space-y-3">
+          <div className="space-y-3" data-testid="provider-dashboard-actions">
             {actionItems.map((item) => {
               const Icon = item.icon;
               return (
-                <button key={item.title} className="w-full rounded-[18px] border border-white/20 bg-white/10 p-4 text-left transition hover:border-cyan-200/40 hover:bg-cyan-300/10">
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={() => handleAction(item.target)}
+                  className="w-full rounded-[18px] border border-white/20 bg-white/10 p-4 text-left transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+                >
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
                       <Icon className="h-5 w-5 text-cyan-100" strokeWidth={2.5} />
                     </div>
-                    <div>
-                      <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>{item.title}</p>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>{item.title}</p>
+                        <ArrowUpRight className="h-4 w-4 text-white/70" />
+                      </div>
                       <p className="mt-1 text-[12px] leading-5 text-white/90">{item.detail}</p>
                     </div>
                   </div>
@@ -211,28 +303,26 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
         <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.38 }}>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Live bookings</h2>
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-400/12 px-3 py-1.5 text-[12px] text-emerald-100" style={{ fontWeight: 800 }}>
-              <span className="h-2 w-2 rounded-full bg-emerald-300" /> Active
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/8 px-3 py-1.5 text-[12px] text-white/80" style={{ fontWeight: 800 }}>
+              <span className="h-2 w-2 rounded-full bg-white/50" /> Idle
             </span>
           </div>
-          <div className="space-y-3">
-            {activeBookings.map((booking) => (
-              <div key={booking.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
-                    <p className="mt-1 text-[12px] text-white/80">{booking.listingTitle}</p>
-                  </div>
-                  <p className="text-[17px] text-emerald-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/80">
-                  <Clock className="h-3.5 w-3.5" />
-                  <span>{booking.duration}</span>
-                  <span>•</span>
-                  <span>{booking.vehicle}</span>
-                </div>
-              </div>
-            ))}
+          <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-live-empty">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
+              <Inbox className="h-6 w-6 text-white/80" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No bookings in progress</p>
+            <p className="max-w-sm text-[13px] leading-5 text-white/80">Confirmed marketplace bookings will appear here in real time once guests check in.</p>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => handleAction('bookings')}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+                style={{ fontWeight: 800 }}
+              >
+                Open bookings <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </motion.section>
 
@@ -241,28 +331,22 @@ export function DashboardHome({ isDarkMode, access, reviewState }: DashboardHome
             <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Upcoming</h2>
             <span className="text-[12px] text-white/80" style={{ fontWeight: 750 }}>Next 72 hours</span>
           </div>
-          <div className="space-y-3">
-            {upcomingBookings.map((booking) => {
-              const startDate = new Date(booking.startTime);
-              const formattedDate = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-              return (
-                <div key={booking.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{booking.guestName}</p>
-                      <p className="mt-1 text-[12px] text-white/80">{booking.listingTitle}</p>
-                    </div>
-                    <p className="text-[17px] text-cyan-100" style={{ fontWeight: 850 }}>${booking.amount}</p>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-white/80">
-                    <Calendar className="h-3.5 w-3.5" />
-                    <span>{formattedDate}</span>
-                    <span>•</span>
-                    <span>{booking.duration}</span>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-upcoming-empty">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
+              <ClipboardList className="h-6 w-6 text-white/80" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No upcoming reservations</p>
+            <p className="max-w-sm text-[13px] leading-5 text-white/80">{totalListings === 0 ? 'Publish a service so guests can request bookings.' : 'New reservations will surface here as soon as guests confirm.'}</p>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => handleAction(totalListings === 0 ? 'listings' : 'calendar')}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+                style={{ fontWeight: 800 }}
+              >
+                {totalListings === 0 ? 'Create listing' : 'Open calendar'} <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </motion.section>
       </div>

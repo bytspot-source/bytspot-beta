@@ -1,8 +1,8 @@
 import { motion } from 'motion/react';
-import { Calendar, MapPin, Car, Clock, User, Filter } from 'lucide-react';
-import { mockBookings } from '../../../utils/hostMockData';
+import { Inbox } from 'lucide-react';
 import { useState } from 'react';
-import { financialValue, type ProviderDashboardAccess } from './providerDashboardAccess';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardBookingsProps {
   isDarkMode: boolean;
@@ -12,7 +12,10 @@ interface DashboardBookingsProps {
 type BookingFilter = 'all' | 'active' | 'upcoming' | 'completed';
 
 export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps) {
+  void isDarkMode;
+  void access;
   const [filter, setFilter] = useState<BookingFilter>('all');
+  const data = useProviderDashboardData();
 
   const springConfig = {
     type: "spring" as const,
@@ -21,49 +24,18 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
     mass: 0.8,
   };
 
-  const filteredBookings = filter === 'all' 
-    ? mockBookings 
-    : mockBookings.filter(b => b.status === filter);
+  const totalCount = 0;
+  const activeCount = 0;
+  const upcomingCount = 0;
+  const completedCount = 0;
 
-  const activeCount = mockBookings.filter(b => b.status === 'active').length;
-  const upcomingCount = mockBookings.filter(b => b.status === 'upcoming').length;
-  const completedCount = mockBookings.filter(b => b.status === 'completed').length;
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'text-green-400';
-      case 'upcoming':
-        return 'text-cyan-400';
-      case 'completed':
-        return 'text-white/50';
-      default:
-        return 'text-white';
-    }
-  };
-
-  const getStatusBg = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-500/20 border-green-400/30';
-      case 'upcoming':
-        return 'bg-cyan-500/20 border-cyan-400/30';
-      case 'completed':
-        return 'bg-white/10 border-white/20';
-      default:
-        return 'bg-white/10 border-white/30';
-    }
-  };
-
-  const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  };
+  const emptyMessage = data.loading
+    ? 'Loading bookings…'
+    : data.totalServices === 0
+      ? 'Publish your first marketplace service so guests can request bookings.'
+      : filter === 'all'
+        ? 'New marketplace bookings will surface here automatically.'
+        : `No ${filter} bookings yet. They will appear here as guests confirm.`;
 
   return (
     <div className="space-y-6">
@@ -106,7 +78,7 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
           }`}
         >
           <span className={`text-[15px] ${filter === 'all' ? 'text-white' : 'text-white/70'}`} style={{ fontWeight: 600 }}>
-            All ({mockBookings.length})
+            All ({totalCount})
           </span>
         </button>
 
@@ -150,110 +122,24 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
         </button>
       </motion.div>
 
-      {/* Bookings List */}
-      <div className="space-y-4">
-        {filteredBookings.map((booking, index) => (
-          <motion.div
-            key={booking.id}
-            className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springConfig, delay: 0.2 + index * 0.05 }}
-            whileHover={{ scale: 1.01, y: -2 }}
-          >
-            {/* Status Badge */}
-            <div className="flex items-center justify-between mb-4">
-              <div className={`px-3 py-1.5 rounded-full border-2 backdrop-blur-xl ${getStatusBg(booking.status)}`}>
-                <span className={`text-[12px] ${getStatusColor(booking.status)}`} style={{ fontWeight: 600 }}>
-                  {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                </span>
-              </div>
-
-              <div className="text-[20px] text-green-400" style={{ fontWeight: 700 }}>
-                {financialValue(access, `$${booking.amount}`)}
-              </div>
-            </div>
-
-            {/* Guest Info */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 flex items-center justify-center">
-                <User className="w-6 h-6 text-white" strokeWidth={2.5} />
-              </div>
-              
-              <div>
-                <div className="text-[17px] text-white mb-1" style={{ fontWeight: 600 }}>
-                  {booking.guestName}
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-white/70">
-                  <Car className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{booking.vehicle}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Listing Info */}
-            <div className="rounded-xl p-4 bg-[#2C2C2E]/60 border-2 border-white/10 mb-4">
-              <div className="flex items-start gap-3 mb-3">
-                <MapPin className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
-                <div className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                  {booking.listingTitle}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4 text-[13px] text-white/70">
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{formatDateTime(booking.startTime)}</span>
-                </div>
-                <span>•</span>
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{booking.duration}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-2">
-              <motion.button
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-br from-purple-500/30 to-cyan-500/30 border-2 border-white/20"
-                whileTap={{ scale: 0.95 }}
-                transition={springConfig}
-              >
-                <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-                  View Details
-                </span>
-              </motion.button>
-
-              {booking.status === 'active' && (
-                <motion.button
-                  className="px-4 py-2.5 rounded-xl bg-[#2C2C2E]/60 border-2 border-white/20"
-                  whileTap={{ scale: 0.95 }}
-                  transition={springConfig}
-                >
-                  <span className="text-[13px] text-white/70" style={{ fontWeight: 600 }}>
-                    Contact
-                  </span>
-                </motion.button>
-              )}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {filteredBookings.length === 0 && (
-        <motion.div
-          className="rounded-[20px] p-12 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-center"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.2 }}
-        >
-          <Filter className="w-12 h-12 text-white/30 mx-auto mb-4" strokeWidth={1.5} />
-          <p className="text-[17px] text-white/50" style={{ fontWeight: 400 }}>
-            No {filter !== 'all' ? filter : ''} bookings found
-          </p>
-        </motion.div>
-      )}
+      {/* Bookings empty state */}
+      <motion.div
+        className="rounded-[20px] p-12 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-center"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.2 }}
+        data-testid="provider-bookings-empty"
+      >
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+          <Inbox className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+        </div>
+        <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>
+          {data.loading ? 'Loading bookings…' : 'No bookings yet'}
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-[14px] leading-6 text-white/70" style={{ fontWeight: 400 }}>
+          {emptyMessage}
+        </p>
+      </motion.div>
     </div>
   );
 }

@@ -106,15 +106,19 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
     }
   }, [dashboardAccess, dashboardView]);
 
+  const handleDashboardNavigate = (target: DashboardView) => {
+    if (canAccessDashboardView(dashboardAccess, target)) setDashboardView(target);
+  };
+
   // Render dashboard content based on current view
   const renderDashboardContent = () => {
     if (!canAccessDashboardView(dashboardAccess, dashboardView)) {
-      return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
+      return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} onNavigate={handleDashboardNavigate} />;
     }
 
     switch (dashboardView) {
       case 'overview':
-        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} onNavigate={handleDashboardNavigate} />;
       case 'listings':
         return <DashboardListings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'bookings':
@@ -132,7 +136,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
       case 'settings':
         return <DashboardSettings isDarkMode={isDarkMode} access={dashboardAccess} />;
       default:
-        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
+        return <DashboardHome isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} onNavigate={handleDashboardNavigate} />;
     }
   };
 

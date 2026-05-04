@@ -1,7 +1,7 @@
-import { motion } from 'motion/react';
-import { MapPin, Star, Eye, Plus, Edit, ToggleLeft, ToggleRight } from 'lucide-react';
-import { mockListings } from '../../../utils/hostMockData';
-import { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Clock, CreditCard, DollarSign, Edit, Plus, RefreshCw, Save, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { trpc } from '../../../utils/trpc';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardListingsProps {
@@ -9,272 +9,183 @@ interface DashboardListingsProps {
   access: ProviderDashboardAccess;
 }
 
-export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {
-  const [listings, setListings] = useState(mockListings);
+type VendorService = {
+  id: string;
+  title: string;
+  description: string | null;
+  priceCents: number;
+  currency: string;
+  durationMins: number | null;
+  status: 'active' | 'draft' | 'archived' | string;
+  updatedAt?: string;
+  patch?: { id: string; label?: string | null; uid?: string | null } | null;
+  cashFlow?: { platformFeeCents?: number; providerPayoutEstimateCents?: number; commissionBps?: number };
+};
 
-  const springConfig = {
-    type: "spring" as const,
-    stiffness: 320,
-    damping: 30,
-    mass: 0.8,
+type EditForm = { title: string; description: string; priceDollars: string; durationMins: string };
+
+const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
+
+function formatCents(cents: number, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
+}
+
+function serviceToForm(service: VendorService): EditForm {
+  return {
+    title: service.title,
+    description: service.description ?? '',
+    priceDollars: (service.priceCents / 100).toFixed(2),
+    durationMins: service.durationMins ? String(service.durationMins) : '',
+  };
+}
+
+export function DashboardListings({ access }: DashboardListingsProps) {
+  const [services, setServices] = useState<VendorService[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [editingService, setEditingService] = useState<VendorService | null>(null);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const activeServices = useMemo(() => services.filter((service) => service.status === 'active'), [services]);
+  const totalGrossCents = useMemo(() => services.reduce((sum, service) => sum + service.priceCents, 0), [services]);
+  const payoutEstimateCents = useMemo(
+    () => services.reduce((sum, service) => sum + (service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents), 0),
+    [services],
+  );
+
+  const loadServices = async () => {
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token || token === 'beta_guest') {
+      setServices([]);
+      setMessage('Sign in with a vendor account to manage marketplace services.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      const result = await trpc.vendors.listServices.query({ status: 'all', limit: 50 });
+      setServices(result?.services ?? []);
+      if (!result?.services?.length) {
+        setMessage('No vendor services are live yet. Create services in the provider portal, then return here to manage pricing and booking details.');
+      }
+    } catch (err: any) {
+      setServices([]);
+      setMessage(err?.message ?? 'Unable to load vendor services.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleListingStatus = (id: string) => {
-    setListings(prev =>
-      prev.map(listing =>
-        listing.id === id
-          ? { ...listing, status: listing.status === 'active' ? 'inactive' : 'active' as any }
-          : listing
-      )
-    );
+  useEffect(() => { void loadServices(); }, []);
+
+  const openEdit = (service: VendorService) => {
+    setEditingService(service);
+    setEditForm(serviceToForm(service));
+    setMessage(null);
   };
 
-  const getTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      driveway: 'Driveway',
-      garage: 'Garage',
-      lot: 'Parking Lot',
-      street: 'Street Parking',
-    };
-    return labels[type] || type;
+  const saveService = async () => {
+    if (!editingService || !editForm || saving) return;
+    const price = Number(editForm.priceDollars);
+    const duration = editForm.durationMins.trim() ? Number(editForm.durationMins) : null;
+    if (!Number.isFinite(price) || price < 0.5) return setMessage('Service price must be at least $0.50.');
+    if (duration !== null && (!Number.isFinite(duration) || duration < 5)) return setMessage('Duration must be blank or at least 5 minutes.');
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      const result = await trpc.vendors.updateService.mutate({
+        serviceId: editingService.id,
+        title: editForm.title.trim(),
+        description: editForm.description.trim() || null,
+        priceCents: Math.round(price * 100),
+        durationMins: duration === null ? null : Math.round(duration),
+      });
+      const updated = result.service as VendorService;
+      setServices((prev) => prev.map((service) => (service.id === updated.id ? updated : service)));
+      setEditingService(null);
+      setEditForm(null);
+      setMessage('Service updated. Discover cards will use the latest metadata from vendors.search.');
+    } catch (err: any) {
+      setMessage(err?.message ?? 'Unable to update vendor service.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        className="flex items-center justify-between"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springConfig}
-      >
-        <div>
-          <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
-            My Listings
-          </h1>
-          <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-            Manage your parking spots
-          </p>
+    <div className="space-y-6" data-testid="provider-services-panel">
+      <motion.section className="relative overflow-hidden rounded-[32px] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.24),transparent_34%),linear-gradient(135deg,rgba(18,18,22,0.98),rgba(4,6,12,0.98))] p-5 shadow-2xl lg:p-7" initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} transition={springConfig}>
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 850 }}><Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} /> Marketplace service desk · {access.role}</div>
+            <h1 className="text-[34px] leading-tight text-white lg:text-[44px]" style={{ fontWeight: 850 }}>Manage vendor services</h1>
+            <p className="mt-3 max-w-2xl text-[15px] leading-6 text-white/78">These live service records power the Discover service rail and Stripe-backed booking sheet. Keep titles, pricing, and duration precise before customers book.</p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void loadServices()} disabled={loading} className="inline-flex items-center gap-2 rounded-[18px] border border-white/12 bg-white/[0.08] px-4 py-3 text-[13px] text-white disabled:opacity-60" style={{ fontWeight: 850 }}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
+            <button type="button" className="inline-flex items-center gap-2 rounded-[18px] bg-white px-4 py-3 text-[13px] text-black opacity-75" style={{ fontWeight: 900 }} title="Creation remains in provider onboarding for now"><Plus className="h-4 w-4" /> Add Service</button>
+          </div>
         </div>
+      </motion.section>
 
-        <motion.button
-          className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 shadow-xl"
-          whileTap={{ scale: 0.95 }}
-          transition={springConfig}
-        >
-          <Plus className="w-5 h-5 text-white" strokeWidth={2.5} />
-          <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-            Add Listing
-          </span>
-        </motion.button>
-      </motion.div>
-
-      <motion.div className="rounded-[22px] border border-cyan-300/20 bg-cyan-500/10 p-4" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
-        <p className="text-[13px] uppercase tracking-[0.18em] text-cyan-100/70" style={{ fontWeight: 850 }}>Setting up your first listing</p>
-        <ol className="mt-3 grid gap-2 text-[13px] leading-5 text-white/68 md:grid-cols-3">
-          <li>1. Add clear photos, access notes, and availability windows.</li>
-          <li>2. Set hourly/day pricing that matches local demand.</li>
-          <li>3. Use Patches to create a verified tap/scan handoff point.</li>
-        </ol>
-        {access.isCottage && <p className="mt-3 text-[12px] text-white/50">Cottage mode keeps listing setup lightweight: one service, one patch, one reliable booking flow.</p>}
-      </motion.div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/20 to-fuchsia-500/20 backdrop-blur-xl"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.1 }}
-        >
-          <div className="text-[28px] text-white mb-1" style={{ fontWeight: 700 }}>
-            {listings.filter(l => l.status === 'active').length}
-          </div>
-          <div className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-            Active Listings
-          </div>
-        </motion.div>
-
-        <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 backdrop-blur-xl"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.2 }}
-        >
-          <div className="text-[28px] text-white mb-1" style={{ fontWeight: 700 }}>
-            {listings.reduce((sum, l) => sum + l.totalBookings, 0)}
-          </div>
-          <div className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-            Total Bookings
-          </div>
-        </motion.div>
-
-        <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-yellow-500/20 to-orange-500/20 backdrop-blur-xl"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.3 }}
-        >
-          <div className="text-[28px] text-white mb-1" style={{ fontWeight: 700 }}>
-            {(listings.reduce((sum, l) => sum + l.rating, 0) / listings.length).toFixed(1)}
-          </div>
-          <div className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>
-            Average Rating
-          </div>
-        </motion.div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {[
+          { label: 'Active services', value: activeServices.length, icon: ShieldCheck, tone: 'from-cyan-400/22 to-blue-500/10' },
+          { label: 'Published price total', value: formatCents(totalGrossCents), icon: DollarSign, tone: 'from-emerald-400/22 to-cyan-400/10' },
+          { label: 'Payout estimate', value: formatCents(payoutEstimateCents), icon: CreditCard, tone: 'from-violet-400/22 to-fuchsia-500/10' },
+        ].map((card, index) => {
+          const Icon = card.icon;
+          return <motion.div key={card.label} className={`rounded-[24px] border border-white/12 bg-gradient-to-br ${card.tone} p-5 shadow-xl backdrop-blur-xl`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.06 }}><Icon className="mb-5 h-5 w-5 text-white" strokeWidth={2.5} /><p className="text-[13px] text-white/80" style={{ fontWeight: 800 }}>{card.label}</p><p className="mt-1 text-[30px] leading-none text-white" style={{ fontWeight: 850 }}>{card.value}</p></motion.div>;
+        })}
       </div>
 
-      {/* Listings Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {listings.map((listing, index) => (
-          <motion.div
-            key={listing.id}
-            className="rounded-[20px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springConfig, delay: 0.4 + index * 0.1 }}
-            whileHover={{ scale: 1.02, y: -4 }}
-          >
-            {/* Image */}
-            <div className="relative h-48 bg-gradient-to-br from-purple-500/20 to-cyan-500/20">
-              <img
-                src={listing.photos[0]}
-                alt={listing.title}
-                className="w-full h-full object-cover"
-              />
-              
-              {/* Status Badge */}
-              <div className="absolute top-3 right-3">
-                <div className={`px-3 py-1.5 rounded-full backdrop-blur-xl border-2 ${
-                  listing.status === 'active'
-                    ? 'bg-green-500/30 border-green-400/50'
-                    : 'bg-gray-500/30 border-gray-400/50'
-                }`}>
-                  <span className={`text-[12px] ${
-                    listing.status === 'active' ? 'text-green-300' : 'text-gray-300'
-                  }`} style={{ fontWeight: 600 }}>
-                    {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
-                  </span>
-                </div>
-              </div>
+      {message && <div className="rounded-[20px] border border-amber-300/24 bg-amber-300/10 p-4 text-[13px] leading-5 text-amber-50/90"><AlertCircle className="mr-2 inline h-4 w-4" /> {message}</div>}
 
-              {/* Active Booking Badge */}
-              {listing.activeBooking && (
-                <div className="absolute top-3 left-3">
-                  <div className="px-3 py-1.5 rounded-full bg-cyan-500/30 border-2 border-cyan-400/50 backdrop-blur-xl flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="text-[12px] text-cyan-300" style={{ fontWeight: 600 }}>
-                      Occupied
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Content */}
-            <div className="p-6">
-              <div className="flex items-start justify-between mb-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {loading ? <div className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-6 text-white/70">Loading vendor services…</div> : services.map((service, index) => (
+          <motion.article key={service.id} data-testid={`provider-service-card-${service.id}`} className="overflow-hidden rounded-[28px] border border-cyan-300/24 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.18),transparent_32%),linear-gradient(135deg,rgba(17,17,20,0.96),rgba(7,8,13,0.98))] shadow-xl shadow-cyan-950/20" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.18 + index * 0.07 }}>
+            <div className="p-5">
+              <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-[20px] text-white mb-1" style={{ fontWeight: 600 }}>
-                    {listing.title}
-                  </h3>
-                  <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                    {listing.address}
-                  </p>
+                  <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 900 }}>Bookable service</p>
+                  <h2 className="text-[24px] leading-tight text-white" style={{ fontWeight: 850 }}>{service.title}</h2>
+                  <p className="mt-2 min-h-[44px] text-[14px] leading-6 text-white/68">{service.description || 'Add a crisp description so customers understand the service before checkout.'}</p>
                 </div>
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-purple-500/20 border border-purple-400/30">
-                  <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" strokeWidth={2.5} />
-                  <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
-                    {listing.rating}
-                  </span>
-                </div>
+                <span className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${service.status === 'active' ? 'bg-emerald-400/16 text-emerald-100 ring-1 ring-emerald-200/20' : 'bg-white/8 text-white/60 ring-1 ring-white/10'}`} style={{ fontWeight: 900 }}>{service.status}</span>
               </div>
-
-              {/* Type & Stats */}
-              <div className="flex items-center gap-3 mb-4 text-[13px] text-white/70">
-                <div className="flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{getTypeLabel(listing.type)}</span>
-                </div>
-                <span>•</span>
-                <div className="flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  <span>{listing.totalBookings} bookings</span>
-                </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-[18px] border border-white/10 bg-white/[0.05] p-3"><p className="text-[11px] uppercase tracking-[0.14em] text-white/42" style={{ fontWeight: 850 }}>Price</p><p className="mt-2 text-[16px] text-white" style={{ fontWeight: 850 }}>{formatCents(service.priceCents, service.currency)}</p></div>
+                <div className="rounded-[18px] border border-white/10 bg-white/[0.05] p-3"><p className="text-[11px] uppercase tracking-[0.14em] text-white/42" style={{ fontWeight: 850 }}>Duration</p><p className="mt-2 text-[16px] text-white" style={{ fontWeight: 850 }}>{service.durationMins ? `${service.durationMins} min` : 'Flexible'}</p></div>
+                <div className="rounded-[18px] border border-white/10 bg-white/[0.05] p-3"><p className="text-[11px] uppercase tracking-[0.14em] text-white/42" style={{ fontWeight: 850 }}>Payout</p><p className="mt-2 text-[16px] text-emerald-100" style={{ fontWeight: 850 }}>{formatCents(service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents, service.currency)}</p></div>
               </div>
-
-              {/* Pricing */}
-              <div className="flex items-center gap-4 mb-4">
-                <div>
-                  <div className="text-[20px] text-green-400 mb-1" style={{ fontWeight: 700 }}>
-                    ${listing.pricePerHour}/hr
-                  </div>
-                  <div className="text-[13px] text-white/50" style={{ fontWeight: 400 }}>
-                    ${listing.pricePerDay}/day
-                  </div>
-                </div>
-              </div>
-
-              {/* Features */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                {listing.features.slice(0, 3).map((feature) => (
-                  <div
-                    key={feature}
-                    className="px-2 py-1 rounded-full bg-[#2C2C2E]/60 border border-white/20"
-                  >
-                    <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
-                      {feature}
-                    </span>
-                  </div>
-                ))}
-                {listing.features.length > 3 && (
-                  <div className="px-2 py-1 rounded-full bg-[#2C2C2E]/60 border border-white/20">
-                    <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
-                      +{listing.features.length - 3} more
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-2">
-                <motion.button
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-purple-500/30 to-cyan-500/30 border-2 border-white/20"
-                  whileTap={{ scale: 0.95 }}
-                  transition={springConfig}
-                >
-                  <Edit className="w-4 h-4 text-white" strokeWidth={2.5} />
-                  <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>
-                    Edit
-                  </span>
-                </motion.button>
-
-                <motion.button
-                  onClick={() => toggleListingStatus(listing.id)}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 ${
-                    listing.status === 'active'
-                      ? 'bg-green-500/20 border-green-400/30'
-                      : 'bg-gray-500/20 border-gray-400/30'
-                  }`}
-                  whileTap={{ scale: 0.95 }}
-                  transition={springConfig}
-                >
-                  {listing.status === 'active' ? (
-                    <ToggleRight className="w-4 h-4 text-green-400" strokeWidth={2.5} />
-                  ) : (
-                    <ToggleLeft className="w-4 h-4 text-gray-400" strokeWidth={2.5} />
-                  )}
-                  <span className={`text-[13px] ${
-                    listing.status === 'active' ? 'text-green-400' : 'text-gray-400'
-                  }`} style={{ fontWeight: 600 }}>
-                    {listing.status === 'active' ? 'Active' : 'Inactive'}
-                  </span>
-                </motion.button>
-              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-white/62"><span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-black/20 px-2.5 py-1"><Clock className="h-3 w-3" /> Updated {service.updatedAt ? new Date(service.updatedAt).toLocaleDateString() : 'recently'}</span><span className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-black/20 px-2.5 py-1"><ShieldCheck className="h-3 w-3 text-cyan-200" /> {service.patch?.label || service.patch?.uid || 'Patch optional'}</span></div>
             </div>
-          </motion.div>
+            <div className="border-t border-white/10 bg-black/24 p-4"><button type="button" data-testid={`provider-service-edit-${service.id}`} onClick={() => openEdit(service)} className="inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-300 to-violet-400 px-4 py-3 text-[13px] text-black shadow-lg shadow-cyan-950/20" style={{ fontWeight: 900 }}><Edit className="h-4 w-4" /> Edit Service</button></div>
+          </motion.article>
         ))}
       </div>
+
+      <AnimatePresence>
+        {editingService && editForm && (
+          <motion.div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 px-4 pb-4 backdrop-blur-sm sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} data-testid="provider-service-edit-modal">
+            <motion.div className="w-full max-w-lg rounded-[30px] border border-white/15 bg-[#111114] p-5 shadow-2xl" initial={{ y: 36, scale: 0.96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 36, scale: 0.96 }} transition={springConfig}>
+              <div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 900 }}>Edit service</p><h3 className="mt-1 text-[24px] text-white" style={{ fontWeight: 850 }}>{editingService.title}</h3></div><button type="button" onClick={() => setEditingService(null)} className="rounded-full border border-white/12 bg-white/8 p-2 text-white/70"><X className="h-5 w-5" /></button></div>
+              <div className="space-y-3">
+                <label className="block text-[12px] text-white/70" style={{ fontWeight: 800 }}>Title<input data-testid="service-title-input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} className="mt-1 w-full rounded-[16px] border border-white/12 bg-black/30 px-3 py-3 text-[14px] text-white outline-none focus:border-cyan-300/60" /></label>
+                <label className="block text-[12px] text-white/70" style={{ fontWeight: 800 }}>Description<textarea data-testid="service-description-input" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} className="mt-1 w-full resize-none rounded-[16px] border border-white/12 bg-black/30 px-3 py-3 text-[14px] text-white outline-none focus:border-cyan-300/60" /></label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-[12px] text-white/70" style={{ fontWeight: 800 }}>Price<input data-testid="service-price-input" type="number" min="0.5" step="0.01" value={editForm.priceDollars} onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })} className="mt-1 w-full rounded-[16px] border border-white/12 bg-black/30 px-3 py-3 text-[14px] text-white outline-none focus:border-cyan-300/60" /></label>
+                  <label className="block text-[12px] text-white/70" style={{ fontWeight: 800 }}>Duration minutes<input data-testid="service-duration-input" type="number" min="5" step="5" value={editForm.durationMins} onChange={(e) => setEditForm({ ...editForm, durationMins: e.target.value })} className="mt-1 w-full rounded-[16px] border border-white/12 bg-black/30 px-3 py-3 text-[14px] text-white outline-none focus:border-cyan-300/60" /></label>
+                </div>
+              </div>
+              <button type="button" data-testid="save-service-button" onClick={saveService} disabled={saving} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-[14px] text-black disabled:opacity-60" style={{ fontWeight: 900 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Service</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

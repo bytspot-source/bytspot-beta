@@ -19,6 +19,19 @@ type SyncOnboardingResponse = {
 
 const VENDOR_NAME = 'Midtown Hosts';
 const STRIPE_CONNECT_URL = 'https://connect.stripe.com/setup/e/acct_test_onboarding';
+const PROVIDER_SERVICE = {
+  id: 'svc-1',
+  title: 'VIP Arrival',
+  description: 'Door-to-table escort with patch verified access',
+  priceCents: 15000,
+  currency: 'USD',
+  durationMins: 90,
+  status: 'active',
+  updatedAt: new Date('2026-05-03T12:10:00.000Z').toISOString(),
+  vendor: { id: 'vendor-1', displayName: VENDOR_NAME, onboardingStatus: 'active' },
+  patch: { id: 'patch-1', uid: '04A1B2C3D4E5F6', label: 'VIP Booth' },
+  cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+};
 
 const notConnectedSync: SyncOnboardingResponse = {
   vendor: { id: 'vendor-1', displayName: VENDOR_NAME, stripeAccountId: null, onboardingStatus: 'pending', updatedAt: new Date().toISOString() },
@@ -39,12 +52,13 @@ declare global {
   interface Window {
     __BYT_E2E_TRPC_MOCKS__?: Record<string, unknown>;
     __BYT_E2E_TRPC_CALLS__?: Array<{ procedure: string; input: unknown }>;
+    __BYT_E2E_VENDOR_SERVICES__?: Array<typeof PROVIDER_SERVICE>;
     __recordStartOnboarding?: (payload: unknown) => void;
   }
 }
 
 async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardingResponse, access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' }) {
-  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode }) => {
+  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service }) => {
     localStorage.setItem('bytspot_auth_token', 'vendor-test-token');
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     localStorage.setItem('bytspot_user_name', vendorName);
@@ -63,6 +77,7 @@ async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardi
     }
 
     window.__BYT_E2E_TRPC_CALLS__ = [];
+    window.__BYT_E2E_VENDOR_SERVICES__ = [service];
     window.__BYT_E2E_TRPC_MOCKS__ = {
       'vendors.syncOnboarding': sync,
       'vendors.startOnboarding': {
@@ -98,12 +113,32 @@ async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardi
       const results = procedures.map((procedure) => {
         window.__BYT_E2E_TRPC_CALLS__?.push({ procedure, input: jsonInput });
         if (procedure.includes('vendors.startOnboarding')) window.__recordStartOnboarding?.(jsonInput);
+        if (procedure.includes('vendors.listServices')) return { result: { data: { vendor: sync.vendor, services: window.__BYT_E2E_VENDOR_SERVICES__ ?? [] } } };
+        if (procedure.includes('vendors.updateService')) {
+          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
+          const current = (window.__BYT_E2E_VENDOR_SERVICES__ ?? [service])[0];
+          const updated = {
+            ...current,
+            title: inputRecord.title ?? current.title,
+            description: inputRecord.description ?? current.description,
+            priceCents: inputRecord.priceCents ?? current.priceCents,
+            durationMins: inputRecord.durationMins ?? current.durationMins,
+            updatedAt: new Date().toISOString(),
+            cashFlow: {
+              ...current.cashFlow,
+              grossCents: inputRecord.priceCents ?? current.priceCents,
+              providerPayoutEstimateCents: Math.round((inputRecord.priceCents ?? current.priceCents) * 0.92),
+            },
+          };
+          window.__BYT_E2E_VENDOR_SERVICES__ = [updated];
+          return { result: { data: { service: updated } } };
+        }
         const key = Object.keys(window.__BYT_E2E_TRPC_MOCKS__ ?? {}).find((name) => procedure.includes(name));
         return { result: { data: key ? window.__BYT_E2E_TRPC_MOCKS__?.[key] : null } };
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { vendorName: VENDOR_NAME, sync: syncResult, connectUrl: STRIPE_CONNECT_URL, providerRole: access?.role ?? 'owner', providerBusinessMode: access?.businessMode ?? 'standard' });
+  }, { vendorName: VENDOR_NAME, sync: syncResult, connectUrl: STRIPE_CONNECT_URL, providerRole: access?.role ?? 'owner', providerBusinessMode: access?.businessMode ?? 'standard', service: PROVIDER_SERVICE });
 }
 
 async function openConnectReturn(page: Page) {
@@ -177,5 +212,29 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByText('Operational role')).toBeVisible();
     await expect(page.getByText('Staff', { exact: true })).toBeVisible();
     await expect(page.getByText('$24,580')).toHaveCount(0);
+  });
+
+  test('lets owners edit live vendor service metadata from My Listings', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync);
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'My Listings' }).click();
+    await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('VIP Arrival');
+
+    await page.getByTestId('provider-service-edit-svc-1').click();
+    await expect(page.getByTestId('provider-service-edit-modal')).toBeVisible();
+    await page.getByTestId('service-title-input').fill('VIP Arrival Plus');
+    await page.getByTestId('service-description-input').fill('Updated provider handoff');
+    await page.getByTestId('service-price-input').fill('175.00');
+    await page.getByTestId('service-duration-input').fill('120');
+    await page.getByTestId('save-service-button').click();
+
+    await expect(page.getByTestId('provider-service-edit-modal')).toBeHidden();
+    await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('VIP Arrival Plus');
+    await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('$175.00');
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
+    expect(calls.some((call) => call.procedure.includes('vendors.updateService') && (call.input as any)?.priceCents === 17500)).toBeTruthy();
   });
 });

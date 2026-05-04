@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
-import { mockVendorServiceCards, type DiscoverCard, type CardType } from '../mockData';
+import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
 import { loadVirtualPatchContext } from '../virtualPatch';
 import { vendorServiceToCard } from '../vendorServiceCards';
@@ -263,7 +263,7 @@ export function useVenues(): UseVenuesResult {
       return Array.from(cardsByServiceId.values());
     } catch (err: any) {
       console.warn('[useVenues] Vendor services unavailable:', err?.message);
-      return mockVendorServiceCards;
+      return [];
     }
   };
 
@@ -299,9 +299,9 @@ export function useVenues(): UseVenuesResult {
         try { fallback = JSON.parse(cached); } catch { /* use default fallback */ }
       }
       venuesRef.current = fallback;
-      vendorServiceCardsRef.current = mockVendorServiceCards;
+      vendorServiceCardsRef.current = [];
       setVenues(fallback);
-      setCombinedCards(fallback, mockVendorServiceCards);
+      setCombinedCards(fallback, []);
       setError(null); // Don't show error — we have fallback data
     }
 

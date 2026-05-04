@@ -9,7 +9,7 @@
  */
 
 // Discover Cards (Parking, Venues, Valet, etc.)
-export { discoverCards, mockVendorServiceCards, type DiscoverCard, type CardType } from './discover';
+export { discoverCards, type DiscoverCard, type CardType } from './discover';
 
 // Stories (Ephemeral social content)
 export { storyGroups, type Story, type StoryGroup } from './stories';

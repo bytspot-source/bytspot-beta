@@ -46,6 +46,7 @@ const ProviderLanding = lazy(() => import('./components/provider/ProviderLanding
 const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
 const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
 const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
+const PasswordRecoveryScreen = lazy(() => import('./components/PasswordRecoveryScreen').then(m => ({ default: m.PasswordRecoveryScreen })));
 
 import {
   getPersonalizedCategories,
@@ -59,6 +60,7 @@ import {
   type NearbyLocation
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
+import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -745,6 +747,7 @@ export default function App() {
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+    const passwordRecoveryRoute = getPasswordRecoveryRoute(window.location);
 
     if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath === '/admin' || normalizedPath === '/marketing')) {
       window.history.replaceState({}, '', '/');
@@ -753,6 +756,21 @@ export default function App() {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <PrintableMarketingAssets />
+        </Suspense>
+      );
+    }
+
+    if (passwordRecoveryRoute) {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <PasswordRecoveryScreen
+            mode={passwordRecoveryRoute}
+            onBackToAuth={() => {
+              window.history.replaceState({}, '', '/');
+              setCurrentScreen('auth');
+              setProviderRouteVersion(version => version + 1);
+            }}
+          />
         </Suspense>
       );
     }

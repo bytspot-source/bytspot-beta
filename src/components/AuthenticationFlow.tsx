@@ -194,6 +194,18 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
             />
           </div>
 
+          {mode === 'login' && (
+            <div className="flex justify-end">
+              <a
+                href="/#/forgot-password"
+                className="rounded-md px-1 py-1 text-[13px] font-medium text-cyan-300 transition hover:text-cyan-200 focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                data-testid="forgot-password-link"
+              >
+                Forgot password?
+              </a>
+            </div>
+          )}
+
           {/* Error */}
           <AnimatePresence>
             {error && (

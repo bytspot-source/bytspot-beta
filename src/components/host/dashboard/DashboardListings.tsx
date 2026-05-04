@@ -1,6 +1,22 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Clock, CreditCard, DollarSign, Edit, Plus, RefreshCw, Save, ShieldCheck, Sparkles, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowUpRight,
+  BadgeCheck,
+  CalendarClock,
+  Clock,
+  CreditCard,
+  DollarSign,
+  Edit3,
+  Plus,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Tag,
+  X,
+} from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
@@ -57,21 +73,55 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
     hero: isDarkMode
-      ? 'border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.24),transparent_34%),linear-gradient(135deg,rgba(18,18,22,0.98),rgba(4,6,12,0.98))]'
-      : 'border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(241,245,249,0.98))]',
-    eyebrow: isDarkMode ? 'border-cyan-200/20 bg-cyan-300/10 text-cyan-100' : 'border-cyan-300/35 bg-cyan-50 text-cyan-800',
+      ? 'border-white/10 bg-[linear-gradient(135deg,rgba(20,21,28,0.96),rgba(10,11,18,0.98))]'
+      : 'border-slate-200/80 bg-white',
+    heroAccent: isDarkMode
+      ? 'bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.22),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.18),transparent_60%)]'
+      : 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.08),transparent_60%)]',
+    eyebrow: isDarkMode
+      ? 'border-cyan-300/25 bg-cyan-300/10 text-cyan-100'
+      : 'border-cyan-200 bg-cyan-50 text-cyan-800',
     strong: isDarkMode ? 'text-white' : 'text-slate-950',
     body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
     muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
+    subtle: isDarkMode ? 'text-slate-400' : 'text-slate-500',
+    summary: isDarkMode
+      ? 'border-white/10 bg-white/[0.04]'
+      : 'border-slate-200/80 bg-white shadow-sm shadow-slate-200/60',
+    summaryIcon: isDarkMode
+      ? 'border-white/10 bg-white/[0.06] text-cyan-200'
+      : 'border-slate-200 bg-slate-50 text-cyan-700',
     card: isDarkMode
-      ? 'border-cyan-300/24 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.18),transparent_32%),linear-gradient(135deg,rgba(17,17,20,0.96),rgba(7,8,13,0.98))] shadow-cyan-950/20'
-      : 'border-cyan-200 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.98))] shadow-slate-200/70',
-    metric: isDarkMode ? 'border-white/10 bg-white/[0.06]' : 'border-slate-200 bg-white/85',
-    chip: isDarkMode ? 'border-white/12 bg-black/24 text-slate-200' : 'border-slate-200 bg-slate-100 text-slate-700',
-    footer: isDarkMode ? 'border-white/10 bg-black/24' : 'border-slate-200 bg-slate-50/90',
-    modalBackdrop: isDarkMode ? 'bg-black/75' : 'bg-slate-950/35',
-    modal: isDarkMode ? 'border-white/15 bg-[#111114]' : 'border-slate-200 bg-white',
-    input: isDarkMode ? 'border-white/12 bg-black/30 text-white' : 'border-slate-300 bg-white text-slate-950',
+      ? 'border-white/10 bg-[#111114] shadow-2xl shadow-black/40'
+      : 'border-slate-200 bg-white shadow-xl shadow-slate-200/60',
+    cardAvatar: isDarkMode
+      ? 'bg-gradient-to-br from-cyan-400/30 via-sky-400/20 to-violet-500/30 text-white ring-1 ring-white/10'
+      : 'bg-gradient-to-br from-cyan-100 via-sky-100 to-violet-100 text-cyan-700 ring-1 ring-slate-200',
+    metric: isDarkMode
+      ? 'border-white/10 bg-white/[0.04]'
+      : 'border-slate-200 bg-slate-50',
+    chip: isDarkMode
+      ? 'border-white/10 bg-white/[0.05] text-slate-200'
+      : 'border-slate-200 bg-white text-slate-700',
+    footer: isDarkMode
+      ? 'border-white/10 bg-white/[0.02]'
+      : 'border-slate-200 bg-slate-50/80',
+    modalBackdrop: isDarkMode ? 'bg-black/75' : 'bg-slate-950/40',
+    modal: isDarkMode
+      ? 'border-white/10 bg-[#0F1014] shadow-2xl shadow-black/60'
+      : 'border-slate-200 bg-white shadow-2xl shadow-slate-300/60',
+    input: isDarkMode
+      ? 'border-white/10 bg-black/40 text-white placeholder:text-slate-500'
+      : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
+    secondaryBtn: isDarkMode
+      ? 'border-white/10 bg-white/[0.06] text-white hover:bg-white/[0.10]'
+      : 'border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
+    statusActive: isDarkMode
+      ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/30'
+      : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+    statusInactive: isDarkMode
+      ? 'bg-white/[0.06] text-slate-300 ring-1 ring-white/10'
+      : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
   };
 
   const loadServices = async () => {
@@ -135,73 +185,337 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     }
   };
 
+  const summaryCards = [
+    { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
+    { label: 'Published price total', value: formatCents(totalGrossCents), helper: 'Sum of listed service rates', Icon: DollarSign },
+    { label: 'Payout estimate', value: formatCents(payoutEstimateCents), helper: 'After platform commission', Icon: CreditCard },
+  ];
+
   return (
     <div className={`space-y-6 ${tone.page}`} data-testid="provider-services-panel">
-      <motion.section className={`relative overflow-hidden rounded-[32px] border p-5 shadow-2xl lg:p-7 ${tone.hero}`} initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} transition={springConfig}>
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
-          <div>
-            <div className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] ${tone.eyebrow}`} style={{ fontWeight: 850 }}><Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} /> Marketplace service desk · {access.role}</div>
-            <h1 className={`text-[34px] leading-tight lg:text-[44px] ${tone.strong}`} style={{ fontWeight: 850 }}>Manage vendor services</h1>
-            <p className={`mt-3 max-w-2xl text-[15px] leading-6 ${tone.body}`}>These live service records power the Discover service rail and Stripe-backed booking sheet. Keep titles, pricing, and duration precise before customers book.</p>
+      <motion.section
+        className={`relative overflow-hidden rounded-3xl border p-6 lg:p-8 ${tone.hero}`}
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springConfig}
+      >
+        <div className={`pointer-events-none absolute inset-0 ${tone.heroAccent}`} aria-hidden />
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
+          <div className="max-w-2xl">
+            <div
+              className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${tone.eyebrow}`}
+              style={{ fontWeight: 700 }}
+            >
+              <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Marketplace service desk · {access.role}
+            </div>
+            <h1
+              className={`text-[30px] leading-[1.1] tracking-tight lg:text-[40px] ${tone.strong}`}
+              style={{ fontWeight: 800, letterSpacing: '-0.02em' }}
+            >
+              Manage vendor services
+            </h1>
+            <p className={`mt-3 text-[15px] leading-6 ${tone.body}`}>
+              Live service records that power the Discover rail and the Stripe‑backed booking sheet. Keep titles, pricing, and duration precise before customers book.
+            </p>
           </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void loadServices()} disabled={loading} className={`inline-flex items-center gap-2 rounded-[18px] border px-4 py-3 text-[13px] disabled:opacity-60 ${isDarkMode ? 'border-white/12 bg-white/[0.08] text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`} style={{ fontWeight: 850 }}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
-            <button type="button" className="inline-flex items-center gap-2 rounded-[18px] bg-white px-4 py-3 text-[13px] text-black opacity-75" style={{ fontWeight: 900 }} title="Creation remains in provider onboarding for now"><Plus className="h-4 w-4" /> Add Service</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void loadServices()}
+              disabled={loading}
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:opacity-60 ${tone.secondaryBtn}`}
+              style={{ fontWeight: 600 }}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2.25} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+              style={{ fontWeight: 700 }}
+              title="Creation remains in provider onboarding for now"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              Add Service
+            </button>
           </div>
         </div>
       </motion.section>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {[
-          { label: 'Active services', value: activeServices.length, icon: ShieldCheck, tone: 'from-cyan-400/22 to-blue-500/10' },
-          { label: 'Published price total', value: formatCents(totalGrossCents), icon: DollarSign, tone: 'from-emerald-400/22 to-cyan-400/10' },
-          { label: 'Payout estimate', value: formatCents(payoutEstimateCents), icon: CreditCard, tone: 'from-violet-400/22 to-fuchsia-500/10' },
-        ].map((card, index) => {
-          const Icon = card.icon;
-          return <motion.div key={card.label} className={`rounded-[24px] border p-5 shadow-xl backdrop-blur-xl ${isDarkMode ? `border-white/12 bg-gradient-to-br ${card.tone}` : 'border-slate-200 bg-white'}`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.06 }}><Icon className={`mb-5 h-5 w-5 ${isDarkMode ? 'text-white' : 'text-cyan-700'}`} strokeWidth={2.5} /><p className={`text-[13px] ${tone.muted}`} style={{ fontWeight: 800 }}>{card.label}</p><p className={`mt-1 text-[30px] leading-none ${tone.strong}`} style={{ fontWeight: 850 }}>{card.value}</p></motion.div>;
-        })}
+        {summaryCards.map(({ label, value, helper, Icon }, index) => (
+          <motion.div
+            key={label}
+            className={`rounded-2xl border p-5 ${tone.summary}`}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: index * 0.05 }}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className={`text-[12px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>{label}</p>
+                <p className={`mt-2 text-[28px] leading-none tracking-tight ${tone.strong}`} style={{ fontWeight: 700, letterSpacing: '-0.02em' }}>
+                  {value}
+                </p>
+                <p className={`mt-2 text-[12px] ${tone.subtle}`}>{helper}</p>
+              </div>
+              <span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${tone.summaryIcon}`}>
+                <Icon className="h-5 w-5" strokeWidth={2.25} />
+              </span>
+            </div>
+          </motion.div>
+        ))}
       </div>
 
-      {message && <div className={`rounded-[20px] border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-amber-300/24 bg-amber-300/10 text-amber-50' : 'border-amber-200 bg-amber-50 text-amber-900'}`}><AlertCircle className="mr-2 inline h-4 w-4" /> {message}</div>}
+      {message && (
+        <div
+          className={`flex items-start gap-3 rounded-2xl border p-4 text-[13px] leading-5 ${
+            isDarkMode
+              ? 'border-amber-300/25 bg-amber-300/10 text-amber-50'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.25} />
+          <span>{message}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {loading ? <div className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/12 bg-[#111114]/90 text-slate-200' : 'border-slate-200 bg-white text-slate-700'}`}>Loading vendor services…</div> : services.map((service, index) => (
-          <motion.article key={service.id} data-testid={`provider-service-card-${service.id}`} className={`overflow-hidden rounded-[28px] border shadow-xl ${tone.card}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.18 + index * 0.07 }}>
-            <div className="p-5">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 900 }}>Bookable service</p>
-                  <h2 className={`text-[24px] leading-tight ${tone.strong}`} style={{ fontWeight: 850 }}>{service.title}</h2>
-                  <p className={`mt-2 min-h-[44px] text-[14px] leading-6 ${tone.body}`}>{service.description || 'Add a crisp description so customers understand the service before checkout.'}</p>
+        {loading ? (
+          <div className={`rounded-2xl border p-6 text-[14px] ${tone.card} ${tone.body}`}>
+            <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading vendor services…</span>
+          </div>
+        ) : (
+          services.map((service, index) => {
+            const isActive = service.status === 'active';
+            const updatedLabel = service.updatedAt
+              ? new Date(service.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'recently';
+            const payoutCents = service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents;
+            const commissionPct = service.cashFlow?.commissionBps != null
+              ? (service.cashFlow.commissionBps / 100).toFixed(1) + '%'
+              : null;
+            return (
+              <motion.article
+                key={service.id}
+                data-testid={`provider-service-card-${service.id}`}
+                className={`group flex flex-col overflow-hidden rounded-2xl border transition ${tone.card}`}
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...springConfig, delay: 0.12 + index * 0.06 }}
+              >
+                <div className="flex flex-1 flex-col gap-5 p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3.5">
+                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${tone.cardAvatar}`}>
+                        <Tag className="h-5 w-5" strokeWidth={2.25} />
+                      </span>
+                      <div className="min-w-0">
+                        <p
+                          className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`}
+                          style={{ fontWeight: 700 }}
+                        >
+                          Bookable service
+                        </p>
+                        <h2
+                          className={`mt-1 truncate text-[20px] leading-tight ${tone.strong}`}
+                          style={{ fontWeight: 700, letterSpacing: '-0.01em' }}
+                          title={service.title}
+                        >
+                          {service.title}
+                        </h2>
+                      </div>
+                    </div>
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${
+                        isActive ? tone.statusActive : tone.statusInactive
+                      }`}
+                      style={{ fontWeight: 700 }}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+                      {service.status}
+                    </span>
+                  </div>
+
+                  <p className={`text-[14px] leading-6 ${tone.body}`}>
+                    {service.description || 'Add a clear description so customers understand the service before checkout.'}
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className={`rounded-xl border p-3 ${tone.metric}`}>
+                      <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price</p>
+                      <p className={`mt-1.5 text-[17px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
+                        {formatCents(service.priceCents, service.currency)}
+                      </p>
+                    </div>
+                    <div className={`rounded-xl border p-3 ${tone.metric}`}>
+                      <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Duration</p>
+                      <p className={`mt-1.5 text-[17px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
+                        {service.durationMins ? `${service.durationMins} min` : 'Flexible'}
+                      </p>
+                    </div>
+                    <div className={`rounded-xl border p-3 ${tone.metric}`}>
+                      <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Payout</p>
+                      <p
+                        className={`mt-1.5 text-[17px] tracking-tight ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}
+                        style={{ fontWeight: 700, letterSpacing: '-0.01em' }}
+                      >
+                        {formatCents(payoutCents, service.currency)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                      <CalendarClock className="h-3 w-3" strokeWidth={2.25} />
+                      Updated {updatedLabel}
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                      <ShieldCheck className={`h-3 w-3 ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} strokeWidth={2.25} />
+                      {service.patch?.label || service.patch?.uid || 'Patch optional'}
+                    </span>
+                    {commissionPct && (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                        <ArrowUpRight className="h-3 w-3" strokeWidth={2.25} />
+                        Commission {commissionPct}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${service.status === 'active' ? (isDarkMode ? 'bg-emerald-400/16 text-emerald-100 ring-1 ring-emerald-200/20' : 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200') : (isDarkMode ? 'bg-white/8 text-slate-200 ring-1 ring-white/10' : 'bg-slate-100 text-slate-700 ring-1 ring-slate-200')}`} style={{ fontWeight: 900 }}>{service.status}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className={`rounded-[18px] border p-3 ${tone.metric}`}><p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 850 }}>Price</p><p className={`mt-2 text-[16px] ${tone.strong}`} style={{ fontWeight: 850 }}>{formatCents(service.priceCents, service.currency)}</p></div>
-                <div className={`rounded-[18px] border p-3 ${tone.metric}`}><p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 850 }}>Duration</p><p className={`mt-2 text-[16px] ${tone.strong}`} style={{ fontWeight: 850 }}>{service.durationMins ? `${service.durationMins} min` : 'Flexible'}</p></div>
-                <div className={`rounded-[18px] border p-3 ${tone.metric}`}><p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 850 }}>Payout</p><p className={`mt-2 text-[16px] ${isDarkMode ? 'text-emerald-100' : 'text-emerald-800'}`} style={{ fontWeight: 850 }}>{formatCents(service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents, service.currency)}</p></div>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px]"><span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${tone.chip}`}><Clock className="h-3 w-3" /> Updated {service.updatedAt ? new Date(service.updatedAt).toLocaleDateString() : 'recently'}</span><span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${tone.chip}`}><ShieldCheck className={`h-3 w-3 ${isDarkMode ? 'text-cyan-200' : 'text-cyan-700'}`} /> {service.patch?.label || service.patch?.uid || 'Patch optional'}</span></div>
-            </div>
-            <div className={`border-t p-4 ${tone.footer}`}><button type="button" data-testid={`provider-service-edit-${service.id}`} onClick={() => openEdit(service)} className="inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-300 to-violet-400 px-4 py-3 text-[13px] text-black shadow-lg shadow-cyan-950/20" style={{ fontWeight: 900 }}><Edit className="h-4 w-4" /> Edit Service</button></div>
-          </motion.article>
-        ))}
+
+                <div className={`border-t p-4 ${tone.footer}`}>
+                  <button
+                    type="button"
+                    data-testid={`provider-service-edit-${service.id}`}
+                    onClick={() => openEdit(service)}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400"
+                    style={{ fontWeight: 700 }}
+                  >
+                    <Edit3 className="h-4 w-4" strokeWidth={2.5} />
+                    Edit Service
+                  </button>
+                </div>
+              </motion.article>
+            );
+          })
+        )}
       </div>
 
       <AnimatePresence>
         {editingService && editForm && (
-          <motion.div className={`fixed inset-0 z-[120] flex items-end justify-center px-4 pb-4 backdrop-blur-sm sm:items-center ${tone.modalBackdrop}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} data-testid="provider-service-edit-modal">
-            <motion.div className={`w-full max-w-lg rounded-[30px] border p-5 shadow-2xl ${tone.modal}`} initial={{ y: 36, scale: 0.96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 36, scale: 0.96 }} transition={springConfig}>
-              <div className="mb-5 flex items-start justify-between gap-3"><div><p className={isDarkMode ? 'text-[12px] uppercase tracking-[0.2em] text-cyan-200' : 'text-[12px] uppercase tracking-[0.2em] text-cyan-700'} style={{ fontWeight: 900 }}>Edit service</p><h3 className={`mt-1 text-[24px] ${tone.strong}`} style={{ fontWeight: 850 }}>{editingService.title}</h3></div><button type="button" onClick={() => setEditingService(null)} className={`rounded-full border p-2 ${isDarkMode ? 'border-white/12 bg-white/8 text-white/80' : 'border-slate-200 bg-slate-100 text-slate-700'}`}><X className="h-5 w-5" /></button></div>
-              <div className="space-y-3">
-                <label className={`block text-[12px] ${tone.muted}`} style={{ fontWeight: 800 }}>Title<input data-testid="service-title-input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} className={`mt-1 w-full rounded-[16px] border px-3 py-3 text-[14px] outline-none focus:border-cyan-300/60 ${tone.input}`} /></label>
-                <label className={`block text-[12px] ${tone.muted}`} style={{ fontWeight: 800 }}>Description<textarea data-testid="service-description-input" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} className={`mt-1 w-full resize-none rounded-[16px] border px-3 py-3 text-[14px] outline-none focus:border-cyan-300/60 ${tone.input}`} /></label>
+          <motion.div
+            className={`fixed inset-0 z-[120] flex items-end justify-center px-4 pb-4 backdrop-blur-md sm:items-center ${tone.modalBackdrop}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            data-testid="provider-service-edit-modal"
+          >
+            <motion.div
+              className={`w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`}
+              initial={{ y: 32, scale: 0.97 }}
+              animate={{ y: 0, scale: 1 }}
+              exit={{ y: 32, scale: 0.97 }}
+              transition={springConfig}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-inherit p-6 pb-5">
+                <div className="min-w-0">
+                  <p
+                    className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`}
+                    style={{ fontWeight: 700 }}
+                  >
+                    Edit service
+                  </p>
+                  <h3
+                    className={`mt-1.5 truncate text-[22px] tracking-tight ${tone.strong}`}
+                    style={{ fontWeight: 700, letterSpacing: '-0.01em' }}
+                  >
+                    {editingService.title}
+                  </h3>
+                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>
+                    Updates flow into Discover and the booking sheet immediately.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingService(null)}
+                  className={`rounded-full border p-2 transition ${tone.secondaryBtn}`}
+                  aria-label="Close edit dialog"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.25} />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-6 pt-5">
+                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
+                  Title
+                  <input
+                    data-testid="service-title-input"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
+                  />
+                </label>
+                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
+                  Description
+                  <textarea
+                    data-testid="service-description-input"
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    rows={3}
+                    className={`mt-1.5 w-full resize-none rounded-xl border px-3.5 py-2.5 text-[14px] normal-case leading-6 tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
+                  />
+                </label>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className={`block text-[12px] ${tone.muted}`} style={{ fontWeight: 800 }}>Price<input data-testid="service-price-input" type="number" min="0.5" step="0.01" value={editForm.priceDollars} onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })} className={`mt-1 w-full rounded-[16px] border px-3 py-3 text-[14px] outline-none focus:border-cyan-300/60 ${tone.input}`} /></label>
-                  <label className={`block text-[12px] ${tone.muted}`} style={{ fontWeight: 800 }}>Duration minutes<input data-testid="service-duration-input" type="number" min="5" step="5" value={editForm.durationMins} onChange={(e) => setEditForm({ ...editForm, durationMins: e.target.value })} className={`mt-1 w-full rounded-[16px] border px-3 py-3 text-[14px] outline-none focus:border-cyan-300/60 ${tone.input}`} /></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
+                    Price (USD)
+                    <input
+                      data-testid="service-price-input"
+                      type="number"
+                      min="0.5"
+                      step="0.01"
+                      value={editForm.priceDollars}
+                      onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })}
+                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
+                    />
+                  </label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
+                    Duration (min)
+                    <input
+                      data-testid="service-duration-input"
+                      type="number"
+                      min="5"
+                      step="5"
+                      value={editForm.durationMins}
+                      onChange={(e) => setEditForm({ ...editForm, durationMins: e.target.value })}
+                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
+                    />
+                  </label>
                 </div>
               </div>
-              <button type="button" data-testid="save-service-button" onClick={saveService} disabled={saving} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-[14px] text-black disabled:opacity-60" style={{ fontWeight: 900 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Service</button>
+
+              <div className={`flex items-center justify-end gap-2 border-t p-4 ${tone.footer}`}>
+                <button
+                  type="button"
+                  onClick={() => setEditingService(null)}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`}
+                  style={{ fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-testid="save-service-button"
+                  onClick={saveService}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ fontWeight: 700 }}
+                >
+                  {saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />}
+                  Save Service
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

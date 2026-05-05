@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle2, Copy, ExternalLink, Link, Plus, Radio, Shield, Smartphone } from 'lucide-react';
+import { CheckCircle2, Copy, ExternalLink, Link, Package, Plus, Radio, Shield, Smartphone } from 'lucide-react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
 
 interface ProviderPatchRecord {
   id: string;
@@ -10,10 +11,15 @@ interface ProviderPatchRecord {
   venueName: string;
   createdAt: string;
   url: string;
+  // Optional so localStorage records written before this field existed continue
+  // to deserialize cleanly. New patches always populate both or neither.
+  serviceId?: string | null;
+  serviceTitle?: string | null;
 }
 
 const PATCH_STORE_KEY = 'bytspot_provider_patches';
 const PATCH_BASE_URL = 'https://bytspot.app/p/';
+const UNASSIGNED_SERVICE_VALUE = '__unassigned__';
 
 function readPatches(): ProviderPatchRecord[] {
   try {
@@ -32,28 +38,43 @@ function slugify(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'provider';
 }
 
-function buildPatchUrl(patchId: string, venueName: string): string {
+function buildPatchUrl(patchId: string, venueName: string, serviceId?: string | null): string {
   const encoded = encodeURIComponent(venueName.trim() || 'Bytspot Provider');
-  return `${PATCH_BASE_URL}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
+  const base = `${PATCH_BASE_URL}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
+  return serviceId ? `${base}&service=${encodeURIComponent(serviceId)}` : base;
 }
 
 export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; access: ProviderDashboardAccess }) {
+  const data = useProviderDashboardData();
   const [venueName, setVenueName] = useState(localStorage.getItem('bytspot_provider_business_name') || '');
   const [label, setLabel] = useState('Main Entrance');
+  const [serviceSelection, setServiceSelection] = useState<string>(UNASSIGNED_SERVICE_VALUE);
   const [patches, setPatches] = useState<ProviderPatchRecord[]>(() => readPatches());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const nextPatchId = useMemo(() => `patch-${slugify(venueName || label)}-${Date.now().toString(36).slice(-5)}`, [venueName, label]);
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
   const panelClass = isDarkMode ? 'bg-[#1C1C1E]/85' : 'bg-slate-950/85';
 
+  const assignableServices = useMemo(
+    () => data.services.filter((service) => service.status === 'active' || service.status === 'draft'),
+    [data.services],
+  );
+  const selectedService = serviceSelection === UNASSIGNED_SERVICE_VALUE
+    ? null
+    : assignableServices.find((service) => service.id === serviceSelection) ?? null;
+
   const establishPatch = () => {
     const id = nextPatchId;
+    const assignedServiceId = selectedService?.id ?? null;
+    const assignedServiceTitle = selectedService?.title ?? null;
     const patch: ProviderPatchRecord = {
       id,
       label: label.trim() || 'Main Entrance',
       venueName: venueName.trim() || 'Bytspot Provider',
       createdAt: new Date().toISOString(),
-      url: buildPatchUrl(id, venueName),
+      url: buildPatchUrl(id, venueName, assignedServiceId),
+      serviceId: assignedServiceId,
+      serviceTitle: assignedServiceTitle,
     };
     const updated = [patch, ...patches.filter((item) => item.id !== id)].slice(0, 12);
     setPatches(updated);
@@ -89,7 +110,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
       />
       )}
 
-      <motion.div className={`grid gap-4 rounded-[24px] border-2 border-white/20 ${panelClass} p-5 shadow-xl lg:grid-cols-[1fr_0.9fr]`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }}>
+      <motion.div className={`grid gap-4 rounded-[24px] border-2 border-white/20 ${panelClass} p-5 shadow-xl lg:grid-cols-[1fr_0.9fr]`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }} data-testid="provider-patches-form">
         <div className="space-y-4">
           <div>
             <label className="mb-2 block text-[13px] font-bold text-white/70">Business / Venue Name</label>
@@ -99,7 +120,33 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             <label className="mb-2 block text-[13px] font-bold text-white/70">Patch Location / Label</label>
             <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Main Entrance" className="w-full rounded-[16px] border border-white/20 bg-black/35 px-4 py-3 text-white outline-none placeholder:text-white/30 focus:border-cyan-300/60" />
           </div>
-          <button onClick={establishPatch} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white">
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-white/70">Linked Service <span className="text-white/40">(optional)</span></label>
+            <select
+              value={serviceSelection}
+              onChange={(event) => setServiceSelection(event.target.value)}
+              disabled={!data.authenticated || data.loading || assignableServices.length === 0}
+              className="w-full rounded-[16px] border border-white/20 bg-black/35 px-4 py-3 text-white outline-none focus:border-cyan-300/60 disabled:opacity-60"
+              data-testid="provider-patches-service-select"
+            >
+              <option value={UNASSIGNED_SERVICE_VALUE}>Unassigned (general venue patch)</option>
+              {assignableServices.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.title}{service.status === 'draft' ? ' (draft)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-[12px] leading-5 text-white/50" data-testid="provider-patches-service-hint">
+              {!data.authenticated
+                ? 'Sign in to link patches to specific services in your inventory.'
+                : data.loading
+                  ? 'Loading your services\u2026'
+                  : assignableServices.length === 0
+                    ? 'Publish a service to link patches directly to bookable inventory.'
+                    : 'Linking a patch to a service deep-links scans into that listing\u2019s booking flow.'}
+            </p>
+          </div>
+          <button onClick={establishPatch} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white" data-testid="provider-patches-establish">
             <Plus className="h-4 w-4" strokeWidth={2.5} /> Establish Patch
           </button>
         </div>
@@ -112,17 +159,24 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             <p><Smartphone className="mr-2 inline h-4 w-4 text-purple-300" />Print the link as a QR code or encode it to an NFC sticker.</p>
             <p><Link className="mr-2 inline h-4 w-4 text-cyan-300" />Customers tap/scan and open Bytspot App Clip or the full app.</p>
           </div>
-          <p className="mt-4 rounded-2xl bg-black/25 p-3 font-mono text-[11px] leading-5 text-white/55">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider')}</p>
+          <p className="mt-4 rounded-2xl bg-black/25 p-3 font-mono text-[11px] leading-5 text-white/55" data-testid="provider-patches-preview-url">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider', selectedService?.id)}</p>
         </div>
       </motion.div>
 
-      <div className="space-y-3">
+      <div className="space-y-3" data-testid="provider-patches-list">
         {patches.length === 0 ? (
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.06] p-6 text-center text-white/55">No patches established yet. Create your first patch above.</div>
+          <div className="rounded-[22px] border border-white/10 bg-white/[0.06] p-6 text-center text-white/55" data-testid="provider-patches-empty">No patches established yet. Create your first patch above.</div>
         ) : patches.map((patch, index) => (
-          <motion.div key={patch.id} className="rounded-[20px] border border-white/15 bg-white/[0.07] p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.04 }}>
+          <motion.div key={patch.id} className="rounded-[20px] border border-white/15 bg-white/[0.07] p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.04 }} data-testid="provider-patches-card">
             <div className="mb-3 flex items-start justify-between gap-3">
-              <div><p className="text-[16px] font-bold text-white">{patch.label}</p><p className="text-[13px] text-white/55">{patch.venueName}</p></div>
+              <div>
+                <p className="text-[16px] font-bold text-white">{patch.label}</p>
+                <p className="text-[13px] text-white/55">{patch.venueName}</p>
+                <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/8 px-2.5 py-0.5 text-[11px] font-bold text-white/70" data-testid="provider-patches-card-service">
+                  <Package className="h-3 w-3" strokeWidth={2.5} />
+                  {patch.serviceTitle ? patch.serviceTitle : 'Unassigned'}
+                </div>
+              </div>
               <span className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-bold text-emerald-200">READY</span>
             </div>
             <p className="mb-3 break-all rounded-2xl bg-black/25 p-3 font-mono text-[11px] leading-5 text-white/60">{patch.url}</p>

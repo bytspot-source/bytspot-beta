@@ -1,12 +1,31 @@
 import { motion } from 'motion/react';
-import { Star, MessageSquare } from 'lucide-react';
+import { Flag, MessageSquare, Reply, ShieldCheck, Star } from 'lucide-react';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
 
 interface DashboardReviewsProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
-export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
+// Provider-side moderation list. Backend aggregate query for provider reviews
+// is not yet wired (existing trpc.reviews.* endpoints are venue-keyed); when
+// the aggregate query lands, this array is the only thing that needs to be
+// populated and the rest of the surface — counts, guidance, CTA gating —
+// already reacts to its contents.
+type ProviderReviewSummary = {
+  id: string;
+  guestName: string;
+  serviceTitle: string;
+  stars: number;
+  comment: string;
+  createdAt: string;
+  needsResponse: boolean;
+};
+
+export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) {
   void isDarkMode;
+  const data = useProviderDashboardData();
 
   const springConfig = {
     type: "spring" as const,
@@ -15,7 +34,34 @@ export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
     mass: 0.8,
   };
 
-  const dash = '—';
+  const reviews: ProviderReviewSummary[] = [];
+  const totalReviews = reviews.length;
+  const needsResponseCount = reviews.filter((review) => review.needsResponse).length;
+  const averageRatingDisplay = totalReviews === 0
+    ? '—'
+    : (reviews.reduce((acc, review) => acc + review.stars, 0) / totalReviews).toFixed(1);
+
+  // Role-aware moderation matrix. Owners moderate everything; managers reply
+  // (escalation/flagging stays owner-only); staff are read-only on this surface.
+  const canReply = access.role === 'owner' || access.role === 'manager';
+  const canFlag = access.role === 'owner';
+  const canResolve = access.role === 'owner';
+  const moderationGuidance = access.role === 'staff'
+    ? 'Staff mode shows guest reviews for context. Replies, flags, and escalations are reserved for managers and owners.'
+    : access.role === 'manager'
+      ? 'Manager mode replies to reviews and tracks response time. Flagging and resolution stay owner-only to keep escalation paths clean.'
+      : 'Owner mode can reply, flag inappropriate content, and mark threads resolved. Response time directly impacts marketplace ranking.';
+
+  const emptyStateCopy = !data.authenticated
+    ? 'Sign in to load guest reviews tied to your services.'
+    : data.error
+      ? data.error
+      : data.loading
+        ? 'Loading reviews from your services…'
+        : data.totalServices === 0
+          ? 'Publish your first marketplace service so guests can leave reviews here.'
+          : 'Guest reviews appear here after completed bookings. Reply directly from this view to keep your response time strong.';
+  const emptyStateHeading = data.loading ? 'Loading reviews…' : 'No reviews yet';
 
   return (
     <div className="space-y-6">
@@ -34,18 +80,19 @@ export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
       </motion.div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="provider-reviews-stats">
         <motion.div
           className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
+          data-testid="provider-reviews-stat-rating"
         >
           <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
             <Star className="w-6 h-6 text-white/70" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
-            {dash}
+            {averageRatingDisplay}
           </div>
           <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
             Average Rating
@@ -57,12 +104,13 @@ export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.15 }}
+          data-testid="provider-reviews-stat-total"
         >
           <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
             <MessageSquare className="w-6 h-6 text-white/70" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
-            0
+            {totalReviews}
           </div>
           <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
             Total Reviews
@@ -74,12 +122,13 @@ export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.2 }}
+          data-testid="provider-reviews-stat-needs-response"
         >
           <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
             <MessageSquare className="w-6 h-6 text-white/70" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
-            0
+            {needsResponseCount}
           </div>
           <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
             Needs Response
@@ -87,24 +136,73 @@ export function DashboardReviews({ isDarkMode }: DashboardReviewsProps) {
         </motion.div>
       </div>
 
-      {/* Reviews empty state */}
+      {/* Moderation guidance + role-aware actions */}
       <motion.div
-        className="rounded-[20px] p-12 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-center"
-        initial={{ opacity: 0, y: 20 }}
+        className="rounded-[22px] border border-white/12 bg-white/[0.055] p-5"
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.3 }}
-        data-testid="provider-reviews-empty"
+        transition={{ ...springConfig, delay: 0.25 }}
+        data-testid="provider-reviews-moderation"
       >
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-          <Star className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-cyan-200" strokeWidth={2.5} />
+          <p className="text-[13px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 850 }}>
+            Moderation
+          </p>
         </div>
-        <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-          No reviews yet
+        <p className="mt-2 text-[14px] leading-6 text-white/70" data-testid="provider-reviews-moderation-guidance">
+          {moderationGuidance}
         </p>
-        <p className="mx-auto mt-2 max-w-md text-[14px] leading-6 text-white/70" style={{ fontWeight: 400 }}>
-          Guest reviews will appear here after completed bookings. Reply directly from this view to keep your response time strong.
-        </p>
+        {access.role !== 'staff' && (
+          <div className="mt-4 grid gap-2 md:grid-cols-3" data-testid="provider-reviews-moderation-actions">
+            <button
+              type="button"
+              disabled={!canReply || totalReviews === 0}
+              data-testid="provider-reviews-moderation-cta-reply"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              <Reply className="h-4 w-4" /> Reply
+            </button>
+            <button
+              type="button"
+              disabled={!canFlag || totalReviews === 0}
+              data-testid="provider-reviews-moderation-cta-flag"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              <Flag className="h-4 w-4" /> Flag
+            </button>
+            <button
+              type="button"
+              disabled={!canResolve || totalReviews === 0}
+              data-testid="provider-reviews-moderation-cta-resolve"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              <ShieldCheck className="h-4 w-4" /> Mark Resolved
+            </button>
+          </div>
+        )}
       </motion.div>
+
+      {/* Reviews empty state */}
+      {totalReviews === 0 && (
+        <motion.div
+          className="rounded-[20px] p-12 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-center"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.3 }}
+          data-testid="provider-reviews-empty"
+        >
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+            <Star className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+          </div>
+          <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>
+            {emptyStateHeading}
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-[14px] leading-6 text-white/70" style={{ fontWeight: 400 }}>
+            {emptyStateCopy}
+          </p>
+        </motion.div>
+      )}
     </div>
   );
 }

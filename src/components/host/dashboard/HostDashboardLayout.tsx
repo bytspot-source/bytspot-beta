@@ -107,6 +107,8 @@ export function HostDashboardLayout({
       <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 backdrop-blur-xl border-b-2 ${palette.chrome}`}>
         <div className="flex items-center justify-between max-w-[393px] mx-auto">
           <button
+            type="button"
+            aria-label="Open provider navigation"
             onClick={() => setSidebarOpen(true)}
             className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 tap-target"
           >
@@ -119,6 +121,8 @@ export function HostDashboardLayout({
 
           {onBackToMain && (
             <button
+              type="button"
+              aria-label="Back to Parker"
               onClick={onBackToMain}
               className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl border-2 tap-target ${palette.chromeSoft}`}
             >
@@ -154,6 +158,8 @@ export function HostDashboardLayout({
 
             return (
               <motion.button
+                  type="button"
+                  aria-label={item.label}
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors border-2 ${
@@ -174,6 +180,7 @@ export function HostDashboardLayout({
         {onBackToMain && (
           <div className="absolute bottom-6 left-6 right-6">
             <motion.button
+                  type="button"
               onClick={onBackToMain}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
               whileTap={{ scale: 0.98 }}
@@ -226,6 +233,8 @@ export function HostDashboardLayout({
                 </div>
 
                 <button
+                  type="button"
+                  aria-label="Close provider navigation"
                   onClick={() => setSidebarOpen(false)}
                   className={`w-9 h-9 rounded-full flex items-center justify-center border-2 ${palette.closeBtn}`}
                 >
@@ -240,6 +249,8 @@ export function HostDashboardLayout({
 
                   return (
                     <motion.button
+                      type="button"
+                      aria-label={item.label}
                       key={item.id}
                       onClick={() => {
                         onViewChange(item.id);
@@ -263,6 +274,7 @@ export function HostDashboardLayout({
               {onBackToMain && (
                 <div className="absolute bottom-6 left-6 right-6">
                   <motion.button
+                    type="button"
                     onClick={onBackToMain}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
                     whileTap={{ scale: 0.98 }}

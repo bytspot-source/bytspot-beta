@@ -198,6 +198,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect.poll(() => startPayloads).toHaveLength(1);
     expect(startPayloads[0]).toMatchObject({ displayName: VENDOR_NAME, refreshPath: '/provider/connect/refresh', returnPath: '/provider/connect/return' });
     await expect.poll(() => capturedStripeUrl).toBe(STRIPE_CONNECT_URL);
+    await expect(page).toHaveURL(STRIPE_CONNECT_URL);
   });
 
   test('syncs active Stripe return state and displays payouts enabled', async ({ page }) => {

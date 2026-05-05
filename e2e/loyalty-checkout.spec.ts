@@ -213,13 +213,18 @@ test.describe('Loyalty subscription checkout proof', () => {
     await installCheckoutMocks(page, STATUS_INSIDER);
     await page.goto('/provider/onboarding');
 
-    await expect(page.getByRole('button', { name: 'Patches' })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'Patches' }).click();
+    const patchesButton = page.getByRole('button', { name: 'Patches' });
+    if (!(await patchesButton.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'Open provider navigation' }).click();
+    }
+    await expect(patchesButton).toBeVisible({ timeout: 15_000 });
+    await patchesButton.click();
     const startButton = page.getByRole('button', { name: /Start Vendor Premium/i });
     await expect(startButton).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Use 1,000 points/)).toBeVisible({ timeout: 10_000 });
-    await page.getByText(/Use 1,000 points/).click({ force: true });
-    await expect(page.getByRole('checkbox').first()).toBeChecked({ timeout: 5_000 });
+    const pointsCheckbox = page.getByTestId('provider-premium-use-points');
+    await pointsCheckbox.check({ force: true });
+    await expect(pointsCheckbox).toBeChecked({ timeout: 5_000 });
     await page.getByPlaceholder('Coupon code').first().fill('SAVE1000');
     await startButton.click({ force: true });
 

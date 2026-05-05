@@ -72,8 +72,9 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
         refreshPath: STRIPE_CONNECT_REFRESH_PATH,
         returnPath: STRIPE_CONNECT_RETURN_PATH,
       });
-      if (result?.url) {
-        window.location.assign(result.url);
+      const onboardingUrl = typeof result?.url === 'string' ? result.url.trim() : '';
+      if (onboardingUrl) {
+        window.location.href = onboardingUrl;
         return;
       }
       setConnectError(result?.message ?? 'Stripe onboarding is not available yet.');

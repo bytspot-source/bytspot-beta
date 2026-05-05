@@ -919,18 +919,18 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 type="button"
                 data-testid={`vendor-service-quick-card-${card.vendorServiceId}`}
                 onClick={() => handleCardClick(card)}
-                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-300/25 bg-gradient-to-br from-cyan-400/18 via-white/8 to-violet-500/16 p-3 text-left shadow-lg shadow-cyan-500/10 active:scale-[0.98]"
+                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-200/40 bg-gradient-to-br from-slate-900 via-cyan-950 to-violet-950 p-3 text-left shadow-lg shadow-cyan-950/25 ring-1 ring-white/10 active:scale-[0.98]"
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
                     <p className="line-clamp-1 text-[15px] text-white" style={{ fontWeight: 850 }}>{card.name}</p>
-                    <p className="line-clamp-1 text-[12px] text-cyan-100/75" style={{ fontWeight: 700 }}>{card.location ?? 'Bytspot provider'}</p>
+                    <p className="line-clamp-1 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>{card.location ?? 'Bytspot provider'}</p>
                   </div>
                   <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-black" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
                 </div>
-                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white/70" style={{ fontWeight: 600 }}>{card.description}</p>
+                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white/90" style={{ fontWeight: 650 }}>{card.description}</p>
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-2.5 py-1 text-[11px] text-white/80" style={{ fontWeight: 750 }}>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/25 bg-black/40 px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 750 }}>
                     <Shield className="h-3 w-3 text-cyan-200" strokeWidth={2.6} /> Active
                   </span>
                   <span className="inline-flex items-center gap-1 text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>
@@ -1044,7 +1044,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       <AnimatePresence>
         {selectedVendorService && (
           <motion.div
-            className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-4"
+            className="fixed inset-0 z-[90] flex items-end justify-center bg-black/75 backdrop-blur-md px-4 pb-4"
             role="dialog"
             aria-label="Book vendor service"
             data-testid="vendor-service-booking-sheet"
@@ -1054,7 +1054,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             onClick={() => !isBookingService && setSelectedVendorService(null)}
           >
             <motion.div
-              className="w-full max-w-md rounded-[28px] border border-white/15 bg-[#111114] p-5 shadow-2xl"
+              className="w-full max-w-md rounded-[28px] border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
               initial={{ y: 36, scale: 0.96 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 36, scale: 0.96 }}
@@ -1063,41 +1063,41 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-300" style={{ fontWeight: 800 }}>Vendor service</p>
+                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Vendor service</p>
                   <h3 className="mt-1 text-[22px] leading-tight text-white" style={{ fontWeight: 800 }}>{selectedVendorService.name}</h3>
-                  <p className="mt-1 text-[13px] text-white/55">{selectedVendorService.location || 'Bytspot provider'}</p>
+                  <p className="mt-1 text-[13px] text-slate-200/90" style={{ fontWeight: 650 }}>{selectedVendorService.location || 'Bytspot provider'}</p>
                 </div>
-                <div className="rounded-2xl bg-amber-500/15 px-3 py-2 text-right border border-amber-300/25">
-                  <p className="text-[11px] text-amber-100/70">Price</p>
-                  <p className="text-[16px] text-amber-100" style={{ fontWeight: 800 }}>{selectedVendorService.entryPrice || selectedVendorService.price}</p>
+                <div className="rounded-2xl border border-amber-200/45 bg-amber-300 px-3 py-2 text-right shadow-lg shadow-amber-950/20">
+                  <p className="text-[11px] text-slate-900/70" style={{ fontWeight: 800 }}>Price</p>
+                  <p className="text-[16px] text-slate-950" style={{ fontWeight: 900 }}>{selectedVendorService.entryPrice || selectedVendorService.price}</p>
                 </div>
               </div>
 
               {selectedVendorService.description && (
-                <p className="mt-4 text-[14px] leading-6 text-white/70">{selectedVendorService.description}</p>
+                <p className="mt-4 text-[14px] leading-6 text-slate-100/90" style={{ fontWeight: 600 }}>{selectedVendorService.description}</p>
               )}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {(selectedVendorService.features ?? []).slice(0, 5).map((feature) => (
-                  <span key={feature} className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] text-white/75">{feature}</span>
+                  <span key={feature} className="rounded-full border border-cyan-100/20 bg-white/10 px-3 py-1 text-[11px] text-slate-100 shadow-inner shadow-black/20" style={{ fontWeight: 750 }}>{feature}</span>
                 ))}
               </div>
 
               {typeof selectedVendorService.platformFeeCents === 'number' && (
-                <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/10 p-3 text-[12px] leading-5 text-white/60">
+                <div className="mt-4 rounded-2xl border border-cyan-200/20 bg-cyan-300/10 p-3 text-[12px] leading-5 text-slate-100/90 shadow-inner shadow-cyan-950/20" style={{ fontWeight: 650 }}>
                   Transaction metadata is recalculated server-side before checkout. Provider payout estimate: ${((selectedVendorService.providerPayoutEstimateCents ?? 0) / 100).toFixed(2)}.
                 </div>
               )}
 
               {bookingServiceMessage && (
-                <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-3 text-[12px] text-amber-100/85">{bookingServiceMessage}</p>
+                <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-3 text-[12px] text-amber-50" style={{ fontWeight: 700 }}>{bookingServiceMessage}</p>
               )}
 
               <div className="mt-5 flex gap-3">
                 <button
                   type="button"
-                  className="flex-1 rounded-2xl border border-white/12 bg-white/10 px-4 py-3 text-[14px] text-white/70"
-                  style={{ fontWeight: 700 }}
+                  className="flex-1 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-[14px] text-white shadow-lg shadow-black/20"
+                  style={{ fontWeight: 850 }}
                   disabled={isBookingService}
                   onClick={() => setSelectedVendorService(null)}
                 >
@@ -1106,8 +1106,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 <button
                   type="button"
                   data-testid="vendor-service-checkout-cta"
-                  className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-3 text-[14px] text-black shadow-lg disabled:opacity-60"
-                  style={{ fontWeight: 850 }}
+                  className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-300 via-sky-300 to-violet-300 px-4 py-3 text-[14px] text-slate-950 shadow-xl shadow-cyan-950/25 ring-1 ring-white/30 disabled:opacity-60"
+                  style={{ fontWeight: 950 }}
                   disabled={isBookingService}
                   onClick={() => hasCheckoutAuth() ? void handleVendorServiceCheckout() : handleRequireAuthForBooking()}
                 >

@@ -18,7 +18,8 @@ let package = Package(
         .package(name: "CapacitorShare", path: "..\..\..\node_modules\@capacitor\share"),
         .package(name: "CapacitorStatusBar", path: "..\..\..\node_modules\@capacitor\status-bar"),
         .package(name: "CapawesomeCapacitorBadge", path: "..\..\..\node_modules\@capawesome\capacitor-badge"),
-        .package(name: "CapgoCapacitorNfc", path: "..\..\..\node_modules\@capgo\capacitor-nfc")
+        .package(name: "CapgoCapacitorNfc", path: "..\..\..\node_modules\@capgo\capacitor-nfc"),
+        .package(name: "CapgoCapacitorSpeechRecognition", path: "..\..\..\node_modules\@capgo\capacitor-speech-recognition")
     ],
     targets: [
         .target(
@@ -32,7 +33,8 @@ let package = Package(
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapacitorStatusBar", package: "CapacitorStatusBar"),
                 .product(name: "CapawesomeCapacitorBadge", package: "CapawesomeCapacitorBadge"),
-                .product(name: "CapgoCapacitorNfc", package: "CapgoCapacitorNfc")
+                .product(name: "CapgoCapacitorNfc", package: "CapgoCapacitorNfc"),
+                .product(name: "CapgoCapacitorSpeechRecognition", package: "CapgoCapacitorSpeechRecognition")
             ]
         )
     ]

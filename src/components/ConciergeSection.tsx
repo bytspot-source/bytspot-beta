@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, Sparkles, MapPin, DollarSign, Clock, Mic, MicOff, Navigation, Calendar, Cloud, Users, AlertCircle, Phone, Zap, TrendingDown, TrendingUp, Shield, Star } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { SpeechRecognition } from '@capgo/capacitor-speech-recognition';
 import { toast } from 'sonner@2.0.3';
 import { trpc } from '../utils/trpc';
 
@@ -62,6 +64,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
+  const focusInputSoon = () => window.setTimeout(() => inputRef.current?.focus(), 0);
 
   const springConfig = {
     type: "spring" as const,
@@ -91,12 +94,22 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
         const transcript = event.results[0][0].transcript;
         setInputValue(transcript);
         setIsListening(false);
+        focusInputSoon();
         toast.success('Voice input captured!');
       };
 
       recognitionRef.current.onerror = () => {
         setIsListening(false);
-        toast.error('Voice input failed. Please try again.');
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            type: 'ai',
+            content: 'Voice input could not start on this device. Please type your question below and I will help right away.',
+            timestamp: new Date(),
+          },
+        ]);
+        focusInputSoon();
       };
 
       recognitionRef.current.onend = () => {
@@ -105,24 +118,58 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     }
   }, []);
 
-  const toggleVoiceInput = useCallback(() => {
-    if (!recognitionRef.current) {
-      toast.error('Voice input not supported in this browser');
+  const addVoiceFallbackMessage = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', content, timestamp: new Date() }]);
+    focusInputSoon();
+  }, []);
+
+  const startNativeVoiceInput = useCallback(async (): Promise<boolean> => {
+    if (Capacitor.getPlatform() === 'web') return false;
+    try {
+      const { available } = await SpeechRecognition.available();
+      if (!available) return false;
+      const permissions = await SpeechRecognition.requestPermissions();
+      if (permissions.speechRecognition !== 'granted') return false;
+      setIsListening(true);
+      const result = await SpeechRecognition.start({ language: 'en-US', maxResults: 1, partialResults: false, popup: false });
+      const transcript = result.matches?.[0]?.trim();
+      if (transcript) setInputValue(transcript);
+      setIsListening(false);
+      focusInputSoon();
+      return true;
+    } catch {
+      setIsListening(false);
+      addVoiceFallbackMessage('Voice input could not start on this iPad. Please type your question below and I will help right away.');
+      return true;
+    }
+  }, [addVoiceFallbackMessage]);
+
+  const toggleVoiceInput = useCallback(async () => {
+    if (isListening) {
+      try { await SpeechRecognition.stop(); } catch { /* ignore native stop errors */ }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore web stop errors */ }
+      }
+      setIsListening(false);
       return;
     }
 
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
+    if (await startNativeVoiceInput()) return;
+
+    if (!recognitionRef.current) {
+      addVoiceFallbackMessage('Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.');
+      return;
+    }
+
+    try {
       recognitionRef.current.start();
       setIsListening(true);
-      toast('Listening... Speak now', {
-        icon: '🎤',
-        duration: 3000,
-      });
+      toast('Listening... Speak now', { icon: '🎤', duration: 3000 });
+    } catch {
+      setIsListening(false);
+      addVoiceFallbackMessage('Voice input could not start. Please type your question below and I will help right away.');
     }
-  }, [isListening]);
+  }, [addVoiceFallbackMessage, isListening, startNativeVoiceInput]);
 
   const shareLocation = useCallback(() => {
     if (!locationShared) {
@@ -886,6 +933,9 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           <div className="flex items-end gap-2 p-2">
             {/* Voice Input Button */}
             <motion.button
+              type="button"
+              aria-label={isListening ? 'Stop voice input' : 'Voice input'}
+              data-testid="concierge-voice-input"
               onClick={toggleVoiceInput}
               className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
                 isListening
@@ -893,6 +943,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
                   : 'bg-white/10 border-2 border-white/30'
               }`}
               whileTap={{ scale: 0.9 }}
+              style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
               transition={isListening ? { duration: 1, repeat: Infinity } : springConfig}
               animate={isListening ? { scale: [1, 1.1, 1] } : { scale: 1 }}
             >

@@ -58,7 +58,9 @@
 		<key>NFCReaderUsageDescription</key>
 		<string>Bytspot uses NFC to verify venue patch stickers for fast, secure entry and access verification.</string>
 		<key>NSMicrophoneUsageDescription</key>
-		<string>Bytspot uses your microphone only when you record video updates inside the app.</string>
+		<string>Allow microphone access so you can speak to the Bytspot Concierge for faster requests.</string>
+		<key>NSSpeechRecognitionUsageDescription</key>
+		<string>Allow speech recognition so the Concierge can understand your voice commands about Atlanta events and venues.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Bytspot accesses your photo library so you can choose images for your posts and profile.</string>
 	<key>NSUserNotificationsUsageDescription</key>

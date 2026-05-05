@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Sparkles, MapPin, RotateCcw, Calendar, Star, Mic, MicOff } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { SpeechRecognition } from '@capgo/capacitor-speech-recognition';
 import { trpc } from '../utils/trpc';
 
 interface Venue {
@@ -115,34 +117,59 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   const nextMessageIdRef = useRef(2);
 
   const createMessageId = () => nextMessageIdRef.current++;
+  const focusInputSoon = () => window.setTimeout(() => inputRef.current?.focus(), 0);
+  const addVoiceFallbackMessage = (text: string) => {
+    setConnectionState('fallback');
+    setMessages(prev => [...prev, { id: createMessageId(), sender: 'ai', text }]);
+    focusInputSoon();
+  };
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // Voice recognition setup
-  const toggleVoice = () => {
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!SpeechRecognition) {
-      setConnectionState('fallback');
-      setMessages(prev => [
-        ...prev,
-        {
-          id: createMessageId(),
-          sender: 'ai',
-          text: 'Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.',
-        },
-      ]);
-      inputRef.current?.focus();
-      return;
+  // Voice recognition setup: prefer native Capacitor on iOS/iPad, fall back to
+  // Web Speech when available, otherwise keep the button responsive and focus
+  // typed input so App Review never sees a dead control.
+  const startNativeVoiceInput = async (): Promise<boolean> => {
+    if (Capacitor.getPlatform() === 'web') return false;
+    try {
+      const { available } = await SpeechRecognition.available();
+      if (!available) return false;
+      const permissions = await SpeechRecognition.requestPermissions();
+      if (permissions.speechRecognition !== 'granted') return false;
+      setIsListening(true);
+      const result = await SpeechRecognition.start({ language: 'en-US', maxResults: 1, partialResults: false, popup: false });
+      const transcript = result.matches?.[0]?.trim();
+      if (transcript) setInput(transcript);
+      setIsListening(false);
+      focusInputSoon();
+      return true;
+    } catch {
+      setIsListening(false);
+      addVoiceFallbackMessage('Voice input could not start on this iPad. Please type your request below and I will help right away.');
+      return true;
     }
+  };
 
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
+  const toggleVoice = async () => {
+    if (isListening) {
+      try { await SpeechRecognition.stop(); } catch { /* ignore native stop errors */ }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore web stop errors */ }
+      }
       setIsListening(false);
       return;
     }
 
+    if (await startNativeVoiceInput()) return;
+
+    const WebSpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!WebSpeechRecognition) {
+      addVoiceFallbackMessage('Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.');
+      return;
+    }
+
     try {
-      const recognition = new SpeechRecognition();
+      const recognition = new WebSpeechRecognition();
       recognition.lang = 'en-US';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
@@ -150,15 +177,11 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         const transcript = event.results[0][0].transcript;
         setInput(transcript);
         setIsListening(false);
-        inputRef.current?.focus();
+        focusInputSoon();
       };
       recognition.onerror = () => {
         setIsListening(false);
-        setMessages(prev => [
-          ...prev,
-          { id: createMessageId(), sender: 'ai', text: 'I could not start voice input. You can type your request below and I will help right away.' },
-        ]);
-        inputRef.current?.focus();
+        addVoiceFallbackMessage('I could not start voice input. You can type your request below and I will help right away.');
       };
       recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
@@ -166,11 +189,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       setIsListening(true);
     } catch {
       setIsListening(false);
-      setMessages(prev => [
-        ...prev,
-        { id: createMessageId(), sender: 'ai', text: 'Voice input could not start on this device. Please type your question below.' },
-      ]);
-      inputRef.current?.focus();
+      addVoiceFallbackMessage('Voice input could not start on this device. Please type your question below.');
     }
   };
 
@@ -468,6 +487,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         <input
           ref={inputRef}
           type="text"
+          aria-label="Find me somewhere chill…"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
@@ -475,14 +495,22 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
           className="flex-1 px-4 py-3 rounded-full bg-[#1C1C1E]/80 border border-white/20 text-white text-[15px] leading-5 placeholder:text-white/40 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 transition-colors backdrop-blur-xl"
         />
         {/* Voice Input */}
-        <motion.button onClick={toggleVoice}
+        <motion.button
+          type="button"
+          aria-label={isListening ? 'Stop voice input' : 'Voice input'}
+          data-testid="home-concierge-voice-input"
+          onClick={toggleVoice}
           className={`w-11 h-11 rounded-full flex items-center justify-center border border-white/15 ${isListening ? 'bg-red-500/80 animate-pulse' : 'bg-white/10'}`}
           whileTap={{ scale: 0.9 }}
+          style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
           title="Voice input">
           {isListening ? <MicOff className="w-4 h-4 text-white" strokeWidth={2.5} /> : <Mic className="w-4 h-4 text-white/50" strokeWidth={2.5} />}
         </motion.button>
         {/* Send */}
-        <motion.button onClick={() => handleSend()}
+        <motion.button
+          type="button"
+          aria-label="Send concierge message"
+          onClick={() => handleSend()}
           disabled={!input.trim()}
           className={`w-11 h-11 rounded-full flex items-center justify-center border border-white/15 shadow-lg ${input.trim() ? 'bg-gradient-to-br from-purple-500 to-fuchsia-500 shadow-purple-500/25' : 'bg-white/10'}`}
           whileTap={{ scale: 0.9 }}>

@@ -1268,7 +1268,10 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             <div className="rounded-[20px] overflow-hidden border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
               {section.items.map((item, index) => (
                 <motion.button
+                  type="button"
                   key={item.label}
+                  aria-label={item.label}
+                  data-testid={`profile-menu-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                   onClick={() => {
                     if (item.screen) {
                       setCurrentScreen(item.screen);
@@ -1280,6 +1283,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                       : ''
                   } hover:bg-white/5`}
                   whileTap={{ scale: 0.98 }}
+                  style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                   transition={springConfig}
                 >
                   <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 text-white">

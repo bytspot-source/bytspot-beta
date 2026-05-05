@@ -28,10 +28,31 @@ export type DashboardVendorSummary = {
   updatedAt?: string;
 };
 
+export type DashboardBookingStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
+
+export type DashboardBookingSummary = {
+  id: string;
+  serviceId: string | null;
+  serviceTitle: string;
+  status: DashboardBookingStatus;
+  startsAt: string;
+  endsAt: string | null;
+  guestName: string | null;
+  patchLabel: string | null;
+  priceCents: number;
+  currency: string;
+};
+
 export type ProviderDashboardData = {
   loading: boolean;
   authenticated: boolean;
   services: DashboardServiceSummary[];
+  bookings: DashboardBookingSummary[];
   activeServices: number;
   totalServices: number;
   listingHealth: number;
@@ -72,10 +93,45 @@ function mapService(raw: any): DashboardServiceSummary {
   };
 }
 
+const VALID_BOOKING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set([
+  'pending',
+  'confirmed',
+  'in_progress',
+  'completed',
+  'cancelled',
+]);
+
+function normalizeBookingStatus(raw: unknown): DashboardBookingStatus {
+  const value = typeof raw === 'string' ? raw.toLowerCase() : '';
+  return (VALID_BOOKING_STATUSES.has(value as DashboardBookingStatus)
+    ? value
+    : 'pending') as DashboardBookingStatus;
+}
+
+function mapBooking(raw: any): DashboardBookingSummary | null {
+  const id = raw?.id != null ? String(raw.id) : null;
+  const startsAt = raw?.startsAt ?? raw?.startTime ?? raw?.scheduledFor ?? null;
+  if (!id || !startsAt) return null;
+  const service = raw?.service ?? null;
+  return {
+    id,
+    serviceId: service?.id != null ? String(service.id) : raw?.serviceId != null ? String(raw.serviceId) : null,
+    serviceTitle: String(service?.title ?? raw?.serviceTitle ?? 'Booking'),
+    status: normalizeBookingStatus(raw?.status),
+    startsAt: String(startsAt),
+    endsAt: raw?.endsAt ?? raw?.endTime ?? null,
+    guestName: raw?.guest?.displayName ?? raw?.guestName ?? null,
+    patchLabel: raw?.patch?.label ?? raw?.patchLabel ?? null,
+    priceCents: Number(raw?.priceCents ?? service?.priceCents ?? 0),
+    currency: String(raw?.currency ?? service?.currency ?? 'USD'),
+  };
+}
+
 export function useProviderDashboardData(): ProviderDashboardData {
   const [loading, setLoading] = useState<boolean>(true);
   const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [services, setServices] = useState<DashboardServiceSummary[]>([]);
+  const [bookings, setBookings] = useState<DashboardBookingSummary[]>([]);
   const [connect, setConnect] = useState<DashboardConnectStatus>(EMPTY_CONNECT);
   const [vendor, setVendor] = useState<DashboardVendorSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +141,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
     if (!token) {
       setAuthenticated(false);
       setServices([]);
+      setBookings([]);
       setConnect(EMPTY_CONNECT);
       setVendor(null);
       setError(null);
@@ -95,15 +152,28 @@ export function useProviderDashboardData(): ProviderDashboardData {
     setLoading(true);
     setError(null);
     try {
-      const [servicesResult, connectResult] = await Promise.allSettled([
+      const [servicesResult, connectResult, bookingsResult] = await Promise.allSettled([
         trpc.vendors.listServices.query({ status: 'all', limit: 50 }),
         trpc.vendors.syncOnboarding.mutate(),
+        trpc.vendors.listBookings.query({ limit: 100 }),
       ]);
       if (servicesResult.status === 'fulfilled') {
         const rows = (servicesResult.value as any)?.services ?? [];
         setServices(Array.isArray(rows) ? rows.map(mapService) : []);
       } else {
         setServices([]);
+      }
+      if (bookingsResult.status === 'fulfilled') {
+        const rows = (bookingsResult.value as any)?.bookings ?? [];
+        const mapped = (Array.isArray(rows) ? rows : [])
+          .map(mapBooking)
+          .filter((row): row is DashboardBookingSummary => row !== null);
+        setBookings(mapped);
+      } else {
+        // Backend may not yet expose vendors.listBookings in every environment;
+        // surface a deterministic empty list so the calendar shows the
+        // no-bookings branch instead of a hard error.
+        setBookings([]);
       }
       if (connectResult.status === 'fulfilled') {
         const value = connectResult.value as any;
@@ -143,6 +213,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
     loading,
     authenticated,
     services,
+    bookings,
     activeServices,
     totalServices,
     listingHealth,

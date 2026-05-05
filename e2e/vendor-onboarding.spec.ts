@@ -57,9 +57,14 @@ declare global {
   }
 }
 
-async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardingResponse, access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' }) {
-  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service }) => {
-    localStorage.setItem('bytspot_auth_token', 'vendor-test-token');
+async function installVendorOnboardingMocks(
+  page: Page,
+  syncResult: SyncOnboardingResponse,
+  access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' },
+  options?: { services?: Array<typeof PROVIDER_SERVICE>; bookings?: unknown[]; authToken?: string },
+) {
+  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service, services, bookings, authToken }) => {
+    localStorage.setItem('bytspot_auth_token', authToken);
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     localStorage.setItem('bytspot_user_name', vendorName);
     localStorage.setItem('bytspot_provider_role', providerRole);
@@ -77,9 +82,10 @@ async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardi
     }
 
     window.__BYT_E2E_TRPC_CALLS__ = [];
-    window.__BYT_E2E_VENDOR_SERVICES__ = [service];
+    window.__BYT_E2E_VENDOR_SERVICES__ = (services ?? [service]) as typeof window.__BYT_E2E_VENDOR_SERVICES__;
     window.__BYT_E2E_TRPC_MOCKS__ = {
       'vendors.syncOnboarding': sync,
+      'vendors.listBookings': { bookings: bookings ?? [] },
       'vendors.startOnboarding': {
         url: connectUrl,
         expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
@@ -154,7 +160,17 @@ async function installVendorOnboardingMocks(page: Page, syncResult: SyncOnboardi
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { vendorName: VENDOR_NAME, sync: syncResult, connectUrl: STRIPE_CONNECT_URL, providerRole: access?.role ?? 'owner', providerBusinessMode: access?.businessMode ?? 'standard', service: PROVIDER_SERVICE });
+  }, {
+    vendorName: VENDOR_NAME,
+    sync: syncResult,
+    connectUrl: STRIPE_CONNECT_URL,
+    providerRole: access?.role ?? 'owner',
+    providerBusinessMode: access?.businessMode ?? 'standard',
+    service: PROVIDER_SERVICE,
+    services: options?.services ?? null,
+    bookings: options?.bookings ?? null,
+    authToken: options?.authToken ?? 'vendor-test-token',
+  });
 }
 
 async function openConnectReturn(page: Page) {
@@ -308,5 +324,89 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     expect(Array.isArray(stored)).toBe(true);
     expect(stored[0]).toMatchObject({ serviceId: 'svc-1', serviceTitle: 'VIP Arrival' });
     expect(stored[0].url).toContain('&service=svc-1');
+  });
+});
+
+test.describe('Provider calendar empty-state ladder', () => {
+  // Build today's ISO string in the page's local time so the calendar's
+  // default selectedDate (todayIso) lines up with mocked booking dates.
+  const isoForToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const openCalendar = async (page: Page) => {
+    await page.goto('/provider/connect/return');
+    await expect(page.getByTestId('stripe-connect-payout-panel')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+    await expect(page.getByTestId('provider-calendar-selected-card')).toBeVisible({ timeout: 15_000 });
+  };
+
+  test('shows the unauth empty state when the dashboard loads with a beta_guest token', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { authToken: 'beta_guest' });
+    await openCalendar(page);
+
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toContainText('Sign in to view the live schedule');
+    await expect(page.getByTestId('provider-calendar-bookings-list')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-no-services')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);
+  });
+
+  test('shows the no-services empty state when the vendor has not published any services', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [], bookings: [] });
+    await openCalendar(page);
+
+    await expect(page.getByTestId('provider-calendar-empty-no-services')).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-empty-no-services')).toContainText('No active services yet');
+    await expect(page.getByTestId('provider-calendar-bookings-list')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);
+  });
+
+  test('shows the no-bookings empty state when services exist but the booking feed is empty', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { bookings: [] });
+    await openCalendar(page);
+
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toContainText('No bookings scheduled');
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toContainText('1 active service is available');
+    await expect(page.getByTestId('provider-calendar-bookings-list')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-no-services')).toHaveCount(0);
+  });
+
+  test('renders live bookings, day markers, and selected-date rows when the booking feed has data', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const todayIso = isoForToday();
+    // Use a local-time string (no trailing `Z`) so the browser's `formatIso`
+    // (which reads getFullYear/getMonth/getDate locally) maps the booking to
+    // `todayIso` regardless of the machine's UTC offset.
+    const startsAt = `${todayIso}T18:30:00`;
+    const liveBooking = {
+      id: 'booking-1',
+      startsAt,
+      endsAt: `${todayIso}T20:00:00`,
+      status: 'confirmed',
+      priceCents: 15000,
+      currency: 'USD',
+      guest: { displayName: 'Avery Hart' },
+      patch: { id: 'patch-1', label: 'VIP Booth' },
+      service: { id: 'svc-1', title: 'VIP Arrival', priceCents: 15000, currency: 'USD' },
+    };
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { bookings: [liveBooking] });
+    await openCalendar(page);
+
+    await expect(page.getByTestId('provider-calendar-bookings-list')).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-marker-' + todayIso)).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-booking-booking-1')).toBeVisible();
+    await expect(page.getByTestId('provider-calendar-booking-title-booking-1')).toHaveText('VIP Arrival');
+    await expect(page.getByTestId('provider-calendar-booking-status-booking-1')).toHaveText(/confirmed/i);
+    await expect(page.getByTestId('provider-calendar-selected-summary')).toContainText('1 booking');
+    await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toHaveCount(0);
   });
 });

@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { useProviderDashboardData, type DashboardBookingSummary } from '../../../utils/providerDashboardData';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardCalendarProps {
@@ -11,6 +11,35 @@ interface DashboardCalendarProps {
 
 const formatIso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function bookingDateKey(startsAt: string): string | null {
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatIso(date);
+}
+
+function formatBookingTime(startsAt: string): string {
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatBookingPrice(b: DashboardBookingSummary): string {
+  if (!b.priceCents) return '';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: b.currency || 'USD', maximumFractionDigits: 0 }).format(b.priceCents / 100);
+  } catch {
+    return `$${(b.priceCents / 100).toFixed(0)}`;
+  }
+}
+
+const STATUS_BADGE: Record<DashboardBookingSummary['status'], { label: string; classes: string }> = {
+  pending: { label: 'Pending', classes: 'border-amber-300/30 bg-amber-400/15 text-amber-100' },
+  confirmed: { label: 'Confirmed', classes: 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100' },
+  in_progress: { label: 'In progress', classes: 'border-purple-300/30 bg-purple-400/15 text-purple-100' },
+  completed: { label: 'Completed', classes: 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100' },
+  cancelled: { label: 'Cancelled', classes: 'border-white/15 bg-white/5 text-white/60' },
+};
 
 export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps) {
   void isDarkMode;
@@ -97,9 +126,32 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
     [currentDate]
   );
 
-  // Live booking sources are not yet wired in; keep deterministic empty state.
-  const hasBookings = (_day: number) => false;
-  const selectedDayBookings: never[] = [];
+  // Group bookings by ISO date so day cells can flag arrivals and the
+  // selected-date card can pull rows in O(1).
+  const bookingsByDate = useMemo(() => {
+    const map = new Map<string, DashboardBookingSummary[]>();
+    for (const booking of data.bookings) {
+      const key = bookingDateKey(booking.startsAt);
+      if (!key) continue;
+      const list = map.get(key);
+      if (list) list.push(booking);
+      else map.set(key, [booking]);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    }
+    return map;
+  }, [data.bookings]);
+
+  const dayHasBookings = (day: number) => {
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return (bookingsByDate.get(dateStr)?.length ?? 0) > 0;
+  };
+
+  const selectedDayBookings = useMemo(
+    () => bookingsByDate.get(selectedDate) ?? [],
+    [bookingsByDate, selectedDate],
+  );
 
   const goToPreviousMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -218,7 +270,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
 
             const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isSelected = dateStr === selectedDate;
-            const hasBooking = hasBookings(day);
+            const hasBooking = dayHasBookings(day);
             const isToday = dateStr === todayIso;
 
             return (
@@ -244,7 +296,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                 </span>
                 
                 {hasBooking && (
-                  <div className="flex gap-0.5 mt-1">
+                  <div className="flex gap-0.5 mt-1" data-testid={`provider-calendar-marker-${dateStr}`}>
                     <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-purple-400'}`} />
                     <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-purple-400'}`} />
                   </div>
@@ -312,6 +364,57 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
               Publish at least one service from the Listings tab so the calendar can surface real availability and bookings on this date.
             </p>
           </div>
+        ) : selectedDayBookings.length > 0 ? (
+          <ul className="space-y-3" data-testid="provider-calendar-bookings-list">
+            {selectedDayBookings.map((booking) => {
+              const badge = STATUS_BADGE[booking.status];
+              const price = formatBookingPrice(booking);
+              return (
+                <li
+                  key={booking.id}
+                  data-testid={`provider-calendar-booking-${booking.id}`}
+                  className="rounded-2xl border-2 border-white/15 bg-[#2C2C2E]/40 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p
+                        data-testid={`provider-calendar-booking-time-${booking.id}`}
+                        className="text-[12px] uppercase tracking-[0.12em] text-white/55"
+                        style={{ fontWeight: 700 }}
+                      >
+                        {formatBookingTime(booking.startsAt)}
+                      </p>
+                      <p
+                        data-testid={`provider-calendar-booking-title-${booking.id}`}
+                        className="text-[15px] text-white truncate"
+                        style={{ fontWeight: 600 }}
+                      >
+                        {booking.serviceTitle}
+                      </p>
+                      <p className="text-[12px] text-white/65 truncate" style={{ fontWeight: 400 }}>
+                        {booking.guestName ?? 'Guest pending confirmation'}
+                        {booking.patchLabel ? ` · ${booking.patchLabel}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span
+                        data-testid={`provider-calendar-booking-status-${booking.id}`}
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${badge.classes}`}
+                        style={{ fontWeight: 800 }}
+                      >
+                        {badge.label}
+                      </span>
+                      {price && (
+                        <span className="text-[13px] text-white/85" style={{ fontWeight: 600 }}>
+                          {price}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         ) : (
           <div className="text-center py-10" data-testid="provider-calendar-empty-no-bookings">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
@@ -319,7 +422,9 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             </div>
             <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No bookings scheduled</p>
             <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
-              Confirmed bookings on this date will appear here with arrival times and listing details once the booking feed is live. Until then, your {activeServiceCount} active {activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.
+              {data.bookings.length > 0
+                ? `Confirmed bookings on this date will appear here. Pick a date with markers to see the ${data.bookings.length} ${data.bookings.length === 1 ? 'booking' : 'bookings'} already on your schedule.`
+                : `Confirmed bookings on this date will appear here with arrival times and listing details once guests confirm. Your ${activeServiceCount} active ${activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.`}
             </p>
           </div>
         )}

@@ -128,7 +128,7 @@ export function HostApp({ isDarkMode, onBackToMain, initialScreen = 'landing', i
       case 'reviews':
         return <DashboardReviews isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'calendar':
-        return <DashboardCalendar isDarkMode={isDarkMode} />;
+        return <DashboardCalendar isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'patches':
         return <DashboardPatches isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'compliance':

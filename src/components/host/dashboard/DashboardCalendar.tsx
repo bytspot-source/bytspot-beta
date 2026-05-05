@@ -1,20 +1,65 @@
 import { motion } from 'motion/react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useMemo } from 'react';
+import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardCalendarProps {
   isDarkMode: boolean;
+  access: ProviderDashboardAccess;
 }
 
 const formatIso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
+export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps) {
   void isDarkMode;
+  const data = useProviderDashboardData();
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => formatIso(today), [today]);
   const [currentDate, setCurrentDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
+
+  const activeServiceCount = useMemo(
+    () => data.services.filter((s) => s.status === 'active').length,
+    [data.services],
+  );
+
+  const subtitle = access.role === 'staff'
+    ? 'Today\'s shift schedule and arrival handoffs.'
+    : access.role === 'manager'
+      ? 'Manage arrivals, schedule changes, and operational handoffs across the team.'
+      : 'View bookings, schedule changes, and capacity across every active service.';
+
+  const guidanceHeadline = access.role === 'staff'
+    ? 'Operate today\'s schedule'
+    : access.role === 'manager'
+      ? 'Coordinate the operating week'
+      : 'Plan the operating month';
+
+  const guidanceBody = access.role === 'staff'
+    ? 'Tap a date to preview that day\'s arrivals once bookings sync. Until the live booking feed is enabled, use this view to confirm which services are available for staff to deliver.'
+    : access.role === 'manager'
+      ? 'Tap a date to review confirmed arrivals, capacity, and patch handoffs. Until the live booking feed is enabled, treat this view as the planning surface for upcoming weeks.'
+      : 'Tap a date to review confirmed arrivals, capacity, and revenue. Until the live booking feed is enabled, treat this view as the planning surface — service availability already reflects what guests can book.';
+
+  const guidanceChecklist = access.role === 'staff'
+    ? [
+        'Confirm the day\'s active services match the patches you have on hand.',
+        'Coordinate with the on-shift owner before changing a booking status.',
+        'Flag any guest pre-arrival messages to your manager before the start of the shift.',
+      ]
+    : access.role === 'manager'
+      ? [
+          'Verify each active service has at least one published patch label.',
+          'Pre-stage staff handoff notes for any high-volume day before guests arrive.',
+          'Escalate Stripe Connect or compliance gaps to the owner before the booking window opens.',
+        ]
+      : [
+          'Keep at least one active service published so the calendar surfaces real availability.',
+          'Reconcile payouts at the end of each operating week.',
+          'Use the legend to align the team on today, the selected date, and days with bookings.',
+        ];
 
   const springConfig = {
     type: "spring" as const,
@@ -78,6 +123,7 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
     <div className="space-y-6">
       {/* Header */}
       <motion.div
+        data-testid="provider-calendar-header"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
@@ -86,8 +132,32 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
           Calendar
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          View and manage your bookings
+          {subtitle}
         </p>
+      </motion.div>
+
+      {/* Operational guidance */}
+      <motion.div
+        data-testid="provider-calendar-guidance"
+        className="rounded-[20px] p-5 border-2 border-white/20 bg-[#1C1C1E]/60 backdrop-blur-xl"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.05 }}
+      >
+        <h2 className="text-[17px] text-white mb-2" style={{ fontWeight: 600 }}>
+          {guidanceHeadline}
+        </h2>
+        <p className="text-[13px] leading-5 text-white/70 mb-3" style={{ fontWeight: 400 }} data-testid="provider-calendar-guidance-body">
+          {guidanceBody}
+        </p>
+        <ul className="space-y-1.5" data-testid="provider-calendar-guidance-checklist">
+          {guidanceChecklist.map((item, idx) => (
+            <li key={idx} className="text-[12px] leading-5 text-white/65 pl-3 relative" style={{ fontWeight: 400 }}>
+              <span className="absolute left-0 top-2 h-1 w-1 rounded-full bg-cyan-400/70" />
+              {item}
+            </li>
+          ))}
+        </ul>
       </motion.div>
 
       {/* Calendar Card */}
@@ -100,6 +170,8 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-6">
           <motion.button
+            data-testid="provider-calendar-month-prev"
+            aria-label="Previous month"
             onClick={goToPreviousMonth}
             className="w-10 h-10 rounded-full flex items-center justify-center bg-[#2C2C2E]/60 border-2 border-white/20"
             whileTap={{ scale: 0.9 }}
@@ -108,11 +180,13 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
             <ChevronLeft className="w-5 h-5 text-white" strokeWidth={2.5} />
           </motion.button>
 
-          <h2 className="text-[22px] text-white" style={{ fontWeight: 600 }}>
+          <h2 data-testid="provider-calendar-month-label" className="text-[22px] text-white" style={{ fontWeight: 600 }}>
             {monthName}
           </h2>
 
           <motion.button
+            data-testid="provider-calendar-month-next"
+            aria-label="Next month"
             onClick={goToNextMonth}
             className="w-10 h-10 rounded-full flex items-center justify-center bg-[#2C2C2E]/60 border-2 border-white/20"
             whileTap={{ scale: 0.9 }}
@@ -150,6 +224,8 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
             return (
               <motion.button
                 key={day}
+                data-testid={`provider-calendar-day-${dateStr}`}
+                aria-pressed={isSelected}
                 onClick={() => setSelectedDate(dateStr)}
                 className={`aspect-square rounded-xl flex flex-col items-center justify-center relative border-2 transition-colors ${
                   isSelected
@@ -181,6 +257,7 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
 
       {/* Selected Date Bookings */}
       <motion.div
+        data-testid="provider-calendar-selected-card"
         className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -188,11 +265,12 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
       >
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-[20px] text-white mb-1" style={{ fontWeight: 600 }}>
+            <h2 data-testid="provider-calendar-selected-date" className="text-[20px] text-white mb-1" style={{ fontWeight: 600 }}>
               {formatSelectedDate()}
             </h2>
-            <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+            <p data-testid="provider-calendar-selected-summary" className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
               {selectedDayBookings.length} {selectedDayBookings.length === 1 ? 'booking' : 'bookings'}
+              {data.authenticated && !data.loading ? ` · ${activeServiceCount} active ${activeServiceCount === 1 ? 'service' : 'services'} available` : ''}
             </p>
           </div>
 
@@ -204,17 +282,47 @@ export function DashboardCalendar({ isDarkMode }: DashboardCalendarProps) {
           </div>
         </div>
 
-        <div className="text-center py-10" data-testid="provider-calendar-empty">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-            <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+        {data.loading ? (
+          <div className="text-center py-10" data-testid="provider-calendar-empty-loading">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+              <CalendarIcon className="h-7 w-7 text-white/60" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Loading schedule…</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+              Pulling your services and operating windows so this view reflects what guests can actually book.
+            </p>
           </div>
-          <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>
-            No bookings scheduled
-          </p>
-          <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
-            Confirmed bookings on this date will appear here with arrival times and listing details.
-          </p>
-        </div>
+        ) : !data.authenticated ? (
+          <div className="text-center py-10" data-testid="provider-calendar-empty-unauth">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Sign in to view the live schedule</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+              Calendar entries follow your published services and confirmed bookings. Sign in to see real availability for this date.
+            </p>
+          </div>
+        ) : activeServiceCount === 0 ? (
+          <div className="text-center py-10" data-testid="provider-calendar-empty-no-services">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No active services yet</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+              Publish at least one service from the Listings tab so the calendar can surface real availability and bookings on this date.
+            </p>
+          </div>
+        ) : (
+          <div className="text-center py-10" data-testid="provider-calendar-empty-no-bookings">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
+              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            </div>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No bookings scheduled</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+              Confirmed bookings on this date will appear here with arrival times and listing details once the booking feed is live. Until then, your {activeServiceCount} active {activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.
+            </p>
+          </div>
+        )}
       </motion.div>
 
       {/* Legend */}

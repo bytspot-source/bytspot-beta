@@ -35,6 +35,13 @@ export type DashboardBookingStatus =
   | 'completed'
   | 'cancelled';
 
+export type DashboardBookingCashFlow = {
+  grossCents: number;
+  platformFeeCents: number;
+  providerPayoutEstimateCents: number;
+  commissionBps: number;
+};
+
 export type DashboardBookingSummary = {
   id: string;
   serviceId: string | null;
@@ -46,6 +53,18 @@ export type DashboardBookingSummary = {
   patchLabel: string | null;
   priceCents: number;
   currency: string;
+  cashFlow: DashboardBookingCashFlow;
+};
+
+export type DashboardEarningsTotals = {
+  totalPayoutCents: number;
+  totalGrossCents: number;
+  totalPlatformFeeCents: number;
+  thisMonthPayoutCents: number;
+  lastMonthPayoutCents: number;
+  pendingPayoutCents: number;
+  paidBookingCount: number;
+  pendingBookingCount: number;
 };
 
 export type ProviderDashboardData = {
@@ -108,11 +127,23 @@ function normalizeBookingStatus(raw: unknown): DashboardBookingStatus {
     : 'pending') as DashboardBookingStatus;
 }
 
+function mapBookingCashFlow(raw: any, fallbackPriceCents: number): DashboardBookingCashFlow {
+  const cf = raw?.cashFlow ?? raw?.service?.cashFlow ?? null;
+  const grossCents = Number(cf?.grossCents ?? fallbackPriceCents ?? 0);
+  const platformFeeCents = Number(cf?.platformFeeCents ?? 0);
+  const providerPayoutEstimateCents = Number(
+    cf?.providerPayoutEstimateCents ?? Math.max(0, grossCents - platformFeeCents),
+  );
+  const commissionBps = Number(cf?.commissionBps ?? 0);
+  return { grossCents, platformFeeCents, providerPayoutEstimateCents, commissionBps };
+}
+
 function mapBooking(raw: any): DashboardBookingSummary | null {
   const id = raw?.id != null ? String(raw.id) : null;
   const startsAt = raw?.startsAt ?? raw?.startTime ?? raw?.scheduledFor ?? null;
   if (!id || !startsAt) return null;
   const service = raw?.service ?? null;
+  const priceCents = Number(raw?.priceCents ?? service?.priceCents ?? 0);
   return {
     id,
     serviceId: service?.id != null ? String(service.id) : raw?.serviceId != null ? String(raw.serviceId) : null,
@@ -122,9 +153,63 @@ function mapBooking(raw: any): DashboardBookingSummary | null {
     endsAt: raw?.endsAt ?? raw?.endTime ?? null,
     guestName: raw?.guest?.displayName ?? raw?.guestName ?? null,
     patchLabel: raw?.patch?.label ?? raw?.patchLabel ?? null,
-    priceCents: Number(raw?.priceCents ?? service?.priceCents ?? 0),
+    priceCents,
     currency: String(raw?.currency ?? service?.currency ?? 'USD'),
+    cashFlow: mapBookingCashFlow(raw, priceCents),
   };
+}
+
+const PAID_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set(['completed']);
+const PENDING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set(['confirmed', 'in_progress']);
+
+function safeBookingDate(value: string): Date | null {
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/**
+ * Aggregate booking-level cashFlow into the surfaces consumed by
+ * DashboardEarnings. Cancelled and `pending` bookings never contribute to
+ * payouts. `completed` rolls up into lifetime/this-month/last-month buckets;
+ * `confirmed` and `in_progress` roll up into the pending-payout bucket.
+ */
+export function summarizeBookingEarnings(
+  bookings: ReadonlyArray<DashboardBookingSummary>,
+  now: Date = new Date(),
+): DashboardEarningsTotals {
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+  const lastMonthDate = new Date(thisYear, thisMonth - 1, 1);
+  const lastYear = lastMonthDate.getFullYear();
+  const lastMonth = lastMonthDate.getMonth();
+  const totals: DashboardEarningsTotals = {
+    totalPayoutCents: 0,
+    totalGrossCents: 0,
+    totalPlatformFeeCents: 0,
+    thisMonthPayoutCents: 0,
+    lastMonthPayoutCents: 0,
+    pendingPayoutCents: 0,
+    paidBookingCount: 0,
+    pendingBookingCount: 0,
+  };
+  for (const booking of bookings) {
+    const payout = booking.cashFlow.providerPayoutEstimateCents;
+    if (PAID_STATUSES.has(booking.status)) {
+      totals.totalPayoutCents += payout;
+      totals.totalGrossCents += booking.cashFlow.grossCents;
+      totals.totalPlatformFeeCents += booking.cashFlow.platformFeeCents;
+      totals.paidBookingCount += 1;
+      const d = safeBookingDate(booking.startsAt);
+      if (d) {
+        if (d.getFullYear() === thisYear && d.getMonth() === thisMonth) totals.thisMonthPayoutCents += payout;
+        else if (d.getFullYear() === lastYear && d.getMonth() === lastMonth) totals.lastMonthPayoutCents += payout;
+      }
+    } else if (PENDING_STATUSES.has(booking.status)) {
+      totals.pendingPayoutCents += payout;
+      totals.pendingBookingCount += 1;
+    }
+  }
+  return totals;
 }
 
 export function useProviderDashboardData(): ProviderDashboardData {

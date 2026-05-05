@@ -1,7 +1,8 @@
+import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { DollarSign, Calendar, CreditCard, ArrowUpRight, LineChart as LineChartIcon, Receipt } from 'lucide-react';
 import type { ProviderReviewState } from '../../../utils/providerApproval';
-import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { summarizeBookingEarnings, useProviderDashboardData } from '../../../utils/providerDashboardData';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardEarningsProps {
@@ -10,11 +11,24 @@ interface DashboardEarningsProps {
   reviewState?: ProviderReviewState | null;
 }
 
+const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+function formatCents(cents: number): string {
+  return CURRENCY_FORMATTER.format(Math.round(cents) / 100);
+}
+
 export function DashboardEarnings({ isDarkMode, access, reviewState }: DashboardEarningsProps) {
   void isDarkMode;
   const data = useProviderDashboardData();
   const approved = reviewState?.status === 'approved';
   const stripeReady = approved && data.connect.payoutsEnabled;
+  const totals = useMemo(() => summarizeBookingEarnings(data.bookings), [data.bookings]);
+  const hasBookings = data.bookings.length > 0;
+  const hasServices = data.activeServices > 0;
 
   const springConfig = {
     type: "spring" as const,
@@ -34,12 +48,13 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
   const trackingNote = data.loading
     ? 'Syncing payout history'
-    : stripeReady
+    : !hasBookings
       ? 'Tracking activates after the first confirmed payout'
-      : approved
-        ? 'Finish Stripe verification to start tracking revenue'
-        : 'Payouts are on hold until manual verification clears';
-  const zero = '$0';
+      : stripeReady
+        ? `Tracking ${totals.paidBookingCount} settled and ${totals.pendingBookingCount} pending booking${totals.pendingBookingCount === 1 ? '' : 's'}`
+        : approved
+          ? 'Finish Stripe verification to start tracking revenue'
+          : 'Payouts are on hold until manual verification clears';
 
   return (
     <div className="space-y-6">
@@ -71,36 +86,153 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
         </p>
       </motion.div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="provider-earnings-stats">
-        {[
-          { label: 'Total Earnings', icon: DollarSign, accent: 'from-green-500/30 to-emerald-500/30', iconColor: 'text-green-400' },
-          { label: 'This Month', icon: Calendar, accent: 'from-cyan-500/30 to-blue-500/30', iconColor: 'text-cyan-400' },
-          { label: 'Last Month', icon: CreditCard, accent: 'from-purple-500/30 to-fuchsia-500/30', iconColor: 'text-purple-400' },
-          { label: 'Pending Payouts', icon: ArrowUpRight, accent: 'from-yellow-500/30 to-orange-500/30', iconColor: 'text-yellow-400' },
-        ].map((card, index) => {
-          const Icon = card.icon;
-          return (
+      {/* Empty-state ladder: unauth → no-services → no-bookings → live totals */}
+      {!data.loading && !data.authenticated ? (
+        <motion.div
+          data-testid="provider-earnings-empty-unauth"
+          className="rounded-[20px] border border-white/15 bg-white/5 p-6 text-white"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.1 }}
+        >
+          <p className="text-[15px]" style={{ fontWeight: 700 }}>Sign in to view earnings</p>
+          <p className="mt-1 text-[13px] leading-5 text-white/70">Lifetime payouts, monthly trends, and pending settlements appear here once you sign in with your provider account.</p>
+        </motion.div>
+      ) : !data.loading && !hasServices ? (
+        <motion.div
+          data-testid="provider-earnings-empty-no-services"
+          className="rounded-[20px] border border-white/15 bg-white/5 p-6 text-white"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.1 }}
+        >
+          <p className="text-[15px]" style={{ fontWeight: 700 }}>No active services yet</p>
+          <p className="mt-1 text-[13px] leading-5 text-white/70">Earnings track payouts from confirmed marketplace bookings. Publish a service so guests can start booking.</p>
+        </motion.div>
+      ) : (
+        <>
+          {!data.loading && !hasBookings && (
             <motion.div
-              key={card.label}
-              className={`rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br ${card.accent} backdrop-blur-xl shadow-xl`}
+              data-testid="provider-earnings-empty-no-bookings"
+              className="rounded-[20px] border border-white/15 bg-white/5 p-5 text-white"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.1 }}
+            >
+              <p className="text-[14px]" style={{ fontWeight: 700 }}>No bookings yet</p>
+              <p className="mt-1 text-[13px] leading-5 text-white/70">{data.activeServices} active service{data.activeServices === 1 ? ' is' : 's are'} available. Totals will populate after the first confirmed booking.</p>
+            </motion.div>
+          )}
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="provider-earnings-stats">
+            {/* Revenue Breakdown Card */}
+            <motion.div
+              data-testid="provider-earnings-card-revenue-breakdown"
+              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-green-500/30 to-emerald-500/30 backdrop-blur-xl shadow-xl col-span-1 md:col-span-2 lg:col-span-1"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...springConfig, delay: 0.1 + index * 0.05 }}
+              transition={{ ...springConfig, delay: 0.1 }}
             >
               <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
-                <Icon className={`w-6 h-6 ${card.iconColor}`} strokeWidth={2.5} />
-              </div>
-              <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
-                {data.loading ? '—' : zero}
+                <DollarSign className="w-6 h-6 text-green-400" strokeWidth={2.5} />
               </div>
               <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
-                {card.label}
+                Total Revenue Breakdown
+              </div>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] text-white/60">Gross Revenue</span>
+                  <div data-testid="provider-earnings-value-gross" className="text-[18px] text-white" style={{ fontWeight: 700 }}>
+                    {data.loading ? '—' : formatCents(totals.totalGrossCents)}
+                  </div>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] text-white/60">Platform Fees</span>
+                  <div data-testid="provider-earnings-value-fees" className="text-[18px] text-amber-300" style={{ fontWeight: 700 }}>
+                    {data.loading ? '—' : `-${formatCents(totals.totalPlatformFeeCents)}`}
+                  </div>
+                </div>
+                <div className="border-t border-white/20 pt-2 flex items-baseline justify-between">
+                  <span className="text-[11px] text-white/70" style={{ fontWeight: 600 }}>Your Payout</span>
+                  <div data-testid="provider-earnings-value-payout" className="text-[18px] text-green-300" style={{ fontWeight: 700 }}>
+                    {data.loading ? '—' : formatCents(totals.totalPayoutCents)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 text-[10px] text-white/55" style={{ fontWeight: 500 }}>
+                {totals.paidBookingCount} settled booking{totals.paidBookingCount === 1 ? '' : 's'}
               </div>
             </motion.div>
-          );
-        })}
-      </div>
+
+            {/* This Month Card */}
+            <motion.div
+              data-testid="provider-earnings-card-this-month"
+              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-cyan-500/30 to-blue-500/30 backdrop-blur-xl shadow-xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.15 }}
+            >
+              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+                <Calendar className="w-6 h-6 text-cyan-400" strokeWidth={2.5} />
+              </div>
+              <div data-testid="provider-earnings-value-this-month" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
+                {data.loading ? '—' : formatCents(totals.thisMonthPayoutCents)}
+              </div>
+              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                This Month
+              </div>
+              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+                Confirmed payouts this calendar month
+              </div>
+            </motion.div>
+
+            {/* Last Month Card */}
+            <motion.div
+              data-testid="provider-earnings-card-last-month"
+              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/30 to-fuchsia-500/30 backdrop-blur-xl shadow-xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.2 }}
+            >
+              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+                <CreditCard className="w-6 h-6 text-purple-400" strokeWidth={2.5} />
+              </div>
+              <div data-testid="provider-earnings-value-last-month" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
+                {data.loading ? '—' : formatCents(totals.lastMonthPayoutCents)}
+              </div>
+              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                Last Month
+              </div>
+              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+                Confirmed payouts last calendar month
+              </div>
+            </motion.div>
+
+            {/* Pending Payouts Card */}
+            <motion.div
+              data-testid="provider-earnings-card-pending"
+              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-yellow-500/30 to-orange-500/30 backdrop-blur-xl shadow-xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.25 }}
+            >
+              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+                <ArrowUpRight className="w-6 h-6 text-yellow-400" strokeWidth={2.5} />
+              </div>
+              <div data-testid="provider-earnings-value-pending" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
+                {data.loading ? '—' : formatCents(totals.pendingPayoutCents)}
+              </div>
+              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                Pending Payouts
+              </div>
+              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+                {totals.pendingBookingCount} confirmed booking{totals.pendingBookingCount === 1 ? '' : 's'} awaiting settlement
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
 
       {/* Revenue Trend */}
       <motion.div
@@ -161,9 +293,13 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
                   ? 'Finish Stripe verification to start receiving automatic payouts.'
                   : 'Payout release begins once manual verification is complete.'}
             </p>
-            <div className="text-[28px] text-green-400" style={{ fontWeight: 700 }}>{zero}</div>
+            <div data-testid="provider-earnings-next-payout-value" className="text-[28px] text-green-400" style={{ fontWeight: 700 }}>
+              {data.loading ? '—' : formatCents(totals.pendingPayoutCents)}
+            </div>
             <div className="text-[13px] text-white/70 mt-1" style={{ fontWeight: 500 }}>
-              {stripeReady ? 'No payout currently scheduled' : 'Scheduled once verification is complete'}
+              {totals.pendingBookingCount > 0
+                ? `Across ${totals.pendingBookingCount} confirmed booking${totals.pendingBookingCount === 1 ? '' : 's'}`
+                : stripeReady ? 'No payout currently scheduled' : 'Scheduled once verification is complete'}
             </div>
           </div>
         </div>

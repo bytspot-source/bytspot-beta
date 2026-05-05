@@ -410,3 +410,94 @@ test.describe('Provider calendar empty-state ladder', () => {
     await expect(page.getByTestId('provider-calendar-empty-unauth')).toHaveCount(0);
   });
 });
+
+test.describe('Provider earnings empty-state ladder', () => {
+  // Today's local-time ISO so the 'completed today' booking lands in the
+  // current month bucket regardless of the runner's UTC offset.
+  const localIso = (offsetDays = 0, hours = 18, minutes = 30) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  };
+
+  const openEarnings = async (page: Page) => {
+    await page.goto('/provider/connect/return');
+    await expect(page.getByTestId('stripe-connect-payout-panel')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Earnings', exact: true }).click();
+    await expect(page.getByTestId('provider-earnings-review-state')).toBeVisible({ timeout: 15_000 });
+  };
+
+  test('shows the unauth empty state when the dashboard loads with a beta_guest token', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { authToken: 'beta_guest' });
+    await openEarnings(page);
+
+    await expect(page.getByTestId('provider-earnings-empty-unauth')).toBeVisible();
+    await expect(page.getByTestId('provider-earnings-empty-unauth')).toContainText('Sign in to view earnings');
+    await expect(page.getByTestId('provider-earnings-stats')).toHaveCount(0);
+    await expect(page.getByTestId('provider-earnings-empty-no-services')).toHaveCount(0);
+    await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);
+  });
+
+  test('shows the no-services empty state when the vendor has not published any services', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [], bookings: [] });
+    await openEarnings(page);
+
+    await expect(page.getByTestId('provider-earnings-empty-no-services')).toBeVisible();
+    await expect(page.getByTestId('provider-earnings-empty-no-services')).toContainText('No active services yet');
+    await expect(page.getByTestId('provider-earnings-stats')).toHaveCount(0);
+    await expect(page.getByTestId('provider-earnings-empty-unauth')).toHaveCount(0);
+    await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);
+  });
+
+  test('shows the no-bookings empty state when services exist but the booking feed is empty', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { bookings: [] });
+    await openEarnings(page);
+
+    await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toBeVisible();
+    await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toContainText('No bookings yet');
+    await expect(page.getByTestId('provider-earnings-stats')).toBeVisible();
+    // With no bookings, stats should show zero totals
+    await expect(page.getByTestId('provider-earnings-value-pending')).toHaveText('$0');
+    await expect(page.getByTestId('provider-earnings-next-payout-value')).toHaveText('$0');
+  });
+
+  test('aggregates cashFlow into stat cards and the next-payout total when bookings carry data', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // confirmed today (pending payout, $138 estimate) +
+    // completed today (settled, $138 -> total + this month) +
+    // cancelled (excluded entirely).
+    const bookings = [
+      {
+        id: 'booking-confirmed', status: 'confirmed', startsAt: localIso(0, 18, 30), endsAt: localIso(0, 20, 0),
+        priceCents: 15000, currency: 'USD', guest: { displayName: 'Avery Hart' },
+        service: { id: 'svc-1', title: 'VIP Arrival', priceCents: 15000, currency: 'USD' },
+        cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+      },
+      {
+        id: 'booking-completed', status: 'completed', startsAt: localIso(0, 12, 0), endsAt: localIso(0, 13, 30),
+        priceCents: 15000, currency: 'USD', guest: { displayName: 'Jordan Patel' },
+        service: { id: 'svc-1', title: 'VIP Arrival', priceCents: 15000, currency: 'USD' },
+        cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+      },
+      {
+        id: 'booking-cancelled', status: 'cancelled', startsAt: localIso(-1, 9, 0), endsAt: localIso(-1, 10, 0),
+        priceCents: 8500, currency: 'USD', guest: { displayName: 'Morgan Reyes' },
+        service: { id: 'svc-1', title: 'Late-Night Driver', priceCents: 8500, currency: 'USD' },
+        cashFlow: { grossCents: 8500, platformFeeCents: 680, providerPayoutEstimateCents: 7820, commissionBps: 800 },
+      },
+    ];
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { bookings });
+    await openEarnings(page);
+
+    await expect(page.getByTestId('provider-earnings-stats')).toBeVisible();
+    await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);
+    // $138 from the single completed booking.
+    await expect(page.getByTestId('provider-earnings-value-this-month')).toHaveText('$138');
+    await expect(page.getByTestId('provider-earnings-value-pending')).toHaveText('$138');
+    await expect(page.getByTestId('provider-earnings-next-payout-value')).toHaveText('$138');
+    await expect(page.getByTestId('provider-earnings-next-payout')).toContainText('Across 1 confirmed booking');
+  });
+});

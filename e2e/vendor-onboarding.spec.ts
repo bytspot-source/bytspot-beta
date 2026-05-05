@@ -275,4 +275,38 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_mode'))).toBe('cottage');
   });
+
+  test('Patches dashboard links a new patch to a live service from inventory', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync);
+    // Reset any patches a prior test in the same browser context might have stored.
+    await page.addInitScript(() => localStorage.removeItem('bytspot_provider_patches'));
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Patches', exact: true }).click();
+    await expect(page.getByTestId('provider-patches-form')).toBeVisible({ timeout: 15_000 });
+
+    const select = page.getByTestId('provider-patches-service-select');
+    await expect(select).toBeEnabled();
+    // Confirm the live service is offered as an option.
+    await expect(select.locator('option', { hasText: 'VIP Arrival' })).toHaveCount(1);
+    await select.selectOption({ label: 'VIP Arrival' });
+
+    // Preview URL must update with the &service= query param the moment the
+    // service is selected, before the patch is even established.
+    await expect(page.getByTestId('provider-patches-preview-url')).toContainText('&service=svc-1');
+
+    await page.getByTestId('provider-patches-establish').click();
+
+    const card = page.getByTestId('provider-patches-card').first();
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId('provider-patches-card-service')).toHaveText('VIP Arrival');
+    await expect(card).toContainText('&service=svc-1');
+
+    // Round-trip the localStorage write so the linkage survives reloads.
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_provider_patches') ?? '[]'));
+    expect(Array.isArray(stored)).toBe(true);
+    expect(stored[0]).toMatchObject({ serviceId: 'svc-1', serviceTitle: 'VIP Arrival' });
+    expect(stored[0].url).toContain('&service=svc-1');
+  });
 });

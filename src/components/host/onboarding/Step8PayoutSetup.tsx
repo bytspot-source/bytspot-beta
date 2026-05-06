@@ -53,15 +53,20 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
         refreshPath: '/provider/connect/refresh',
         returnPath: '/provider/connect/return',
       });
+      const onboardingUrl = typeof result?.url === 'string' ? result.url.trim() : '';
+      if (!onboardingUrl) {
+        setConnectMessage(result?.message || 'Stripe onboarding is not available yet. Please try again from the Provider dashboard.');
+        return;
+      }
       const nextAccountId = result?.vendor?.stripeAccountId || initialValue?.stripeConnect?.accountId || 'acct_provider_demo';
-      const nextUrl = result?.url || 'https://connect.stripe.com/setup/e/provider-demo';
 
       setConnectStarted(true);
       setConnectAccountId(nextAccountId);
       setConnectStatus(result?.vendor?.onboardingStatus === 'active' ? 'active' : 'pending');
-      setConnectUrl(nextUrl);
-      setConnectMessage('Stripe Connect onboarding link is ready. You can finish verification now or after approval.');
+      setConnectUrl(onboardingUrl);
+      setConnectMessage('Opening Stripe Express verification…');
       localStorage.setItem('bytspot_provider_stripe_connect_started', 'true');
+      window.location.href = onboardingUrl;
     } catch (err: any) {
       setConnectMessage(err?.message || 'Unable to start Stripe Connect. Please try again.');
     } finally {

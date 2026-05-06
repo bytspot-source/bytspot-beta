@@ -3,8 +3,10 @@ import { expect, type Page, test } from '@playwright/test';
 // Phase 3 acceptance: the Provider shell renders on /provider and /vendor without
 // requiring Parker home code, on the 393px target viewport, with full a11y semantics.
 
+const STRIPE_CONNECT_URL = 'https://connect.stripe.com/setup/e/acct_provider_onboarding_test';
+
 async function installProviderLandingMocks(page: Page) {
-  await page.addInitScript(() => {
+  await page.addInitScript(({ connectUrl }) => {
     // Skip onboarding gates so the path-level route handler runs unimpeded.
     localStorage.setItem('bytspot_onboarding_seen', 'true');
 
@@ -31,11 +33,24 @@ async function installProviderLandingMocks(page: Page) {
       if (!url.includes('/trpc/')) return originalFetch(input as RequestInfo | URL, init);
       const match = url.match(/\/trpc\/([^?]+)/);
       const procedures = match ? match[1].split(',') : ['unknown'];
-      const results = procedures.map(() => ({ result: { data: null } }));
+      const results = procedures.map((procedure) => {
+        if (procedure.includes('vendors.startOnboarding')) {
+          return {
+            result: {
+              data: {
+                url: connectUrl,
+                expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+                vendor: { id: 'vendor-1', displayName: 'Bytspot Events LLC', stripeAccountId: 'acct_provider_123', onboardingStatus: 'pending' },
+              },
+            },
+          };
+        }
+        return { result: { data: null } };
+      });
       const payload = procedures.length === 1 ? results[0] : results;
       return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  });
+  }, { connectUrl: STRIPE_CONNECT_URL });
 }
 
 async function expectOnboardingStep(page: Page, step: number) {
@@ -149,7 +164,7 @@ test.describe('Provider landing route', () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_entry_source'))).toBe('provider-route');
   });
 
-  test('runs the selected Provider role through full onboarding with state preserved and Stripe Connect started', async ({ page }) => {
+  test('runs the selected Provider role through onboarding and redirects to Stripe Connect', async ({ page }) => {
     await page.setViewportSize({ width: 393, height: 852 });
     await page.goto('/provider');
     await expect(page.getByTestId('provider-landing-root')).toBeVisible({ timeout: 15_000 });
@@ -217,27 +232,17 @@ test.describe('Provider landing route', () => {
 
     await expectOnboardingStep(page, 8);
     await expect(page.getByTestId('provider-payout-account-holder')).toHaveValue('Bytspot Events LLC');
-    await page.getByTestId('provider-stripe-connect-cta').click();
-    await expect(page.getByTestId('provider-stripe-connect-status')).toContainText('Connect link prepared');
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_stripe_connect_started'))).toBe('true');
-    await page.getByTestId('provider-payout-routing').fill('021000021');
-    await page.getByTestId('provider-payout-account-number').fill('123456789');
-    await page.getByTestId('provider-payout-schedule-monthly').click();
-    await continueOnboarding(page);
-
-    await expectOnboardingStep(page, 9);
-    await expect(page.getByRole('heading', { name: 'Review & Submit' })).toBeVisible();
-    await expect(page.getByText('Event', { exact: true })).toBeVisible();
-    await expect(page.getByText('Bytspot Events LLC')).toBeVisible();
-    await expect(page.getByText('Connect Started')).toBeVisible();
-
-    await page.getByTestId('provider-submit-application').click();
-    await expectOnboardingStep(page, 10);
-    await expect(page.getByRole('heading', { name: 'Application Submitted!' })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Go to Dashboard' }).click();
-    await expect(page.getByTestId('provider-dashboard-review-state')).toContainText('Pending Verification');
-    await expect(page.getByTestId('provider-dashboard-review-reasons')).toContainText('Stripe Connect must be active');
+    let capturedStripeUrl: string | null = null;
+    await page.route('https://connect.stripe.com/**', async (route) => {
+      capturedStripeUrl = route.request().url();
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Stripe Connect</h1>' });
+    });
+    await Promise.all([
+      page.waitForURL(STRIPE_CONNECT_URL),
+      page.getByTestId('provider-stripe-connect-cta').click(),
+    ]);
+    await expect.poll(() => capturedStripeUrl).toBe(STRIPE_CONNECT_URL);
+    await expect(page).toHaveURL(STRIPE_CONNECT_URL);
   });
 
   test('shows approved provider dashboard state when mandatory metadata and Stripe Connect are active', async ({ page }) => {

@@ -1,11 +1,14 @@
 import { expect, type Page, test } from '@playwright/test';
 
 type SyncOnboardingResponse = {
+  providerRole?: 'owner' | 'manager' | 'staff';
   vendor?: {
     id: string;
     displayName: string;
     stripeAccountId: string | null;
     onboardingStatus: string;
+    providerRole?: 'owner' | 'manager' | 'staff';
+    groups?: string[];
     updatedAt: string;
   } | null;
   account?: {
@@ -85,8 +88,14 @@ async function installVendorOnboardingMocks(
     window.__BYT_E2E_TRPC_CALLS__ = [];
     window.__BYT_E2E_VENDOR_SERVICES__ = (services ?? [service]) as typeof window.__BYT_E2E_VENDOR_SERVICES__;
     window.__BYT_E2E_VENDOR_PATCHES__ = (patches ?? []) as typeof window.__BYT_E2E_VENDOR_PATCHES__;
+    const syncWithBackendRole = {
+      ...sync,
+      providerRole,
+      vendor: sync?.vendor ? { ...sync.vendor, providerRole, groups: [`bytspot:vendor:vendor-1:${providerRole}`] } : sync?.vendor,
+    };
+
     window.__BYT_E2E_TRPC_MOCKS__ = {
-      'vendors.syncOnboarding': sync,
+      'vendors.syncOnboarding': syncWithBackendRole,
       'vendors.listBookings': { bookings: bookings ?? [] },
       'vendors.startOnboarding': {
         url: connectUrl,
@@ -280,6 +289,22 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByRole('heading', { name: 'Your cottage business is ready for bookings.' })).toBeVisible();
   });
 
+  test('uses backend providerRole from syncOnboarding over stale local role state', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, { role: 'manager', businessMode: 'standard' });
+    await page.addInitScript(() => {
+      localStorage.setItem('bytspot_provider_role', 'owner');
+      const user = JSON.parse(localStorage.getItem('bytspot_user') || '{}');
+      localStorage.setItem('bytspot_user', JSON.stringify({ ...user, providerRole: 'owner' }));
+    });
+    await page.goto('/provider/connect/return');
+
+    await expect(page.getByText('Manager · Standard')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('manager');
+  });
+
   test('limits staff to operational dashboard without revenue visibility', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, notConnectedSync, { role: 'staff', businessMode: 'standard' });
@@ -338,6 +363,24 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-services-panel')).toContainText('$25.00');
     const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
     expect(calls.some((call) => call.procedure.includes('vendors.createService') && (call.input as any)?.priceCents === 2500)).toBeTruthy();
+  });
+
+  test('dashboard sign-in guidance uses high-contrast provider wording', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { authToken: 'beta_guest' });
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'My Listings' }).click();
+    await expect(page.getByTestId('provider-services-panel')).toContainText('Provider sign-in required');
+    await expect(page.getByTestId('provider-services-panel')).toContainText('vendor account that owns this workspace');
+    await expect(page.getByTestId('provider-service-add')).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Patches', exact: true }).click();
+    await expect(page.getByTestId('provider-patches-service-hint')).toContainText('Provider sign-in required');
+    await expect(page.getByTestId('provider-patches-service-select')).toBeDisabled();
+    await expect(page.getByTestId('provider-patches-establish')).toBeEnabled();
+    await page.getByTestId('provider-patches-establish').click();
+    await expect(page.getByTestId('provider-patches-create-error')).toContainText('Provider sign-in required');
   });
 
   test('settings role and business mode controls refresh dashboard access immediately', async ({ page }) => {
@@ -424,6 +467,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-patches-form')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Premium Patch Toolkit');
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Provider Premium unlocks recommendations');
+    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await expect(page.getByTestId('provider-patches-form')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 
     const select = page.getByTestId('provider-patches-service-select');
     await expect(select).toBeEnabled();

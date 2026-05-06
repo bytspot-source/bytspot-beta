@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { trpc } from './trpc';
+import { persistProviderRoleFromBackend, type ProviderRole } from '../components/host/dashboard/providerDashboardAccess';
 
 export type DashboardServiceSummary = {
   id: string;
@@ -25,6 +26,8 @@ export type DashboardVendorSummary = {
   displayName?: string | null;
   onboardingStatus?: string | null;
   stripeAccountId?: string | null;
+  providerRole?: ProviderRole | null;
+  groups?: string[];
   updatedAt?: string;
 };
 
@@ -315,7 +318,9 @@ export function useProviderDashboardData(): ProviderDashboardData {
         const value = connectResult.value as any;
         const account = value?.account ?? null;
         const vendorRow = value?.vendor ?? null;
-        setVendor(vendorRow);
+        const providerRole = persistProviderRoleFromBackend(value?.providerRole ?? vendorRow?.providerRole ?? null);
+        const backendGroups = Array.isArray(vendorRow?.groups) ? vendorRow.groups.map(String) : [];
+        setVendor(vendorRow ? { ...vendorRow, providerRole: providerRole ?? vendorRow.providerRole ?? null, groups: backendGroups } : null);
         setConnect({
           connected: Boolean(vendorRow?.stripeAccountId || account?.id),
           chargesEnabled: Boolean(account?.chargesEnabled || vendorRow?.onboardingStatus === 'active'),

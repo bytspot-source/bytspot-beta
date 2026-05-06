@@ -57,6 +57,12 @@ function serviceToForm(service: VendorService): EditForm {
   };
 }
 
+function hasVendorAuthToken(): boolean {
+  if (typeof window === 'undefined') return false;
+  const token = localStorage.getItem('bytspot_auth_token');
+  return Boolean(token && token !== 'beta_guest');
+}
+
 export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {
   const [services, setServices] = useState<VendorService[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +72,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const [creatingService, setCreatingService] = useState(false);
   const [createForm, setCreateForm] = useState<EditForm>(EMPTY_SERVICE_FORM);
   const [saving, setSaving] = useState(false);
+  const [hasVendorSession, setHasVendorSession] = useState(hasVendorAuthToken);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === 'active'), [services]);
   const totalGrossCents = useMemo(() => services.reduce((sum, service) => sum + service.priceCents, 0), [services]);
@@ -73,6 +80,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     () => services.reduce((sum, service) => sum + (service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents), 0),
     [services],
   );
+  const providerSignInRequired = !hasVendorSession || message?.startsWith('Provider sign-in required');
 
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
@@ -129,10 +137,11 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   };
 
   const loadServices = async () => {
-    const token = localStorage.getItem('bytspot_auth_token');
-    if (!token || token === 'beta_guest') {
+    const hasSession = hasVendorAuthToken();
+    setHasVendorSession(hasSession);
+    if (!hasSession) {
       setServices([]);
-      setMessage('Sign in with a vendor account to manage marketplace services.');
+      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace to load and publish marketplace services.');
       setLoading(false);
       return;
     }
@@ -161,6 +170,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   };
 
   const openCreate = () => {
+    if (providerSignInRequired) {
+      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace before creating a bookable service.');
+      return;
+    }
     setCreateForm(EMPTY_SERVICE_FORM);
     setCreatingService(true);
     setMessage(null);
@@ -177,6 +190,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
   const createService = async () => {
     if (saving) return;
+    if (providerSignInRequired) {
+      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace before creating a bookable service.');
+      return;
+    }
     const validated = validateForm(createForm);
     if ('error' in validated) return setMessage(validated.error);
 
@@ -276,10 +293,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
             <button
               type="button"
               onClick={openCreate}
-              disabled={access.role === 'staff'}
+              disabled={access.role === 'staff' || providerSignInRequired}
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ fontWeight: 700 }}
-              title={access.role === 'staff' ? 'Owners and managers can create services' : 'Create a live bookable service'}
+              title={access.role === 'staff' ? 'Owners and managers can create services' : providerSignInRequired ? 'Sign in with the vendor account that owns this workspace' : 'Create a live bookable service'}
               data-testid="provider-service-add"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} />
@@ -316,13 +333,13 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
       {message && (
         <div
-          className={`flex items-start gap-3 rounded-2xl border p-4 text-[13px] leading-5 ${
+          className={`flex items-start gap-3 rounded-2xl border-2 p-4 text-[13px] font-extrabold leading-5 shadow-lg ${
             isDarkMode
-              ? 'border-amber-300/25 bg-amber-300/10 text-amber-50'
-              : 'border-amber-200 bg-amber-50 text-amber-900'
+              ? 'border-amber-300 bg-amber-50 text-amber-950 shadow-amber-950/15'
+              : 'border-amber-200 bg-amber-50 text-amber-900 shadow-amber-100/70'
           }`}
         >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.25} />
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" strokeWidth={2.25} />
           <span>{message}</span>
         </div>
       )}

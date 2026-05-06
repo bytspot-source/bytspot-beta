@@ -37,8 +37,12 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   const nextPatchId = useMemo(() => `new-${slugify(venueName || label || 'provider')}`, [venueName, label]);
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
   const panelClass = isDarkMode
-    ? 'border-slate-600 bg-slate-950 text-white'
+    ? 'border-white bg-white text-slate-950 shadow-cyan-950/25'
     : 'border-slate-200 bg-white text-slate-950 shadow-slate-200/70';
+  const inputClass = isDarkMode
+    ? 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-500 disabled:bg-slate-100 disabled:text-slate-700'
+    : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 disabled:text-slate-600';
+  const labelClass = isDarkMode ? 'text-slate-950' : 'text-slate-800';
 
   const assignableServices = useMemo(
     () => data.services.filter((service) => service.status === 'active' || service.status === 'draft'),
@@ -59,7 +63,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   const establishPatch = async () => {
     if (creating) return;
     if (!data.authenticated) {
-      setCreateError('Sign in with a vendor account to create live Provider patches.');
+      setCreateError('Provider sign-in required: sign in with the vendor account that owns this workspace to create live Provider patches.');
       return;
     }
     setCreating(true);
@@ -93,13 +97,13 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
       <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={springConfig}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className={`mb-2 text-[12px] font-extrabold tracking-[0.24em] ${isDarkMode ? 'text-cyan-200' : 'text-cyan-700'}`}>TAP & SCAN</p>
+              <p className={`mb-2 inline-flex rounded-full px-3 py-1 text-[12px] font-black tracking-[0.24em] ${isDarkMode ? 'bg-cyan-200 text-cyan-950' : 'bg-cyan-50 text-cyan-700'}`}>TAP & SCAN</p>
             <h1 className={`mb-2 text-[34px] font-black ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>Provider Patches</h1>
             <p className={`max-w-2xl text-[16px] font-semibold leading-6 ${isDarkMode ? 'text-slate-100' : 'text-slate-700'}`}>
               Establish reusable Bytspot patch links for entrances, lots, events, and access checkpoints. These URLs work with App Clip and universal links.
             </p>
           </div>
-          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-2 text-[12px] font-extrabold text-cyan-50 shadow-lg shadow-cyan-950/20">
+          <div className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-2 text-[12px] font-black shadow-lg ${isDarkMode ? 'border-cyan-200 bg-cyan-100 text-cyan-950 shadow-cyan-950/20' : 'border-cyan-200 bg-cyan-50 text-cyan-800 shadow-cyan-200/60'}`}>
             <Radio className="h-3.5 w-3.5" strokeWidth={2.5} />
             {patches.length} active patch{patches.length === 1 ? '' : 'es'}
           </div>
@@ -121,20 +125,20 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
       <motion.div className={`grid gap-4 rounded-[28px] border ${panelClass} p-5 shadow-2xl lg:grid-cols-[1fr_0.9fr] lg:p-6`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }} data-testid="provider-patches-form">
         <div className="space-y-4">
           <div>
-            <label className={`mb-2 block text-[13px] font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Business / Venue Name <span className={isDarkMode ? 'text-slate-300' : 'text-slate-500'}>(from profile)</span></label>
-            <input value={venueName} onChange={(event) => setVenueName(event.target.value)} disabled={Boolean(data.vendor?.displayName)} placeholder="Example: Midtown Lounge" className={`w-full rounded-[16px] border px-4 py-3 font-semibold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-300/20 disabled:opacity-80 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500 disabled:text-slate-300' : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 disabled:text-slate-600'}`} />
+            <label className={`mb-2 block text-[13px] font-extrabold ${labelClass}`}>Business / Venue Name <span className={isDarkMode ? 'text-slate-600' : 'text-slate-500'}>(from profile)</span></label>
+            <input value={venueName} onChange={(event) => setVenueName(event.target.value)} disabled={Boolean(data.vendor?.displayName)} placeholder="Example: Midtown Lounge" className={`w-full rounded-[16px] border px-4 py-3 font-bold outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 disabled:opacity-100 ${inputClass}`} />
           </div>
           <div>
-            <label className={`mb-2 block text-[13px] font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Patch Location / Label</label>
-            <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Main Entrance" className={`w-full rounded-[16px] border px-4 py-3 font-semibold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-300/20 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500' : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400'}`} />
+            <label className={`mb-2 block text-[13px] font-extrabold ${labelClass}`}>Patch Location / Label</label>
+            <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Main Entrance" className={`w-full rounded-[16px] border px-4 py-3 font-bold outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 ${inputClass}`} />
           </div>
           <div>
-            <label className={`mb-2 block text-[13px] font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Linked Service <span className={isDarkMode ? 'text-slate-300' : 'text-slate-500'}>(optional)</span></label>
+            <label className={`mb-2 block text-[13px] font-extrabold ${labelClass}`}>Linked Service <span className={isDarkMode ? 'text-slate-600' : 'text-slate-500'}>(optional)</span></label>
             <select
               value={serviceSelection}
               onChange={(event) => setServiceSelection(event.target.value)}
               disabled={!data.authenticated || data.loading || assignableServices.length === 0}
-              className={`w-full rounded-[16px] border px-4 py-3 font-semibold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-300/20 disabled:opacity-60 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-950'}`}
+              className={`w-full rounded-[16px] border px-4 py-3 font-bold outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 disabled:bg-slate-100 disabled:opacity-100 ${inputClass}`}
               data-testid="provider-patches-service-select"
             >
               <option value={UNASSIGNED_SERVICE_VALUE}>Unassigned (general venue patch)</option>
@@ -144,9 +148,9 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
                 </option>
               ))}
             </select>
-            <p className={`mt-2 text-[12px] font-semibold leading-5 ${isDarkMode ? 'text-slate-100' : 'text-slate-700'}`} data-testid="provider-patches-service-hint">
+            <p className={`mt-2 rounded-xl border px-3 py-2 text-[12px] font-extrabold leading-5 ${isDarkMode ? 'border-amber-200 bg-amber-50 text-amber-950' : 'border-amber-200 bg-amber-50 text-amber-900'}`} data-testid="provider-patches-service-hint">
               {!data.authenticated
-                ? 'Sign in to link patches to specific services in your inventory.'
+                ? 'Provider sign-in required: sign in with the vendor account that owns this workspace to link patches to services.'
                 : data.loading
                   ? 'Loading your services\u2026'
                   : assignableServices.length === 0
@@ -155,22 +159,22 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             </p>
           </div>
           {createError && (
-            <p className="rounded-2xl border border-amber-200/20 bg-amber-400/10 px-3 py-2 text-[12px] leading-5 text-amber-100" data-testid="provider-patches-create-error">{createError}</p>
+            <p className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] font-extrabold leading-5 text-amber-950" data-testid="provider-patches-create-error">{createError}</p>
           )}
-          <button type="button" onClick={establishPatch} disabled={creating || !data.authenticated} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white shadow-xl shadow-fuchsia-950/25 ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60" data-testid="provider-patches-establish">
+          <button type="button" onClick={establishPatch} disabled={creating} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white shadow-xl shadow-fuchsia-950/25 ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60" data-testid="provider-patches-establish">
             <Plus className="h-4 w-4" strokeWidth={2.5} /> {creating ? 'Creating Patch…' : 'Establish Patch'}
           </button>
         </div>
 
-        <div className={`rounded-[22px] border p-4 ${isDarkMode ? 'border-cyan-300/35 bg-cyan-400/10' : 'border-cyan-200 bg-cyan-50'}`}>
-          <div className="mb-3 flex items-center gap-2"><Radio className={isDarkMode ? 'h-5 w-5 text-cyan-200' : 'h-5 w-5 text-cyan-700'} /><p className={`text-[16px] font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>How this gets used</p></div>
-          <div className={`space-y-3 text-[13px] font-semibold leading-5 ${isDarkMode ? 'text-slate-50' : 'text-slate-700'}`}>
-            <p><CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-300" />Verify a patch by creating it here, then opening the Test link and confirming the venue name loads.</p>
-            <p><Shield className="mr-2 inline h-4 w-4 text-emerald-300" />Create one patch per entrance, booth, lot, or event checkpoint.</p>
-            <p><Smartphone className="mr-2 inline h-4 w-4 text-purple-300" />Print the link as a QR code or encode it to an NFC sticker.</p>
-            <p><Link className="mr-2 inline h-4 w-4 text-cyan-300" />Customers tap/scan and open Bytspot App Clip or the full app.</p>
+        <div className={`rounded-[22px] border p-4 ${isDarkMode ? 'border-cyan-200 bg-cyan-50 text-slate-950' : 'border-cyan-200 bg-cyan-50 text-slate-950'}`}>
+          <div className="mb-3 flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-800" /><p className="text-[16px] font-black text-slate-950">How this gets used</p></div>
+          <div className="space-y-3 text-[13px] font-extrabold leading-5 text-slate-950">
+            <p><CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-700" />Verify a patch by creating it here, then opening the Test link and confirming the venue name loads.</p>
+            <p><Shield className="mr-2 inline h-4 w-4 text-emerald-700" />Create one patch per entrance, booth, lot, or event checkpoint.</p>
+            <p><Smartphone className="mr-2 inline h-4 w-4 text-purple-700" />Print the link as a QR code or encode it to an NFC sticker.</p>
+            <p><Link className="mr-2 inline h-4 w-4 text-cyan-800" />Customers tap/scan and open Bytspot App Clip or the full app.</p>
           </div>
-          <p className={`mt-4 break-all rounded-2xl border p-3 font-mono text-[12px] font-bold leading-5 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-cyan-50' : 'border-cyan-200 bg-white text-cyan-900'}`} data-testid="provider-patches-preview-url">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider', selectedService?.id)}</p>
+          <p className="mt-4 break-all rounded-2xl border border-cyan-300 bg-white p-3 font-mono text-[12px] font-black leading-5 text-cyan-950" data-testid="provider-patches-preview-url">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider', selectedService?.id)}</p>
         </div>
       </motion.div>
 
@@ -178,11 +182,11 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
         <div className="flex items-center justify-between gap-3 px-1">
           <div>
             <h2 className={`text-[18px] font-black ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>Established patches</h2>
-            <p className={`text-[12px] font-semibold leading-5 ${isDarkMode ? 'text-slate-100' : 'text-slate-700'}`}>{data.loading ? 'Loading live patch records…' : 'Copy, test, and deploy live backend patch links from one place.'}</p>
+            <p className={`text-[12px] font-extrabold leading-5 ${isDarkMode ? 'text-slate-100' : 'text-slate-700'}`}>{data.loading ? 'Loading live patch records…' : 'Copy, test, and deploy live backend patch links from one place.'}</p>
           </div>
         </div>
         {patches.length === 0 ? (
-          <div className={`rounded-[24px] border border-dashed p-6 text-center text-[14px] font-bold ${isDarkMode ? 'border-cyan-200/35 bg-slate-950 text-slate-50' : 'border-cyan-300 bg-white text-slate-800'}`} data-testid="provider-patches-empty">No patches established yet. Create your first patch above.</div>
+          <div className={`rounded-[24px] border-2 border-dashed p-6 text-center text-[14px] font-black ${isDarkMode ? 'border-cyan-200 bg-white text-slate-950' : 'border-cyan-300 bg-white text-slate-900'}`} data-testid="provider-patches-empty">No patches established yet. Create your first patch above.</div>
         ) : patches.map((patch, index) => (
           <motion.div key={patch.id} className={`relative overflow-hidden rounded-[24px] border p-4 shadow-2xl ${isDarkMode ? 'border-slate-600 bg-slate-950 text-white shadow-black/40' : 'border-slate-200 bg-white text-slate-950 shadow-slate-200/70'}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.04 }} data-testid="provider-patches-card">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-cyan-300/0 via-cyan-200/50 to-fuchsia-300/0" />
@@ -190,19 +194,19 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
               <div>
                 <p className={`text-[16px] font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>{patch.label}</p>
                 <p className={`text-[13px] font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-700'}`}>{patch.venueName}</p>
-                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-200/20 bg-cyan-300/[0.09] px-2.5 py-1 text-[11px] font-extrabold text-cyan-50" data-testid="provider-patches-card-service">
+                <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${isDarkMode ? 'border-cyan-200 bg-cyan-100 text-cyan-950' : 'border-cyan-200 bg-cyan-50 text-cyan-800'}`} data-testid="provider-patches-card-service">
                   <Package className="h-3 w-3" strokeWidth={2.5} />
                   {patch.serviceTitle ? patch.serviceTitle : 'Unassigned'}
                 </div>
               </div>
-              <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black tracking-[0.12em] text-emerald-100">READY</span>
+              <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-black tracking-[0.12em] text-emerald-800">READY</span>
             </div>
             <p className={`mb-3 break-all rounded-2xl border p-3 font-mono text-[12px] font-bold leading-5 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`}>{patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)}</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => copyPatch(patch)} className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white px-3 py-2.5 text-[13px] font-black text-slate-950 shadow-lg shadow-black/15 transition hover:bg-cyan-50">
                 {copiedId === patch.id ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />} {copiedId === patch.id ? 'Copied' : 'Copy'}
               </button>
-              <a href={patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-cyan-200/25 bg-cyan-400/15 px-3 py-2.5 text-[13px] font-black text-cyan-50 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-300/20">
+              <a href={patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-[13px] font-black text-cyan-950 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-100">
                 <ExternalLink className="h-4 w-4" /> Test
               </a>
             </div>

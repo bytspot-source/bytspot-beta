@@ -19,7 +19,7 @@ const MANAGER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'rev
 const STAFF_VIEWS: DashboardView[] = ['overview', 'bookings', 'calendar', 'settings'];
 const COTTAGE_OWNER_VIEWS: DashboardView[] = ['overview', 'listings', 'bookings', 'earnings', 'calendar', 'patches', 'settings'];
 
-function normalizeRole(value: unknown): ProviderRole {
+export function normalizeProviderRole(value: unknown): ProviderRole {
   const normalized = String(value ?? '').toLowerCase();
   if (normalized === 'manager') return 'manager';
   if (normalized === 'staff') return 'staff';
@@ -45,7 +45,7 @@ export function readProviderDashboardAccess(): ProviderDashboardAccess {
     storedUser = {};
   }
 
-  const role = normalizeRole(
+  const role = normalizeProviderRole(
     localStorage.getItem('bytspot_provider_role') ??
     storedUser.providerRole ??
     storedUser.role ??
@@ -70,6 +70,20 @@ export function readProviderDashboardAccess(): ProviderDashboardAccess {
     canSeeEnterpriseTelemetry: false,
     allowedViews: baseViews,
   };
+}
+
+export function persistProviderRoleFromBackend(role: unknown): ProviderRole | null {
+  if (role == null) return null;
+  const normalized = normalizeProviderRole(role);
+  localStorage.setItem('bytspot_provider_role', normalized);
+  try {
+    const storedUser = JSON.parse(localStorage.getItem('bytspot_user') || '{}') as Record<string, unknown>;
+    localStorage.setItem('bytspot_user', JSON.stringify({ ...storedUser, providerRole: normalized }));
+  } catch {
+    localStorage.setItem('bytspot_user', JSON.stringify({ providerRole: normalized }));
+  }
+  window.dispatchEvent(new CustomEvent('bytspot:provider-access-updated', { detail: { providerRole: normalized, source: 'backend' } }));
+  return normalized;
 }
 
 export function canAccessDashboardView(access: ProviderDashboardAccess, view: DashboardView): boolean {

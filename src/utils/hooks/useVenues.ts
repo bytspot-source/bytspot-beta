@@ -273,7 +273,7 @@ export function useVenues(): UseVenuesResult {
     setError(null);
 
     try {
-      const [res, vendorCards] = await Promise.all([
+      const [venuesResult, vendorCardsResult] = await Promise.allSettled([
         trpc.venues.list.query(),
         fetchVendorServiceCards(),
       ]);
@@ -282,13 +282,30 @@ export function useVenues(): UseVenuesResult {
         return;
       }
 
-      venuesRef.current = res.venues;
+      const vendorCards = vendorCardsResult.status === 'fulfilled' ? vendorCardsResult.value : [];
       vendorServiceCardsRef.current = vendorCards;
-      setVenues(res.venues);
-      setCombinedCards(res.venues, vendorCards);
+
+      if (venuesResult.status !== 'fulfilled') {
+        console.warn('[useVenues] Venue API unavailable, keeping vendor service discovery alive:', venuesResult.reason?.message ?? venuesResult.reason);
+        const cached = localStorage.getItem('bytspot_venues_cache');
+        let fallback: ApiVenue[] = FALLBACK_VENUES;
+        if (cached) {
+          try { fallback = JSON.parse(cached); } catch { /* use default fallback */ }
+        }
+        venuesRef.current = fallback;
+        setVenues(fallback);
+        setCombinedCards(fallback, vendorCards);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      venuesRef.current = venuesResult.value.venues;
+      setVenues(venuesResult.value.venues);
+      setCombinedCards(venuesResult.value.venues, vendorCards);
       setError(null);
       // Cache successful API response for offline/cold-start fallback
-      try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(res.venues)); } catch { /* quota exceeded — ignore */ }
+      try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(venuesResult.value.venues)); } catch { /* quota exceeded — ignore */ }
     } catch (err: any) {
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) return;
       console.warn('[useVenues] API unavailable, using fallback venues:', err?.message);

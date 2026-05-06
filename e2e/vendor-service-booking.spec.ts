@@ -72,8 +72,8 @@ const LIVE_VENUES = [
 
 test.use({ geolocation: { latitude: TEST_COORDS.lat, longitude: TEST_COORDS.lng }, permissions: ['geolocation'] });
 
-async function installVendorServiceMocks(page: Page) {
-  await page.addInitScript(({ services, venues }) => {
+async function installVendorServiceMocks(page: Page, opts: { failVenues?: boolean } = {}) {
+  await page.addInitScript(({ services, venues, failVenues }) => {
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     if ('serviceWorker' in navigator) {
       try {
@@ -114,7 +114,11 @@ async function installVendorServiceMocks(page: Page) {
       const procedures = match ? match[1].split(',') : ['unknown'];
       const body = readJsonBody(init?.body);
       const results = procedures.map((procedure) => {
-        if (procedure.includes('venues.list')) return { result: { data: { venues } } };
+        if (procedure.includes('venues.list')) {
+          return failVenues
+            ? { error: { message: 'venue-api-down', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR' } } }
+            : { result: { data: { venues } } };
+        }
         if (procedure.includes('vendors.search')) return { result: { data: { services, count: services.length } } };
         if (procedure.includes('vendors.getByPatch')) return { result: { data: { service: services[0] } } };
         if (procedure.includes('booking.createCheckout')) {
@@ -132,7 +136,7 @@ async function installVendorServiceMocks(page: Page) {
       });
       return new Response(JSON.stringify(procedures.length === 1 ? results[0] : results), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-  }, { services: VENDOR_SERVICES, venues: LIVE_VENUES });
+  }, { services: VENDOR_SERVICES, venues: LIVE_VENUES, failVenues: Boolean(opts.failVenues) });
 }
 
 async function enterMainApp(page: Page) {
@@ -186,6 +190,16 @@ test('standard API cards remain in the default Discover swipe deck', async ({ pa
   await expect(standardCard).toContainText('Standard API Garage');
   await expect(standardCard).toContainText('18 spots');
   await expect(page.getByTestId('vendor-service-quick-card-svc-vip-arrival')).toBeVisible();
+});
+
+test('vendor service discovery survives a venue API outage', async ({ page }) => {
+  await installVendorServiceMocks(page, { failVenues: true });
+  await enterMainApp(page);
+  await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
+
+  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('vendor-service-quick-card-svc-vip-arrival')).toContainText('VIP Arrival');
+  await expect(page.getByTestId('vendor-service-quick-card-svc-market-table-assist')).toContainText('Night Market Table Assist');
 });
 
 test('vendor service discovery card starts booking checkout', async ({ page }) => {

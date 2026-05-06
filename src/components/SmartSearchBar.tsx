@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Mic, MapPin, Clock, TrendingUp, X, Navigation } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { SpeechRecognition as NativeSpeechRecognition } from '@capgo/capacitor-speech-recognition';
 import { AnimatedSearchPlaceholder } from './AnimatedSearchPlaceholder';
 
 interface SearchSuggestion {
@@ -130,23 +132,56 @@ export function SmartSearchBar({
     setShowSuggestions(isFocused && (filteredSuggestions.length > 0 || venueMatches.length > 0));
   }, [isFocused, filteredSuggestions.length, venueMatches.length]);
 
+  const focusInputSoon = () => window.setTimeout(() => inputRef.current?.focus(), 50);
+
+  const startNativeVoiceInput = async (): Promise<boolean> => {
+    if (Capacitor.getPlatform() === 'web') return false;
+    try {
+      const { available } = await NativeSpeechRecognition.available();
+      if (!available) return false;
+      const permissions = await NativeSpeechRecognition.requestPermissions();
+      if (permissions.speechRecognition !== 'granted') {
+        setVoiceFeedback('Microphone permission is needed for voice search. You can still type your search below.');
+        focusInputSoon();
+        return true;
+      }
+      setIsListening(true);
+      const result = await NativeSpeechRecognition.start({ language: 'en-US', maxResults: 1, partialResults: false, popup: false });
+      const transcript = result.matches?.[0]?.trim();
+      if (transcript) onChange(transcript);
+      setIsListening(false);
+      focusInputSoon();
+      return true;
+    } catch {
+      setIsListening(false);
+      setVoiceFeedback('Voice input could not start on this iPad. Type your search and I will help right away.');
+      focusInputSoon();
+      return true;
+    }
+  };
+
   // Handle voice input with graceful fallback for iOS/App Review WebViews.
-  const handleVoiceInput = () => {
+  const handleVoiceInput = async () => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     setVoiceFeedback(null);
 
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (isListening) {
+      try { await NativeSpeechRecognition.stop(); } catch { /* ignore native stop errors */ }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore web stop errors */ }
+      }
       setIsListening(false);
       return;
     }
+
+    if (await startNativeVoiceInput()) return;
 
     if (!SpeechRecognition) {
       setIsListening(false);
       setVoiceFeedback('Voice input is not available on this device. Type your search and I will help right away.');
       setIsFocused(true);
       setShowSuggestions(false);
-      inputRef.current?.focus();
+      focusInputSoon();
       return;
     }
 
@@ -159,12 +194,12 @@ export function SmartSearchBar({
         const transcript = event.results?.[0]?.[0]?.transcript;
         if (transcript) onChange(transcript);
         setIsListening(false);
-        inputRef.current?.focus();
+        focusInputSoon();
       };
       recognition.onerror = () => {
         setIsListening(false);
         setVoiceFeedback('Voice input could not start. Type your search and I will help right away.');
-        inputRef.current?.focus();
+        focusInputSoon();
       };
       recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
@@ -173,7 +208,7 @@ export function SmartSearchBar({
     } catch {
       setIsListening(false);
       setVoiceFeedback('Voice input could not start on this device. Please type your search instead.');
-      inputRef.current?.focus();
+      focusInputSoon();
     }
   };
 

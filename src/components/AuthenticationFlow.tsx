@@ -3,6 +3,7 @@ import { Mail, Lock, User, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface AuthenticationFlowProps {
   isDarkMode: boolean;
@@ -54,6 +55,34 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
       }
     } catch (err: any) {
       setError(err?.message || 'Connection error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const persistAuth = (res: any, successMessage: string) => {
+    if (!res?.token) {
+      setError('Something went wrong. Please try again.');
+      return;
+    }
+    localStorage.setItem('bytspot_auth_token', res.token);
+    localStorage.setItem('bytspot_user', JSON.stringify(res.user));
+    if (res.user?.name) {
+      localStorage.setItem('bytspot_user_name', res.user.name.split(' ')[0]);
+    }
+    toast.success(successMessage);
+    onComplete();
+  };
+
+  const handleGoogleCredential = async (idToken: string) => {
+    setError('');
+    setLoading(true);
+    try {
+      const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
+      const res = await trpc.auth.googleSignIn.mutate({ idToken, ref: refValue, surface: 'parker' });
+      persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
+    } catch (err: any) {
+      setError(err?.message || 'Google sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -114,6 +143,20 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
             </button>
           ))}
         </motion.div>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
+          <GoogleSignInButton
+            disabled={loading}
+            onCredential={handleGoogleCredential}
+            onError={(message) => setError(message)}
+          />
+        </motion.div>
+
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-[12px] text-white/30" style={{ fontWeight: 500 }}>or use email</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
 
         {/* Form */}
         <motion.form

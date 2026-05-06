@@ -9,6 +9,24 @@ async function installProviderLandingMocks(page: Page) {
   await page.addInitScript(({ connectUrl }) => {
     // Skip onboarding gates so the path-level route handler runs unimpeded.
     localStorage.setItem('bytspot_onboarding_seen', 'true');
+    (window as any).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
+    let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
+    (window as any).google = {
+      accounts: {
+        id: {
+          initialize: (config: { callback: (response: { credential?: string }) => void }) => { googleCredentialCallback = config.callback; },
+          renderButton: (element: HTMLElement) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = 'Continue with Google';
+            button.setAttribute('data-testid', 'mock-google-signin');
+            button.onclick = () => googleCredentialCallback?.({ credential: 'mock-google-id-token' });
+            element.appendChild(button);
+          },
+          cancel: () => undefined,
+        },
+      },
+    };
 
     // Block service-worker registration so PWA install logic stays deterministic.
     if ('serviceWorker' in navigator) {
@@ -34,12 +52,13 @@ async function installProviderLandingMocks(page: Page) {
       const match = url.match(/\/trpc\/([^?]+)/);
       const procedures = match ? match[1].split(',') : ['unknown'];
       const results = procedures.map((procedure) => {
-        if (procedure.includes('auth.signup') || procedure.includes('auth.login')) {
+        if (procedure.includes('auth.signup') || procedure.includes('auth.login') || procedure.includes('auth.googleSignIn')) {
           return {
             result: {
               data: {
                 token: 'provider-onboarding-token',
-                user: { id: 'user-provider-1', email: 'phase4.provider@bytspot.test', name: 'Phase Provider' },
+                user: { id: 'user-provider-1', email: procedure.includes('auth.googleSignIn') ? 'google.vendor@bytspot.test' : 'phase4.provider@bytspot.test', name: 'Phase Provider' },
+                isNewUser: procedure.includes('auth.googleSignIn'),
               },
             },
           };
@@ -254,6 +273,46 @@ test.describe('Provider landing route', () => {
     ]);
     await expect.poll(() => capturedStripeUrl).toBe(STRIPE_CONNECT_URL);
     await expect(page).toHaveURL(STRIPE_CONNECT_URL);
+  });
+
+  test('lets an existing vendor sign in from onboarding without phone or terms blocking the flow', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/vendor');
+    await expect(page.getByTestId('provider-landing-root')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('provider-role-tile-venue').click();
+    await page.getByTestId('provider-start-cta').click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/provider/onboarding');
+
+    await expectOnboardingStep(page, 1);
+    await page.getByTestId('provider-account-mode-signin').click();
+    await expect(page.getByRole('heading', { name: 'Sign In to Provider' })).toBeVisible();
+    await expect(page.getByTestId('provider-account-phone')).toHaveCount(0);
+    await expect(page.getByTestId('provider-account-terms')).toHaveCount(0);
+
+    await page.getByTestId('provider-account-email').fill('existing.vendor@bytspot.test');
+    await page.getByTestId('provider-account-password').fill('securepass123');
+    await continueOnboarding(page);
+
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('provider-onboarding-token');
+    await expectOnboardingStep(page, 2);
+    await expect(page.getByTestId('provider-onboarding-type-venue')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('lets a provider continue onboarding with Google Sign-In', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/vendor');
+    await expect(page.getByTestId('provider-landing-root')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('provider-role-tile-venue').click();
+    await page.getByTestId('provider-start-cta').click();
+    await expectOnboardingStep(page, 1);
+
+    await page.getByTestId('mock-google-signin').click();
+
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('provider-onboarding-token');
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').email)).toBe('google.vendor@bytspot.test');
+    await expectOnboardingStep(page, 2);
   });
 
   test('shows approved provider dashboard state when mandatory metadata and Stripe Connect are active', async ({ page }) => {

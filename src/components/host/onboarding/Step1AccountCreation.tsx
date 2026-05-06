@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Lock, Phone, Eye, EyeOff, Chrome } from 'lucide-react';
+import { Mail, Lock, Phone, Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
 import type { OnboardingData } from '../HostOnboarding';
+import { GoogleSignInButton } from '../../GoogleSignInButton';
 
 interface Step1AccountCreationProps {
   onComplete: (data: Partial<OnboardingData>) => void;
@@ -14,6 +15,7 @@ interface Step1AccountCreationProps {
 }
 
 export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountCreationProps) {
+  const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
   const [email, setEmail] = useState(initialValue?.email || '');
   const [phone, setPhone] = useState(initialValue?.phone || '');
   const [password, setPassword] = useState(initialValue?.password || '');
@@ -29,13 +31,12 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
     mass: 0.8,
   };
 
+  const isSignup = authMode === 'signup';
+
   const isValid = () => {
-    return (
-      email.includes('@') &&
-      phone.length >= 10 &&
-      password.length >= 8 &&
-      termsAccepted
-    );
+    if (!email.includes('@') || password.length < 8) return false;
+    if (!isSignup) return true;
+    return phone.length >= 10 && termsAccepted;
   };
 
   const persistAuth = (res: any) => {
@@ -52,32 +53,50 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
     setIsSubmitting(true);
     setError(null);
     try {
-      try {
-        const signup = await trpc.auth.signup.mutate({
-          email: email.trim(),
-          password,
-          name: email.trim().split('@')[0] || 'Bytspot Provider',
-          ref: 'provider-onboarding',
-        });
-        persistAuth(signup);
-      } catch (signupErr: any) {
-        if (!String(signupErr?.message || '').toLowerCase().includes('already registered')) {
-          throw signupErr;
+      if (isSignup) {
+        try {
+          const signup = await trpc.auth.signup.mutate({
+            email: email.trim(),
+            password,
+            name: email.trim().split('@')[0] || 'Bytspot Provider',
+            ref: 'provider-onboarding',
+          });
+          persistAuth(signup);
+        } catch (signupErr: any) {
+          const message = String(signupErr?.message || '').toLowerCase();
+          const accountExists = message.includes('already registered') || message.includes('already exists') || message.includes('conflict');
+          if (!accountExists) throw signupErr;
+          const login = await trpc.auth.login.mutate({ email: email.trim(), password });
+          persistAuth(login);
         }
+      } else {
         const login = await trpc.auth.login.mutate({ email: email.trim(), password });
         persistAuth(login);
       }
 
       onComplete({ account: { email, phone, password } });
     } catch (err: any) {
-      setError(err?.message || 'Unable to create or sign in to your account. Please try again.');
+      setError(err?.message || (isSignup ? 'Unable to create your Provider account. Please try again.' : 'Unable to sign in. Check your email and password.'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleGoogleSignup = () => {
-    setError('Google sign-up is not enabled yet. Please create your Provider account with email and password.');
+  const handleGoogleCredential = async (idToken: string) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const res = await trpc.auth.googleSignIn.mutate({ idToken, ref: 'provider-onboarding', surface: 'provider-onboarding' });
+      persistAuth(res);
+      const accountEmail = res.user?.email ?? email.trim();
+      setEmail(accountEmail);
+      onComplete({ account: { email: accountEmail, phone, password: '' } });
+    } catch (err: any) {
+      setError(err?.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -90,27 +109,53 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         transition={springConfig}
       >
         <h1 className="text-large-title text-white mb-3">
-          Create Your Account
+          {isSignup ? 'Create Your Account' : 'Sign In to Provider'}
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          Welcome to Bytspot Host! Let's get started
+          {isSignup ? "Welcome to Bytspot Provider. Let's get started." : 'Continue onboarding with your existing vendor account.'}
         </p>
       </motion.div>
 
+      <motion.div
+        className="mb-6 grid grid-cols-2 gap-2 rounded-[18px] border border-white/20 bg-white/10 p-1"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.08 }}
+      >
+        <button
+          type="button"
+          data-testid="provider-account-mode-signup"
+          onClick={() => { setAuthMode('signup'); setError(null); }}
+          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${isSignup ? 'bg-white text-slate-950 shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
+          style={{ fontWeight: 800 }}
+        >
+          Sign up
+        </button>
+        <button
+          type="button"
+          data-testid="provider-account-mode-signin"
+          onClick={() => { setAuthMode('signin'); setError(null); }}
+          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${!isSignup ? 'bg-white text-slate-950 shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
+          style={{ fontWeight: 800 }}
+        >
+          Sign in
+        </button>
+      </motion.div>
+
       {/* Google Sign Up */}
-      <motion.button
-        onClick={handleGoogleSignup}
-        className="w-full mb-6 rounded-[20px] p-4 border-2 border-white/30 bg-white/10 backdrop-blur-xl hover:bg-white/15 flex items-center justify-center gap-3"
+      <motion.div
+        className="w-full mb-6 rounded-[20px] border-2 border-white/30 bg-white/10 p-4 backdrop-blur-xl"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
-        whileTap={{ scale: 0.98 }}
       >
-        <Chrome className="w-5 h-5 text-white" strokeWidth={2.5} />
-        <span className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-          Google sign-up coming soon
-        </span>
-      </motion.button>
+        <GoogleSignInButton
+          label="Continue Provider onboarding with Google"
+          disabled={isSubmitting}
+          onCredential={handleGoogleCredential}
+          onError={(message) => setError(message)}
+        />
+      </motion.div>
 
       {/* Divider */}
       <motion.div
@@ -153,30 +198,31 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
           </div>
         </motion.div>
 
-        {/* Phone */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springConfig, delay: 0.35 }}
-        >
-          <label className="block text-[15px] text-white mb-2" style={{ fontWeight: 600 }}>
-            Phone Number
-          </label>
-          <div className="relative">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2">
-              <Phone className="w-5 h-5 text-white/60" strokeWidth={2.5} />
+        {isSignup && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.35 }}
+          >
+            <label className="block text-[15px] text-white mb-2" style={{ fontWeight: 600 }}>
+              Phone Number
+            </label>
+            <div className="relative">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2">
+                <Phone className="w-5 h-5 text-white/60" strokeWidth={2.5} />
+              </div>
+              <input
+                data-testid="provider-account-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(555) 123-4567"
+                className="w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
+                style={{ fontSize: '17px', fontWeight: 400 }}
+              />
             </div>
-            <input
-              data-testid="provider-account-phone"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 123-4567"
-              className="w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
-              style={{ fontSize: '17px', fontWeight: 400 }}
-            />
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* Password */}
         <motion.div
@@ -226,33 +272,34 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         </p>
       )}
 
-      {/* Terms & Conditions */}
-      <motion.div
-        className="mb-8"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.45 }}
-      >
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            data-testid="provider-account-terms"
-            type="checkbox"
-            checked={termsAccepted}
-            onChange={(e) => setTermsAccepted(e.target.checked)}
-            className="mt-1 w-5 h-5 rounded border-2 border-white/30 bg-[#1C1C1E]/80 checked:bg-gradient-to-br checked:from-purple-500 checked:to-cyan-500 cursor-pointer"
-          />
-          <span className="text-[15px] text-white/80 leading-relaxed" style={{ fontWeight: 400 }}>
-            I agree to the{' '}
-            <span className="text-purple-400" style={{ fontWeight: 600 }}>
-              Terms of Service
-            </span>{' '}
-            and{' '}
-            <span className="text-purple-400" style={{ fontWeight: 600 }}>
-              Privacy Policy
+      {isSignup && (
+        <motion.div
+          className="mb-8"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.45 }}
+        >
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              data-testid="provider-account-terms"
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-1 w-5 h-5 rounded border-2 border-white/30 bg-[#1C1C1E]/80 checked:bg-gradient-to-br checked:from-purple-500 checked:to-cyan-500 cursor-pointer"
+            />
+            <span className="text-[15px] text-white/80 leading-relaxed" style={{ fontWeight: 400 }}>
+              I agree to the{' '}
+              <span className="text-purple-400" style={{ fontWeight: 600 }}>
+                Terms of Service
+              </span>{' '}
+              and{' '}
+              <span className="text-purple-400" style={{ fontWeight: 600 }}>
+                Privacy Policy
+              </span>
             </span>
-          </span>
-        </label>
-      </motion.div>
+          </label>
+        </motion.div>
+      )}
 
       {/* Continue Button */}
       <motion.div
@@ -273,7 +320,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
           whileHover={isValid() && !isSubmitting ? { scale: 1.02 } : {}}
         >
           <span className="text-[17px]" style={{ fontWeight: 600 }}>
-            {isSubmitting ? 'Creating account…' : 'Continue'}
+            {isSubmitting ? (isSignup ? 'Creating account…' : 'Signing in…') : (isSignup ? 'Create account and continue' : 'Sign in and continue')}
           </span>
         </motion.button>
       </motion.div>
@@ -286,9 +333,15 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         transition={{ delay: 0.6 }}
       >
         <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-          Already have an account?{' '}
-          <button className="text-purple-400" style={{ fontWeight: 600 }}>
-            Sign In
+          {isSignup ? 'Already have an account?' : 'Need a Provider account?'}{' '}
+          <button
+            type="button"
+            data-testid="provider-account-toggle-mode"
+            onClick={() => { setAuthMode(isSignup ? 'signin' : 'signup'); setError(null); }}
+            className="text-purple-400"
+            style={{ fontWeight: 600 }}
+          >
+            {isSignup ? 'Sign In' : 'Sign up'}
           </button>
         </p>
       </motion.div>

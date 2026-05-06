@@ -69,6 +69,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
   const [businessMode, setBusinessMode] = useState<ProviderBusinessMode>(access.businessMode);
   const [storedUser, setStoredUser] = useState<StoredUser | null>(() => readStoredUser());
   const [displayName, setDisplayName] = useState<string | null>(() => readStoredName(readStoredUser()?.name));
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 
   const springConfig = {
     type: "spring" as const,
@@ -182,13 +183,44 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
     },
   ];
 
-  const updateAccessPreview = (nextRole: ProviderRole, nextMode: ProviderBusinessMode) => {
+  const updateWorkspaceAccess = (nextRole: ProviderRole, nextMode: ProviderBusinessMode) => {
     setSelectedRole(nextRole);
     setBusinessMode(nextMode);
     localStorage.setItem('bytspot_provider_role', nextRole);
     localStorage.setItem('bytspot_provider_business_mode', nextMode);
     localStorage.setItem('bytspot_provider_is_cottage', String(nextMode === 'cottage'));
     window.dispatchEvent(new CustomEvent('bytspot:provider-access-updated'));
+  };
+
+  const handleSettingAction = async (label: string) => {
+    setSettingsMessage(null);
+    if (label === 'Contact Support') {
+      window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Dashboard%20Support';
+      return;
+    }
+    if (label === 'Legal & Policies') {
+      window.location.href = '/terms';
+      return;
+    }
+    if (label === 'Help Center') {
+      window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center';
+      return;
+    }
+    if (label === 'Payout Methods') {
+      try {
+        const result = await trpc.vendors.startOnboarding.mutate({
+          displayName: profileName,
+          refreshPath: '/provider/connect/refresh',
+          returnPath: '/provider/connect/return',
+        });
+        if (result?.url) window.location.href = result.url;
+        else setSettingsMessage(result?.message ?? 'Stripe Connect is not available right now.');
+      } catch (err: any) {
+        setSettingsMessage(err?.message ?? 'Unable to open payout settings.');
+      }
+      return;
+    }
+    setSettingsMessage(`${label} is controlled from your provider profile and will sync with backend account settings.`);
   };
 
   return (
@@ -274,7 +306,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Role</p>
             <div className="grid grid-cols-3 gap-2">
               {(['owner', 'manager', 'staff'] as ProviderRole[]).map((role) => (
-                <button key={role} data-testid={`provider-role-${role}`} onClick={() => updateAccessPreview(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? (isDarkMode ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-cyan-400 bg-cyan-100 text-cyan-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
+                <button key={role} data-testid={`provider-role-${role}`} onClick={() => updateWorkspaceAccess(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? (isDarkMode ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-cyan-400 bg-cyan-100 text-cyan-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {roleLabel(role)}
                 </button>
               ))}
@@ -284,7 +316,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Business mode</p>
             <div className="grid grid-cols-2 gap-2">
               {(['standard', 'cottage'] as ProviderBusinessMode[]).map((mode) => (
-                <button key={mode} data-testid={`provider-mode-${mode}`} onClick={() => updateAccessPreview(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? (isDarkMode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-emerald-400 bg-emerald-100 text-emerald-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
+                <button key={mode} data-testid={`provider-mode-${mode}`} onClick={() => updateWorkspaceAccess(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? (isDarkMode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-emerald-400 bg-emerald-100 text-emerald-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {mode}
                 </button>
               ))}
@@ -292,6 +324,12 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
           </div>
         </div>
       </motion.div>
+
+      {settingsMessage && (
+        <div className={`rounded-2xl border p-4 text-[13px] ${isDarkMode ? 'border-cyan-300/25 bg-cyan-500/10 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`}>
+          {settingsMessage}
+        </div>
+      )}
 
       {/* Account Settings */}
       <div>
@@ -311,6 +349,8 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
+                type="button"
+                onClick={() => void handleSettingAction(setting.label)}
                 className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
                   index !== accountSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}
@@ -355,6 +395,8 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
+                type="button"
+                onClick={() => void handleSettingAction(setting.label)}
                 className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
                   index !== preferencesSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}
@@ -404,7 +446,11 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             </div>
             
             <button
-              onClick={() => setNotificationsEnabled(!notificationsEnabled)}
+              onClick={() => {
+                const next = !notificationsEnabled;
+                setNotificationsEnabled(next);
+                localStorage.setItem('bytspot_provider_push_notifications', String(next));
+              }}
               className={`w-12 h-7 rounded-full transition-colors ${
                 notificationsEnabled ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
               }`}
@@ -428,7 +474,11 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             </div>
             
             <button
-              onClick={() => setInstantBook(!instantBook)}
+              onClick={() => {
+                const next = !instantBook;
+                setInstantBook(next);
+                localStorage.setItem('bytspot_provider_instant_book', String(next));
+              }}
               className={`w-12 h-7 rounded-full transition-colors ${
                 instantBook ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
               }`}
@@ -461,6 +511,8 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             return (
               <motion.button
                 key={setting.label}
+                type="button"
+                onClick={() => void handleSettingAction(setting.label)}
                 className={`w-full flex items-center gap-4 p-4 transition-colors ${tone.rowHover} ${
                   index !== supportSettings.length - 1 ? `border-b-2 ${tone.rowBorder}` : ''
                 }`}

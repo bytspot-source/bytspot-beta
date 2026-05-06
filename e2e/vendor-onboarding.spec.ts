@@ -53,6 +53,7 @@ declare global {
     __BYT_E2E_TRPC_MOCKS__?: Record<string, unknown>;
     __BYT_E2E_TRPC_CALLS__?: Array<{ procedure: string; input: unknown }>;
     __BYT_E2E_VENDOR_SERVICES__?: Array<typeof PROVIDER_SERVICE>;
+    __BYT_E2E_VENDOR_PATCHES__?: Array<Record<string, unknown>>;
     __recordStartOnboarding?: (payload: unknown) => void;
   }
 }
@@ -61,9 +62,9 @@ async function installVendorOnboardingMocks(
   page: Page,
   syncResult: SyncOnboardingResponse,
   access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' },
-  options?: { services?: Array<typeof PROVIDER_SERVICE>; bookings?: unknown[]; authToken?: string },
+  options?: { services?: Array<typeof PROVIDER_SERVICE>; bookings?: unknown[]; patches?: Array<Record<string, unknown>>; authToken?: string },
 ) {
-  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service, services, bookings, authToken }) => {
+  await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service, services, bookings, patches, authToken }) => {
     localStorage.setItem('bytspot_auth_token', authToken);
     localStorage.setItem('bytspot_onboarding_seen', 'true');
     localStorage.setItem('bytspot_user_name', vendorName);
@@ -83,6 +84,7 @@ async function installVendorOnboardingMocks(
 
     window.__BYT_E2E_TRPC_CALLS__ = [];
     window.__BYT_E2E_VENDOR_SERVICES__ = (services ?? [service]) as typeof window.__BYT_E2E_VENDOR_SERVICES__;
+    window.__BYT_E2E_VENDOR_PATCHES__ = (patches ?? []) as typeof window.__BYT_E2E_VENDOR_PATCHES__;
     window.__BYT_E2E_TRPC_MOCKS__ = {
       'vendors.syncOnboarding': sync,
       'vendors.listBookings': { bookings: bookings ?? [] },
@@ -136,6 +138,50 @@ async function installVendorOnboardingMocks(
         window.__BYT_E2E_TRPC_CALLS__?.push({ procedure, input: jsonInput });
         if (procedure.includes('vendors.startOnboarding')) window.__recordStartOnboarding?.(jsonInput);
         if (procedure.includes('vendors.listServices')) return { result: { data: { vendor: sync.vendor, services: window.__BYT_E2E_VENDOR_SERVICES__ ?? [] } } };
+        if (procedure.includes('vendors.listPatches')) return { result: { data: { vendor: sync.vendor, patches: window.__BYT_E2E_VENDOR_PATCHES__ ?? [] } } };
+        if (procedure.includes('vendors.createService')) {
+          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
+          const priceCents = inputRecord.priceCents ?? 1000;
+          const created = {
+            ...service,
+            id: `svc-e2e-${Date.now().toString(36)}`,
+            title: inputRecord.title ?? 'New Service',
+            description: inputRecord.description ?? null,
+            priceCents,
+            durationMins: inputRecord.durationMins ?? null,
+            status: inputRecord.status ?? 'active',
+            updatedAt: new Date().toISOString(),
+            patch: null,
+            cashFlow: { grossCents: priceCents, platformFeeCents: Math.round(priceCents * 0.08), providerPayoutEstimateCents: Math.round(priceCents * 0.92), commissionBps: 800 },
+          };
+          window.__BYT_E2E_VENDOR_SERVICES__ = [created, ...(window.__BYT_E2E_VENDOR_SERVICES__ ?? [])];
+          return { result: { data: { vendor: sync.vendor, service: created } } };
+        }
+        if (procedure.includes('vendors.createPatch')) {
+          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
+          const patchId = `patch-e2e-${Date.now().toString(36)}`;
+          const serviceId = inputRecord.serviceId ?? null;
+          const currentService = serviceId
+            ? (window.__BYT_E2E_VENDOR_SERVICES__ ?? []).find((item) => item.id === serviceId)
+            : null;
+          const venue = encodeURIComponent(vendorName);
+          const url = `https://bytspot.app/p/${patchId}?patch=${patchId}&venue=${venue}${serviceId ? `&service=${serviceId}` : ''}`;
+          const patch = {
+            id: patchId,
+            uid: '04A1B2C3D4E5F6',
+            label: inputRecord.label ?? 'Main Entrance',
+            venueName: vendorName,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            url,
+            status: 'bound',
+            readCounter: 0,
+            serviceId,
+            serviceTitle: currentService?.title ?? null,
+          };
+          window.__BYT_E2E_VENDOR_PATCHES__ = [patch, ...(window.__BYT_E2E_VENDOR_PATCHES__ ?? [])];
+          return { result: { data: { vendor: sync.vendor, patch } } };
+        }
         if (procedure.includes('vendors.updateService')) {
           const inputRecord = (jsonInput ?? {}) as Record<string, any>;
           const current = (window.__BYT_E2E_VENDOR_SERVICES__ ?? [service])[0];
@@ -169,6 +215,7 @@ async function installVendorOnboardingMocks(
     service: PROVIDER_SERVICE,
     services: options?.services ?? null,
     bookings: options?.bookings ?? null,
+    patches: options?.patches ?? null,
     authToken: options?.authToken ?? 'vendor-test-token',
   });
 }
@@ -271,6 +318,28 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     expect(calls.some((call) => call.procedure.includes('vendors.updateService') && (call.input as any)?.priceCents === 17500)).toBeTruthy();
   });
 
+  test('lets owners create a live vendor service from My Listings', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [] });
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'My Listings' }).click();
+    await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('provider-service-add').click();
+    await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
+    await page.getByTestId('service-create-title-input').fill('Downtown Garage Parking');
+    await page.getByTestId('service-create-description-input').fill('Secure covered parking near the venue');
+    await page.getByTestId('service-create-price-input').fill('25.00');
+    await page.getByTestId('service-create-duration-input').fill('60');
+    await page.getByTestId('create-service-button').click();
+
+    await expect(page.getByTestId('provider-service-create-modal')).toBeHidden();
+    await expect(page.getByTestId('provider-services-panel')).toContainText('Downtown Garage Parking');
+    await expect(page.getByTestId('provider-services-panel')).toContainText('$25.00');
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
+    expect(calls.some((call) => call.procedure.includes('vendors.createService') && (call.input as any)?.priceCents === 2500)).toBeTruthy();
+  });
+
   test('settings role and business mode controls refresh dashboard access immediately', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
@@ -293,11 +362,34 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_mode'))).toBe('cottage');
   });
 
+  test('dashboard home renders live booking and payout totals from backend feed', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const startsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    const liveBooking = {
+      id: 'booking-live',
+      startsAt,
+      endsAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+      status: 'confirmed',
+      priceCents: 15000,
+      currency: 'USD',
+      guest: { displayName: 'Avery Hart' },
+      patch: { id: 'patch-1', label: 'VIP Booth' },
+      service: { id: 'svc-1', title: 'VIP Arrival', priceCents: 15000, currency: 'USD' },
+      cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+    };
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { bookings: [liveBooking] });
+    await page.goto('/provider/connect/return');
+
+    await expect(page.getByTestId('provider-dashboard-next-payout-value')).toHaveText('$138');
+    await expect(page.getByTestId('provider-dashboard-priority-active-bookings')).toContainText('1');
+    await expect(page.getByTestId('provider-dashboard-live-list')).toContainText('VIP Arrival');
+    await expect(page.getByTestId('provider-dashboard-live-list')).toContainText('Avery Hart');
+    await expect(page.getByTestId('provider-dashboard-upcoming-list')).toContainText('VIP Arrival');
+  });
+
   test('Patches dashboard links a new patch to a live service from inventory', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
-    // Reset any patches a prior test in the same browser context might have stored.
-    await page.addInitScript(() => localStorage.removeItem('bytspot_provider_patches'));
     await page.goto('/provider/connect/return');
 
     await page.getByRole('button', { name: 'Patches', exact: true }).click();
@@ -320,11 +412,9 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(card.getByTestId('provider-patches-card-service')).toHaveText('VIP Arrival');
     await expect(card).toContainText('&service=svc-1');
 
-    // Round-trip the localStorage write so the linkage survives reloads.
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_provider_patches') ?? '[]'));
-    expect(Array.isArray(stored)).toBe(true);
-    expect(stored[0]).toMatchObject({ serviceId: 'svc-1', serviceTitle: 'VIP Arrival' });
-    expect(stored[0].url).toContain('&service=svc-1');
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
+    expect(calls.some((call) => call.procedure.includes('vendors.listPatches'))).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.createPatch') && (call.input as any)?.serviceId === 'svc-1')).toBeTruthy();
   });
 });
 

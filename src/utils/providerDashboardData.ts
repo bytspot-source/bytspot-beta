@@ -56,6 +56,20 @@ export type DashboardBookingSummary = {
   cashFlow: DashboardBookingCashFlow;
 };
 
+export type DashboardPatchSummary = {
+  id: string;
+  uid?: string | null;
+  label: string;
+  venueName: string;
+  createdAt: string;
+  updatedAt?: string;
+  url: string;
+  status?: string | null;
+  readCounter?: number;
+  serviceId?: string | null;
+  serviceTitle?: string | null;
+};
+
 export type DashboardEarningsTotals = {
   totalPayoutCents: number;
   totalGrossCents: number;
@@ -72,6 +86,7 @@ export type ProviderDashboardData = {
   authenticated: boolean;
   services: DashboardServiceSummary[];
   bookings: DashboardBookingSummary[];
+  patches: DashboardPatchSummary[];
   activeServices: number;
   totalServices: number;
   listingHealth: number;
@@ -122,6 +137,9 @@ const VALID_BOOKING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set([
 
 function normalizeBookingStatus(raw: unknown): DashboardBookingStatus {
   const value = typeof raw === 'string' ? raw.toLowerCase() : '';
+  if (value === 'paid') return 'confirmed';
+  if (value === 'canceled') return 'cancelled';
+  if (value === 'refunded' || value === 'disputed') return 'cancelled';
   return (VALID_BOOKING_STATUSES.has(value as DashboardBookingStatus)
     ? value
     : 'pending') as DashboardBookingStatus;
@@ -156,6 +174,24 @@ function mapBooking(raw: any): DashboardBookingSummary | null {
     priceCents,
     currency: String(raw?.currency ?? service?.currency ?? 'USD'),
     cashFlow: mapBookingCashFlow(raw, priceCents),
+  };
+}
+
+function mapPatch(raw: any): DashboardPatchSummary | null {
+  const id = raw?.id != null ? String(raw.id) : null;
+  if (!id) return null;
+  return {
+    id,
+    uid: raw?.uid ?? null,
+    label: String(raw?.label ?? 'Provider Patch'),
+    venueName: String(raw?.venueName ?? raw?.vendor?.displayName ?? 'Bytspot Provider'),
+    createdAt: String(raw?.createdAt ?? raw?.updatedAt ?? new Date().toISOString()),
+    updatedAt: raw?.updatedAt,
+    url: String(raw?.url ?? ''),
+    status: raw?.status ?? null,
+    readCounter: Number(raw?.readCounter ?? 0),
+    serviceId: raw?.serviceId != null ? String(raw.serviceId) : null,
+    serviceTitle: raw?.serviceTitle ?? null,
   };
 }
 
@@ -217,6 +253,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
   const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [services, setServices] = useState<DashboardServiceSummary[]>([]);
   const [bookings, setBookings] = useState<DashboardBookingSummary[]>([]);
+  const [patches, setPatches] = useState<DashboardPatchSummary[]>([]);
   const [connect, setConnect] = useState<DashboardConnectStatus>(EMPTY_CONNECT);
   const [vendor, setVendor] = useState<DashboardVendorSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +264,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
       setAuthenticated(false);
       setServices([]);
       setBookings([]);
+      setPatches([]);
       setConnect(EMPTY_CONNECT);
       setVendor(null);
       setError(null);
@@ -237,10 +275,11 @@ export function useProviderDashboardData(): ProviderDashboardData {
     setLoading(true);
     setError(null);
     try {
-      const [servicesResult, connectResult, bookingsResult] = await Promise.allSettled([
+      const [servicesResult, connectResult, bookingsResult, patchesResult] = await Promise.allSettled([
         trpc.vendors.listServices.query({ status: 'all', limit: 50 }),
         trpc.vendors.syncOnboarding.mutate(),
         trpc.vendors.listBookings.query({ limit: 100 }),
+        trpc.vendors.listPatches.query({ limit: 50 }),
       ]);
       if (servicesResult.status === 'fulfilled') {
         const rows = (servicesResult.value as any)?.services ?? [];
@@ -259,6 +298,18 @@ export function useProviderDashboardData(): ProviderDashboardData {
         // surface a deterministic empty list so the calendar shows the
         // no-bookings branch instead of a hard error.
         setBookings([]);
+      }
+      if (patchesResult.status === 'fulfilled') {
+        const rows = (patchesResult.value as any)?.patches ?? [];
+        const mapped = (Array.isArray(rows) ? rows : [])
+          .map(mapPatch)
+          .filter((row): row is DashboardPatchSummary => row !== null);
+        setPatches(mapped);
+      } else {
+        // Patch APIs may not be deployed in every preview environment yet.
+        // Keep the dashboard live-ready by rendering an empty list instead of
+        // a local mock list that would bypass backend state.
+        setPatches([]);
       }
       if (connectResult.status === 'fulfilled') {
         const value = connectResult.value as any;
@@ -299,6 +350,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
     authenticated,
     services,
     bookings,
+    patches,
     activeServices,
     totalServices,
     listingHealth,

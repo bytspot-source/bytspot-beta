@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { DollarSign, Calendar, CreditCard, ArrowUpRight, LineChart as LineChartIcon, Receipt } from 'lucide-react';
 import type { ProviderReviewState } from '../../../utils/providerApproval';
-import { summarizeBookingEarnings, useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { summarizeBookingEarnings, useProviderDashboardData, type DashboardBookingSummary } from '../../../utils/providerDashboardData';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardEarningsProps {
@@ -21,14 +21,44 @@ function formatCents(cents: number): string {
   return CURRENCY_FORMATTER.format(Math.round(cents) / 100);
 }
 
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Pending';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function buildDailyRevenue(bookings: DashboardBookingSummary[]) {
+  const buckets = new Map<string, number>();
+  for (const booking of bookings) {
+    if (booking.status !== 'completed') continue;
+    const date = new Date(booking.startsAt);
+    if (!Number.isFinite(date.getTime())) continue;
+    const key = date.toISOString().slice(0, 10);
+    buckets.set(key, (buckets.get(key) ?? 0) + booking.cashFlow.providerPayoutEstimateCents);
+  }
+  return Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-7);
+}
+
 export function DashboardEarnings({ isDarkMode, access, reviewState }: DashboardEarningsProps) {
-  void isDarkMode;
   const data = useProviderDashboardData();
   const approved = reviewState?.status === 'approved';
   const stripeReady = approved && data.connect.payoutsEnabled;
   const totals = useMemo(() => summarizeBookingEarnings(data.bookings), [data.bookings]);
   const hasBookings = data.bookings.length > 0;
   const hasServices = data.activeServices > 0;
+  const revenueTrend = useMemo(() => buildDailyRevenue(data.bookings), [data.bookings]);
+  const maxTrendCents = Math.max(1, ...revenueTrend.map(([, cents]) => cents));
+  const recentTransactions = useMemo(
+    () => data.bookings.filter((booking) => booking.status === 'completed' || booking.status === 'confirmed' || booking.status === 'in_progress').slice(0, 6),
+    [data.bookings],
+  );
+  const tone = {
+    strong: isDarkMode ? 'text-white' : 'text-slate-950',
+    body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
+    muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
+    panel: isDarkMode ? 'border-slate-700 bg-slate-950/72 shadow-black/30' : 'border-slate-200 bg-white shadow-slate-200/70',
+    soft: isDarkMode ? 'border-slate-700 bg-slate-900/82' : 'border-slate-200 bg-slate-50',
+  };
 
   const springConfig = {
     type: "spring" as const,
@@ -64,10 +94,10 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
-        <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
+            <h1 className={`text-[34px] mb-2 ${tone.strong}`} style={{ fontWeight: 700 }}>
           Earnings
         </h1>
-        <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
+        <p className={`text-[17px] ${tone.body}`} style={{ fontWeight: 400 }}>
           Track your revenue and payouts
         </p>
       </motion.div>
@@ -236,43 +266,63 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
       {/* Revenue Trend */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.3 }}
         data-testid="provider-earnings-revenue-empty"
       >
-        <h2 className="text-[22px] text-white mb-2" style={{ fontWeight: 600 }}>Revenue Trend</h2>
-        <p className="text-[13px] text-white/70 mb-6">{trackingNote}</p>
-        <div className="flex h-[260px] flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/15 bg-black/30 px-6 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-            <LineChartIcon className="h-6 w-6 text-cyan-200" strokeWidth={2.5} />
+        <h2 className={`text-[22px] mb-2 ${tone.strong}`} style={{ fontWeight: 600 }}>Revenue Trend</h2>
+        <p className={`text-[13px] mb-6 ${tone.muted}`}>{trackingNote}</p>
+        {revenueTrend.length > 0 ? (
+          <div className={`grid h-[260px] items-end gap-3 rounded-[18px] border p-5 ${tone.soft}`} style={{ gridTemplateColumns: `repeat(${Math.min(revenueTrend.length, 7)}, minmax(0, 1fr))` }} data-testid="provider-earnings-revenue-bars">
+            {revenueTrend.map(([day, cents]) => (
+              <div key={day} className="flex h-full flex-col justify-end gap-2 text-center">
+                <div className="mx-auto w-full max-w-[54px] rounded-t-2xl bg-gradient-to-t from-emerald-500 to-cyan-300" style={{ height: `${Math.max(10, (cents / maxTrendCents) * 100)}%` }} />
+                <p className={`text-[11px] ${tone.muted}`}>{formatShortDate(day)}</p>
+                <p className={`text-[12px] ${tone.strong}`} style={{ fontWeight: 800 }}>{formatCents(cents)}</p>
+              </div>
+            ))}
           </div>
-          <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No revenue data yet</p>
-          <p className="max-w-md text-[13px] leading-5 text-white/70">
-            {stripeReady
-              ? 'Confirmed marketplace bookings will populate this chart automatically.'
-              : 'Once Stripe Connect is verified and a guest completes a booking, daily revenue will appear here.'}
-          </p>
-        </div>
+        ) : (
+          <div className={`flex h-[260px] flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed px-6 text-center ${tone.soft}`}>
+            <div className={`flex h-12 w-12 items-center justify-center rounded-2xl border ${tone.soft}`}>
+              <LineChartIcon className="h-6 w-6 text-cyan-400" strokeWidth={2.5} />
+            </div>
+            <p className={`text-[15px] ${tone.strong}`} style={{ fontWeight: 700 }}>No settled revenue yet</p>
+            <p className={`max-w-md text-[13px] leading-5 ${tone.muted}`}>{stripeReady ? 'Completed marketplace bookings will populate this chart automatically.' : 'Once Stripe Connect is verified and a guest completes a booking, daily revenue will appear here.'}</p>
+          </div>
+        )}
       </motion.div>
 
       {/* Recent Transactions */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.4 }}
         data-testid="provider-earnings-transactions-empty"
       >
-        <h2 className="text-[22px] text-white mb-6" style={{ fontWeight: 600 }}>Recent Transactions</h2>
-        <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/15 bg-black/30 px-6 py-10 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-            <Receipt className="h-6 w-6 text-white/80" strokeWidth={2.5} />
+        <h2 className={`text-[22px] mb-6 ${tone.strong}`} style={{ fontWeight: 600 }}>Recent Transactions</h2>
+        {recentTransactions.length > 0 ? (
+          <div className="space-y-3" data-testid="provider-earnings-transactions-list">
+            {recentTransactions.map((booking) => (
+              <div key={booking.id} className={`flex items-center justify-between gap-3 rounded-[18px] border p-4 ${tone.soft}`}>
+                <div>
+                  <p className={`text-[14px] ${tone.strong}`} style={{ fontWeight: 800 }}>{booking.serviceTitle}</p>
+                  <p className={`text-[12px] ${tone.muted}`}>{formatShortDate(booking.startsAt)} · {booking.status.replace('_', ' ')}</p>
+                </div>
+                <p className={booking.status === 'completed' ? 'text-emerald-400' : 'text-amber-400'} style={{ fontWeight: 800 }}>{formatCents(booking.cashFlow.providerPayoutEstimateCents)}</p>
+              </div>
+            ))}
           </div>
-          <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No transactions yet</p>
-          <p className="max-w-md text-[13px] leading-5 text-white/70">Marketplace payouts and refunds will appear here once your first booking settles through Stripe.</p>
-        </div>
+        ) : (
+          <div className={`flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed px-6 py-10 text-center ${tone.soft}`}>
+            <div className={`flex h-12 w-12 items-center justify-center rounded-2xl border ${tone.soft}`}><Receipt className="h-6 w-6 text-cyan-400" strokeWidth={2.5} /></div>
+            <p className={`text-[15px] ${tone.strong}`} style={{ fontWeight: 700 }}>No transactions yet</p>
+            <p className={`max-w-md text-[13px] leading-5 ${tone.muted}`}>Marketplace payouts and refunds will appear here once your first booking settles through Stripe.</p>
+          </div>
+        )}
       </motion.div>
 
       {/* Payout Info */}

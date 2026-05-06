@@ -1,57 +1,40 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, Copy, ExternalLink, Link, Package, Plus, Radio, Shield, Smartphone } from 'lucide-react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
-import { useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { type DashboardPatchSummary, useProviderDashboardData } from '../../../utils/providerDashboardData';
+import { trpc } from '../../../utils/trpc';
 
-interface ProviderPatchRecord {
-  id: string;
-  label: string;
-  venueName: string;
-  createdAt: string;
-  url: string;
-  // Optional so localStorage records written before this field existed continue
-  // to deserialize cleanly. New patches always populate both or neither.
-  serviceId?: string | null;
-  serviceTitle?: string | null;
-}
-
-const PATCH_STORE_KEY = 'bytspot_provider_patches';
-const PATCH_BASE_URL = 'https://bytspot.app/p/';
 const UNASSIGNED_SERVICE_VALUE = '__unassigned__';
-
-function readPatches(): ProviderPatchRecord[] {
-  try {
-    const raw = localStorage.getItem(PATCH_STORE_KEY);
-    return raw ? JSON.parse(raw) as ProviderPatchRecord[] : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePatches(patches: ProviderPatchRecord[]): void {
-  localStorage.setItem(PATCH_STORE_KEY, JSON.stringify(patches.slice(0, 12)));
-}
 
 function slugify(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'provider';
 }
 
+function patchBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location.origin.startsWith('http')) {
+    return `${window.location.origin}/p/`;
+  }
+  return 'https://bytspot.app/p/';
+}
+
 function buildPatchUrl(patchId: string, venueName: string, serviceId?: string | null): string {
   const encoded = encodeURIComponent(venueName.trim() || 'Bytspot Provider');
-  const base = `${PATCH_BASE_URL}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
+  const base = `${patchBaseUrl()}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
   return serviceId ? `${base}&service=${encodeURIComponent(serviceId)}` : base;
 }
 
 export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; access: ProviderDashboardAccess }) {
   const data = useProviderDashboardData();
-  const [venueName, setVenueName] = useState(localStorage.getItem('bytspot_provider_business_name') || '');
+  const [venueName, setVenueName] = useState('');
   const [label, setLabel] = useState('Main Entrance');
   const [serviceSelection, setServiceSelection] = useState<string>(UNASSIGNED_SERVICE_VALUE);
-  const [patches, setPatches] = useState<ProviderPatchRecord[]>(() => readPatches());
+  const [patches, setPatches] = useState<DashboardPatchSummary[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const nextPatchId = useMemo(() => `patch-${slugify(venueName || label)}-${Date.now().toString(36).slice(-5)}`, [venueName, label]);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const nextPatchId = useMemo(() => `new-${slugify(venueName || label || 'provider')}`, [venueName, label]);
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
   const panelClass = isDarkMode
     ? 'border-white/15 bg-[linear-gradient(135deg,rgba(15,23,42,0.92),rgba(2,6,23,0.96))]'
@@ -65,27 +48,42 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
     ? null
     : assignableServices.find((service) => service.id === serviceSelection) ?? null;
 
-  const establishPatch = () => {
-    const id = nextPatchId;
-    const assignedServiceId = selectedService?.id ?? null;
-    const assignedServiceTitle = selectedService?.title ?? null;
-    const patch: ProviderPatchRecord = {
-      id,
-      label: label.trim() || 'Main Entrance',
-      venueName: venueName.trim() || 'Bytspot Provider',
-      createdAt: new Date().toISOString(),
-      url: buildPatchUrl(id, venueName, assignedServiceId),
-      serviceId: assignedServiceId,
-      serviceTitle: assignedServiceTitle,
-    };
-    const updated = [patch, ...patches.filter((item) => item.id !== id)].slice(0, 12);
-    setPatches(updated);
-    writePatches(updated);
-    localStorage.setItem('bytspot_provider_business_name', patch.venueName);
+  useEffect(() => {
+    setPatches(data.patches);
+  }, [data.patches]);
+
+  useEffect(() => {
+    if (!venueName && data.vendor?.displayName) setVenueName(data.vendor.displayName);
+  }, [data.vendor?.displayName, venueName]);
+
+  const establishPatch = async () => {
+    if (creating) return;
+    if (!data.authenticated) {
+      setCreateError('Sign in with a vendor account to create live Provider patches.');
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const result = await trpc.vendors.createPatch.mutate({
+        label: label.trim() || 'Main Entrance',
+        serviceId: selectedService?.id ?? null,
+      });
+      const patch = result?.patch as DashboardPatchSummary | undefined;
+      if (!patch?.id) throw new Error('Patch was created, but the server did not return a patch record.');
+      setPatches((current) => [patch, ...current.filter((item) => item.id !== patch.id)].slice(0, 12));
+      setVenueName(patch.venueName || venueName);
+      setLabel('Main Entrance');
+    } catch (err: any) {
+      setCreateError(err?.message ?? 'Unable to create Provider patch. Please try again.');
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const copyPatch = async (patch: ProviderPatchRecord) => {
-    await navigator.clipboard?.writeText(patch.url).catch(() => undefined);
+  const copyPatch = async (patch: DashboardPatchSummary) => {
+    const url = patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId);
+    await navigator.clipboard?.writeText(url).catch(() => undefined);
     setCopiedId(patch.id);
     window.setTimeout(() => setCopiedId(null), 1800);
   };
@@ -123,8 +121,8 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
       <motion.div className={`grid gap-4 rounded-[28px] border ${panelClass} p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-2xl ring-1 ring-cyan-200/5 lg:grid-cols-[1fr_0.9fr] lg:p-6`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }} data-testid="provider-patches-form">
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-[13px] font-extrabold text-slate-200">Business / Venue Name</label>
-            <input value={venueName} onChange={(event) => setVenueName(event.target.value)} placeholder="Example: Midtown Lounge" className="w-full rounded-[16px] border border-white/15 bg-black/40 px-4 py-3 text-white shadow-inner shadow-black/20 outline-none placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/15" />
+            <label className="mb-2 block text-[13px] font-extrabold text-slate-200">Business / Venue Name <span className="text-slate-400">(from profile)</span></label>
+            <input value={venueName} onChange={(event) => setVenueName(event.target.value)} disabled={Boolean(data.vendor?.displayName)} placeholder="Example: Midtown Lounge" className="w-full rounded-[16px] border border-white/15 bg-black/40 px-4 py-3 text-white shadow-inner shadow-black/20 outline-none placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/15 disabled:text-slate-300 disabled:opacity-80" />
           </div>
           <div>
             <label className="mb-2 block text-[13px] font-extrabold text-slate-200">Patch Location / Label</label>
@@ -156,8 +154,11 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
                     : 'Linking a patch to a service deep-links scans into that listing\u2019s booking flow.'}
             </p>
           </div>
-          <button type="button" onClick={establishPatch} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white shadow-xl shadow-fuchsia-950/25 ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.99]" data-testid="provider-patches-establish">
-            <Plus className="h-4 w-4" strokeWidth={2.5} /> Establish Patch
+          {createError && (
+            <p className="rounded-2xl border border-amber-200/20 bg-amber-400/10 px-3 py-2 text-[12px] leading-5 text-amber-100" data-testid="provider-patches-create-error">{createError}</p>
+          )}
+          <button type="button" onClick={establishPatch} disabled={creating || !data.authenticated} className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 px-4 py-3.5 text-[15px] font-black text-white shadow-xl shadow-fuchsia-950/25 ring-1 ring-white/20 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60" data-testid="provider-patches-establish">
+            <Plus className="h-4 w-4" strokeWidth={2.5} /> {creating ? 'Creating Patch…' : 'Establish Patch'}
           </button>
         </div>
 
@@ -177,7 +178,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
         <div className="flex items-center justify-between gap-3 px-1">
           <div>
             <h2 className="text-[18px] font-black text-white">Established patches</h2>
-            <p className="text-[12px] leading-5 text-slate-300/75">Copy, test, and deploy clean patch links from one place.</p>
+            <p className="text-[12px] leading-5 text-slate-300/75">{data.loading ? 'Loading live patch records…' : 'Copy, test, and deploy live backend patch links from one place.'}</p>
           </div>
         </div>
         {patches.length === 0 ? (
@@ -196,12 +197,12 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
               </div>
               <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black tracking-[0.12em] text-emerald-100">READY</span>
             </div>
-            <p className="mb-3 break-all rounded-2xl border border-white/10 bg-black/40 p-3 font-mono text-[11px] leading-5 text-cyan-50/75 shadow-inner shadow-black/20">{patch.url}</p>
+            <p className="mb-3 break-all rounded-2xl border border-white/10 bg-black/40 p-3 font-mono text-[11px] leading-5 text-cyan-50/75 shadow-inner shadow-black/20">{patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)}</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => copyPatch(patch)} className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white px-3 py-2.5 text-[13px] font-black text-slate-950 shadow-lg shadow-black/15 transition hover:bg-cyan-50">
                 {copiedId === patch.id ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />} {copiedId === patch.id ? 'Copied' : 'Copy'}
               </button>
-              <a href={patch.url} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-cyan-200/25 bg-cyan-400/15 px-3 py-2.5 text-[13px] font-black text-cyan-50 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-300/20">
+              <a href={patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-[14px] border border-cyan-200/25 bg-cyan-400/15 px-3 py-2.5 text-[13px] font-black text-cyan-50 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-300/20">
                 <ExternalLink className="h-4 w-4" /> Test
               </a>
             </div>

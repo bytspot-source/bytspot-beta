@@ -116,7 +116,7 @@ export function HostDashboardLayout({
           </button>
 
           <h1 className={`text-[20px] ${palette.title}`} style={{ fontWeight: 600 }}>
-            Host Dashboard
+            Provider Dashboard
           </h1>
 
           {onBackToMain && (
@@ -139,7 +139,7 @@ export function HostDashboardLayout({
             Bytspot
           </h1>
           <p className={`text-[15px] ${palette.subtle}`} style={{ fontWeight: 500 }}>
-            Host Dashboard
+            Provider Dashboard
           </p>
           <div className={`mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
             {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
@@ -220,7 +220,7 @@ export function HostDashboardLayout({
                     Bytspot
                   </h1>
                   <p className={`text-[13px] ${palette.subtle}`} style={{ fontWeight: 500 }}>
-                    Host Dashboard
+                    Provider Dashboard
                   </p>
                   <div className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${palette.pill}`} style={{ fontWeight: 800 }}>
                     {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}

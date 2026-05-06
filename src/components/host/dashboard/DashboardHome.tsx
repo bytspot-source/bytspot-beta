@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowUpRight,
@@ -18,13 +18,45 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { ProviderReviewState } from '../../../utils/providerApproval';
-import { useProviderDashboardData, type DashboardConnectStatus } from '../../../utils/providerDashboardData';
+import {
+  summarizeBookingEarnings,
+  useProviderDashboardData,
+  type DashboardBookingSummary,
+  type DashboardConnectStatus,
+} from '../../../utils/providerDashboardData';
 import { trpc } from '../../../utils/trpc';
 import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
 import type { DashboardView } from './HostDashboardLayout';
 
 const STRIPE_CONNECT_RETURN_PATH = '/provider/connect/return';
 const STRIPE_CONNECT_REFRESH_PATH = '/provider/connect/refresh';
+
+const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+function formatCents(cents: number): string {
+  return CURRENCY_FORMATTER.format(Math.round(cents) / 100);
+}
+
+function isLiveBooking(booking: DashboardBookingSummary): boolean {
+  return booking.status === 'confirmed' || booking.status === 'in_progress';
+}
+
+function isUpcomingBooking(booking: DashboardBookingSummary, now = new Date()): boolean {
+  const startsAt = new Date(booking.startsAt);
+  if (!Number.isFinite(startsAt.getTime())) return false;
+  const next72Hours = now.getTime() + 72 * 60 * 60 * 1000;
+  return startsAt.getTime() >= now.getTime() && startsAt.getTime() <= next72Hours && booking.status !== 'cancelled';
+}
+
+function formatBookingTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Time pending';
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 
 type PayoutStatusLabel = 'Payouts Enabled' | 'Action Required' | 'Not Connected';
 
@@ -61,6 +93,14 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
   const payoutsEnabled = payoutStatusLabel === 'Payouts Enabled';
   const [connectStarting, setConnectStarting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const totals = useMemo(() => summarizeBookingEarnings(data.bookings), [data.bookings]);
+  const liveBookings = useMemo(() => data.bookings.filter(isLiveBooking), [data.bookings]);
+  const upcomingBookings = useMemo(
+    () => data.bookings.filter((booking) => isUpcomingBooking(booking)).slice(0, 4),
+    [data.bookings],
+  );
+  const activeBookingCount = liveBookings.length;
+  const upcomingBookingCount = upcomingBookings.length;
 
   const handleConnectStripe = async () => {
     if (connectStarting) return;
@@ -96,25 +136,37 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
   const activeListings = data.activeServices;
   const listingHealth = data.listingHealth;
   const dash = '—';
+  const hasEarnings = totals.totalPayoutCents > 0 || totals.pendingPayoutCents > 0;
 
   const priorityCards = [
     {
+      testId: 'earnings',
       title: access.canSeeFinancials ? 'Total earnings' : 'Operational role',
-      value: access.canSeeFinancials ? (data.loading ? dash : '$0') : roleLabel(access.role),
+      value: access.canSeeFinancials ? (data.loading ? dash : formatCents(totals.totalPayoutCents)) : roleLabel(access.role),
       detail: access.canSeeFinancials
-        ? (data.loading ? 'Syncing payout history' : 'Tracked once Stripe payouts settle')
+        ? data.loading
+          ? 'Syncing payout history'
+          : totals.paidBookingCount > 0
+            ? `${totals.paidBookingCount} settled booking${totals.paidBookingCount === 1 ? '' : 's'}`
+            : 'No settled payouts yet'
         : access.role === 'manager' ? 'Payout settings stay owner-only' : 'Revenue hidden for this role',
       icon: access.canSeeFinancials ? DollarSign : ShieldCheck,
       tone: 'from-emerald-400/22 to-cyan-400/10',
     },
     {
+      testId: 'active-bookings',
       title: 'Active bookings',
-      value: '0',
-      detail: data.loading ? 'Loading bookings' : 'Confirmed reservations appear here automatically',
+      value: data.loading ? dash : String(activeBookingCount),
+      detail: data.loading
+        ? 'Loading bookings'
+        : activeBookingCount > 0
+          ? `${upcomingBookingCount} upcoming in the next 72 hours`
+          : 'Confirmed reservations appear here automatically',
       icon: Calendar,
       tone: 'from-cyan-400/22 to-blue-500/10',
     },
     {
+      testId: 'listing-health',
       title: 'Listing health',
       value: data.loading ? dash : totalListings === 0 ? '0%' : `${listingHealth}%`,
       detail: data.loading
@@ -126,9 +178,10 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
       tone: 'from-violet-400/22 to-fuchsia-500/10',
     },
     {
+      testId: 'guest-rating',
       title: 'Guest rating',
       value: dash,
-      detail: 'Tracking activates after the first guest review',
+      detail: data.bookings.length > 0 ? 'Review aggregation connects when backend ratings ship' : 'Tracking activates after the first guest review',
       icon: Star,
       tone: 'from-amber-300/22 to-orange-500/10',
     },
@@ -204,12 +257,12 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
           </div>
 
           {access.canSeeFinancials ? (
-          <div className="rounded-[26px] border border-white/12 bg-black/28 p-4 backdrop-blur-xl" data-testid="provider-dashboard-payout-card">
+          <div className="rounded-[26px] border border-slate-600/60 bg-slate-950/70 p-4 shadow-xl shadow-black/25 backdrop-blur-xl" data-testid="provider-dashboard-payout-card">
             <div data-testid="stripe-connect-payout-panel">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[12px] uppercase tracking-[0.18em] text-white/80" style={{ fontWeight: 800 }}>Next payout</p>
-                  <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }}>$0</p>
+	                  <p className="mt-1 text-[34px] text-white" style={{ fontWeight: 850 }} data-testid="provider-dashboard-next-payout-value">{data.loading ? dash : formatCents(totals.pendingPayoutCents)}</p>
                 </div>
                 <span
                   data-testid="stripe-connect-status-badge"
@@ -256,7 +309,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
           ) : (
           <div className="rounded-[26px] border border-cyan-200/40 bg-cyan-950/70 p-5 shadow-[0_18px_60px_rgba(34,211,238,0.12)] backdrop-blur-xl">
             <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Today’s operating plan</p>
-            <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>0 active · 0 upcoming</p>
+	            <p className="mt-2 text-[26px] text-white" style={{ fontWeight: 850 }}>{data.loading ? dash : activeBookingCount} active · {data.loading ? dash : upcomingBookingCount} upcoming</p>
             <ol className="mt-4 space-y-2 text-[13px] leading-5 text-white/95">
               <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">1. Open each active booking and confirm vehicle and location details.</li>
               <li className="rounded-2xl border border-cyan-100/25 bg-black/50 px-3 py-2 shadow-inner">2. Keep the calendar updated before handoff windows.</li>
@@ -271,7 +324,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
         {priorityCards.map((card, index) => {
           const Icon = card.icon;
           return (
-            <motion.div key={card.title} className={`rounded-[24px] border border-white/12 bg-gradient-to-br ${card.tone} p-5 shadow-xl backdrop-blur-xl`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.06 }} whileHover={{ y: -3 }}>
+	            <motion.div key={card.title} data-testid={`provider-dashboard-priority-${card.testId}`} className={`rounded-[24px] border border-white/12 bg-gradient-to-br ${card.tone} p-5 shadow-xl backdrop-blur-xl`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: index * 0.06 }} whileHover={{ y: -3 }}>
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-black/25">
                   <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
@@ -296,15 +349,15 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/6 px-4 py-2 text-right">
               <p className="text-[11px] uppercase tracking-[0.14em] text-white/90" style={{ fontWeight: 800 }}>This month</p>
-              <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>$0</p>
+	              <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>{data.loading ? dash : formatCents(totals.thisMonthPayoutCents)}</p>
             </div>
           </div>
-          <div className="flex h-[260px] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/12 bg-black/25 px-6 text-center" data-testid="provider-dashboard-earnings-empty">
+	          <div className="flex h-[260px] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/12 bg-black/25 px-6 text-center" data-testid="provider-dashboard-earnings-empty">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
               <LineChartIcon className="h-6 w-6 text-cyan-200" strokeWidth={2.5} />
             </div>
-            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>Earnings will appear after your first payout</p>
-            <p className="max-w-md text-[13px] leading-5 text-white/80">{stripeReady ? 'Stripe Connect is verified. Confirmed bookings will populate this chart automatically.' : 'Finish Stripe verification to start tracking confirmed booking revenue here.'}</p>
+	            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>{hasEarnings ? `${formatCents(totals.pendingPayoutCents)} pending payout` : 'Earnings will appear after your first payout'}</p>
+	            <p className="max-w-md text-[13px] leading-5 text-white/80">{hasEarnings ? `${totals.pendingBookingCount} pending and ${totals.paidBookingCount} settled booking${data.bookings.length === 1 ? '' : 's'} are feeding this dashboard.` : stripeReady ? 'Stripe Connect is verified. Confirmed bookings will populate this chart automatically.' : 'Finish Stripe verification to start tracking confirmed booking revenue here.'}</p>
             {onNavigate && (
               <button
                 type="button"
@@ -372,26 +425,42 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Live bookings</h2>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/8 px-3 py-1.5 text-[12px] text-white/80" style={{ fontWeight: 800 }}>
-              <span className="h-2 w-2 rounded-full bg-white/50" /> Idle
+	              <span className={`h-2 w-2 rounded-full ${activeBookingCount > 0 ? 'bg-emerald-300' : 'bg-white/50'}`} /> {activeBookingCount > 0 ? 'Live' : 'Idle'}
             </span>
           </div>
-          <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-live-empty">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
-              <Inbox className="h-6 w-6 text-white/80" strokeWidth={2.5} />
-            </div>
-            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No bookings in progress</p>
-            <p className="max-w-sm text-[13px] leading-5 text-white/80">Confirmed marketplace bookings will appear here in real time once guests check in.</p>
-            {onNavigate && (
-              <button
-                type="button"
-                onClick={() => handleAction('bookings')}
-                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
-                style={{ fontWeight: 800 }}
-              >
-                Open bookings <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+	          {activeBookingCount > 0 ? (
+	            <div className="space-y-3" data-testid="provider-dashboard-live-list">
+	              {liveBookings.slice(0, 3).map((booking) => (
+	                <button key={booking.id} type="button" onClick={() => handleAction('bookings')} className="w-full rounded-[18px] border border-cyan-200/20 bg-cyan-300/10 p-4 text-left transition hover:bg-cyan-300/15">
+	                  <div className="flex items-start justify-between gap-3">
+	                    <div>
+	                      <p className="text-[14px] text-white" style={{ fontWeight: 850 }}>{booking.serviceTitle}</p>
+	                      <p className="mt-1 text-[12px] leading-5 text-white/75">{booking.guestName ?? 'Guest'} · {booking.patchLabel ?? 'Patch pending'}</p>
+	                    </div>
+	                    <span className="rounded-full border border-emerald-200/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] uppercase text-emerald-100" style={{ fontWeight: 900 }}>{booking.status.replace('_', ' ')}</span>
+	                  </div>
+	                </button>
+	              ))}
+	            </div>
+	          ) : (
+	            <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-live-empty">
+	              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
+	                <Inbox className="h-6 w-6 text-white/80" strokeWidth={2.5} />
+	              </div>
+	              <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No bookings in progress</p>
+	              <p className="max-w-sm text-[13px] leading-5 text-white/80">Confirmed marketplace bookings will appear here in real time once guests check in.</p>
+	              {onNavigate && (
+	                <button
+	                  type="button"
+	                  onClick={() => handleAction('bookings')}
+	                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+	                  style={{ fontWeight: 800 }}
+	                >
+	                  Open bookings <ArrowUpRight className="h-3.5 w-3.5" />
+	                </button>
+	              )}
+	            </div>
+	          )}
         </motion.section>
 
         <motion.section className="rounded-[28px] border border-white/12 bg-[#111114]/90 p-5 shadow-xl backdrop-blur-xl lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.44 }}>
@@ -399,23 +468,34 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
             <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Upcoming</h2>
             <span className="text-[12px] text-white/80" style={{ fontWeight: 750 }}>Next 72 hours</span>
           </div>
-          <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-upcoming-empty">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
-              <ClipboardList className="h-6 w-6 text-white/80" strokeWidth={2.5} />
-            </div>
-            <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No upcoming reservations</p>
-            <p className="max-w-sm text-[13px] leading-5 text-white/80">{totalListings === 0 ? 'Publish a service so guests can request bookings.' : 'New reservations will surface here as soon as guests confirm.'}</p>
-            {onNavigate && (
-              <button
-                type="button"
-                onClick={() => handleAction(totalListings === 0 ? 'listings' : 'calendar')}
-                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
-                style={{ fontWeight: 800 }}
-              >
-                {totalListings === 0 ? 'Create listing' : 'Open calendar'} <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+	          {upcomingBookingCount > 0 ? (
+	            <div className="space-y-3" data-testid="provider-dashboard-upcoming-list">
+	              {upcomingBookings.map((booking) => (
+	                <button key={booking.id} type="button" onClick={() => handleAction('calendar')} className="w-full rounded-[18px] border border-white/15 bg-white/8 p-4 text-left transition hover:border-cyan-200/30 hover:bg-cyan-300/10">
+	                  <p className="text-[14px] text-white" style={{ fontWeight: 850 }}>{booking.serviceTitle}</p>
+	                  <p className="mt-1 text-[12px] leading-5 text-white/75">{formatBookingTime(booking.startsAt)} · {booking.guestName ?? 'Guest pending'}</p>
+	                </button>
+	              ))}
+	            </div>
+	          ) : (
+	            <div className="flex flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center" data-testid="provider-dashboard-upcoming-empty">
+	              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/5">
+	                <ClipboardList className="h-6 w-6 text-white/80" strokeWidth={2.5} />
+	              </div>
+	              <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No upcoming reservations</p>
+	              <p className="max-w-sm text-[13px] leading-5 text-white/80">{totalListings === 0 ? 'Publish a service so guests can request bookings.' : 'New reservations will surface here as soon as guests confirm.'}</p>
+	              {onNavigate && (
+	                <button
+	                  type="button"
+	                  onClick={() => handleAction(totalListings === 0 ? 'listings' : 'calendar')}
+	                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] text-white/90 transition hover:border-cyan-200/40 hover:bg-cyan-300/10"
+	                  style={{ fontWeight: 800 }}
+	                >
+	                  {totalListings === 0 ? 'Create listing' : 'Open calendar'} <ArrowUpRight className="h-3.5 w-3.5" />
+	                </button>
+	              )}
+	            </div>
+	          )}
         </motion.section>
       </div>
     </div>

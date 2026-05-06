@@ -44,6 +44,12 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
   };
 
   const startStripeConnect = async () => {
+    const authToken = localStorage.getItem('bytspot_auth_token');
+    if (!authToken || authToken === 'beta_guest') {
+      setConnectMessage('Please complete account setup or sign in before starting Stripe Connect payouts.');
+      return;
+    }
+
     setConnectLoading(true);
     setConnectMessage(null);
 

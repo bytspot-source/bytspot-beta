@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Lock, Phone, Eye, EyeOff, Chrome } from 'lucide-react';
+import { trpc } from '../../../utils/trpc';
 import type { OnboardingData } from '../HostOnboarding';
 
 interface Step1AccountCreationProps {
@@ -18,6 +19,8 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
   const [password, setPassword] = useState(initialValue?.password || '');
   const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const springConfig = {
     type: "spring" as const,
@@ -35,11 +38,41 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
     );
   };
 
-  const handleContinue = () => {
-    if (isValid()) {
-      onComplete({
-        account: { email, phone, password },
-      });
+  const persistAuth = (res: any) => {
+    if (!res?.token) throw new Error('Authentication did not return a session token.');
+    localStorage.setItem('bytspot_auth_token', res.token);
+    localStorage.setItem('bytspot_user', JSON.stringify(res.user ?? { email: email.trim() }));
+    const displayName = res.user?.name || email.trim().split('@')[0];
+    if (displayName) localStorage.setItem('bytspot_user_name', displayName.split(' ')[0]);
+  };
+
+  const handleContinue = async () => {
+    if (!isValid() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      try {
+        const signup = await trpc.auth.signup.mutate({
+          email: email.trim(),
+          password,
+          name: email.trim().split('@')[0] || 'Bytspot Provider',
+          ref: 'provider-onboarding',
+        });
+        persistAuth(signup);
+      } catch (signupErr: any) {
+        if (!String(signupErr?.message || '').toLowerCase().includes('already registered')) {
+          throw signupErr;
+        }
+        const login = await trpc.auth.login.mutate({ email: email.trim(), password });
+        persistAuth(login);
+      }
+
+      onComplete({ account: { email, phone, password } });
+    } catch (err: any) {
+      setError(err?.message || 'Unable to create or sign in to your account. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -191,6 +224,12 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         </motion.div>
       </div>
 
+      {error && (
+        <p className="mb-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-[13px] text-red-100" role="alert" style={{ fontWeight: 650 }}>
+          {error}
+        </p>
+      )}
+
       {/* Terms & Conditions */}
       <motion.div
         className="mb-8"
@@ -228,17 +267,17 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         <motion.button
           data-testid="provider-onboarding-continue"
           onClick={handleContinue}
-          disabled={!isValid()}
+          disabled={!isValid() || isSubmitting}
           className={`w-full py-4 rounded-full shadow-xl transition-all ${
-            isValid()
+            isValid() && !isSubmitting
               ? 'bg-gradient-to-r from-purple-500 to-cyan-500 text-white cursor-pointer'
               : 'bg-white/20 text-white/50 cursor-not-allowed'
           }`}
-          whileTap={isValid() ? { scale: 0.98 } : {}}
-          whileHover={isValid() ? { scale: 1.02 } : {}}
+          whileTap={isValid() && !isSubmitting ? { scale: 0.98 } : {}}
+          whileHover={isValid() && !isSubmitting ? { scale: 1.02 } : {}}
         >
           <span className="text-[17px]" style={{ fontWeight: 600 }}>
-            Continue
+            {isSubmitting ? 'Creating account…' : 'Continue'}
           </span>
         </motion.button>
       </motion.div>

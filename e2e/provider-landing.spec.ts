@@ -34,6 +34,16 @@ async function installProviderLandingMocks(page: Page) {
       const match = url.match(/\/trpc\/([^?]+)/);
       const procedures = match ? match[1].split(',') : ['unknown'];
       const results = procedures.map((procedure) => {
+        if (procedure.includes('auth.signup') || procedure.includes('auth.login')) {
+          return {
+            result: {
+              data: {
+                token: 'provider-onboarding-token',
+                user: { id: 'user-provider-1', email: 'phase4.provider@bytspot.test', name: 'Phase Provider' },
+              },
+            },
+          };
+        }
         if (procedure.includes('vendors.startOnboarding')) {
           return {
             result: {
@@ -179,6 +189,7 @@ test.describe('Provider landing route', () => {
     await page.getByTestId('provider-account-password').fill('securepass123');
     await page.getByTestId('provider-account-terms').check();
     await continueOnboarding(page);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('provider-onboarding-token');
 
     await expectOnboardingStep(page, 2);
     await expect(page.getByTestId('provider-onboarding-type-event')).toHaveAttribute('aria-pressed', 'true');

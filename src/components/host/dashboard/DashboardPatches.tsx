@@ -63,7 +63,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   const establishPatch = async () => {
     if (creating) return;
     if (!data.authenticated) {
-      setCreateError('Provider sign-in required: sign in with the vendor account that owns this workspace to create live Provider patches.');
+      setCreateError('Provider sign-in required: sign in with the Provider business account that owns this workspace to create live Provider patches.');
       return;
     }
     setCreating(true);
@@ -113,7 +113,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
       {!access.isCottage && (
       <ProviderPremiumGate
         title="Premium Patch Toolkit"
-        description="Keep basic patch creation free. Unlock AI placement, boosted venue context, and QR/NFC rollout planning with Vendor Premium."
+        description="Keep basic patch creation free. Unlock AI placement, boosted venue context, and QR/NFC rollout planning with Provider Premium."
         features={[
           'AI-recommended patch placement by entrance, crowd flow, and demand windows',
           'Bulk QR/NFC kit planning for events, lots, and venue checkpoints',
@@ -150,7 +150,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             </select>
             <p className={`mt-2 rounded-xl border px-3 py-2 text-[12px] font-extrabold leading-5 ${isDarkMode ? 'border-amber-200 bg-amber-50 text-amber-950' : 'border-amber-200 bg-amber-50 text-amber-900'}`} data-testid="provider-patches-service-hint">
               {!data.authenticated
-                ? 'Provider sign-in required: sign in with the vendor account that owns this workspace to link patches to services.'
+                ? 'Provider sign-in required: sign in with the Provider business account that owns this workspace to link patches to services.'
                 : data.loading
                   ? 'Loading your services\u2026'
                   : assignableServices.length === 0

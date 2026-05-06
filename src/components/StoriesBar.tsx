@@ -115,12 +115,12 @@ export function StoriesBar({ storyGroups, onStoryClick, onCreateStory, isDarkMod
                   </div>
                 </div>
 
-                {/* Host Badge */}
+                {/* Provider Badge */}
                 {group.isHost && (
                   <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2">
                     <div className="px-1.5 py-0.5 rounded-full bg-purple-500 border border-black">
                       <span className="text-[8px] text-white" style={{ fontWeight: 700 }}>
-                        HOST
+                        PROVIDER
                       </span>
                     </div>
                   </div>

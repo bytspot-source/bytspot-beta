@@ -69,7 +69,7 @@ test('subscription: vendor-premium when status.isVendorPremium is true', () => {
   const e = providerPremiumEntitlementFromSubscription({ isVendorPremium: true }, 'vendor-premium');
   assert.equal(e.isActive, true);
   assert.equal(e.tier, 'vendor-premium');
-  assert.equal(e.label, 'Vendor Premium');
+  assert.equal(e.label, 'Provider Premium');
   assert.equal(e.source, 'subscription');
 });
 

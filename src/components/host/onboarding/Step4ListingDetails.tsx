@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { MapPin, Upload, Zap, Shield, Clock, Car } from 'lucide-react';
-import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step4ListingDetailsProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['listing'];
-  hostType?: ProviderOnboardingType;
 }
 
-export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step4ListingDetailsProps) {
+export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDetailsProps) {
   const [address, setAddress] = useState(initialValue?.location?.address || '');
   const [notes, setNotes] = useState(initialValue?.location?.notes || '');
   const [spotType, setSpotType] = useState<'outdoor' | 'covered' | 'garage' | 'valet'>(

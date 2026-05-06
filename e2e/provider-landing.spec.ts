@@ -1,9 +1,10 @@
 import { expect, type Page, test } from '@playwright/test';
 
-// Phase 3 acceptance: the Provider shell renders on /provider and /vendor without
+// Phase 1 acceptance: the Provider shell renders on /provider plus legacy aliases without
 // requiring Parker home code, on the 393px target viewport, with full a11y semantics.
 
 const STRIPE_CONNECT_URL = 'https://connect.stripe.com/setup/e/acct_provider_onboarding_test';
+const PROVIDER_PAYOUT_DRAFT_STORAGE_KEY = 'bytspot_provider_payout_draft';
 
 async function installProviderLandingMocks(page: Page) {
   await page.addInitScript(({ connectUrl }) => {
@@ -27,6 +28,9 @@ async function installProviderLandingMocks(page: Page) {
         },
       },
     };
+
+    const providerMockState = { syncOnboardingCalls: 0, saveProviderProgressCalls: 0, lastProviderProgressRequest: null as any };
+    (window as any).__BYT_PROVIDER_MOCK_STATE__ = providerMockState;
 
     // Block service-worker registration so PWA install logic stays deterministic.
     if ('serviceWorker' in navigator) {
@@ -64,6 +68,10 @@ async function installProviderLandingMocks(page: Page) {
           };
         }
         if (procedure.includes('vendors.startOnboarding')) {
+          const override = (window as any).__BYT_PROVIDER_START_ONBOARDING_RESPONSE__;
+          if (override) {
+            return { result: { data: override } };
+          }
           return {
             result: {
               data: {
@@ -73,6 +81,31 @@ async function installProviderLandingMocks(page: Page) {
               },
             },
           };
+        }
+        if (procedure.includes('vendors.syncOnboarding')) {
+          providerMockState.syncOnboardingCalls += 1;
+          return {
+            result: {
+              data: {
+                vendor: { id: 'vendor-1', displayName: 'Bytspot Events LLC', stripeAccountId: 'acct_provider_123', onboardingStatus: 'active', providerRole: 'owner', groups: [] },
+                account: { id: 'acct_provider_123', chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true, disabledReason: null },
+                providerRole: 'owner',
+              },
+            },
+          };
+        }
+        if (procedure.includes('providers.getStatus')) {
+          return { result: { data: (window as any).__BYT_PROVIDER_INITIAL_HOST_STATUS__ ?? { host: null, valet: null } } };
+        }
+        if (procedure.includes('providers.saveHostProgress')) {
+          providerMockState.saveProviderProgressCalls += 1;
+          try {
+            const body = (init as any)?.body;
+            providerMockState.lastProviderProgressRequest = body ? JSON.parse(String(body)) : null;
+          } catch {
+            providerMockState.lastProviderProgressRequest = null;
+          }
+          return { result: { data: { profile: { id: 'host-1', status: 'draft', currentStep: 9 } } } };
         }
         return { result: { data: null } };
       });
@@ -120,7 +153,7 @@ test.describe('Provider landing route', () => {
 
       await page.getByTestId('provider-role-tile-venue').click();
       await expect(page.getByTestId('provider-role-tile-venue')).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Venue Vendor onboarding');
+      await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Venue Provider onboarding');
 
       if (viewport.expectsTabletGrid) {
         const [parking, venue] = await Promise.all([
@@ -135,7 +168,7 @@ test.describe('Provider landing route', () => {
     expect(measuredIconWidths[1], 'iPad role icon should scale up from iPhone').toBeGreaterThan(measuredIconWidths[0]);
   });
 
-  for (const path of ['/provider', '/vendor'] as const) {
+  for (const path of ['/provider', '/vendor', '/host'] as const) {
     test(`${path} renders the Provider shell at 393px`, async ({ page }) => {
       await page.setViewportSize({ width: 393, height: 852 });
       await page.goto(path);
@@ -151,13 +184,16 @@ test.describe('Provider landing route', () => {
       await expect(radiogroup).toBeVisible();
       await expect(radiogroup.getByRole('radio')).toHaveCount(4);
 
-      // Default selection is "Parking Host" (aria-checked + visible CTA label).
+      // Default selection is "Parking Provider" (aria-checked + visible CTA label).
       await expect(page.getByTestId('provider-role-tile-parking')).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Parking Host onboarding');
+      await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Parking Provider onboarding');
 
       // No horizontal overflow at 393px.
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
+      if (path === '/host') {
+        await expect(page).toHaveURL(/\/provider$/);
+      }
     });
   }
 
@@ -169,7 +205,7 @@ test.describe('Provider landing route', () => {
     await page.getByTestId('provider-role-tile-parking').focus();
     await page.keyboard.press('ArrowDown');
     await expect(page.getByTestId('provider-role-tile-venue')).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Venue Vendor onboarding');
+    await expect(page.getByTestId('provider-start-cta')).toHaveAccessibleName('Start Venue Provider onboarding');
 
     await page.keyboard.press('End');
     await expect(page.getByTestId('provider-role-tile-service')).toHaveAttribute('aria-checked', 'true');
@@ -186,11 +222,18 @@ test.describe('Provider landing route', () => {
     await page.getByTestId('provider-role-tile-event').click();
     await expect(page.getByTestId('provider-role-tile-event')).toHaveAttribute('aria-checked', 'true');
 
-    // Don't follow the route into HostApp here — just confirm the navigation contract.
+    // Don't follow the route into ProviderApp here — just confirm the navigation contract.
     await page.getByTestId('provider-start-cta').click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/provider/onboarding');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('event');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_entry_source'))).toBe('provider-route');
+  });
+
+  test('legacy /host/onboarding alias renders Provider onboarding', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/host/onboarding');
+    await expect(page).toHaveURL(/\/provider\/onboarding$/);
+    await expectOnboardingStep(page, 1);
   });
 
   test('runs the selected Provider role through onboarding and redirects to Stripe Connect', async ({ page }) => {
@@ -214,6 +257,8 @@ test.describe('Provider landing route', () => {
     await expect(page.getByTestId('provider-onboarding-type-event')).toHaveAttribute('aria-pressed', 'true');
     await continueOnboarding(page);
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_selected_type'))).toBe('event');
+    await expect.poll(() => page.evaluate(() => JSON.stringify((window as any).__BYT_PROVIDER_MOCK_STATE__?.lastProviderProgressRequest ?? ''))).toContain('"providerType":"event"');
+    await expect.poll(() => page.evaluate(() => JSON.stringify((window as any).__BYT_PROVIDER_MOCK_STATE__?.lastProviderProgressRequest ?? ''))).toContain('"hostType":"event"');
 
     await expectOnboardingStep(page, 3);
     await page.getByTestId('provider-business-legal-name').fill('Bytspot Events LLC');
@@ -330,6 +375,103 @@ test.describe('Provider landing route', () => {
     await page.goto('/provider/connect/return');
     await expect(page.getByTestId('provider-dashboard-review-state')).toContainText('Approved', { timeout: 15_000 });
     await expect(page.getByText('Your marketplace is approved and ready for bookings.')).toBeVisible();
+  });
+
+  test('syncs Stripe Connect return into draft onboarding and advances past payout setup', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.addInitScript(({ payoutDraftKey }) => {
+      localStorage.setItem('bytspot_auth_token', 'provider-onboarding-token');
+      localStorage.setItem(payoutDraftKey, JSON.stringify({
+        bankAccount: { accountHolder: 'Bytspot Events LLC', routingNumber: '123456789', accountNumber: '987654321', accountType: 'checking' },
+        schedule: 'weekly',
+        stripeConnect: { displayName: 'Bytspot Events LLC', onboardingStarted: true, accountId: 'acct_provider_123', status: 'pending' },
+      }));
+      (window as any).__BYT_PROVIDER_INITIAL_HOST_STATUS__ = {
+        host: {
+          id: 'host-1',
+          status: 'draft',
+          currentStep: 8,
+          submittedAt: null,
+          onboardingData: {
+            hostType: 'event',
+            businessInfo: { legalName: 'Bytspot Events LLC', contactName: 'Jordan Provider', address: { street: '100 Festival Way', city: 'Detroit', state: 'MI', zipCode: '48226' }, taxId: '38-1234567', numberOfSpots: 60 },
+            listing: { location: { address: '100 Festival Way Lot B', coordinates: { lat: 42.3314, lng: -83.0458 }, notes: 'Use north gate.' } },
+          },
+        },
+        valet: null,
+      };
+    }, { payoutDraftKey: PROVIDER_PAYOUT_DRAFT_STORAGE_KEY });
+
+    await page.goto('/provider/connect/return');
+    await expectOnboardingStep(page, 9);
+    await expect(page.getByRole('heading', { name: 'Review & Submit' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as any).__BYT_PROVIDER_MOCK_STATE__?.syncOnboardingCalls ?? 0)).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => (window as any).__BYT_PROVIDER_MOCK_STATE__?.saveProviderProgressCalls ?? 0)).toBeGreaterThan(0);
+  });
+
+  test('shows active Stripe payout state from saved Provider onboarding progress', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.addInitScript(() => {
+      localStorage.setItem('bytspot_auth_token', 'provider-onboarding-token');
+      (window as any).__BYT_PROVIDER_INITIAL_HOST_STATUS__ = {
+        host: {
+          id: 'host-1',
+          status: 'draft',
+          currentStep: 8,
+          submittedAt: null,
+          onboardingData: {
+            providerType: 'event',
+            hostType: 'event',
+            businessInfo: { legalName: 'Bytspot Events LLC', contactName: 'Jordan Provider', address: { street: '100 Festival Way', city: 'Detroit', state: 'MI', zipCode: '48226' }, taxId: '38-1234567', numberOfSpots: 60 },
+            payout: {
+              bankAccount: { accountHolder: 'Bytspot Events LLC', routingNumber: '123456789', accountNumber: '987654321', accountType: 'checking' },
+              schedule: 'weekly',
+              stripeConnect: { displayName: 'Bytspot Events LLC', onboardingStarted: true, accountId: 'acct_provider_123', status: 'active' },
+            },
+          },
+        },
+        valet: null,
+      };
+    });
+
+    await page.goto('/provider/onboarding');
+    await expectOnboardingStep(page, 8);
+    await expect(page.getByTestId('provider-stripe-connect-status-badge')).toContainText('Active');
+    await expect(page.getByTestId('provider-stripe-connect-status')).toContainText('Stripe payouts are active');
+    await expect(page.getByTestId('provider-stripe-connect-notice')).toContainText('Stripe verified your payout account');
+    await expect(page.getByTestId('provider-onboarding-continue')).toBeEnabled();
+  });
+
+  test('shows a recoverable Step 8 error when Stripe link generation returns no URL', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.addInitScript(() => {
+      localStorage.setItem('bytspot_auth_token', 'provider-onboarding-token');
+      (window as any).__BYT_PROVIDER_START_ONBOARDING_RESPONSE__ = { url: '', message: 'Stripe onboarding is temporarily unavailable.' };
+      (window as any).__BYT_PROVIDER_INITIAL_HOST_STATUS__ = {
+        host: {
+          id: 'host-1',
+          status: 'draft',
+          currentStep: 8,
+          submittedAt: null,
+          onboardingData: {
+            providerType: 'event',
+            hostType: 'event',
+            businessInfo: { legalName: 'Bytspot Events LLC', contactName: 'Jordan Provider', address: { street: '100 Festival Way', city: 'Detroit', state: 'MI', zipCode: '48226' }, taxId: '38-1234567', numberOfSpots: 60 },
+          },
+        },
+        valet: null,
+      };
+    });
+
+    await page.goto('/provider/onboarding');
+    await expectOnboardingStep(page, 8);
+    await page.getByTestId('provider-payout-routing').fill('123456789');
+    await page.getByTestId('provider-payout-account-number').fill('987654321');
+    await page.getByTestId('provider-stripe-connect-cta').click();
+    await expect(page.getByTestId('provider-stripe-connect-notice')).toContainText('Stripe onboarding is temporarily unavailable.');
+    await expect(page.getByTestId('provider-stripe-connect-notice')).toHaveAttribute('role', 'alert');
+    await expect(page.getByTestId('provider-stripe-connect-status-badge')).toContainText('Not started');
+    await expect(page.getByTestId('provider-onboarding-continue')).toBeDisabled();
   });
 
   test('back-to-Parker control is announced for screen readers', async ({ page }) => {

@@ -1,4 +1,4 @@
-import type { DashboardView } from './HostDashboardLayout';
+import type { DashboardView } from './ProviderDashboardLayout';
 
 export type ProviderRole = 'owner' | 'manager' | 'staff';
 export type ProviderBusinessMode = 'standard' | 'cottage';

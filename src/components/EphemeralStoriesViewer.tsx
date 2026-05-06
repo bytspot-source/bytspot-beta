@@ -309,7 +309,7 @@ export function EphemeralStoriesViewer({
                       {currentStory.author.isHost && (
                         <div className="px-2 py-0.5 rounded-full bg-purple-500/80 border border-purple-400">
                           <span className="text-[9px] text-white" style={{ fontWeight: 700 }}>
-                            HOST
+                            PROVIDER
                           </span>
                         </div>
                       )}

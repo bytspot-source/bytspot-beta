@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Lock, Phone, Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 import { GoogleSignInButton } from '../../GoogleSignInButton';
 
 interface Step1AccountCreationProps {
@@ -109,10 +109,10 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         transition={springConfig}
       >
         <h1 className="text-large-title text-white mb-3">
-          {isSignup ? 'Create Your Account' : 'Sign In to Provider'}
+          {isSignup ? 'Create Your Account' : 'Sign In to Provider Account'}
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          {isSignup ? "Welcome to Bytspot Provider. Let's get started." : 'Continue onboarding with your existing vendor account.'}
+          {isSignup ? "Welcome to Bytspot Provider. Let's get started." : 'Continue onboarding with your existing Provider business account.'}
         </p>
       </motion.div>
 

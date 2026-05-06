@@ -26,7 +26,7 @@ import {
 } from '../../../utils/providerDashboardData';
 import { trpc } from '../../../utils/trpc';
 import { guidanceForRole, roleLabel, type ProviderDashboardAccess } from './providerDashboardAccess';
-import type { DashboardView } from './HostDashboardLayout';
+import type { DashboardView } from './ProviderDashboardLayout';
 
 const STRIPE_CONNECT_RETURN_PATH = '/provider/connect/return';
 const STRIPE_CONNECT_REFRESH_PATH = '/provider/connect/refresh';

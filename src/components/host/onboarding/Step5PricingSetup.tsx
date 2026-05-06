@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { DollarSign, TrendingUp, Sparkles } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step5PricingSetupProps {
   onComplete: (data: Partial<OnboardingData>) => void;

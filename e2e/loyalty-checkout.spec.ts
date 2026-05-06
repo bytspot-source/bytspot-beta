@@ -214,12 +214,9 @@ test.describe('Loyalty subscription checkout proof', () => {
     await page.goto('/provider/onboarding');
 
     const patchesButton = page.getByRole('button', { name: 'Patches' });
-    if (!(await patchesButton.isVisible().catch(() => false))) {
-      await page.getByRole('button', { name: 'Open provider navigation' }).click();
-    }
     await expect(patchesButton).toBeVisible({ timeout: 15_000 });
     await patchesButton.click();
-    const startButton = page.getByRole('button', { name: /Start Vendor Premium/i });
+    const startButton = page.getByRole('button', { name: /Start Provider Premium/i });
     await expect(startButton).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Use 1,000 points/)).toBeVisible({ timeout: 10_000 });
     const pointsCheckbox = page.getByTestId('provider-premium-use-points');

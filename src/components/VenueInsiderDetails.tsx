@@ -361,7 +361,7 @@ export function VenueInsiderDetails({ venue, isOpen, onClose, isDarkMode }: Venu
                               <div className="absolute bottom-2 left-2">
                                 <div className="px-2 py-0.5 rounded-full bg-purple-500/80 backdrop-blur-md border border-purple-400">
                                   <span className="text-[9px] text-white" style={{ fontWeight: 700 }}>
-                                    HOST
+                                    PROVIDER
                                   </span>
                                 </div>
                               </div>
@@ -902,7 +902,7 @@ export function VenueInsiderDetails({ venue, isOpen, onClose, isDarkMode }: Venu
                               {venue.media[selectedMediaIndex].uploadedBy === 'host' && (
                                 <div className="px-2 py-0.5 rounded-full bg-purple-500/80 border border-purple-400">
                                   <span className="text-[10px] text-white" style={{ fontWeight: 700 }}>
-                                    HOST
+                                    PROVIDER
                                   </span>
                                 </div>
                               )}

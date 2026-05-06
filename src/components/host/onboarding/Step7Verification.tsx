@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Upload, Shield, CheckCircle } from 'lucide-react';
-import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
+import type { OnboardingData, ProviderType } from '../ProviderOnboarding';
 
 interface Step7VerificationProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['verification'];
-  hostType?: ProviderOnboardingType;
+  providerType?: ProviderType;
 }
 
-export function Step7Verification({ onComplete, initialValue, hostType }: Step7VerificationProps) {
+export function Step7Verification({ onComplete, initialValue, providerType }: Step7VerificationProps) {
   const [idUploaded, setIdUploaded] = useState(false);
   const [licenseUploaded, setLicenseUploaded] = useState(false);
 
@@ -20,7 +20,7 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
     mass: 0.8,
   };
 
-  const isCommercial = hostType === 'parking' || hostType === 'event' || hostType === 'valet';
+  const isCommercial = providerType === 'parking' || providerType === 'event' || providerType === 'valet';
 
   const handleContinue = () => {
     onComplete({

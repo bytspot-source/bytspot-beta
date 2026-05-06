@@ -1298,7 +1298,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           </motion.div>
         ))}
 
-        {/* Become a Host Button */}
+        {/* Become a Provider Button */}
         {onBecomeHost && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -1313,7 +1313,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             >
               <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
               <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                {isHost ? 'Host Dashboard' : 'Become a Host'}
+                {isHost ? 'Provider Dashboard' : 'Become a Provider'}
               </span>
             </motion.button>
           </motion.div>

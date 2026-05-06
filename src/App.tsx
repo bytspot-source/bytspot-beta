@@ -43,7 +43,7 @@ const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => 
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
 const ProviderLanding = lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
-const HostApp = lazy(() => import('./components/host/HostApp').then(m => ({ default: m.HostApp })));
+const ProviderApp = lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
 const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
 const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
 const PasswordRecoveryScreen = lazy(() => import('./components/PasswordRecoveryScreen').then(m => ({ default: m.PasswordRecoveryScreen })));
@@ -68,6 +68,12 @@ type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
+
+function canonicalProviderPath(pathname: string) {
+  if (pathname === '/host') return '/provider';
+  if (pathname.startsWith('/host/')) return pathname.replace(/^\/host/, '/provider');
+  return pathname;
+}
 
 function MarketplaceBookingReturnScreen({ status, onContinue }: { status: 'success' | 'cancelled'; onContinue: () => void }) {
   const params = new URLSearchParams(window.location.search);
@@ -747,6 +753,12 @@ export default function App() {
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+    const canonicalPath = canonicalProviderPath(normalizedPath);
+    // Phase 4 rollout alias: legacy Host URLs remain functional for one sprint,
+    // but users are canonicalized to Provider URLs. Remove after 2026-05-20.
+    if (canonicalPath !== normalizedPath) {
+      window.history.replaceState({}, '', `${canonicalPath}${window.location.search}${window.location.hash}`);
+    }
     const passwordRecoveryRoute = getPasswordRecoveryRoute(window.location);
 
     if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath === '/admin' || normalizedPath === '/marketing')) {
@@ -775,7 +787,7 @@ export default function App() {
       );
     }
 
-    if (normalizedPath === '/provider' || normalizedPath === '/vendor') {
+    if (canonicalPath === '/provider' || normalizedPath === '/vendor') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <ProviderLanding
@@ -811,13 +823,16 @@ export default function App() {
     if (
       normalizedPath === '/provider/onboarding' ||
       normalizedPath === '/vendor/onboarding' ||
+      canonicalPath === '/provider/onboarding' ||
       normalizedPath === '/provider/connect/return' ||
-      normalizedPath === '/provider/connect/refresh'
+      normalizedPath === '/provider/connect/refresh' ||
+      canonicalPath === '/provider/connect/return' ||
+      canonicalPath === '/provider/connect/refresh'
     ) {
-      const isStripeConnectReturn = normalizedPath === '/provider/connect/return' || normalizedPath === '/provider/connect/refresh';
+      const isStripeConnectReturn = canonicalPath.endsWith('/connect/return') || canonicalPath.endsWith('/connect/refresh');
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
-          <HostApp
+          <ProviderApp
             isDarkMode={isDarkMode}
             initialScreen={isStripeConnectReturn ? 'dashboard' : 'onboarding'}
             initialDashboardView={isStripeConnectReturn ? 'overview' : undefined}
@@ -908,11 +923,11 @@ export default function App() {
     );
   }
 
-  // ── Host App ─────────────────────────────────────────
+  // ── Provider App ─────────────────────────────────────
   if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && currentScreen === 'host') {
     return (
       <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
-        <HostApp
+        <ProviderApp
           isDarkMode={isDarkMode}
           onBackToMain={() => setCurrentScreen('main')}
         />

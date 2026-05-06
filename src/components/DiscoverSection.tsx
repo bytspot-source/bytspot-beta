@@ -672,7 +672,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const handleVendorServiceCheckout = async () => {
     if (!selectedVendorService?.vendorServiceId || isBookingService) return;
     if (!hasCheckoutAuth()) {
-      const message = 'Create an account or sign in before booking a paid vendor service.';
+      const message = 'Create an account or sign in before booking a paid Provider service.';
       setBookingServiceMessage(message);
       toast.info('Sign in required', { description: message });
       return;
@@ -904,7 +904,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       </div>
 
       {vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
-        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable vendor services" data-testid="vendor-service-card-rail">
+        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable Provider services" data-testid="vendor-service-card-rail">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
               <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable services</p>
@@ -1046,7 +1046,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           <motion.div
             className="fixed inset-0 z-[90] flex items-end justify-center bg-black/75 backdrop-blur-md px-4 pb-4"
             role="dialog"
-            aria-label="Book vendor service"
+            aria-label="Book Provider service"
             data-testid="vendor-service-booking-sheet"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1063,7 +1063,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Vendor service</p>
+                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Provider service</p>
                   <h3 className="mt-1 text-[22px] leading-tight text-white" style={{ fontWeight: 800 }}>{selectedVendorService.name}</h3>
                   <p className="mt-1 text-[13px] text-slate-200/90" style={{ fontWeight: 650 }}>{selectedVendorService.location || 'Bytspot provider'}</p>
                 </div>

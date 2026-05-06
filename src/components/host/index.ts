@@ -1,5 +1,8 @@
-// Public surface of the Host shell.
-// Phase 3 boundary: dashboard/ and onboarding/ subdirectories are internal.
+// Public surface of the Provider shell.
+// dashboard/ and onboarding/ subdirectories are internal.
+export { ProviderApp } from './ProviderApp';
+export { ProviderLanding } from './ProviderLanding';
+export { ProviderOnboarding, type OnboardingData, type ProviderType } from './ProviderOnboarding';
 export { HostApp } from './HostApp';
 export { HostLanding } from './HostLanding';
-export { HostOnboarding, type OnboardingData } from './HostOnboarding';
+export { HostOnboarding } from './HostOnboarding';

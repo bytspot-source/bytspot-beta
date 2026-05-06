@@ -141,7 +141,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     setHasVendorSession(hasSession);
     if (!hasSession) {
       setServices([]);
-      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace to load and publish marketplace services.');
+      setMessage('Provider sign-in required: sign in with the Provider business account that owns this workspace to load and publish marketplace services.');
       setLoading(false);
       return;
     }
@@ -151,11 +151,11 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       const result = await trpc.vendors.listServices.query({ status: 'all', limit: 50 });
       setServices(result?.services ?? []);
       if (!result?.services?.length) {
-        setMessage('No vendor services are live yet. Create services in the provider portal, then return here to manage pricing and booking details.');
+        setMessage('No Provider services are live yet. Create services in the Provider portal, then return here to manage pricing and booking details.');
       }
     } catch (err: any) {
       setServices([]);
-      setMessage(err?.message ?? 'Unable to load vendor services.');
+      setMessage(err?.message ?? 'Unable to load Provider services.');
     } finally {
       setLoading(false);
     }
@@ -171,7 +171,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
   const openCreate = () => {
     if (providerSignInRequired) {
-      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace before creating a bookable service.');
+      setMessage('Provider sign-in required: sign in with the Provider business account that owns this workspace before creating a bookable service.');
       return;
     }
     setCreateForm(EMPTY_SERVICE_FORM);
@@ -191,7 +191,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const createService = async () => {
     if (saving) return;
     if (providerSignInRequired) {
-      setMessage('Provider sign-in required: sign in with the vendor account that owns this workspace before creating a bookable service.');
+      setMessage('Provider sign-in required: sign in with the Provider business account that owns this workspace before creating a bookable service.');
       return;
     }
     const validated = validateForm(createForm);
@@ -212,7 +212,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setCreatingService(false);
       setMessage('Service created and published. It is now available to Discover and booking checkout.');
     } catch (err: any) {
-      setMessage(err?.message ?? 'Unable to create vendor service.');
+      setMessage(err?.message ?? 'Unable to create Provider service.');
     } finally {
       setSaving(false);
     }
@@ -237,9 +237,9 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setServices((prev) => prev.map((service) => (service.id === updated.id ? updated : service)));
       setEditingService(null);
       setEditForm(null);
-      setMessage('Service updated. Discover cards will use the latest metadata from vendors.search.');
+      setMessage('Service updated. Discover cards will use the latest Provider service metadata.');
     } catch (err: any) {
-      setMessage(err?.message ?? 'Unable to update vendor service.');
+      setMessage(err?.message ?? 'Unable to update Provider service.');
     } finally {
       setSaving(false);
     }
@@ -273,7 +273,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               className={`text-[30px] leading-[1.1] tracking-tight lg:text-[40px] ${tone.strong}`}
               style={{ fontWeight: 800, letterSpacing: '-0.02em' }}
             >
-              Manage vendor services
+              Manage Provider services
             </h1>
             <p className={`mt-3 text-[15px] leading-6 ${tone.body}`}>
               Live service records that power the Discover rail and the Stripe‑backed booking sheet. Keep titles, pricing, and duration precise before customers book.
@@ -296,7 +296,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               disabled={access.role === 'staff' || providerSignInRequired}
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ fontWeight: 700 }}
-              title={access.role === 'staff' ? 'Owners and managers can create services' : providerSignInRequired ? 'Sign in with the vendor account that owns this workspace' : 'Create a live bookable service'}
+              title={access.role === 'staff' ? 'Owners and managers can create services' : providerSignInRequired ? 'Sign in with the Provider business account that owns this workspace' : 'Create a live bookable service'}
               data-testid="provider-service-add"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} />
@@ -347,7 +347,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {loading ? (
           <div className={`rounded-2xl border p-6 text-[14px] ${tone.card} ${tone.body}`}>
-            <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading vendor services…</span>
+            <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading Provider services…</span>
           </div>
         ) : (
           services.map((service, index) => {
@@ -479,7 +479,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 <div>
                   <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create service</p>
                   <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Publish a bookable listing</h3>
-                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Creates a live vendor service through the backend vendors API.</p>
+                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Creates a live Provider service for marketplace booking.</p>
                 </div>
                 <button type="button" onClick={() => setCreatingService(false)} className={`rounded-full border p-2 transition ${tone.secondaryBtn}`} aria-label="Close create dialog"><X className="h-4 w-4" strokeWidth={2.25} /></button>
               </div>

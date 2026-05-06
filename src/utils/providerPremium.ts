@@ -7,7 +7,7 @@ export type ProviderPremiumTier = 'free' | 'vendor-premium' | 'valet-premium';
 export interface ProviderPremiumEntitlement {
   isActive: boolean;
   tier: ProviderPremiumTier;
-  label: 'Free Provider' | 'Vendor Premium' | 'Valet Premium';
+  label: 'Free Provider' | 'Provider Premium' | 'Valet Premium';
   activatedAt: string | null;
   source: 'none' | 'subscription';
 }
@@ -65,7 +65,7 @@ export function providerPremiumEntitlementFromSubscription(
   return {
     isActive: true,
     tier,
-    label: tier === 'valet-premium' ? 'Valet Premium' : 'Vendor Premium',
+    label: tier === 'valet-premium' ? 'Valet Premium' : 'Provider Premium',
     activatedAt: new Date().toISOString(),
     source: 'subscription',
   };

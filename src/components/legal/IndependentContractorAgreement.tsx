@@ -32,7 +32,7 @@ export function IndependentContractorAgreement({
   };
 
   const allTermsAccepted = Object.values(acceptedTerms).every(v => v);
-  const serviceName = serviceType === 'valet' ? 'Valet Service Provider' : 'Parking Space Host';
+  const serviceName = serviceType === 'valet' ? 'Valet Service Provider' : 'Parking Space Provider';
 
   return (
     <motion.div

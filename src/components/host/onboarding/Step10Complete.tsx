@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, Clock, FileText, Users } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step10CompleteProps {
   onComplete: () => void;
@@ -86,7 +86,7 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.35 }}
         >
-          Welcome to the Bytspot Host community
+          Welcome to the Bytspot Provider community
         </motion.p>
       </motion.div>
 
@@ -167,7 +167,7 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
           <button className="w-full flex items-center justify-between p-4 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl hover:bg-white/5">
             <div className="text-left">
               <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                Host Guide
+                Provider Guide
               </div>
               <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
                 Learn best practices and tips
@@ -181,10 +181,10 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
           <button className="w-full flex items-center justify-between p-4 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl hover:bg-white/5">
             <div className="text-left">
               <div className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
-                Host Community
+                Provider Community
               </div>
               <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                Connect with other hosts
+                Connect with other providers
               </div>
             </div>
             <div className="text-purple-400 text-[13px]" style={{ fontWeight: 600 }}>

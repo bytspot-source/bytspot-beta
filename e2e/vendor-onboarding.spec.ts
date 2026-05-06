@@ -277,7 +277,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
   test('curates dashboard navigation for manager cottage businesses', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await installVendorOnboardingMocks(page, notConnectedSync, { role: 'manager', businessMode: 'cottage' });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, { role: 'manager', businessMode: 'cottage' });
     await page.goto('/provider/connect/return');
 
     await expect(page.getByText('Manager · Cottage')).toBeVisible({ timeout: 15_000 });
@@ -372,7 +372,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     await page.getByRole('button', { name: 'My Listings' }).click();
     await expect(page.getByTestId('provider-services-panel')).toContainText('Provider sign-in required');
-    await expect(page.getByTestId('provider-services-panel')).toContainText('vendor account that owns this workspace');
+    await expect(page.getByTestId('provider-services-panel')).toContainText('Provider business account that owns this workspace');
     await expect(page.getByTestId('provider-service-add')).toBeDisabled();
 
     await page.getByRole('button', { name: 'Patches', exact: true }).click();

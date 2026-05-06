@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { ChevronRight, Check } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step9ReviewSubmitProps {
   onComplete: () => void;
@@ -15,6 +15,7 @@ export function Step9ReviewSubmit({ onComplete, data, onEdit }: Step9ReviewSubmi
     damping: 30,
     mass: 0.8,
   };
+  const providerType = data.providerType ?? data.hostType;
 
   const sections = [
     {
@@ -26,10 +27,10 @@ export function Step9ReviewSubmit({ onComplete, data, onEdit }: Step9ReviewSubmi
       ],
     },
     {
-      title: 'Host Type',
+      title: 'Provider Type',
       step: 2,
       items: [
-        { label: 'Type', value: data.hostType ? data.hostType.charAt(0).toUpperCase() + data.hostType.slice(1) : 'N/A' },
+        { label: 'Type', value: providerType ? providerType.charAt(0).toUpperCase() + providerType.slice(1) : 'N/A' },
       ],
     },
     {
@@ -152,7 +153,7 @@ export function Step9ReviewSubmit({ onComplete, data, onEdit }: Step9ReviewSubmi
             <p className="text-[15px] text-white/90 leading-relaxed" style={{ fontWeight: 400 }}>
               By submitting, you agree to the{' '}
               <span className="text-purple-400" style={{ fontWeight: 600 }}>
-                Bytspot Host Agreement
+                Bytspot Provider Agreement
               </span>
               , including our{' '}
               <span className="text-purple-400" style={{ fontWeight: 600 }}>

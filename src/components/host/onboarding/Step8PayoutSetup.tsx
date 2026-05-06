@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { CreditCard, Building2, Calendar, CheckCircle, ExternalLink, RefreshCw } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
-import type { OnboardingData } from '../HostOnboarding';
+import { PROVIDER_PAYOUT_DRAFT_STORAGE_KEY } from '../../../utils/providerStripeConnectReturn';
+import type { OnboardingData } from '../ProviderOnboarding';
+
+type PayoutDraft = NonNullable<OnboardingData['payout']>;
+type StripeConnectDraft = NonNullable<PayoutDraft['stripeConnect']>;
+type ConnectNotice = { tone: 'info' | 'success' | 'error'; message: string };
 
 interface Step8PayoutSetupProps {
   onComplete: (data: Partial<OnboardingData>) => void;
@@ -25,13 +30,44 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
   const [connectAccountId, setConnectAccountId] = useState(initialValue?.stripeConnect?.accountId || '');
   const [connectStatus, setConnectStatus] = useState<'pending' | 'active'>(initialValue?.stripeConnect?.status || 'pending');
   const [connectUrl, setConnectUrl] = useState('');
-  const [connectMessage, setConnectMessage] = useState<string | null>(null);
+  const [connectNotice, setConnectNotice] = useState<ConnectNotice | null>(() => (
+    initialValue?.stripeConnect?.status === 'active'
+      ? { tone: 'success', message: 'Stripe verified your payout account. You can continue to review.' }
+      : initialValue?.stripeConnect?.onboardingStarted
+        ? { tone: 'info', message: 'Stripe verification has started. Refresh the link if Stripe asked you to provide more details.' }
+        : null
+  ));
 
   const springConfig = {
     type: "spring" as const,
     stiffness: 320,
     damping: 30,
     mass: 0.8,
+  };
+
+  const buildPayoutDraft = (stripeConnect: Partial<StripeConnectDraft> = {}): PayoutDraft => ({
+    bankAccount: {
+      accountHolder,
+      routingNumber,
+      accountNumber,
+      accountType,
+    },
+    schedule,
+    stripeConnect: {
+      displayName: businessName || accountHolder || 'Bytspot Provider',
+      onboardingStarted: connectStarted,
+      accountId: connectAccountId || undefined,
+      status: connectStatus,
+      ...stripeConnect,
+    },
+  });
+
+  const persistPayoutDraft = (payout: PayoutDraft) => {
+    try {
+      localStorage.setItem(PROVIDER_PAYOUT_DRAFT_STORAGE_KEY, JSON.stringify(payout));
+    } catch {
+      // Local storage can be unavailable in private modes; Stripe return sync still works from backend state.
+    }
   };
 
   const isValid = () => {
@@ -43,15 +79,44 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
     );
   };
 
+  const statusLabel = connectLoading
+    ? 'Preparing link'
+    : connectStatus === 'active'
+      ? 'Active'
+      : connectStarted
+        ? 'Verification pending'
+        : 'Not started';
+
+  const statusDescription = connectLoading
+    ? 'Preparing a secure Stripe Express onboarding link…'
+    : connectStatus === 'active'
+      ? 'Stripe payouts are active for this Provider account.'
+      : connectStarted
+        ? 'Stripe verification has started. If Stripe needs more information, refresh the link and complete the remaining steps.'
+        : 'Generate a secure Stripe Express link before final submission.';
+
+  const statusBadgeClass = connectStatus === 'active'
+    ? 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100'
+    : connectStarted || connectLoading
+      ? 'border-amber-300/40 bg-amber-400/15 text-amber-100'
+      : 'border-white/15 bg-white/10 text-white/75';
+
+  const noticeClass = connectNotice?.tone === 'success'
+    ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-50'
+    : connectNotice?.tone === 'error'
+      ? 'border-red-300/30 bg-red-500/15 text-red-50'
+      : 'border-cyan-300/25 bg-cyan-400/15 text-cyan-50';
+
   const startStripeConnect = async () => {
     const authToken = localStorage.getItem('bytspot_auth_token');
     if (!authToken || authToken === 'beta_guest') {
-      setConnectMessage('Please complete account setup or sign in before starting Stripe Connect payouts.');
+      setConnectNotice({ tone: 'error', message: 'Please complete account setup or sign in before starting Stripe Connect payouts.' });
       return;
     }
 
     setConnectLoading(true);
-    setConnectMessage(null);
+    setConnectNotice({ tone: 'info', message: 'Preparing your secure Stripe Express verification link…' });
+    persistPayoutDraft(buildPayoutDraft({ onboardingStarted: connectStarted, status: connectStatus }));
 
     try {
       const result = await trpc.vendors.startOnboarding.mutate({
@@ -61,20 +126,26 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
       });
       const onboardingUrl = typeof result?.url === 'string' ? result.url.trim() : '';
       if (!onboardingUrl) {
-        setConnectMessage(result?.message || 'Stripe onboarding is not available yet. Please try again from the Provider dashboard.');
+        setConnectNotice({ tone: 'error', message: result?.message || 'Stripe onboarding is not available yet. Please try again from the Provider dashboard.' });
         return;
       }
-      const nextAccountId = result?.vendor?.stripeAccountId || initialValue?.stripeConnect?.accountId || 'acct_provider_demo';
+      const nextAccountId = result?.vendor?.stripeAccountId || initialValue?.stripeConnect?.accountId || connectAccountId;
+      const nextStatus = result?.vendor?.onboardingStatus === 'active' ? 'active' : 'pending';
 
       setConnectStarted(true);
       setConnectAccountId(nextAccountId);
-      setConnectStatus(result?.vendor?.onboardingStatus === 'active' ? 'active' : 'pending');
+      setConnectStatus(nextStatus);
       setConnectUrl(onboardingUrl);
-      setConnectMessage('Opening Stripe Express verification…');
+      setConnectNotice({ tone: 'success', message: 'Stripe link ready. Redirecting to Stripe Express verification…' });
       localStorage.setItem('bytspot_provider_stripe_connect_started', 'true');
+      persistPayoutDraft(buildPayoutDraft({
+        onboardingStarted: true,
+        accountId: nextAccountId || undefined,
+        status: nextStatus,
+      }));
       window.location.href = onboardingUrl;
     } catch (err: any) {
-      setConnectMessage(err?.message || 'Unable to start Stripe Connect. Please try again.');
+      setConnectNotice({ tone: 'error', message: err?.message || 'Unable to start Stripe Connect. Please try again.' });
     } finally {
       setConnectLoading(false);
     }
@@ -131,9 +202,14 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
               {connectStarted ? <CheckCircle className="h-5 w-5 text-emerald-600" strokeWidth={2.5} /> : <CreditCard className="h-5 w-5" strokeWidth={2.5} />}
             </div>
             <div>
-              <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Stripe Connect payouts</p>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Stripe Connect payouts</p>
+                <span data-testid="provider-stripe-connect-status-badge" className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] ${statusBadgeClass}`} style={{ fontWeight: 800 }}>
+                  {statusLabel}
+                </span>
+              </div>
               <p data-testid="provider-stripe-connect-status" className="mt-1 text-[13px] leading-5 text-white/75" style={{ fontWeight: 400 }}>
-                {connectStarted ? 'Connect link prepared' : 'Generate a Stripe Express link before final submission.'}
+                {statusDescription}
               </p>
             </div>
           </div>
@@ -147,12 +223,12 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
             style={{ fontWeight: 800 }}
           >
             {connectLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-            {connectStarted ? 'Refresh Stripe Connect Link' : 'Start Stripe Connect'}
+            {connectLoading ? 'Preparing secure Stripe link…' : connectStarted ? 'Refresh Stripe Connect Link' : 'Start Stripe Connect'}
           </button>
 
-          {connectMessage && (
-            <p className="mt-3 rounded-[16px] border border-white/10 bg-black/20 px-3 py-2 text-[13px] leading-5 text-white/75">
-              {connectMessage}
+          {connectNotice && (
+            <p data-testid="provider-stripe-connect-notice" role={connectNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite" className={`mt-3 rounded-[16px] border px-3 py-2 text-[13px] leading-5 ${noticeClass}`}>
+              {connectNotice.message}
             </p>
           )}
           {connectUrl && (

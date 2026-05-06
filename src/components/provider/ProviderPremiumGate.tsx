@@ -45,7 +45,7 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
   }, [tier]);
 
   const isUnlocked = entitlement.isActive && entitlement.tier === tier;
-  const premiumLabel = tier === 'valet-premium' ? 'VALET PREMIUM' : 'VENDOR PREMIUM';
+  const premiumLabel = tier === 'valet-premium' ? 'VALET PREMIUM' : 'PROVIDER PREMIUM';
   const offer = subscriptionStatus?.subscriptionOffers?.[tier];
   const availablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
   const baseCents = Number(offer?.baseUnitAmountCents ?? (tier === 'valet-premium' ? 1499 : 4900));
@@ -88,8 +88,8 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
   const checkoutCtaLabel = checkoutLoading
     ? 'Opening Checkout…'
     : checkoutAttempts > 0 && checkoutMessage?.tone === 'error'
-      ? `Retry ${tier === 'valet-premium' ? 'Valet' : 'Vendor'} Premium checkout`
-      : `Start ${tier === 'valet-premium' ? 'Valet' : 'Vendor'} Premium`;
+      ? `Retry ${tier === 'valet-premium' ? 'Valet' : 'Provider'} Premium checkout`
+      : `Start ${tier === 'valet-premium' ? 'Valet' : 'Provider'} Premium`;
 
   return (
     <motion.div

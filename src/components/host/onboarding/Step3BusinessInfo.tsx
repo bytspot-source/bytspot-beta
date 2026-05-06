@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Building2, User, MapPin, Hash } from 'lucide-react';
-import type { OnboardingData, ProviderOnboardingType } from '../HostOnboarding';
+import type { OnboardingData, ProviderType } from '../ProviderOnboarding';
 
 interface Step3BusinessInfoProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['businessInfo'];
-  hostType?: ProviderOnboardingType;
+  providerType?: ProviderType;
 }
 
-export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3BusinessInfoProps) {
+export function Step3BusinessInfo({ onComplete, initialValue, providerType }: Step3BusinessInfoProps) {
   const [contactName, setContactName] = useState(initialValue?.contactName || '');
   const [contactTitle, setContactTitle] = useState(initialValue?.contactTitle || '');
   const [street, setStreet] = useState(initialValue?.address?.street || '');
@@ -27,7 +27,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
     mass: 0.8,
   };
 
-  const isCommercial = hostType === 'parking' || hostType === 'event' || hostType === 'valet';
+  const isCommercial = providerType === 'parking' || providerType === 'event' || providerType === 'valet';
 
   const isValid = () => {
     return (
@@ -69,7 +69,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
           Business Information
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          Tell us about your {hostType === 'venue' ? 'venue' : hostType === 'parking' ? 'parking operation' : hostType === 'event' ? 'event operation' : 'valet service'}
+          Tell us about your {providerType === 'venue' ? 'venue' : providerType === 'parking' ? 'parking operation' : providerType === 'event' ? 'event operation' : 'valet service'}
         </p>
       </motion.div>
 
@@ -155,7 +155,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
           transition={{ ...springConfig, delay: 0.25 }}
         >
           <label className="block text-[15px] text-white mb-2" style={{ fontWeight: 600 }}>
-            {hostType === 'venue' ? 'Venue' : 'Property'} Address
+            {providerType === 'venue' ? 'Venue' : 'Property'} Address
           </label>
           <div className="space-y-3">
             <div className="relative">
@@ -213,7 +213,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, hostType }: Step3B
           transition={{ ...springConfig, delay: 0.3 }}
         >
           <label className="block text-[15px] text-white mb-2" style={{ fontWeight: 600 }}>
-            Number of {hostType === 'venue' ? 'Parking' : ''} Spots
+            Number of {providerType === 'venue' ? 'Parking' : ''} Spots
           </label>
           <div className="relative">
             <div className="absolute left-4 top-1/2 -translate-y-1/2">

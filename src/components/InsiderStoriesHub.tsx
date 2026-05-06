@@ -669,7 +669,7 @@ export function InsiderStoriesHub({ isDarkMode }: InsiderStoriesHubProps) {
                 {group.isHost && (
                   <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-full bg-purple-500/90 backdrop-blur-sm border border-white/20">
                     <span className="text-[8px] text-white" style={{ fontWeight: 700 }}>
-                      HOST
+                      PROVIDER
                     </span>
                   </div>
                 )}

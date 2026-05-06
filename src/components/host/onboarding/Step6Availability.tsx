@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Clock, Calendar } from 'lucide-react';
-import type { OnboardingData } from '../HostOnboarding';
+import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step6AvailabilityProps {
   onComplete: (data: Partial<OnboardingData>) => void;

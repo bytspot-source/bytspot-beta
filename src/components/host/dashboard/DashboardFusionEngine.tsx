@@ -112,7 +112,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
   const syncStripeConnect = useCallback(async (source: 'initial' | 'return' | 'manual' = 'manual') => {
     const token = localStorage.getItem('bytspot_auth_token');
     if (!token || token === 'beta_guest') {
-      setConnectMessage('Sign in with a vendor account to connect Stripe payouts.');
+      setConnectMessage('Sign in with your Provider business account to connect Stripe payouts.');
       return;
     }
 
@@ -138,7 +138,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       const message = String(err?.message ?? 'Unable to sync Stripe onboarding status.');
       setConnectMessage(
         message.includes('No vendor profile')
-          ? 'No vendor profile is connected yet. Start Stripe onboarding to create one.'
+          ? 'No Provider business profile is connected yet. Start Stripe onboarding to create one.'
           : message,
       );
     } finally {
@@ -351,7 +351,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                   {payoutReady ? <ShieldCheck className="h-7 w-7 text-emerald-100" /> : <Wallet className="h-7 w-7 text-cyan-100" />}
                 </div>
                 <p className="text-[13px] leading-6 text-white/58">
-                  Vendor portal access stays at <span className="text-cyan-100">{VENDOR_PORTAL_URL}</span>. Stripe hosts identity, tax, and bank-account collection.
+                  Provider portal access stays at <span className="text-cyan-100">{VENDOR_PORTAL_URL}</span>. Stripe securely collects identity, tax, and bank-account details.
                 </p>
                 <div className="mt-5 grid gap-2">
                   <button

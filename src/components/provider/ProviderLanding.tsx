@@ -12,8 +12,8 @@ interface ProviderLandingProps {
 }
 
 const roles: Array<{ id: ProviderRole; title: string; body: string; icon: typeof MapPin; gradient: string }> = [
-  { id: 'parking', title: 'Parking Host', body: 'List lots, garages, private spaces, or managed parking inventory.', icon: MapPin, gradient: 'from-cyan-500 to-blue-500' },
-  { id: 'venue', title: 'Venue Vendor', body: 'Create Tap & Scan access for bars, lounges, restaurants, and venues.', icon: Building2, gradient: 'from-purple-500 to-fuchsia-500' },
+  { id: 'parking', title: 'Parking Provider', body: 'List lots, garages, private spaces, or managed parking inventory.', icon: MapPin, gradient: 'from-cyan-500 to-blue-500' },
+  { id: 'venue', title: 'Venue Provider', body: 'Create Tap & Scan access for bars, lounges, restaurants, and venues.', icon: Building2, gradient: 'from-purple-500 to-fuchsia-500' },
   { id: 'event', title: 'Event Partner', body: 'Set up temporary access, guest flow, and live event demand windows.', icon: CalendarDays, gradient: 'from-orange-500 to-rose-500' },
   { id: 'service', title: 'Valet / Service Team', body: 'Prepare dispatch, valet operations, add-ons, and provider tools.', icon: Car, gradient: 'from-emerald-500 to-cyan-500' },
 ];
@@ -93,7 +93,7 @@ export function ProviderLanding({ onStart, onBackToParker }: ProviderLandingProp
           <p className="mb-2 text-[12px] font-bold tracking-[0.28em] text-cyan-200">BYTSPOT PROVIDER</p>
           <h1 id={headingId} className="mb-4 text-[36px] font-black leading-[0.95] tracking-[-0.05em]" style={isTablet ? { fontSize: 56 } : undefined}>Onboard fast. Start earning.</h1>
           <p className="mx-auto mb-6 max-w-[340px] text-[15px] leading-6 text-white/70" style={isTablet ? { maxWidth: 620, marginBottom: 32, fontSize: 18, lineHeight: '28px' } : undefined}>
-            One provider entry for hosts, vendors, venue partners, and valet/service teams.
+            One Provider entry for parking, venue, event, hospitality, and valet/service teams.
           </p>
         </motion.div>
 

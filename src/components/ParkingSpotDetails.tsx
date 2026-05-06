@@ -544,10 +544,10 @@ export function ParkingSpotDetails({
                 </div>
               </div>
 
-              {/* Host Information */}
+              {/* Provider Information */}
               <div className="px-6 py-4 border-t border-white/10">
                 <h3 className="text-[17px] text-white mb-3" style={{ fontWeight: 600 }}>
-                  Hosted By
+                  Provided By
                 </h3>
                 <div className="flex items-center justify-between p-4 rounded-[14px] bg-white/5 border border-white/20">
                   <div className="flex items-center gap-3">
@@ -573,7 +573,7 @@ export function ParkingSpotDetails({
                     className="w-10 h-10 rounded-full flex items-center justify-center bg-white/10 border border-white/30"
                     whileTap={{ scale: 0.9 }}
                     transition={springConfig}
-                    aria-label="Contact host"
+                    aria-label="Contact provider"
                   >
                     <Phone className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </motion.button>

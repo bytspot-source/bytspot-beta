@@ -609,20 +609,9 @@ export interface LeaderboardEntry {
   isCurrentUser?: boolean;
 }
 
-const MOCK_LEADERBOARD: Omit<LeaderboardEntry, 'rank'>[] = [
-  { userId: '1', name: 'Alex M.', points: 8420, tier: 'platinum' },
-  { userId: '2', name: 'Jordan K.', points: 6890, tier: 'platinum' },
-  { userId: '3', name: 'Taylor S.', points: 5240, tier: 'platinum' },
-  { userId: '4', name: 'Morgan R.', points: 3670, tier: 'gold' },
-  { userId: '5', name: 'Casey L.', points: 2980, tier: 'gold' },
-  { userId: '6', name: 'Riley P.', points: 2450, tier: 'gold' },
-  { userId: '7', name: 'Avery T.', points: 1820, tier: 'silver' },
-  { userId: '8', name: 'Quinn B.', points: 1560, tier: 'silver' },
-  { userId: '9', name: 'Drew H.', points: 1290, tier: 'silver' },
-  { userId: '10', name: 'Sam W.', points: 980, tier: 'silver' },
-];
+const LOCAL_LEADERBOARD_SEED: Omit<LeaderboardEntry, 'rank'>[] = [];
 
-/** Sync mock leaderboard — used when not authenticated */
+/** Local leaderboard contains only the current user's locally earned points. */
 export function getLeaderboardLocal(): { entries: LeaderboardEntry[]; userRank: number; userPoints: number } {
   const currentPoints = getUserPointsLocal().total;
   const userName = (() => {
@@ -634,7 +623,7 @@ export function getLeaderboardLocal(): { entries: LeaderboardEntry[]; userRank: 
     } catch { return 'You'; }
   })();
   const allEntries = [
-    ...MOCK_LEADERBOARD,
+    ...LOCAL_LEADERBOARD_SEED,
     { userId: 'me', name: userName, points: currentPoints, tier: getUserTier(currentPoints).level as MembershipTier },
   ].sort((a, b) => b.points - a.points);
   const userRank = allEntries.findIndex(e => e.userId === 'me') + 1;
@@ -646,7 +635,7 @@ export function getLeaderboardLocal(): { entries: LeaderboardEntry[]; userRank: 
 export const getLeaderboard = getLeaderboardLocal;
 
 /**
- * Get leaderboard — API-first, mock fallback
+ * Get leaderboard — API-first, local-current-user fallback
  */
 export async function getLeaderboardAsync(): Promise<{ entries: LeaderboardEntry[]; userRank: number; userPoints: number }> {
   if (!isAuthenticated()) return getLeaderboardLocal();

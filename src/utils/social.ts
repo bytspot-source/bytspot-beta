@@ -124,28 +124,8 @@ export function broadcastOwnCheckin(venueName: string, venueId: string | undefin
   postToFeed({ userId, userName, venueName, venueId, crowdLevel, crowdLabel, timestamp: new Date().toISOString() });
 }
 
-const MOCK_VENUES = [
-  { name: 'Ponce City Market', id: 'ponce-city-market', level: 3, label: 'Busy' },
-  { name: 'The Painted Pin', id: 'the-painted-pin', level: 2, label: 'Active' },
-  { name: 'Ladybird Grove', id: 'ladybird-grove', level: 2, label: 'Active' },
-  { name: 'Bully Boy Bar', id: 'bully-boy-bar', level: 4, label: 'Packed' },
-  { name: 'Orpheum', id: 'orpheum', level: 3, label: 'Busy' },
-  { name: 'Joystick Gamebar', id: 'joystick-gamebar', level: 2, label: 'Active' },
-  { name: 'Jeni\'s Ice Cream', id: 'jenis-ice-cream', level: 1, label: 'Chill' },
-];
-
 function seedFriendActivity(userId: string, userName: string): void {
-  const now = Date.now();
-  const count = 2 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < count; i++) {
-    const venue = MOCK_VENUES[Math.floor(Math.random() * MOCK_VENUES.length)];
-    const msAgo = (i + 1) * (30 + Math.floor(Math.random() * 60)) * 60 * 1000;
-    postToFeed({
-      userId, userName,
-      venueName: venue.name, venueId: venue.id,
-      crowdLevel: venue.level, crowdLabel: venue.label,
-      timestamp: new Date(now - msAgo).toISOString(),
-    });
-  }
+  void userId;
+  void userName;
 }
 

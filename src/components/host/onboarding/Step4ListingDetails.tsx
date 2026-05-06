@@ -67,7 +67,7 @@ export function Step4ListingDetails({ onComplete, initialValue, hostType }: Step
         listing: {
           location: {
             address,
-            coordinates: { lat: 37.7749, lng: -122.4194 }, // Mock coordinates
+            coordinates: { lat: 0, lng: 0 },
             notes,
           },
           spotType,

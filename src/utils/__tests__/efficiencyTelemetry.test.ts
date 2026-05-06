@@ -18,7 +18,7 @@ import {
   recurrenceFromUtilization,
 } from '../efficiencyTelemetry.ts';
 import { computeEfficiencyScore } from '../efficiencyScore.ts';
-import type { SystemHealth } from '../fusionEngineMockData.ts';
+import type { SystemHealth } from '../fusionEngineTelemetry.ts';
 
 const baseHealth = (over: Partial<SystemHealth> = {}): SystemHealth => ({
   timestamp: 0,

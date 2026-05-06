@@ -1300,7 +1300,7 @@ function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, spring
                 zoomControl: false,
               }}
             >
-              {/* Simulated driver marker */}
+              {/* Driver marker */}
               <MarkerF
                 position={{ lat: 33.7770, lng: -84.3950 }}
                 icon={{

@@ -7,7 +7,7 @@ import {
   Star,
   TrendingUp
 } from 'lucide-react';
-import { mockCompletedJobs } from '../../../utils/valetMockData';
+import { completedValetJobHistory } from '../../../utils/valetProductionData';
 
 interface JobHistoryViewProps {
   isDarkMode: boolean;
@@ -21,16 +21,16 @@ export function JobHistoryView({ isDarkMode }: JobHistoryViewProps) {
     mass: 0.8,
   };
 
-  const totalEarnings = mockCompletedJobs.reduce((sum, job) => sum + job.earnings + (job.tip || 0), 0);
-  const totalTips = mockCompletedJobs.reduce((sum, job) => sum + (job.tip || 0), 0);
+  const totalEarnings = completedValetJobHistory.reduce((sum, job) => sum + job.earnings + (job.tip || 0), 0);
+  const totalTips = completedValetJobHistory.reduce((sum, job) => sum + (job.tip || 0), 0);
   const avgJobTime = Math.round(
-    mockCompletedJobs.reduce((sum, job) => {
+    completedValetJobHistory.length === 0 ? 0 : completedValetJobHistory.reduce((sum, job) => {
       if (job.pickupTime && job.deliveryTime) {
         const duration = (new Date(job.deliveryTime).getTime() - new Date(job.pickupTime).getTime()) / 60000;
         return sum + duration;
       }
       return sum;
-    }, 0) / mockCompletedJobs.length
+    }, 0) / completedValetJobHistory.length
   );
 
   return (
@@ -48,7 +48,7 @@ export function JobHistoryView({ isDarkMode }: JobHistoryViewProps) {
             Completed
           </div>
           <div className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-            {mockCompletedJobs.length}
+            {completedValetJobHistory.length}
           </div>
         </motion.div>
 
@@ -90,7 +90,7 @@ export function JobHistoryView({ isDarkMode }: JobHistoryViewProps) {
         </h2>
 
         <div className="space-y-3">
-          {mockCompletedJobs.map((job, index) => (
+          {completedValetJobHistory.map((job, index) => (
             <motion.div
               key={job.id}
               className="rounded-[16px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl"
@@ -182,7 +182,7 @@ export function JobHistoryView({ isDarkMode }: JobHistoryViewProps) {
               Great Performance!
             </h3>
             <p className="text-[15px] text-white/90 mb-2" style={{ fontWeight: 400 }}>
-              Your average tip is ${(totalTips / mockCompletedJobs.length).toFixed(2)} per job, which is 25% above average!
+              Tips will appear here after completed valet jobs.
             </p>
             <p className="text-[13px] text-green-300" style={{ fontWeight: 600 }}>
               Keep up the excellent service 👏

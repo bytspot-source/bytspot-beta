@@ -13,7 +13,7 @@ import { ActiveJobsView } from './dashboard/ActiveJobsView';
 import { JobHistoryView } from './dashboard/JobHistoryView';
 import { EarningsView } from './dashboard/EarningsView';
 import { DriverProfileView } from './dashboard/DriverProfileView';
-import { mockDriverProfile, mockNotifications } from '../../utils/valetMockData';
+import { currentDriverProfile, driverNotifications } from '../../utils/valetProductionData';
 
 type DashboardView = 'active' | 'history' | 'earnings' | 'profile';
 
@@ -25,7 +25,7 @@ interface ValetDashboardProps {
 export function ValetDashboard({ isDarkMode, onBackToMain }: ValetDashboardProps) {
   const [currentView, setCurrentView] = useState<DashboardView>('active');
   const [showMenu, setShowMenu] = useState(false);
-  const unreadNotifications = mockNotifications.filter(n => !n.read).length;
+  const unreadNotifications = driverNotifications.filter(n => !n.read).length;
 
   const springConfig = {
     type: "spring" as const,
@@ -83,7 +83,7 @@ export function ValetDashboard({ isDarkMode, onBackToMain }: ValetDashboardProps
             
             <div>
               <div className="text-[15px] text-white mb-0.5" style={{ fontWeight: 600 }}>
-                {mockDriverProfile.name}
+                    {currentDriverProfile.name}
               </div>
               <div className="flex items-center gap-2 text-[13px]">
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />

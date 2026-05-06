@@ -1,6 +1,5 @@
 /**
- * insiderCommerce — local source of truth for Insider membership + access wallet.
- * Keeps demo flows centralized and easy to replace with real backend-backed commerce.
+ * insiderCommerce — local cache for backend-backed Insider membership + access wallet.
  */
 
 export const INSIDER_COMMERCE_EVENT = 'bytspot:insider-commerce-updated';
@@ -85,18 +84,6 @@ export function getInsiderMembership(): InsiderMembership {
     activatedAt: null,
     source: 'local',
   });
-}
-
-export function activateMockInsiderMembership(): InsiderMembership {
-  const membership: InsiderMembership = {
-    isActive: true,
-    label: 'Insider',
-    activatedAt: new Date().toISOString(),
-    source: 'local',
-  };
-  writeJson(MEMBERSHIP_KEY, membership);
-  emitCommerceUpdate();
-  return membership;
 }
 
 export function syncInsiderMembershipFromPremium(isPremium: boolean): InsiderMembership {

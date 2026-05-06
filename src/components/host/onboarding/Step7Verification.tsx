@@ -27,11 +27,11 @@ export function Step7Verification({ onComplete, initialValue, hostType }: Step7V
       verification: {
         identity: {
           idType: 'drivers_license',
-          idPhotos: { front: 'mock_id_front.jpg', back: 'mock_id_back.jpg' },
+          idPhotos: { front: idUploaded ? 'pending-secure-upload' : '', back: '' },
         },
         business: isCommercial ? {
-          licensePhoto: 'mock_license.jpg',
-          insurancePhoto: 'mock_insurance.jpg',
+          licensePhoto: licenseUploaded ? 'pending-secure-upload' : '',
+          insurancePhoto: '',
         } : undefined,
       },
     });

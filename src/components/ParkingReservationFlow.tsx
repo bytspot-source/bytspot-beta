@@ -8,7 +8,7 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
-import { createDemoParkingReservation, savePendingParkingCheckout } from '../utils/parkingReservations';
+import { savePendingParkingCheckout } from '../utils/parkingReservations';
 
 interface ParkingSpot {
   id: string;
@@ -35,84 +35,13 @@ interface ParkingReservationFlowProps {
 
 type FlowScreen = 'details' | 'comparison' | 'reviews' | 'confirmation' | 'active';
 
-const sampleNearbySpots: ParkingSpot[] = [
-  {
-    id: '1',
-    name: 'Downtown Plaza Garage',
-    address: '123 Main St',
-    distance: 0.3,
-    walkTime: 4,
-    price: 8,
-    availability: 24,
-    total: 150,
-    securityRating: 4.8,
-    rating: 4.7,
-    reviews: 342,
-    features: ['24/7 Security', 'EV Charging', 'Covered'],
-    iotEnabled: true,
-    lastUpdate: new Date(),
-  },
-  {
-    id: '2',
-    name: 'Central Station Lot',
-    address: '456 Oak Ave',
-    distance: 0.5,
-    walkTime: 6,
-    price: 6,
-    availability: 18,
-    total: 100,
-    securityRating: 4.5,
-    rating: 4.6,
-    reviews: 231,
-    features: ['CCTV', 'Well-lit', 'Attendant'],
-    iotEnabled: true,
-    lastUpdate: new Date(),
-  },
-  {
-    id: '3',
-    name: 'Bay Area Mall',
-    address: '789 Commerce Blvd',
-    distance: 0.8,
-    walkTime: 10,
-    price: 5,
-    availability: 42,
-    total: 300,
-    securityRating: 4.3,
-    rating: 4.4,
-    reviews: 567,
-    features: ['Covered', 'Restrooms', 'Elevators'],
-    iotEnabled: true,
-    lastUpdate: new Date(),
-  },
-];
-
-const sampleReviews = [
-  {
-    id: 1,
-    user: 'Sarah Chen',
-    avatar: 'https://i.pravatar.cc/150?img=1',
-    rating: 5,
-    date: '2 days ago',
-    text: 'Great location! Always find a spot. Security cameras everywhere make me feel safe.',
-    verified: true,
-    photos: ['https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=400', 'https://images.unsplash.com/photo-1506521781263-d8422e82f27a?w=400'],
-  },
-  {
-    id: 2,
-    user: 'Mike Johnson',
-    avatar: 'https://i.pravatar.cc/150?img=3',
-    rating: 4,
-    date: '5 days ago',
-    text: 'Convenient spot near downtown. A bit pricey during events but the real-time availability feature is super helpful.',
-    verified: true,
-    photos: [],
-  },
-];
+const liveNearbySpots: ParkingSpot[] = [];
+const liveReviews: Array<{ id: number; user: string; avatar: string; rating: number; date: string; text: string; verified: boolean; photos: string[] }> = [];
 
 export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose }: ParkingReservationFlowProps) {
   const [currentScreen, setCurrentScreen] = useState<FlowScreen>('details');
   const [selectedSpot, setSelectedSpot] = useState<ParkingSpot>(initialSpot);
-  const [nearbySpots] = useState(sampleNearbySpots);
+  const [nearbySpots] = useState(liveNearbySpots);
   const [duration, setDuration] = useState(2); // hours
   const [isReserving, setIsReserving] = useState(false);
   const [reservationCode, setReservationCode] = useState('');
@@ -177,17 +106,11 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
         window.location.href = result.url;
         return;
       }
-      if (result.demoMode) {
-        toast('Reservation checkout unavailable', { description: 'Your parking reservation will be saved in-app for this build.' });
-      }
-    } catch {
-      // Network error — fall through to demo
+      toast.error('Reservation checkout unavailable', { description: result?.message || 'Payment checkout did not return a Stripe URL.' });
+    } catch (err: any) {
+      toast.error('Reservation checkout unavailable', { description: err?.message || 'Please try again once payments are available.' });
     }
-    // Demo fallback: simulate successful reservation
-    const reservation = createDemoParkingReservation(reservationDraft);
-    setReservationCode(reservation.reservationCode);
     setIsReserving(false);
-    setCurrentScreen('active');
   };
 
   const totalCost = selectedSpot.price * duration;
@@ -275,7 +198,7 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
             {currentScreen === 'reviews' && (
               <ReviewsScreen
                 spot={selectedSpot}
-                reviews={sampleReviews}
+                reviews={liveReviews}
                 springConfig={springConfig}
               />
             )}

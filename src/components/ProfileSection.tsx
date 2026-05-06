@@ -21,7 +21,7 @@ import { impactLight } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
-import { activateMockInsiderMembership, getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
+import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
@@ -220,18 +220,12 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           return;
         }
 
-        if (result?.demoMode) {
-          toast('Stripe not configured — using demo Insider activation', { description: result.message || 'Real checkout will work once Stripe is configured.' });
-        }
+        toast.error('Unable to start Insider checkout', { description: result?.message || 'Checkout did not return a Stripe URL.' });
+        return;
       } else {
-        toast('Sign in to start real Insider checkout', { description: 'Guest mode will use the demo Insider activation flow.' });
+        toast('Sign in to start Insider checkout', { description: 'Insider activation requires a signed-in account and Stripe checkout.' });
+        return;
       }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 850));
-      const nextMembership = activateMockInsiderMembership();
-      setMembership(nextMembership);
-      toast.success('Insider activated', { description: 'Your profile now shows Insider access and My Access.' });
-      setCurrentScreen('tickets');
     } catch (error: any) {
       toast.error('Unable to start Insider checkout', { description: error?.message || 'Please try again in a moment.' });
     } finally {

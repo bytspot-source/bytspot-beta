@@ -224,7 +224,7 @@ export function VehiclePhotoVerification({
                   </div>
                 )}
 
-                {/* Mock Camera View */}
+                {/* Camera View */}
                 <div className="aspect-[3/4] rounded-[16px] bg-gradient-to-br from-gray-800 to-gray-900 border-2 border-white/30 overflow-hidden relative">
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">

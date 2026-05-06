@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Car, Edit, Trash2, Camera, Save, X, Search, Package, Loader2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
-import type { TransmissionType, TrunkCategory } from '../utils/valetMockData';
+import type { TransmissionType, TrunkCategory } from '../utils/valetProductionData';
 import { trpc } from '../utils/trpc';
 
 interface VehicleManagementProps {

@@ -7,26 +7,11 @@ import { Toaster } from './ui/sonner';
 import { trpc } from '../utils/trpc';
 
 // ============================================================
-// CONFIGURATION — Update these before deploying to production
+// Signup collection uses the Bytspot API.
 // ============================================================
 
 /**
- * Backend provider for collecting signups.
- * 
- * Option A: Formspree (recommended for quick launch)
- *   1. Go to https://formspree.io and create a free account
- *   2. Create a new form, copy the form ID (e.g. "xpzvqkdl")
- *   3. Set FORMSPREE_FORM_ID below
- *   4. Set BACKEND_PROVIDER to 'formspree'
- * 
- * Option B: Custom API endpoint
- *   1. Set CUSTOM_API_URL to your endpoint
- *   2. Set BACKEND_PROVIDER to 'custom'
- *   3. Endpoint should accept POST { email: string } and return 200
- * 
- * Option C: Mock (current default — no real backend)
- *   - Emails are NOT saved anywhere
- *   - Use this only for previewing the UI
+ * Backend-backed signup collection.
  */
 // ============================================================
 
@@ -180,7 +165,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
                 </p>
               </div>
 
-              {/* 2. Visual Mock (Product Demo Card) */}
+              {/* 2. Product preview card */}
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -189,7 +174,7 @@ export function BetaSignup({ isDarkMode = true, onComplete, standalone = false }
               >
                 {/* Card Container */}
                 <div className="relative rounded-2xl overflow-hidden backdrop-blur-xl border border-white/15 bg-[#1C1C1E]/60 shadow-2xl">
-                  {/* Header Image Area (Simulated) */}
+                  {/* Header image area */}
                   <div className="h-24 bg-gradient-to-br from-purple-900/40 to-black/40 flex items-end p-4 relative">
                     <div className="absolute inset-0 bg-gradient-to-t from-[#1C1C1E]/90 to-transparent" />
                     <div className="relative z-10 w-full flex justify-between items-end">

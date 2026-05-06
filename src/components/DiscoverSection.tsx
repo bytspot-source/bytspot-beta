@@ -379,7 +379,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   // Google Places results (populated on filter change)
   const [googleCards, setGoogleCards] = useState<DiscoverCard[]>([]);
 
-  // Live API cards + event feed + Google Places only — no mock fallbacks
+  // Live API cards + event feed + Google Places only.
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [entryTypeFilter, setEntryTypeFilter] = useState<'all' | 'free' | 'paid'>('all');

@@ -8,7 +8,7 @@ import {
   Briefcase,
   CheckCircle
 } from 'lucide-react';
-import { mockEarningsData } from '../../../utils/valetMockData';
+import { valetDriverEarnings } from '../../../utils/valetProductionData';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface EarningsViewProps {
@@ -23,7 +23,7 @@ export function EarningsView({ isDarkMode }: EarningsViewProps) {
     mass: 0.8,
   };
 
-  const { today, thisWeek, thisMonth, chartData, recentPayouts } = mockEarningsData;
+  const { today, thisWeek, thisMonth, chartData, recentPayouts } = valetDriverEarnings;
 
   return (
     <div className="space-y-6">

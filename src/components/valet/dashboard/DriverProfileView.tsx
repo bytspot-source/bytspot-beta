@@ -16,7 +16,7 @@ import {
   Bike,
 } from 'lucide-react';
 import { useState } from 'react';
-import { mockDriverProfile } from '../../../utils/valetMockData';
+import { currentDriverProfile } from '../../../utils/valetProductionData';
 // SHARED: LocationSettings exposes a userRole='parker'|'driver' API and is intentionally
 // shared between the Parker consumer shell and the Valet driver shell.
 import { LocationSettings } from '../../LocationSettings';
@@ -51,8 +51,8 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
       <DriverGearRegistry
         isDarkMode={isDarkMode}
         onBack={() => setCurrentScreen('main')}
-        initialGear={mockDriverProfile.gearRegistry}
-        initialBattery={mockDriverProfile.eBikeBatteryLevel}
+        initialGear={currentDriverProfile.gearRegistry}
+        initialBattery={currentDriverProfile.eBikeBatteryLevel}
       />
     );
   }
@@ -80,7 +80,7 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
     {
       icon: Bike,
       label: 'Gear Registry',
-      description: `E-bike specs & battery — ${mockDriverProfile.eBikeBatteryLevel}% charged`,
+      description: `E-bike specs & battery — ${currentDriverProfile.eBikeBatteryLevel}% charged`,
       color: 'text-green-400',
       screen: 'gear-registry' as DriverScreen,
     },
@@ -119,10 +119,10 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
         <div className="flex items-start gap-4 mb-4">
           {/* Profile Photo */}
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 overflow-hidden flex-shrink-0">
-            {mockDriverProfile.photo ? (
-              <img 
-                src={mockDriverProfile.photo} 
-                alt={mockDriverProfile.name}
+            {currentDriverProfile.photo ? (
+              <img
+                src={currentDriverProfile.photo}
+                alt={currentDriverProfile.name}
                 className="w-full h-full object-cover"
               />
             ) : (
@@ -135,15 +135,15 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
           {/* Profile Info */}
           <div className="flex-1">
             <h2 className="text-[24px] text-white mb-1" style={{ fontWeight: 700 }}>
-              {mockDriverProfile.name}
+              {currentDriverProfile.name}
             </h2>
             <div className="flex items-center gap-2 mb-2">
               <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2.5} />
               <span className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-                {mockDriverProfile.rating}
+                {currentDriverProfile.rating}
               </span>
               <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
-                • {mockDriverProfile.totalJobs} jobs
+                • {currentDriverProfile.totalJobs} jobs
               </span>
             </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30 inline-flex">
@@ -163,7 +163,7 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
               Total Jobs
             </div>
             <div className="text-[20px] text-white" style={{ fontWeight: 700 }}>
-              {mockDriverProfile.totalJobs}
+              {currentDriverProfile.totalJobs}
             </div>
           </div>
 
@@ -173,10 +173,10 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
               Member Since
             </div>
             <div className="text-[20px] text-white" style={{ fontWeight: 700 }}>
-              {new Date(mockDriverProfile.memberSince).toLocaleDateString('en-US', {
+              {currentDriverProfile.memberSince ? new Date(currentDriverProfile.memberSince).toLocaleDateString('en-US', {
                 month: 'short',
                 year: 'numeric'
-              })}
+              }) : 'Pending'}
             </div>
           </div>
         </div>
@@ -203,16 +203,16 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
           <div className="flex items-center justify-between">
             <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>Make &amp; Model</span>
             <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-              {mockDriverProfile.vehicleInfo.year} {mockDriverProfile.vehicleInfo.make} {mockDriverProfile.vehicleInfo.model}
+              {currentDriverProfile.vehicleInfo.make ? `${currentDriverProfile.vehicleInfo.year} ${currentDriverProfile.vehicleInfo.make} ${currentDriverProfile.vehicleInfo.model}` : 'Not configured'}
             </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>Color</span>
-            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.vehicleInfo.color}</span>
+            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{currentDriverProfile.vehicleInfo.color || 'Not configured'}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[15px] text-white/70" style={{ fontWeight: 500 }}>License Plate</span>
-            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.vehicleInfo.plate}</span>
+            <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>{currentDriverProfile.vehicleInfo.plate || 'Not configured'}</span>
           </div>
         </div>
 
@@ -222,9 +222,9 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
               <IdCard className="w-4 h-4 text-purple-400" strokeWidth={2.5} />
               <span className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>Driver's License</span>
             </div>
-            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.licenseInfo.number}</div>
+            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{currentDriverProfile.licenseInfo.number || 'Not configured'}</div>
             <div className="text-[12px] text-white/50" style={{ fontWeight: 500 }}>
-              Expires {new Date(mockDriverProfile.licenseInfo.expiryDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+              {currentDriverProfile.licenseInfo.expiryDate ? `Expires ${new Date(currentDriverProfile.licenseInfo.expiryDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : 'Add license details'}
             </div>
           </div>
           <div>
@@ -232,9 +232,9 @@ export function DriverProfileView({ isDarkMode }: DriverProfileViewProps) {
               <Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} />
               <span className="text-[12px] text-white/60" style={{ fontWeight: 500 }}>Insurance</span>
             </div>
-            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{mockDriverProfile.insurance.provider}</div>
+            <div className="text-[14px] text-white" style={{ fontWeight: 600 }}>{currentDriverProfile.insurance.provider || 'Not configured'}</div>
             <div className="text-[12px] text-white/50" style={{ fontWeight: 500 }}>
-              Policy {mockDriverProfile.insurance.policyNumber.slice(-6)}
+              {currentDriverProfile.insurance.policyNumber ? `Policy ${currentDriverProfile.insurance.policyNumber.slice(-6)}` : 'Add insurance details'}
             </div>
           </div>
         </div>

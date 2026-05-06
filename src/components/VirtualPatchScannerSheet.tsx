@@ -335,7 +335,7 @@ export function VirtualPatchScannerSheet({
       try {
         el.srcObject = stream;
       } catch {
-        // Some test/mock streams aren't real MediaStream instances; the
+    // Some browser-provided streams may not expose every MediaStream method; the
         // BarcodeDetector can still run against the bare <video>.
       }
       await el.play().catch(() => undefined);

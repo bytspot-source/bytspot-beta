@@ -19,7 +19,7 @@ export interface ParkingReservationRecord extends ParkingReservationDraft {
   startTime: string;
   endTime: string;
   status: 'active' | 'confirmed';
-  source: 'demo' | 'stripe';
+  source: 'stripe';
   sessionId?: string | null;
 }
 
@@ -68,14 +68,6 @@ export function savePendingParkingCheckout(draft: ParkingReservationDraft): void
 
 export function clearPendingParkingCheckout(): void {
   localStorage.removeItem(PENDING_CHECKOUT_KEY);
-}
-
-export function createDemoParkingReservation(draft: ParkingReservationDraft): ParkingReservationRecord {
-  const reservation = createReservationRecord(draft, 'demo');
-  writeReservations([reservation, ...getParkingReservations()]);
-  clearPendingParkingCheckout();
-  emitReservationsUpdate();
-  return reservation;
 }
 
 export function finalizePendingParkingCheckout(sessionId?: string | null): ParkingReservationRecord | null {

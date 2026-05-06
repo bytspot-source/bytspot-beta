@@ -15,7 +15,7 @@
  *     from any customer-adjacent component until the calibration has been
  *     validated against real data.
  */
-import type { SystemHealth } from './fusionEngineMockData';
+import type { SystemHealth } from './fusionEngineTelemetry';
 import type { EfficiencyScoreInputs } from './efficiencyScore';
 
 /** Tunable ceilings — vendors override per their venue profile. */
@@ -48,8 +48,8 @@ function clamp01(value: number): number {
  * telemetry surface, the closest available proxy is the composite sensor
  * availability across GPS/WiFi/BLE/IMU. A venue session with 100% sensor
  * availability across all four is treated as a saturated engagement signal.
- * This mapping is intentionally a placeholder and is annotated as such on
- * the dashboard.
+ * This mapping is intentionally conservative until App Clip/NFC launch counts
+ * are wired into operational telemetry.
  */
 export function engagementFromSensorAvailability(health: SystemHealth): number {
   const { gps, wifi, ble, imu } = health.sensorAvailability;
@@ -116,7 +116,7 @@ export function buildEfficiencyInputsFromSystemHealth(
 export const EFFICIENCY_COMPONENT_META: Record<keyof EfficiencyScoreInputs, { label: string; source: string }> = {
   engagement: {
     label: 'Engagement',
-    source: 'Composite sensor availability (GPS/WiFi/BLE/IMU). Placeholder until NFC tap and App Clip launch counts are wired in.',
+    source: 'Composite sensor availability (GPS/WiFi/BLE/IMU). Pending NFC tap and App Clip launch count wiring.',
   },
   efficiency: {
     label: 'Efficiency',

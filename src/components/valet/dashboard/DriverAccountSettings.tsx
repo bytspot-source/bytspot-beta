@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, User, CreditCard, Lock, Bell, ChevronRight, Check } from 'lucide-react';
 import { useState } from 'react';
-import { mockDriverProfile, mockEarningsData } from '../../../utils/valetMockData';
+import { currentDriverProfile, valetDriverEarnings } from '../../../utils/valetProductionData';
 
 interface DriverAccountSettingsProps {
   isDarkMode: boolean;
@@ -15,8 +15,8 @@ export function DriverAccountSettings({ isDarkMode, onBack }: DriverAccountSetti
   const [payoutAlerts, setPayoutAlerts] = useState(true);
   const [promotionalAlerts, setPromotionalAlerts] = useState(false);
 
-  const { name, email, phone, licenseInfo } = mockDriverProfile;
-  const { recentPayouts } = mockEarningsData;
+  const { name, email, phone, licenseInfo } = currentDriverProfile;
+  const { recentPayouts } = valetDriverEarnings;
 
   return (
     <div className="h-full overflow-y-auto pb-24">

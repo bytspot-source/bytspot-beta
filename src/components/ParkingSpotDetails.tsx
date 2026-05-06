@@ -130,15 +130,15 @@ export function ParkingSpotDetails({
   const totalPrice = spot.price * selectedDuration;
 
   // Default values for optional fields
-  const rating = spot.rating || 4.7;
-  const reviews = spot.reviews || 128;
-  const distance = spot.distance || 0.3;
-  const walkTime = spot.walkTime || 4;
-  const address = spot.address || '123 Peachtree St NE, Atlanta, GA';
-  const hours = spot.hours || '24/7 Access';
-  const description = spot.description || 'Secure parking in the heart of downtown with 24/7 access and premium amenities.';
-  const hostName = spot.hostName || 'ParkHost Pro';
-  const responseTime = spot.responseTime || 'Usually responds within 5 minutes';
+  const rating = spot.rating || 0;
+  const reviews = spot.reviews || 0;
+  const distance = spot.distance || 0;
+  const walkTime = spot.walkTime || 0;
+  const address = spot.address || 'Address unavailable';
+  const hours = spot.hours || 'Hours unavailable';
+  const description = spot.description || 'Details are unavailable for this parking location.';
+  const hostName = spot.hostName || 'Provider unavailable';
+  const responseTime = spot.responseTime || 'Response time unavailable';
 
   const amenities = spot.amenities || [
     'Security Cameras',

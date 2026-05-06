@@ -97,7 +97,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
     mass: 0.8,
   };
 
-  // Haptic feedback simulation
+  // Lightweight haptic feedback when supported by the browser.
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
       navigator.vibrate(10);

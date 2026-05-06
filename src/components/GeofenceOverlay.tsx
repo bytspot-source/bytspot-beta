@@ -18,13 +18,13 @@ export function GeofenceOverlay({ isDarkMode, showLabels = true }: GeofenceOverl
     mass: 0.8,
   };
 
-  // Calculate position on map (simplified - in real app would use actual map projection)
+  // Calculate deterministic position on the overlay from lat/lng.
   const calculateMapPosition = (lat: number, lng: number) => {
-    // Mock positioning for demonstration
-    // In real implementation, would convert lat/lng to screen coordinates
+    const normalizedLng = ((lng + 180) / 360) * 100;
+    const normalizedLat = ((90 - lat) / 180) * 100;
     return {
-      x: 50 + Math.random() * 200,
-      y: 100 + Math.random() * 300,
+      x: Math.max(0, Math.min(100, normalizedLng)),
+      y: Math.max(0, Math.min(100, normalizedLat)),
     };
   };
 

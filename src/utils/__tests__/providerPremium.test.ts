@@ -1,7 +1,7 @@
 /**
  * Unit tests for src/utils/providerPremium.ts.
  *
- * Exercises the entitlement state machine across free / preview /
+ * Exercises the entitlement state machine across free /
  * subscription branches for both vendor-premium and valet-premium tiers.
  * The module reaches for browser globals (localStorage, window) at call
  * time, so we install lightweight stubs before importing it.
@@ -30,8 +30,7 @@ const storage = new MemoryStorage();
 
 const {
   PROVIDER_PREMIUM_EVENT,
-  activateProviderPremiumPreview,
-  clearProviderPremiumPreview,
+  clearProviderPremiumEntitlement,
   getProviderPremiumEntitlement,
   providerPremiumEntitlementFromSubscription,
   syncProviderPremiumEntitlementFromSubscription,
@@ -48,7 +47,7 @@ test('free: empty storage returns the canonical Free Provider entitlement', () =
   assert.equal(e.tier, 'free');
   assert.equal(e.label, 'Free Provider');
   assert.equal(e.activatedAt, null);
-  assert.equal(e.source, 'local-preview');
+  assert.equal(e.source, 'none');
 });
 
 test('free: malformed JSON in storage falls back to Free Provider', () => {
@@ -58,28 +57,12 @@ test('free: malformed JSON in storage falls back to Free Provider', () => {
   assert.equal(e.tier, 'free');
 });
 
-test('preview: activateProviderPremiumPreview() defaults to vendor-premium', () => {
-  const e = activateProviderPremiumPreview();
-  assert.equal(e.isActive, true);
-  assert.equal(e.tier, 'vendor-premium');
-  assert.equal(e.label, 'Vendor Premium');
-  assert.equal(e.source, 'local-preview');
-  assert.ok(e.activatedAt && !Number.isNaN(Date.parse(e.activatedAt)));
-  assert.deepEqual(dispatched, [PROVIDER_PREMIUM_EVENT]);
-});
-
-test('preview: activateProviderPremiumPreview("valet-premium") activates the valet tier', () => {
-  const e = activateProviderPremiumPreview('valet-premium');
-  assert.equal(e.tier, 'valet-premium');
-  assert.equal(e.label, 'Valet Premium');
-  assert.equal(e.source, 'local-preview');
-});
-
-test('preview: subsequent reads see the persisted entitlement', () => {
-  activateProviderPremiumPreview('vendor-premium');
+test('local active entitlements are ignored unless backed by subscription source', () => {
+  storage.setItem('bytspot_provider_premium_entitlement', JSON.stringify({ isActive: true, tier: 'vendor-premium', source: 'none' }));
   const e = getProviderPremiumEntitlement();
-  assert.equal(e.isActive, true);
-  assert.equal(e.tier, 'vendor-premium');
+  assert.equal(e.isActive, false);
+  assert.equal(e.tier, 'free');
+  assert.equal(e.source, 'none');
 });
 
 test('subscription: vendor-premium when status.isVendorPremium is true', () => {
@@ -135,10 +118,10 @@ test('sync: persists subscription-derived entitlement and emits the update event
   assert.equal(e.source, 'subscription');
 });
 
-test('clear: removes the cached preview and emits the update event', () => {
-  activateProviderPremiumPreview('vendor-premium');
+test('clear: removes the cached entitlement and emits the update event', () => {
+  syncProviderPremiumEntitlementFromSubscription({ isVendorPremium: true }, 'vendor-premium');
   dispatched.length = 0;
-  const cleared = clearProviderPremiumPreview();
+  const cleared = clearProviderPremiumEntitlement();
   assert.equal(cleared.isActive, false);
   assert.equal(cleared.tier, 'free');
   assert.equal(getProviderPremiumEntitlement().isActive, false);

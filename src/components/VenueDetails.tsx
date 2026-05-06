@@ -24,47 +24,11 @@ interface VenueDetailsProps {
   isOpen?: boolean;
 }
 
-const sampleReviews = [
-  {
-    id: 1,
-    user: 'Sarah M.',
-    avatar: 'https://i.pravatar.cc/150?img=1',
-    rating: 5,
-    vibe: 9,
-    date: '2 days ago',
-    comment: 'Amazing atmosphere! The rooftop views are absolutely stunning, especially at sunset. Great cocktails too!',
-    images: ['https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=400'],
-  },
-  {
-    id: 2,
-    user: 'Mike R.',
-    avatar: 'https://i.pravatar.cc/150?img=2',
-    rating: 5,
-    vibe: 8,
-    date: '1 week ago',
-    comment: 'Perfect spot for a date night. Live DJ on weekends adds great energy. Service is top-notch.',
-    images: [],
-  },
-  {
-    id: 3,
-    user: 'Jessica L.',
-    avatar: 'https://i.pravatar.cc/150?img=3',
-    rating: 4,
-    vibe: 9,
-    date: '2 weeks ago',
-    comment: 'The vibe here is incredible! Gets pretty crowded on weekends but worth it. Make a reservation!',
-    images: ['https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=400'],
-  },
-];
+const liveReviews: Array<{ id: number; user: string; avatar?: string; rating: number; vibe: number; date: string; comment: string; images: string[] }> = [];
 
 // galleryImages now computed per-venue inside the component
 
-const menuItems = [
-  { name: 'Signature Cocktails', price: '$14-18', available: true },
-  { name: 'Premium Spirits', price: '$12-25', available: true },
-  { name: 'Small Plates', price: '$10-16', available: true },
-  { name: 'Craft Beer', price: '$8-12', available: true },
-];
+const menuItems: Array<{ name: string; price: string; available: boolean }> = [];
 
 /**
  * Generate estimated crowd history based on venue category and current crowd level.
@@ -970,8 +934,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                   {review.comment && <p className="text-[14px] text-white/80">{review.comment}</p>}
                 </div>
               ))}
-              {/* Sample/seed reviews */}
-              {sampleReviews.map((review) => (
+              {liveReviews.map((review) => (
                 <div key={review.id} className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-white/30">
                   <div className="flex items-start gap-3 mb-3">
                     <img src={review.avatar} alt={review.user} className="w-10 h-10 rounded-full" />

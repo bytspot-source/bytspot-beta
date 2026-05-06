@@ -1,6 +1,6 @@
 /**
  * useVenues — fetches real venue data from bytspot-api.onrender.com
- * Uses SSE for real-time crowd updates, falls back to 60s polling
+ * Uses SSE for real-time crowd updates and 60s polling.
  * Maps API response → DiscoverCard format for existing UI components
  * Enriches each card with real GPS distance when location is available
  */
@@ -11,19 +11,7 @@ import { resolveVenuePhoto } from '../venuePhoto';
 import { loadVirtualPatchContext } from '../virtualPatch';
 import { vendorServiceToCard } from '../vendorServiceCards';
 
-/**
- * Fallback venues with crowd data — used when the API is cold-starting or unreachable.
- * Ensures new users from QR-scan always see crowd levels instead of empty states.
- * These are real Atlanta Midtown venues with plausible crowd data.
- */
-const FALLBACK_VENUES: ApiVenue[] = [
-  { id: 'fallback-1', name: 'Ponce City Market', slug: 'ponce-city-market', address: '675 Ponce De Leon Ave NE', category: 'entertainment', lat: 33.7726, lng: -84.3655, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 10 }, parking: { totalAvailable: 45, spots: [] }, hardwarePatch: { id: 'patch-fallback-1', tagType: 'NTAG424_DNA', label: 'Market Entry', readCounter: 12, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true, wifi: { available: true, ssid: 'PCM Guest' } } },
-  { id: 'fallback-2', name: 'Colony Square', slug: 'colony-square', address: '1197 Peachtree St NE', category: 'shopping', lat: 33.7873, lng: -84.3832, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 }, parking: { totalAvailable: 22, spots: [] }, hardwarePatch: { id: 'patch-fallback-2', tagType: 'NTAG424_DNA', label: 'Midtown Entrance', readCounter: 28, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true, wifi: { available: true, ssid: 'Colony Guest' } } },
-  { id: 'fallback-3', name: 'Optimist Hall', slug: 'optimist-hall', address: '950 Marietta St NW', category: 'restaurant', lat: 33.7700, lng: -84.4050, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 30, spots: [] } },
-  { id: 'fallback-4', name: 'The Painted Pin', slug: 'the-painted-pin', address: '737 Miami Cir NE', category: 'nightlife', lat: 33.8120, lng: -84.3621, imageUrl: '', entryType: 'paid', entryPrice: '$20', ticketUrl: null, crowd: { level: 4, label: 'Packed', updatedAt: new Date().toISOString(), waitMins: 20 }, parking: { totalAvailable: 5, spots: [] }, ageGate: { minAge: 21 }, hardwarePatch: { id: 'patch-fallback-4', tagType: 'NTAG424_DNA', label: 'Lounge Door', readCounter: 41, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true } },
-  { id: 'fallback-5', name: 'Piedmont Park', slug: 'piedmont-park', address: '1320 Monroe Dr NE', category: 'park', lat: 33.7873, lng: -84.3748, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 0 }, parking: { totalAvailable: 60, spots: [] }, hardwarePatch: { id: 'patch-fallback-5', tagType: 'NTAG424_DNA', label: 'Park Gate', readCounter: 6, confirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), verifiedVenue: true } },
-  { id: 'fallback-6', name: 'Krog Street Market', slug: 'krog-street-market', address: '99 Krog St NE', category: 'restaurant', lat: 33.7575, lng: -84.3636, imageUrl: '', entryType: 'free', entryPrice: null, ticketUrl: null, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 }, parking: { totalAvailable: 12, spots: [] } },
-] as unknown as ApiVenue[];
+const FALLBACK_VENUES: ApiVenue[] = [];
 
 /** Haversine — returns distance in miles between two lat/lng points */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -290,7 +278,7 @@ export function useVenues(): UseVenuesResult {
         const cached = localStorage.getItem('bytspot_venues_cache');
         let fallback: ApiVenue[] = FALLBACK_VENUES;
         if (cached) {
-          try { fallback = JSON.parse(cached); } catch { /* use default fallback */ }
+          try { fallback = JSON.parse(cached); } catch { /* ignore malformed cache */ }
         }
         venuesRef.current = fallback;
         setVenues(fallback);
@@ -304,22 +292,22 @@ export function useVenues(): UseVenuesResult {
       setVenues(venuesResult.value.venues);
       setCombinedCards(venuesResult.value.venues, vendorCards);
       setError(null);
-      // Cache successful API response for offline/cold-start fallback
+      // Cache successful API response for offline/cold-start resilience.
       try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(venuesResult.value.venues)); } catch { /* quota exceeded — ignore */ }
     } catch (err: any) {
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) return;
-      console.warn('[useVenues] API unavailable, using fallback venues:', err?.message);
-      // API-first fallback: use cached venues from localStorage, then fallback mock data
+      console.warn('[useVenues] API unavailable, using cached venues:', err?.message);
+      // API-first fallback: use cached venues from localStorage only.
       const cached = localStorage.getItem('bytspot_venues_cache');
       let fallback: ApiVenue[] = FALLBACK_VENUES;
       if (cached) {
-        try { fallback = JSON.parse(cached); } catch { /* use default fallback */ }
+        try { fallback = JSON.parse(cached); } catch { /* ignore malformed cache */ }
       }
       venuesRef.current = fallback;
       vendorServiceCardsRef.current = [];
       setVenues(fallback);
       setCombinedCards(fallback, []);
-      setError(null); // Don't show error — we have fallback data
+      setError(null);
     }
 
     setLoading(false);

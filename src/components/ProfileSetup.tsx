@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { User, Camera, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 interface ProfileSetupProps {
   isDarkMode: boolean;
@@ -20,16 +21,12 @@ export function ProfileSetup({ isDarkMode, onComplete }: ProfileSetupProps) {
   };
 
   const handleAvatarUpload = () => {
-    // Mock avatar upload
-    setHasAvatar(true);
+    toast('Avatar upload is not available yet', { description: 'Profile photos will be enabled once account storage is connected.' });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && email.trim()) {
-      // Mock profile creation with JWT token storage
-      const mockToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mocktoken';
-      localStorage.setItem('bytspot_auth_token', mockToken);
       localStorage.setItem('bytspot_user', JSON.stringify({ name, email, hasAvatar }));
       onComplete();
     }

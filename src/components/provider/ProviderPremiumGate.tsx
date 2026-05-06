@@ -3,7 +3,6 @@ import { motion } from 'motion/react';
 import { CheckCircle2, Crown, Lock, Sparkles, Zap } from 'lucide-react';
 import { trpc } from '../../utils/trpc';
 import {
-  activateProviderPremiumPreview,
   getProviderPremiumEntitlement,
   PROVIDER_PREMIUM_EVENT,
   syncProviderPremiumEntitlementFromSubscription,
@@ -47,7 +46,6 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
 
   const isUnlocked = entitlement.isActive && entitlement.tier === tier;
   const premiumLabel = tier === 'valet-premium' ? 'VALET PREMIUM' : 'VENDOR PREMIUM';
-  const activatePreview = () => setEntitlement(activateProviderPremiumPreview(tier));
   const offer = subscriptionStatus?.subscriptionOffers?.[tier];
   const availablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
   const baseCents = Number(offer?.baseUnitAmountCents ?? (tier === 'valet-premium' ? 1499 : 4900));
@@ -78,14 +76,9 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
         setCheckoutMessage({ tone: 'info', text: 'Premium is already active for this account.' });
         return;
       }
-      if (result?.demoMode) {
-        setEntitlement(activateProviderPremiumPreview(tier));
-        setCheckoutMessage({ tone: 'info', text: 'Stripe is not configured yet — temporary Premium access is active on this device.' });
-        return;
-      }
       setCheckoutMessage({ tone: 'error', text: result?.message ?? 'Checkout is not available yet.' });
     } catch {
-      setCheckoutMessage({ tone: 'error', text: 'Checkout unavailable — retry checkout or enable temporary access while billing is configured.' });
+      setCheckoutMessage({ tone: 'error', text: 'Checkout unavailable. Please retry after billing is configured.' });
     } finally {
       setCheckoutLoading(false);
     }
@@ -199,14 +192,6 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
             className="rounded-[16px] bg-slate-950 px-4 py-3 text-[13px] font-black text-white shadow-lg shadow-slate-950/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 disabled:opacity-60"
           >
             {checkoutCtaLabel}
-          </button>
-          <button
-            type="button"
-            data-testid="provider-premium-preview-cta"
-            onClick={activatePreview}
-            className="rounded-[16px] border border-cyan-300 bg-cyan-50 px-4 py-3 text-[13px] font-black text-cyan-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
-          >
-            Temporary Access
           </button>
           </div>
         </div>

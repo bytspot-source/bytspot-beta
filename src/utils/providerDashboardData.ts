@@ -311,7 +311,7 @@ export function useProviderDashboardData(): ProviderDashboardData {
       } else {
         // Patch APIs may not be deployed in every preview environment yet.
         // Keep the dashboard live-ready by rendering an empty list instead of
-        // a local mock list that would bypass backend state.
+        // a local list that would bypass backend state.
         setPatches([]);
       }
       if (connectResult.status === 'fulfilled') {

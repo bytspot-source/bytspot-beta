@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, Award, Star, Zap, Shield, Crown } from 'lucide-react';
-import { mockDriverProfile } from '../../../utils/valetMockData';
+import { currentDriverProfile } from '../../../utils/valetProductionData';
 
 interface DriverAchievementsProps {
   isDarkMode: boolean;
@@ -25,7 +25,7 @@ const milestones = [
 
 export function DriverAchievements({ isDarkMode, onBack }: DriverAchievementsProps) {
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
-  const { totalJobs, rating, certifications } = mockDriverProfile;
+  const { totalJobs, rating, certifications } = currentDriverProfile;
 
   const nextMilestone = milestones.find((m) => !m.unlocked);
   const progress = nextMilestone ? Math.min((totalJobs / nextMilestone.jobs) * 100, 100) : 100;

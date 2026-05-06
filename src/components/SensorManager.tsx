@@ -88,20 +88,11 @@ export class SensorManager {
   private watchId?: number;
   private isRestarting: boolean = false;
   private restartTimeout?: number;
-  
-  // Simulated sensor data for demo
-  private wifiNetworks: WifiNetwork[] = [
-    { ssid: 'BytspotParking-5G', bssid: '00:11:22:33:44:55', signalStrength: -45, frequency: 5180, estimatedDistance: 5 },
-    { ssid: 'Downtown-Plaza-WiFi', bssid: '00:11:22:33:44:66', signalStrength: -62, frequency: 2437, estimatedDistance: 15 },
-    { ssid: 'CityParking-Mesh', bssid: '00:11:22:33:44:77', signalStrength: -55, frequency: 5240, estimatedDistance: 10 },
-  ];
-  
-  private bleBeacons: BleBeacon[] = [
-    { uuid: 'f7826da6-4fa2-4e98-8024-bc5b71e0893e', major: 100, minor: 1, rssi: -65, distance: 8.5, accuracy: 2.0, name: 'Entrance' },
-    { uuid: 'f7826da6-4fa2-4e98-8024-bc5b71e0893e', major: 100, minor: 2, rssi: -58, distance: 5.2, accuracy: 1.5, name: 'Level 1' },
-    { uuid: 'f7826da6-4fa2-4e98-8024-bc5b71e0893e', major: 100, minor: 3, rssi: -72, distance: 12.3, accuracy: 3.0, name: 'Level 2' },
-  ];
-  
+
+  private wifiNetworks: WifiNetwork[] = [];
+
+  private bleBeacons: BleBeacon[] = [];
+
   private constructor() {
     this.settings = this.loadSettings();
     this.sensorData = this.getInitialSensorData();
@@ -141,9 +132,9 @@ export class SensorManager {
   
   private getInitialSensorData(): SensorData {
     return {
-      latitude: 37.7749,
-      longitude: -122.4194,
-      accuracy: 10,
+      latitude: 0,
+      longitude: 0,
+      accuracy: 0,
       wifiEnabled: false,
       wifiNetworks: [],
       bleEnabled: false,
@@ -177,12 +168,12 @@ export class SensorManager {
       }
     }
     
-    // Start WiFi scanning (simulated)
+    // Start WiFi scanning when a native integration supplies network data.
     if (this.settings.wifiScanningEnabled) {
       this.startWifiScanning();
     }
     
-    // Start BLE scanning (simulated)
+    // Start BLE scanning when a native integration supplies beacon data.
     if (this.settings.bleScanningEnabled) {
       this.startBleScanning();
     }
@@ -253,15 +244,16 @@ export class SensorManager {
       console.debug('Location service:', errorMessages[error.code] || 'Unknown error');
     }
     
-    // Use default location if geolocation fails (Atlanta Midtown)
-    this.sensorData.latitude = 33.7866;
-    this.sensorData.longitude = -84.3833;
-    this.sensorData.accuracy = 50; // Lower accuracy for default location
+    this.sensorData.accuracy = 0;
   }
   
   private startWifiScanning(): void {
     this.sensorData.wifiEnabled = true;
     this.sensorData.wifiNetworks = this.wifiNetworks;
+    if (this.wifiNetworks.length === 0) {
+      this.sensorData.wifiAccuracy = undefined;
+      return;
+    }
     
     // Calculate WiFi-based accuracy (stronger signal = better accuracy)
     const avgSignal = this.wifiNetworks.reduce((sum, net) => sum + net.signalStrength, 0) / this.wifiNetworks.length;
@@ -271,6 +263,11 @@ export class SensorManager {
   private startBleScanning(): void {
     this.sensorData.bleEnabled = true;
     this.sensorData.bleBeacons = this.bleBeacons;
+    if (this.bleBeacons.length === 0) {
+      this.sensorData.bleAccuracy = undefined;
+      this.sensorData.indoorDetected = false;
+      return;
+    }
     
     // Calculate BLE-based accuracy (closest beacon)
     const closestBeacon = this.bleBeacons.reduce((prev, curr) => 

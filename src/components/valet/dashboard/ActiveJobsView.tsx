@@ -17,7 +17,7 @@ import {
   X,
   Briefcase
 } from 'lucide-react';
-import { mockActiveJobs, mockDriverProfile, type ValetJob, type AddonService } from '../../../utils/valetMockData';
+import { emptyValetJobs, currentDriverProfile, type ValetJob, type AddonService } from '../../../utils/valetProductionData';
 import { useState } from 'react';
 import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 
@@ -33,7 +33,7 @@ const ADDON_ICONS: Record<string, any> = {
 };
 
 export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
-  const [jobs, setJobs] = useState(mockActiveJobs);
+  const [jobs, setJobs] = useState(emptyValetJobs);
 
   const springConfig = {
     type: "spring" as const,
@@ -42,7 +42,7 @@ export function ActiveJobsView({ isDarkMode }: ActiveJobsViewProps) {
     mass: 0.8,
   };
 
-  const driverProfile = mockDriverProfile;
+  const driverProfile = currentDriverProfile;
   const driverBattery = driverProfile.eBikeBatteryLevel;
   const driverBikeSize = driverProfile.gearRegistry.sizeClass;
   const driverCerts = driverProfile.certifications;

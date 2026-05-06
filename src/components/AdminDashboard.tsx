@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle, Megaphone, Gauge } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { trpc } from '../utils/trpc';
-import { generateMockSystemHealth, type SystemHealth } from '../utils/fusionEngineMockData';
+import { EMPTY_SYSTEM_HEALTH, type SystemHealth } from '../utils/fusionEngineTelemetry';
 import { buildEfficiencyInputsFromSystemHealth, EFFICIENCY_COMPONENT_META } from '../utils/efficiencyTelemetry';
 import { computeEfficiencyScore, type EfficiencyScoreInputs } from '../utils/efficiencyScore';
 import { StaffPatchWriter } from './admin/StaffPatchWriter';
@@ -59,9 +59,7 @@ export function AdminDashboard() {
     try {
       const data = await trpc.admin.stats.query({ adminPassword: password });
       setStats(data);
-      // Internal-only Efficiency Metrics validation surface — refresh telemetry alongside stats.
-      // Sourced from mock until the backend telemetry endpoint ships.
-      setSystemHealth(generateMockSystemHealth());
+      setSystemHealth(EMPTY_SYSTEM_HEALTH);
     } catch (err: any) {
       if (err?.data?.code === 'UNAUTHORIZED') { toast.error('Wrong password'); setAuthed(false); return; }
       toast.error('Could not reach API');
@@ -258,7 +256,7 @@ export function AdminDashboard() {
             })}
           </div>
           <p className="text-[10px] text-white/25 mt-4 leading-snug">
-            Internal validation surface. Sourced from mock telemetry until the backend endpoint ships.
+                Internal validation surface. Live telemetry will populate here after the backend endpoint ships.
             Never surfaced on customer-adjacent screens.
           </p>
         </div>

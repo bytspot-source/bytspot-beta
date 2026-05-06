@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Car, IdCard, Shield, Save } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { mockDriverProfile } from '../../../utils/valetMockData';
+import { currentDriverProfile } from '../../../utils/valetProductionData';
 
 interface DriverVehicleEditProps {
   isDarkMode: boolean;
@@ -37,23 +37,23 @@ export function DriverVehicleEdit({ isDarkMode, onBack }: DriverVehicleEditProps
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
   const [vehicle, setVehicle] = useState<VehicleForm>({
-    make: mockDriverProfile.vehicleInfo.make,
-    model: mockDriverProfile.vehicleInfo.model,
-    year: String(mockDriverProfile.vehicleInfo.year),
-    color: mockDriverProfile.vehicleInfo.color,
-    plate: mockDriverProfile.vehicleInfo.plate,
+    make: currentDriverProfile.vehicleInfo.make,
+    model: currentDriverProfile.vehicleInfo.model,
+    year: currentDriverProfile.vehicleInfo.year ? String(currentDriverProfile.vehicleInfo.year) : '',
+    color: currentDriverProfile.vehicleInfo.color,
+    plate: currentDriverProfile.vehicleInfo.plate,
   });
 
   const [license, setLicense] = useState<LicenseForm>({
-    number: mockDriverProfile.licenseInfo.number,
-    state: mockDriverProfile.licenseInfo.state,
-    expiryDate: mockDriverProfile.licenseInfo.expiryDate,
+    number: currentDriverProfile.licenseInfo.number,
+    state: currentDriverProfile.licenseInfo.state,
+    expiryDate: currentDriverProfile.licenseInfo.expiryDate,
   });
 
   const [insurance, setInsurance] = useState<InsuranceForm>({
-    provider: mockDriverProfile.insurance.provider,
-    policyNumber: mockDriverProfile.insurance.policyNumber,
-    expiryDate: mockDriverProfile.insurance.expiryDate,
+    provider: currentDriverProfile.insurance.provider,
+    policyNumber: currentDriverProfile.insurance.policyNumber,
+    expiryDate: currentDriverProfile.insurance.expiryDate,
   });
 
   const handleSave = () => {

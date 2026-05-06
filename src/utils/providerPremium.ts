@@ -9,7 +9,7 @@ export interface ProviderPremiumEntitlement {
   tier: ProviderPremiumTier;
   label: 'Free Provider' | 'Vendor Premium' | 'Valet Premium';
   activatedAt: string | null;
-  source: 'local-preview' | 'subscription';
+  source: 'none' | 'subscription';
 }
 
 const FREE_PROVIDER: ProviderPremiumEntitlement = {
@@ -17,7 +17,7 @@ const FREE_PROVIDER: ProviderPremiumEntitlement = {
   tier: 'free',
   label: 'Free Provider',
   activatedAt: null,
-  source: 'local-preview',
+  source: 'none',
 };
 
 function readEntitlement(): ProviderPremiumEntitlement {
@@ -25,13 +25,15 @@ function readEntitlement(): ProviderPremiumEntitlement {
     const raw = localStorage.getItem(PROVIDER_PREMIUM_KEY);
     if (!raw) return FREE_PROVIDER;
     const parsed = JSON.parse(raw) as Partial<ProviderPremiumEntitlement>;
+    const source = parsed.source === 'subscription' ? 'subscription' : 'none';
+    const tier = source === 'subscription' ? parsed.tier ?? 'free' : 'free';
     return {
       ...FREE_PROVIDER,
       ...parsed,
-      isActive: parsed.isActive === true,
-      tier: parsed.tier ?? 'free',
-      label: parsed.label ?? 'Free Provider',
-      source: parsed.source ?? 'local-preview',
+      isActive: source === 'subscription' && parsed.isActive === true,
+      tier,
+      label: source === 'subscription' ? parsed.label ?? 'Free Provider' : 'Free Provider',
+      source,
     };
   } catch {
     return FREE_PROVIDER;
@@ -76,17 +78,7 @@ export function syncProviderPremiumEntitlementFromSubscription(
   return writeEntitlement(providerPremiumEntitlementFromSubscription(status, tier));
 }
 
-export function activateProviderPremiumPreview(tier: Exclude<ProviderPremiumTier, 'free'> = 'vendor-premium'): ProviderPremiumEntitlement {
-  return writeEntitlement({
-    isActive: true,
-    tier,
-    label: tier === 'valet-premium' ? 'Valet Premium' : 'Vendor Premium',
-    activatedAt: new Date().toISOString(),
-    source: 'local-preview',
-  });
-}
-
-export function clearProviderPremiumPreview(): ProviderPremiumEntitlement {
+export function clearProviderPremiumEntitlement(): ProviderPremiumEntitlement {
   localStorage.removeItem(PROVIDER_PREMIUM_KEY);
   window.dispatchEvent(new Event(PROVIDER_PREMIUM_EVENT));
   return FREE_PROVIDER;

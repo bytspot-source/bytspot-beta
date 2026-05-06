@@ -549,13 +549,12 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     setInputValue('');
     setIsTyping(true);
 
-    // Offline: respond locally instead of hitting the API
+    // Offline: do not fabricate concierge answers.
     if (!navigator.onLine) {
-      const response = getSmartAIResponse(userInput);
       const aiMessage: Message = {
         id: Date.now() + 1, type: 'ai',
-        content: '📡 *You\'re offline.* Here\'s what I found from cached data:\n\n' + response.content,
-        timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+        content: '📡 You\'re offline. Concierge needs a live connection to answer accurately.',
+        timestamp: new Date(), suggestions: ['Try again when online'], recommendations: [],
       };
       setMessages((prev) => [...prev, aiMessage]);
       setIsTyping(false);
@@ -571,11 +570,9 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     try {
       const token = localStorage.getItem('bytspot_auth_token');
       if (!token) {
-        // Unauthenticated — fall back to local mock
-        const response = getSmartAIResponse(userInput);
         const aiMessage: Message = {
-          id: Date.now() + 1, type: 'ai', content: response.content,
-          timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+          id: Date.now() + 1, type: 'ai', content: 'Sign in to use live concierge recommendations.',
+          timestamp: new Date(), suggestions: ['Sign in', 'Explore nearby'], recommendations: [],
         };
         setMessages((prev) => [...prev, aiMessage]);
         setIsTyping(false);
@@ -613,11 +610,9 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       setMessages((prev) => [...prev, aiMessage]);
     } catch (err: any) {
       console.error('[Concierge] API error:', err?.message);
-      // Fall back to local mock on error
-      const response = getSmartAIResponse(userInput);
       const aiMessage: Message = {
-        id: Date.now() + 1, type: 'ai', content: response.content,
-        timestamp: new Date(), suggestions: response.suggestions, recommendations: response.recommendations,
+        id: Date.now() + 1, type: 'ai', content: 'Concierge is temporarily unavailable. Please try again in a moment.',
+        timestamp: new Date(), suggestions: ['Retry', 'Find parking nearby'], recommendations: [],
       };
       setMessages((prev) => [...prev, aiMessage]);
     } finally {

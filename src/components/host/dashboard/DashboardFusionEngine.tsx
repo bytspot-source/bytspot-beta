@@ -26,14 +26,13 @@ import { useCallback, useMemo, useState, useEffect } from 'react';
 import { trpc } from '../../../utils/trpc';
 import { guidanceForRole, type ProviderDashboardAccess } from './providerDashboardAccess';
 import { 
-  generateMockTrip, 
-  generateMockSystemHealth, 
-  generateMockRecentEvents,
-  mockActiveTrips,
+  EMPTY_SYSTEM_HEALTH,
+  liveActiveTrips,
+  liveRecentGeofenceEvents,
   type TripData,
   type SystemHealth,
   type GeofenceEvent,
-} from '../../../utils/fusionEngineMockData';
+} from '../../../utils/fusionEngineTelemetry';
 
 interface DashboardFusionEngineProps {
   isDarkMode: boolean;
@@ -87,7 +86,7 @@ function getPayoutStatusLabel(vendor: VendorOnboardingStatus | null, account: St
 
 export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEngineProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
-  const [systemHealth, setSystemHealth] = useState<SystemHealth>(generateMockSystemHealth());
+  const [systemHealth] = useState<SystemHealth>(EMPTY_SYSTEM_HEALTH);
   const [selectedTrip, setSelectedTrip] = useState<TripData | null>(null);
   const [recentEvents, setRecentEvents] = useState<GeofenceEvent[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -105,17 +104,9 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
     mass: 0.8,
   };
 
-  // Update system health periodically
+  // Load live recent events when telemetry is connected.
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSystemHealth(generateMockSystemHealth());
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Load recent events
-  useEffect(() => {
-    setRecentEvents(generateMockRecentEvents());
+    setRecentEvents(liveRecentGeofenceEvents);
   }, []);
 
   const syncStripeConnect = useCallback(async (source: 'initial' | 'return' | 'manual' = 'manual') => {
@@ -132,9 +123,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       setConnectAccount(result?.account ?? null);
 
       const label = getPayoutStatusLabel(result?.vendor ?? null, result?.account ?? null);
-      if (result?.demoMode) {
-        setConnectMessage('Stripe is not configured in this environment yet.');
-      } else if (source === 'return') {
+      if (source === 'return') {
         setConnectMessage(
           label === 'Payouts Enabled'
             ? 'Stripe returned a verified payout account. Marketplace bookings can now route provider payouts.'
@@ -178,10 +167,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
   }, [isPlaying, playbackIndex, selectedTrip]);
 
   const handleLoadTrip = () => {
-    const trip = generateMockTrip();
-    setSelectedTrip(trip);
-    setPlaybackIndex(0);
-    setViewMode('trip-replay');
+    setConnectMessage('Live trip replay is unavailable until telemetry ingestion is connected.');
   };
 
   const getAccuracyColor = (accuracy: number) => {
@@ -538,13 +524,13 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 whileTap={{ scale: 0.95 }}
               >
                 <span className="text-[13px] text-purple-300" style={{ fontWeight: 600 }}>
-                  Load Sample
+                  No live trips
                 </span>
               </motion.button>
             </div>
             
             <div className="space-y-3">
-              {mockActiveTrips.map((trip, index) => (
+              {liveActiveTrips.map((trip, index) => (
                 <motion.button
                   key={trip.id}
                   onClick={handleLoadTrip}

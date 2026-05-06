@@ -108,17 +108,17 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       ? 'border-white/10 bg-white/[0.05] text-slate-200'
       : 'border-slate-200 bg-white text-slate-700',
     footer: isDarkMode
-      ? 'border-white/10 bg-white/[0.02]'
+      ? 'border-slate-700 bg-slate-900'
       : 'border-slate-200 bg-slate-50/80',
-    modalBackdrop: isDarkMode ? 'bg-black/75' : 'bg-slate-950/40',
+    modalBackdrop: isDarkMode ? 'bg-slate-950/95' : 'bg-slate-950/65',
     modal: isDarkMode
-      ? 'border-white/10 bg-[#0F1014] shadow-2xl shadow-black/60'
+      ? 'border-slate-600 bg-slate-950 text-white shadow-2xl shadow-black/80'
       : 'border-slate-200 bg-white shadow-2xl shadow-slate-300/60',
     input: isDarkMode
-      ? 'border-white/10 bg-black/40 text-white placeholder:text-slate-500'
+      ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500'
       : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
     secondaryBtn: isDarkMode
-      ? 'border-white/10 bg-white/[0.06] text-white hover:bg-white/[0.10]'
+      ? 'border-slate-600 bg-slate-900 text-white hover:bg-slate-800'
       : 'border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
     statusActive: isDarkMode
       ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/30'
@@ -451,13 +451,13 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       <AnimatePresence>
         {creatingService && (
           <motion.div
-            className={`fixed inset-0 z-[120] flex items-end justify-center px-4 pb-4 backdrop-blur-md sm:items-center ${tone.modalBackdrop}`}
+            className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 backdrop-blur-sm sm:items-center ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             data-testid="provider-service-create-modal"
           >
-            <motion.div className={`w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`} initial={{ y: 32, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 32, scale: 0.97 }} transition={springConfig}>
+            <motion.div className={`relative w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`} initial={{ y: 32, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 32, scale: 0.97 }} transition={springConfig}>
               <div className="flex items-start justify-between gap-3 border-b border-inherit p-6 pb-5">
                 <div>
                   <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create service</p>
@@ -484,14 +484,14 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
         {editingService && editForm && (
           <motion.div
-            className={`fixed inset-0 z-[120] flex items-end justify-center px-4 pb-4 backdrop-blur-md sm:items-center ${tone.modalBackdrop}`}
+            className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 backdrop-blur-sm sm:items-center ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             data-testid="provider-service-edit-modal"
           >
             <motion.div
-              className={`w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`}
+              className={`relative w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`}
               initial={{ y: 32, scale: 0.97 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 32, scale: 0.97 }}

@@ -13,7 +13,10 @@ import {
   Mail,
   Phone,
   MapPin,
-  Shield
+  Shield,
+  Save,
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { roleLabel, type ProviderBusinessMode, type ProviderDashboardAccess, type ProviderRole } from './providerDashboardAccess';
@@ -32,6 +35,15 @@ type StoredUser = {
   region?: string | null;
   createdAt?: string | null;
 };
+
+type SettingsPanel =
+  | 'personal'
+  | 'business'
+  | 'security'
+  | 'notifications'
+  | 'privacy'
+  | 'help'
+  | null;
 
 function readStoredUser(): StoredUser | null {
   try {
@@ -63,13 +75,17 @@ function formatJoined(iso?: string | null): string | null {
 }
 
 export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps) {
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [instantBook, setInstantBook] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('bytspot_provider_push_notifications') !== 'false');
+  const [instantBook, setInstantBook] = useState(() => localStorage.getItem('bytspot_provider_instant_book') !== 'false');
   const [selectedRole, setSelectedRole] = useState<ProviderRole>(access.role);
   const [businessMode, setBusinessMode] = useState<ProviderBusinessMode>(access.businessMode);
   const [storedUser, setStoredUser] = useState<StoredUser | null>(() => readStoredUser());
   const [displayName, setDisplayName] = useState<string | null>(() => readStoredName(readStoredUser()?.name));
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<SettingsPanel>(null);
+  const [profileDraft, setProfileDraft] = useState<StoredUser>(() => readStoredUser() ?? {});
+  const [privacyShare, setPrivacyShare] = useState(() => localStorage.getItem('bytspot_provider_privacy_share') !== 'false');
+  const [privacyMarketing, setPrivacyMarketing] = useState(() => localStorage.getItem('bytspot_provider_privacy_marketing') === 'true');
 
   const springConfig = {
     type: "spring" as const,
@@ -85,6 +101,8 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
     muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
     faint: isDarkMode ? 'text-slate-400' : 'text-slate-500',
     panel: isDarkMode ? 'border-white/25 bg-[#1C1C1E]/88' : 'border-slate-200 bg-white/90',
+    detailPanel: isDarkMode ? 'border-slate-600 bg-slate-950 text-white shadow-black/40' : 'border-slate-200 bg-white text-slate-950 shadow-slate-200/70',
+    input: isDarkMode ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500' : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
     rowBorder: isDarkMode ? 'border-white/10' : 'border-slate-200',
     rowHover: isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50',
     iconBubble: isDarkMode ? 'bg-[#2C2C2E]/70 border-white/20' : 'bg-slate-100 border-slate-200',
@@ -103,6 +121,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
       const next = readStoredUser();
       setStoredUser(next);
       setDisplayName(readStoredName(next?.name));
+      setProfileDraft(next ?? {});
     };
     window.addEventListener('storage', refresh);
     window.addEventListener('bytspot:user-updated', refresh as EventListener);
@@ -194,16 +213,24 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
   const handleSettingAction = async (label: string) => {
     setSettingsMessage(null);
+    const panelMap: Record<string, SettingsPanel> = {
+      'Personal Information': 'personal',
+      'Business Information': 'business',
+      'Password & Security': 'security',
+      'Notification Preferences': 'notifications',
+      'Privacy Settings': 'privacy',
+      'Help Center': 'help',
+    };
+    if (panelMap[label]) {
+      setActivePanel(panelMap[label]);
+      return;
+    }
     if (label === 'Contact Support') {
       window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Dashboard%20Support';
       return;
     }
     if (label === 'Legal & Policies') {
       window.location.href = '/terms';
-      return;
-    }
-    if (label === 'Help Center') {
-      window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center';
       return;
     }
     if (label === 'Payout Methods') {
@@ -220,8 +247,31 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
       }
       return;
     }
-    setSettingsMessage(`${label} is controlled from your provider profile and will sync with backend account settings.`);
   };
+
+  const saveStoredProfile = (patch: StoredUser, message: string) => {
+    const next = { ...(storedUser ?? {}), ...patch };
+    localStorage.setItem('bytspot_user', JSON.stringify(next));
+    if (next.name || next.businessName) localStorage.setItem('bytspot_user_name', String(next.businessName || next.name));
+    setStoredUser(next);
+    setDisplayName(readStoredName(next.name));
+    setProfileDraft(next);
+    setSettingsMessage(message);
+    window.dispatchEvent(new CustomEvent('bytspot:user-updated'));
+  };
+
+  const Field = ({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) => (
+    <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 800 }}>
+      {label}
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
+      />
+    </label>
+  );
 
   return (
     <div className={`space-y-6 ${tone.page}`}>
@@ -329,6 +379,89 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         <div className={`rounded-2xl border p-4 text-[13px] ${isDarkMode ? 'border-cyan-300/25 bg-cyan-500/10 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`}>
           {settingsMessage}
         </div>
+      )}
+
+      {activePanel && (
+        <motion.div
+          className={`rounded-[22px] border-2 p-5 shadow-2xl ${tone.detailPanel}`}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springConfig}
+          data-testid="provider-settings-detail-panel"
+        >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className={`text-[11px] uppercase tracking-[0.18em] ${tone.faint}`} style={{ fontWeight: 900 }}>Active settings</p>
+              <h3 className={`mt-1 text-[22px] ${tone.strong}`} style={{ fontWeight: 850 }}>
+                {activePanel === 'personal' && 'Personal Information'}
+                {activePanel === 'business' && 'Business Information'}
+                {activePanel === 'security' && 'Password & Security'}
+                {activePanel === 'notifications' && 'Notification Preferences'}
+                {activePanel === 'privacy' && 'Privacy Settings'}
+                {activePanel === 'help' && 'Help Center'}
+              </h3>
+            </div>
+            <button type="button" onClick={() => setActivePanel(null)} className={`rounded-full border p-2 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900'}`} aria-label="Close settings panel">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {activePanel === 'personal' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Display name" value={profileDraft.name ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, name: value })} placeholder="Provider owner name" />
+              <Field label="Email" value={profileDraft.email ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, email: value })} placeholder="owner@example.com" type="email" />
+              <Field label="Phone" value={profileDraft.phone ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, phone: value })} placeholder="Business phone" />
+              <Field label="City" value={profileDraft.city ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, city: value })} placeholder="City" />
+              <button type="button" onClick={() => saveStoredProfile({ name: profileDraft.name, email: profileDraft.email, phone: profileDraft.phone, city: profileDraft.city, region: profileDraft.region }, 'Personal information saved on this device and synced into the Provider Dashboard shell.')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white shadow-lg shadow-cyan-950/20 md:col-span-2">
+                <Save className="h-4 w-4" /> Save Personal Information
+              </button>
+            </div>
+          )}
+
+          {activePanel === 'business' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Business / venue name" value={profileDraft.businessName ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, businessName: value })} placeholder="Midtown Lounge" />
+              <Field label="Region / state" value={profileDraft.region ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, region: value })} placeholder="CA" />
+              <p className={`rounded-2xl border p-4 text-[13px] leading-5 md:col-span-2 ${isDarkMode ? 'border-amber-300/30 bg-amber-400/10 text-amber-50' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Tax identity and bank account changes are handled securely by Stripe Connect from Payout Methods. Bytspot does not store full bank details.</p>
+              <button type="button" onClick={() => saveStoredProfile({ businessName: profileDraft.businessName, city: profileDraft.city, region: profileDraft.region }, 'Business information saved for Provider Dashboard display and patch venue defaults.')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white shadow-lg shadow-cyan-950/20 md:col-span-2">
+                <Save className="h-4 w-4" /> Save Business Information
+              </button>
+            </div>
+          )}
+
+          {activePanel === 'security' && (
+            <div className="grid gap-3">
+              <p className={`text-[14px] leading-6 ${tone.body}`}>Use password recovery to change your password. Two-factor controls will appear here when account-level 2FA is enabled on the backend.</p>
+              <button type="button" onClick={() => { window.location.href = '/forgot-password'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[13px] font-black text-slate-950">
+                <ExternalLink className="h-4 w-4" /> Change Password
+              </button>
+            </div>
+          )}
+
+          {activePanel === 'notifications' && (
+            <div className="grid gap-3 md:grid-cols-2">
+              {[['Booking alerts', 'bytspot_provider_notify_bookings'], ['Payout alerts', 'bytspot_provider_notify_payouts'], ['Patch scan alerts', 'bytspot_provider_notify_patches'], ['Product updates', 'bytspot_provider_notify_product']].map(([label, key]) => {
+                const enabled = localStorage.getItem(key) !== 'false';
+                return <button key={key} type="button" onClick={() => { localStorage.setItem(key, String(!enabled)); setSettingsMessage(`${label} ${enabled ? 'disabled' : 'enabled'}.`); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">{label}</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{enabled ? 'Enabled' : 'Disabled'} — tap to change</span></button>;
+              })}
+            </div>
+          )}
+
+          {activePanel === 'privacy' && (
+            <div className="grid gap-3">
+              <button type="button" onClick={() => { const next = !privacyShare; setPrivacyShare(next); localStorage.setItem('bytspot_provider_privacy_share', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketplace visibility data</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyShare ? 'Enabled' : 'Disabled'} — controls whether operational listing signals improve provider recommendations.</span></button>
+              <button type="button" onClick={() => { const next = !privacyMarketing; setPrivacyMarketing(next); localStorage.setItem('bytspot_provider_privacy_marketing', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketing contact</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyMarketing ? 'Enabled' : 'Disabled'} — controls non-critical product and growth emails.</span></button>
+              <button type="button" onClick={() => { window.location.href = '/privacy'; }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-[13px] font-black text-cyan-100"><ExternalLink className="h-4 w-4" /> Open Privacy Policy</button>
+            </div>
+          )}
+
+          {activePanel === 'help' && (
+            <div className="grid gap-3 md:grid-cols-3">
+              {['Create a listing from My Listings.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
+              <button type="button" onClick={() => { window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white md:col-span-3"><Mail className="h-4 w-4" /> Email Provider Support</button>
+            </div>
+          )}
+        </motion.div>
       )}
 
       {/* Account Settings */}
@@ -552,7 +685,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
         <motion.button
           onClick={async () => {
-            if (confirm('Are you sure you want to reset your host profile? This will restart the onboarding process.')) {
+            if (confirm('Are you sure you want to reset your provider profile? This will restart the onboarding process.')) {
               await trpc.providers.resetHostProfile.mutate();
               window.location.reload();
             }
@@ -563,19 +696,19 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         >
           <LogOut className="w-5 h-5 text-red-400" strokeWidth={2.5} />
           <span className="text-[15px] text-red-400" style={{ fontWeight: 600 }}>
-            Reset Host Account
+            Reset Provider Account
           </span>
         </motion.button>
 
         <p className={`text-center text-[13px] mt-3 ${isDarkMode ? 'text-red-200' : 'text-red-700'}`} style={{ fontWeight: 500 }}>
-          This action will clear your host profile and restart onboarding
+          This action will clear your provider profile and restart onboarding
         </p>
       </motion.div>
 
       {/* App Version */}
       <div className="text-center py-4">
         <p className={`text-[13px] ${tone.faint}`} style={{ fontWeight: 500 }}>
-          Bytspot Host Dashboard v1.0.0
+          Bytspot Provider Dashboard v1.0.0
         </p>
       </div>
     </div>

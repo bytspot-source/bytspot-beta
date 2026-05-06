@@ -362,6 +362,34 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_mode'))).toBe('cottage');
   });
 
+  test('settings rows open active provider settings panels', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync);
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: /Personal Information/ }).click();
+    await expect(page.getByTestId('provider-settings-detail-panel')).toContainText('Personal Information');
+    await page.getByLabel('Display name').fill('Erin Morgan');
+    await page.getByRole('button', { name: /Save Personal Information/ }).click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').name)).toBe('Erin Morgan');
+
+    await page.getByRole('button', { name: /Business Information/ }).click();
+    await expect(page.getByTestId('provider-settings-detail-panel')).toContainText('Business Information');
+    await page.getByLabel('Business / venue name').fill('Midtown Lounge');
+    await page.getByRole('button', { name: /Save Business Information/ }).click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').businessName)).toBe('Midtown Lounge');
+
+    await page.getByRole('button', { name: /Password & Security/ }).click();
+    await expect(page.getByRole('button', { name: /Change Password/ })).toBeVisible();
+    await page.getByRole('button', { name: /Notification Preferences/ }).click();
+    await expect(page.getByTestId('provider-settings-detail-panel')).toContainText('Booking alerts');
+    await page.getByRole('button', { name: /Privacy Settings/ }).click();
+    await expect(page.getByTestId('provider-settings-detail-panel')).toContainText('Marketplace visibility data');
+    await page.getByRole('button', { name: /Help Center/ }).click();
+    await expect(page.getByRole('button', { name: /Email Provider Support/ })).toBeVisible();
+  });
+
   test('dashboard home renders live booking and payout totals from backend feed', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const startsAt = new Date(Date.now() + 60 * 60_000).toISOString();
@@ -394,6 +422,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     await page.getByRole('button', { name: 'Patches', exact: true }).click();
     await expect(page.getByTestId('provider-patches-form')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Premium Patch Toolkit');
+    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Provider Premium unlocks recommendations');
 
     const select = page.getByTestId('provider-patches-service-select');
     await expect(select).toBeEnabled();

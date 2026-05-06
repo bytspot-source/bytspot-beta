@@ -80,12 +80,12 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
       }
       if (result?.demoMode) {
         setEntitlement(activateProviderPremiumPreview(tier));
-        setCheckoutMessage({ tone: 'info', text: 'Stripe is not configured yet — preview entitlement activated.' });
+        setCheckoutMessage({ tone: 'info', text: 'Stripe is not configured yet — temporary Premium access is active on this device.' });
         return;
       }
       setCheckoutMessage({ tone: 'error', text: result?.message ?? 'Checkout is not available yet.' });
     } catch {
-      setCheckoutMessage({ tone: 'error', text: 'Checkout unavailable — try again or use preview while billing is configured.' });
+      setCheckoutMessage({ tone: 'error', text: 'Checkout unavailable — retry checkout or enable temporary access while billing is configured.' });
     } finally {
       setCheckoutLoading(false);
     }
@@ -105,7 +105,7 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
       role="region"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className={`rounded-[22px] border ${isUnlocked ? 'border-emerald-300/30 bg-emerald-500/10' : 'border-amber-300/30 bg-amber-500/10'} ${compact ? 'p-4' : 'p-5'}`}
+      className={`rounded-[22px] border shadow-2xl ${isUnlocked ? 'border-emerald-300/50 bg-slate-950 text-white shadow-emerald-950/25' : 'border-amber-300/50 bg-slate-950 text-white shadow-amber-950/25'} ${compact ? 'p-4' : 'p-5'}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
@@ -117,24 +117,24 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <p id={titleId} className="text-[16px] font-extrabold text-white">{title}</p>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isUnlocked ? 'bg-emerald-400/20 text-emerald-200' : 'bg-amber-400/20 text-amber-200'}`}>
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${isUnlocked ? 'border-emerald-300/40 bg-emerald-400/20 text-emerald-100' : 'border-amber-300/40 bg-amber-400/20 text-amber-100'}`}>
               {isUnlocked ? entitlement.label : premiumLabel}
             </span>
           </div>
-          <p id={descriptionId} className="text-[12px] leading-5 text-white/65">{description}</p>
+          <p id={descriptionId} className="text-[13px] leading-5 text-slate-100">{description}</p>
         </div>
       </div>
 
       <ul className="grid gap-2" data-testid="provider-premium-feature-list">
         {features.map((feature) => (
-          <li key={feature} className="flex items-center gap-2 rounded-[14px] bg-black/25 px-3 py-2 text-[12px] font-semibold text-white/75">
+          <li key={feature} className="flex items-center gap-2 rounded-[14px] border border-slate-700 bg-slate-900 px-3 py-2 text-[12px] font-bold text-slate-100">
             {isUnlocked ? <Zap className="h-4 w-4 text-cyan-200" aria-hidden="true" /> : <Lock className="h-4 w-4 text-amber-200" aria-hidden="true" />}
             {feature}
           </li>
         ))}
       </ul>
 
-      <p className="mt-3 rounded-[14px] bg-black/20 p-3 text-[11px] leading-5 text-white/55">
+      <p className="mt-3 rounded-[14px] border border-violet-300/25 bg-violet-400/10 p-3 text-[12px] font-semibold leading-5 text-violet-50">
         <Sparkles className="mr-1 inline h-3.5 w-3.5 text-fuchsia-200" aria-hidden="true" />
         AI ranking uses internal Optimization Logic. Provider Premium unlocks recommendations, not automatic service decisions.
       </p>
@@ -144,19 +144,19 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
         data-testid="provider-premium-checkout-message"
         role={checkoutMessage?.tone === 'error' ? 'alert' : 'status'}
         aria-live={checkoutMessage?.tone === 'error' ? 'assertive' : 'polite'}
-        className={`mt-3 min-h-[1px] text-[11px] font-semibold ${checkoutMessage?.tone === 'error' ? 'text-rose-200' : 'text-white/55'}`}
+        className={`mt-3 min-h-[1px] text-[12px] font-bold ${checkoutMessage?.tone === 'error' ? 'text-rose-100' : 'text-slate-100'}`}
       >
         {checkoutMessage?.text ?? ''}
       </div>
 
       {!isUnlocked && (
         <div className="mt-3 grid gap-3">
-          <div className="rounded-[16px] border border-white/10 bg-black/20 p-3">
-            <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white/70">
+          <div className="rounded-[16px] border border-slate-700 bg-slate-900 p-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-slate-100">
               <span className="font-bold">Estimated today</span>
               <span className="font-black text-white" data-testid="provider-premium-estimated-price">{formatCents(estimatedCents)} / mo</span>
             </div>
-            <label className="mb-2 flex items-center justify-between gap-3 rounded-[12px] bg-white/5 px-3 py-2 text-[12px] font-bold text-white/75">
+            <label className="mb-2 flex items-center justify-between gap-3 rounded-[12px] border border-slate-700 bg-slate-950 px-3 py-2 text-[12px] font-bold text-slate-100">
               <span>Use {availablePoints.toLocaleString()} points</span>
               <input
                 type="checkbox"
@@ -180,10 +180,10 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
               placeholder="Coupon code"
               data-testid="provider-premium-coupon"
               aria-label="Coupon code"
-              className="w-full rounded-[12px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
+              className="w-full rounded-[12px] border border-slate-600 bg-slate-950 px-3 py-2 text-[12px] font-semibold text-white placeholder:text-slate-500 outline-none focus:border-cyan-300/60"
             />
             {(insiderDiscountCents > 0 || pointsDiscountCents > 0) && (
-              <p className="mt-2 text-[11px] font-semibold text-emerald-200/80">
+                <p className="mt-2 text-[11px] font-bold text-emerald-100">
                 Saves {formatCents(insiderDiscountCents + pointsDiscountCents)} before any Stripe coupon is applied.
               </p>
             )}
@@ -204,9 +204,9 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
             type="button"
             data-testid="provider-premium-preview-cta"
             onClick={activatePreview}
-            className="rounded-[16px] border border-white/15 bg-white/10 px-4 py-3 text-[13px] font-black text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+            className="rounded-[16px] border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-[13px] font-black text-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
           >
-            Preview
+            Temporary Access
           </button>
           </div>
         </div>

@@ -77,11 +77,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
   };
 
   const handleGoogleSignup = () => {
-    // Mock Google signup
-    setEmail('demo@bytspot.com');
-    setPhone('(415) 555-0123');
-    setPassword('securepassword123');
-    setTermsAccepted(true);
+    setError('Google sign-up is not enabled yet. Please create your Provider account with email and password.');
   };
 
   return (
@@ -112,7 +108,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
       >
         <Chrome className="w-5 h-5 text-white" strokeWidth={2.5} />
         <span className="text-[17px] text-white" style={{ fontWeight: 600 }}>
-          Continue with Google
+          Google sign-up coming soon
         </span>
       </motion.button>
 

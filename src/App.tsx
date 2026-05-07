@@ -30,8 +30,9 @@ import { getTrendingVenueIds } from './utils/venueHours';
 import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
-import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
-import { finalizePendingParkingCheckout } from './utils/parkingReservations';
+import { getAccessPasses, getInsiderMembership, syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
+import { finalizePendingParkingCheckout, getParkingReservations } from './utils/parkingReservations';
+import { getUserPointsLocal } from './utils/gamification';
 import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
@@ -70,6 +71,7 @@ import {
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { homepagePriorityCards, type SimplexPriorityCard } from './features/prioritization.ts';
+import { deriveConsumerExperienceTier, getTieredHomeCards, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -78,6 +80,7 @@ const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-a
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
 const HOME_PRIORITY_CARD_STYLE = { width: 'clamp(236px, 72vw, 280px)', minHeight: 176 };
+const HOME_TIER_CARD_STYLE = { width: 'clamp(276px, 82vw, 318px)', minHeight: 238 };
 
 function canonicalProviderPath(pathname: string) {
   if (pathname === '/host') return '/provider';
@@ -583,6 +586,39 @@ export default function App() {
     }
 
     toast.success(card.title, { description: card.summary, duration: 2400 });
+  };
+
+  const tieredExperience = useMemo(() => {
+    const accessPasses = getAccessPasses();
+    const parkingPasses = getParkingReservations();
+    const points = getUserPointsLocal();
+    const membership = getInsiderMembership();
+    const tier = deriveConsumerExperienceTier({
+      bookingCount: accessPasses.length + parkingPasses.length,
+      activityPoints: points.total,
+      hasInsiderMembership: membership.isActive,
+    });
+
+    return {
+      tier,
+      profile: TIERED_EXPERIENCE_PROFILES[tier],
+      cards: getTieredHomeCards(tier),
+    };
+  }, [activeTab, currentScreen]);
+
+  const handleTieredCardClick = (card: TieredHomeCard) => {
+    trackEvent('tiered_experience_selected', {
+      id: card.id,
+      tier: tieredExperience.tier,
+    });
+
+    if (card.id === 'premium-valet') {
+      setShowRideSelection(true);
+      toast.success(card.title, { description: card.availabilityLine, duration: 2200 });
+      return;
+    }
+
+    handleCategoryClick('dining', card.title);
   };
 
   // PERFORMANCE: Memoize user preferences and behavior to prevent redundant calculations
@@ -1282,6 +1318,54 @@ export default function App() {
                         }}
                       />
                     </div>
+
+	                    {/* ── Tiered Experience Rail ── */}
+	                    <div className="mb-6" data-testid="home-tiered-experience-section">
+	                      <div className="mb-3 flex items-center justify-between gap-3">
+	                        <div>
+	                          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40" style={{ fontWeight: 800 }}>{tieredExperience.profile.eyebrow} · {tieredExperience.profile.name}</p>
+	                          <h2 className="mt-0.5 text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>{tieredExperience.profile.priorityRailLabel}</h2>
+	                        </div>
+	                        <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] text-white/75" style={{ fontWeight: 700 }}>{tieredExperience.profile.accessLevel}</span>
+	                      </div>
+	                      <div className={HOME_CAROUSEL_CLASS}>
+	                        {tieredExperience.cards.map((card, index) => (
+	                          <motion.button
+	                            key={card.id}
+	                            type="button"
+	                            data-testid={`home-tier-card-${card.id}`}
+	                            onClick={() => handleTieredCardClick(card)}
+	                            className={`relative flex-shrink-0 snap-start overflow-hidden rounded-[28px] border bg-gradient-to-br ${card.accentClass} p-0 text-left shadow-[0_18px_50px_rgba(0,0,0,0.30)] ring-1 ring-white/10`}
+	                            style={HOME_TIER_CARD_STYLE}
+	                            initial={{ opacity: 0, y: 12 }}
+	                            animate={{ opacity: 1, y: 0 }}
+	                            transition={{ ...springConfig, delay: 0.2 + index * 0.05 }}
+	                            whileTap={{ scale: 0.97 }}
+	                            whileHover={{ scale: 1.01, y: -2 }}
+	                          >
+	                            <div className="relative h-[92px] overflow-hidden bg-black/25">
+	                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(255,255,255,0.28),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(0,191,255,0.18),transparent_36%)]" />
+	                              <div className="absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-[22px] bg-black/30 text-[30px] ring-1 ring-white/20">{card.imageCue}</div>
+	                              <div className="absolute bottom-3 right-3 rounded-full border border-white/20 bg-black/45 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white" style={{ fontWeight: 850 }}>{card.tierBadge}</div>
+	                            </div>
+	                            <div className="p-4">
+	                              <div className="mb-2 flex items-center justify-between gap-2">
+	                                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 800 }}>{card.badge}</span>
+	                                <span className="text-[10px] text-white/45" style={{ fontWeight: 700 }}>{card.cardStyleLabel}</span>
+	                              </div>
+	                              <h3 className="text-[17px] leading-tight text-white line-clamp-2" style={{ fontWeight: 800 }}>{card.title}</h3>
+	                              <p className="mt-1 text-[12px] text-white/62 line-clamp-1" style={{ fontWeight: 600 }}>{card.subtitle}</p>
+	                              <p className="mt-3 text-[14px] text-white" style={{ fontWeight: 800 }}>{card.priceLine}</p>
+	                              <p className="mt-0.5 text-[12px] text-white/58" style={{ fontWeight: 600 }}>{card.availabilityLine}</p>
+	                              <div className="mt-4 flex items-center justify-between gap-3">
+	                                <span className="text-[11px] text-white/48">{tieredExperience.profile.heroLabel}</span>
+	                                <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-black" style={{ fontWeight: 850 }}>{card.ctaLabel}</span>
+	                              </div>
+	                            </div>
+	                          </motion.button>
+	                        ))}
+	                      </div>
+	                    </div>
 
 	                    {/* ── Simplex Priority Board ── */}
 	                    <div className="mb-6" data-testid="home-simplex-priority-section">

@@ -60,6 +60,9 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('tab', { name: 'Discover tab' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Map tab' })).toBeVisible();
+    await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
+    await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
+    await expect(page.getByTestId('home-tier-card-premium-valet')).toContainText('Book Valet');
     await expect(page.getByTestId('home-simplex-priority-section')).toBeVisible();
     await expect(page.getByTestId('home-priority-card-cottage-industry-services')).toContainText('Cottage Industry Services');
     await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();

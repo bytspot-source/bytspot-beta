@@ -25,6 +25,7 @@ import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
@@ -121,6 +122,20 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       ? 'SYNCED'
       : 'PREVIEW ACTIVE'
     : 'AVAILABLE';
+  const consumerBookingCount = walletPasses.length + parkingReservations.length;
+  const consumerExperienceTier = deriveConsumerExperienceTier({
+    bookingCount: consumerBookingCount,
+    activityPoints: userPoints.total,
+    checkinCount: checkinHistory.length,
+    hasInsiderMembership: membership.isActive,
+  });
+  const consumerExperienceProfile = TIERED_EXPERIENCE_PROFILES[consumerExperienceTier];
+  const consumerExperienceProgress = getConsumerTierProgress({
+    bookingCount: consumerBookingCount,
+    activityPoints: userPoints.total,
+    checkinCount: checkinHistory.length,
+    hasInsiderMembership: membership.isActive,
+  });
   const communityTierPerks = [
     'Live vibe + crowd discovery',
     `${userTier.name} rewards tier`,
@@ -894,6 +909,47 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 Badges
               </p>
             </div>
+          </div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="px-4 mb-6"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.06 }}
+        data-testid="profile-tier-benefits-summary"
+      >
+        <div className={`rounded-[24px] border-2 bg-gradient-to-br ${consumerExperienceProfile.accentClass} p-5 shadow-xl backdrop-blur-xl`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[12px] uppercase tracking-[0.18em] text-white/55" style={{ fontWeight: 850 }}>{consumerExperienceProfile.eyebrow}</p>
+              <h3 className="mt-1 text-[24px] text-white" style={{ fontWeight: 850 }}>{consumerExperienceProfile.name}</h3>
+              <p className="mt-2 text-[13px] leading-5 text-white/70" style={{ fontWeight: 600 }}>{consumerExperienceProfile.accessLevel}</p>
+            </div>
+            <div className="rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-right">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/45" style={{ fontWeight: 800 }}>Bookings</p>
+              <p className="text-[20px] leading-6 text-white" style={{ fontWeight: 850 }}>{consumerBookingCount}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[18px] border border-white/12 bg-black/20 p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[12px] text-white/70" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
+              <span className="text-[11px] text-white/45" style={{ fontWeight: 700 }}>{consumerExperienceProgress.progressPercent}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-fuchsia-300 to-amber-200" style={{ width: `${consumerExperienceProgress.progressPercent}%` }} />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2">
+            {consumerExperienceProfile.benefits.map((benefit) => (
+              <div key={benefit} className="flex items-center gap-2 text-[12px] text-white/78" style={{ fontWeight: 650 }}>
+                <CheckCircle2 className="h-4 w-4 text-emerald-200" strokeWidth={2.4} />
+                <span>{benefit}</span>
+              </div>
+            ))}
           </div>
         </div>
       </motion.div>

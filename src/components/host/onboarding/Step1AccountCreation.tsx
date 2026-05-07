@@ -4,6 +4,7 @@ import { Mail, Lock, Phone, Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
 import type { OnboardingData } from '../ProviderOnboarding';
 import { GoogleSignInButton } from '../../GoogleSignInButton';
+import { AppleSignInButton } from '../../AppleSignInButton';
 
 interface Step1AccountCreationProps {
   onComplete: (data: Partial<OnboardingData>) => void;
@@ -99,6 +100,23 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
     }
   };
 
+	  const handleAppleCredential = async ({ identityToken, email: appleEmail, name }: { identityToken: string; email?: string; name?: string }) => {
+	    if (isSubmitting) return;
+	    setIsSubmitting(true);
+	    setError(null);
+	    try {
+	      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name, ref: 'provider-onboarding' });
+	      persistAuth(res);
+	      const accountEmail = res.user?.email ?? appleEmail ?? email.trim();
+	      setEmail(accountEmail);
+	      onComplete({ account: { email: accountEmail, phone, password: '' } });
+	    } catch (err: any) {
+	      setError(err?.message || 'Sign in with Apple failed. Please try again.');
+	    } finally {
+	      setIsSubmitting(false);
+	    }
+	  };
+
   return (
     <div className="max-w-[800px] mx-auto px-4">
       {/* Header */}
@@ -142,13 +160,18 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         </button>
       </motion.div>
 
-      {/* Google Sign Up */}
+	      {/* Third-party sign in options */}
       <motion.div
-        className="w-full mb-6 rounded-[20px] border-2 border-white/30 bg-white/10 p-4 backdrop-blur-xl"
+	        className="w-full mb-6 space-y-3 rounded-[20px] border-2 border-white/30 bg-white/10 p-4 backdrop-blur-xl"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
       >
+	        <AppleSignInButton
+	          disabled={isSubmitting}
+	          onCredential={handleAppleCredential}
+	          onError={(message) => setError(message)}
+	        />
         <GoogleSignInButton
           label="Continue Provider onboarding with Google"
           disabled={isSubmitting}

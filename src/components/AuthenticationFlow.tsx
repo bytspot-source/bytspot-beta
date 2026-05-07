@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { AppleSignInButton } from './AppleSignInButton';
 
 interface AuthenticationFlowProps {
   isDarkMode: boolean;
@@ -88,6 +89,20 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
     }
   };
 
+	  const handleAppleCredential = async ({ identityToken, email: appleEmail, name: appleName }: { identityToken: string; email?: string; name?: string }) => {
+	    setError('');
+	    setLoading(true);
+	    try {
+	      const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
+	      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name: appleName, ref: refValue });
+	      persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
+	    } catch (err: any) {
+	      setError(err?.message || 'Sign in with Apple failed. Please try again.');
+	    } finally {
+	      setLoading(false);
+	    }
+	  };
+
   // Guest preview bypass — no OAuth needed for now
   const handleGuestContinue = () => {
     localStorage.setItem('bytspot_auth_token', 'guest_session');
@@ -144,7 +159,15 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
           ))}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
+	        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
+	          <AppleSignInButton
+	            disabled={loading}
+	            onCredential={handleAppleCredential}
+	            onError={(message) => setError(message)}
+	          />
+	        </motion.div>
+
+	        <motion.div className="mt-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.14 }}>
           <GoogleSignInButton
             disabled={loading}
             onCredential={handleGoogleCredential}

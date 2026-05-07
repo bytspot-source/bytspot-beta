@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle, Ticket, Receipt } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle, Ticket, Receipt, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { trpc } from '../utils/trpc';
@@ -38,7 +38,7 @@ interface ProfileSectionProps {
   onLogout?: () => void;
 }
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 
 function readVirtualPatchContext(): VirtualPatchContext | null {
   try {
@@ -83,6 +83,8 @@ function formatReservationWindow(startTime: string, endTime: string): string {
 
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const savedSpotsStats = getSavedSpotsStats();
 
   // Read real user data from localStorage
@@ -250,6 +252,28 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmation !== 'DELETE' || isDeletingAccount) return;
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token || token === 'guest_session') {
+      toast.error('Sign in required', { description: 'Please sign in before deleting an account.' });
+      return;
+    }
+    setIsDeletingAccount(true);
+    try {
+      await trpc.user.profile.deleteAccount.mutate({ confirmation: 'DELETE' });
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('bytspot_')) localStorage.removeItem(key);
+      });
+      toast.success('Account deleted', { description: 'Your Bytspot account has been permanently deleted.' });
+      setTimeout(() => onLogout?.(), 700);
+    } catch (err: any) {
+      toast.error('Unable to delete account', { description: err?.message || 'Please try again.' });
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
   const insiderOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
   const availableSubscriptionPoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
   const insiderBaseCents = Number(insiderOffer?.baseUnitAmountCents ?? 999);
@@ -382,12 +406,77 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 </div>
                 <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
               </button>
+
+              <button
+                onClick={() => setCurrentScreen('delete-account')}
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-red-600/15 border border-red-500/35 text-left"
+                data-testid="profile-delete-account-entry"
+              >
+                <div>
+                  <p className="text-[15px] text-red-100" style={{ fontWeight: 700 }}>Delete Account</p>
+                  <p className="text-[12px] text-red-100/65 mt-0.5">Permanently remove your account and data</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-red-100/70" strokeWidth={2} />
+              </button>
             </div>
           </div>
 
           <div className="rounded-[20px] p-4 border border-white/15 bg-white/5">
             <p className="text-[13px] text-white/50 mb-1" style={{ fontWeight: 700 }}>VERSION</p>
             <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>Bytspot 1.1</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentScreen === 'delete-account') {
+    const canDelete = deleteConfirmation === 'DELETE' && !isDeletingAccount;
+    return (
+      <div className="h-full flex flex-col bg-[#000000]">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <motion.button onClick={() => setCurrentScreen('general-settings')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Delete Account</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+          <div className="rounded-[24px] p-5 border-2 border-red-500/45 bg-red-950/30 shadow-xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-600/30 border border-red-400/40 flex items-center justify-center">
+                <Trash2 className="w-6 h-6 text-red-100" strokeWidth={2.5} />
+              </div>
+              <div className="flex-1">
+                <p className="text-[20px] text-white" style={{ fontWeight: 800 }}>Permanently delete your account?</p>
+                <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 500 }}>
+                  This removes your Bytspot profile, saved spots, preferences, check-ins, access passes, reservations, and sign-in session.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-[18px] border border-white/15 bg-black/35 p-4 space-y-2">
+              <p className="text-[13px] text-white/75" style={{ fontWeight: 650 }}>To confirm, type DELETE below.</p>
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value.toUpperCase())}
+                placeholder="DELETE"
+                data-testid="delete-account-confirmation-input"
+                className="w-full rounded-[14px] border-2 border-white/20 bg-[#1C1C1E] px-4 py-3 text-[16px] text-white outline-none placeholder:text-white/35 focus:border-red-300/70"
+              />
+            </div>
+
+            <button
+              type="button"
+              disabled={!canDelete}
+              onClick={handleDeleteAccount}
+              data-testid="delete-account-confirm-button"
+              className="mt-4 w-full rounded-[18px] bg-red-600 px-4 py-4 text-[16px] text-white shadow-lg disabled:bg-white/15 disabled:text-white/45"
+              style={{ fontWeight: 800 }}
+            >
+              {isDeletingAccount ? 'Deleting account…' : 'Delete My Account'}
+            </button>
           </div>
         </div>
       </div>

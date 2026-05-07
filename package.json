@@ -3,6 +3,7 @@
       "version": "0.1.0",
       "private": true,
       "dependencies": {
+            "@capacitor-community/apple-sign-in": "^7.1.0",
             "@capacitor/app": "^8.0.1",
             "@capacitor/core": "^8.2.0",
             "@capacitor/haptics": "^8.0.2",

@@ -26,7 +26,7 @@ export function RideSelection({ isOpen, onClose, onSelectValet, showValetOption 
     }
   }, [isOpen, lat, lng]);
 
-  // Helper to get provider data
+  // Helper to get ride data
   const getProvider = (name: string) => rides?.providers.find(p => p.name === name);
   const uberData = getProvider('Uber');
   const lyftData = getProvider('Lyft');

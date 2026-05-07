@@ -214,7 +214,7 @@ export function VirtualPatchScannerSheet({
           tokenJti: null,
           reason: 'patch_id_in_revocation_list',
         }));
-        throw new Error('This Bytspot patch has been revoked. Ask staff for a fresh sticker.');
+        throw new Error('This Bytspot patch has been revoked. Ask the venue team for a fresh sticker.');
       }
 
       let token = parsed.token;

@@ -111,7 +111,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
 
   const syncStripeConnect = useCallback(async (source: 'initial' | 'return' | 'manual' = 'manual') => {
     const token = localStorage.getItem('bytspot_auth_token');
-    if (!token || token === 'beta_guest') {
+    if (!token || token === 'guest_session') {
       setConnectMessage('Sign in with your Provider business account to connect Stripe payouts.');
       return;
     }

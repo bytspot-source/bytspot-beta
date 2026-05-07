@@ -22,7 +22,7 @@ export function PrivacyPolicy() {
           <><B>Usage Data</B> — Category clicks, venue visits, and search queries stored locally on your device to personalize recommendations. This data is not sent to our servers unless you are signed in.</>,
           <><B>Push Notification Tokens</B> — If you opt in to notifications, we store your device token to send crowd alerts for your saved venues.</>,
           <><B>Camera & Photos</B> — Accessed only when you choose to create a post or update your profile picture. We do not access your camera or photo library without your explicit action.</>,
-          <><B>Preferences & Quiz Answers</B> — Vibe preferences, cuisine affinities, and onboarding quiz answers stored locally to improve recommendations.</>,
+          <><B>Preferences & Quiz Answers</B> — Vibe preferences, cuisine affinities, and intro quiz answers stored locally to improve recommendations.</>,
         ]} />
       </Section>
 
@@ -59,7 +59,7 @@ export function PrivacyPolicy() {
       <Section title="5. Data Sharing">
         <p>
           We do <strong>not</strong> sell, trade, or rent your personal information to
-          third parties. We share data only as described above with service providers
+          third parties. We share data only as described above with trusted service processors
           necessary to operate the App.
         </p>
       </Section>

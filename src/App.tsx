@@ -33,21 +33,28 @@ import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
 import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
+const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
+
+function AppStoreUnavailable() {
+  return null;
+}
+
 const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
 const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
-const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
-const AdminApprovals = lazy(() => import('./components/admin/AdminApprovals').then(m => ({ default: m.AdminApprovals })));
+const AdminDashboard = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminApprovals = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/admin/AdminApprovals').then(m => ({ default: m.AdminApprovals })));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
-const ProviderLanding = lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
-const ProviderApp = lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
-const ValetApp = lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
-const ValetFlow = lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
+const ProviderLanding = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
+const ProviderApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
+const ValetApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
+const ValetFlow = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
 const PasswordRecoveryScreen = lazy(() => import('./components/PasswordRecoveryScreen').then(m => ({ default: m.PasswordRecoveryScreen })));
+const PrintableMarketingAssets = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/PrintableMarketingAssets'));
 
 import {
   getPersonalizedCategories,
@@ -187,11 +194,13 @@ export default function App() {
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
 
   const openProviderLanding = useCallback(() => {
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return;
     window.history.replaceState({}, '', '/provider');
     setProviderRouteVersion(version => version + 1);
   }, []);
 
   const startProviderOnboarding = useCallback((role: ProviderRole) => {
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return;
     localStorage.setItem('bytspot_provider_role', role);
     localStorage.setItem('bytspot_provider_entry_source', 'provider-route');
     window.history.pushState({}, '', '/provider/onboarding');
@@ -768,27 +777,30 @@ export default function App() {
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
-    const canonicalPath = canonicalProviderPath(normalizedPath);
+    const canonicalPath = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? normalizedPath : canonicalProviderPath(normalizedPath);
     if (APP_STORE_CONSUMER_ONLY_BUILD && (isAppStoreConsumerOnlyBlockedPath(normalizedPath) || isAppStoreConsumerOnlyBlockedPath(canonicalPath))) {
       return <ConsumerOnlyRouteRedirect />;
     }
 
-    // Phase 4 rollout alias: legacy Host URLs remain functional for one sprint,
-    // but users are canonicalized to Provider URLs. Remove after 2026-05-20.
-    if (canonicalPath !== normalizedPath) {
-      window.history.replaceState({}, '', `${canonicalPath}${window.location.search}${window.location.hash}`);
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME) {
+      // Phase 4 rollout alias: legacy Host URLs remain functional for one sprint,
+      // but users are canonicalized to Provider URLs. Remove after 2026-05-20.
+      if (canonicalPath !== normalizedPath) {
+        window.history.replaceState({}, '', `${canonicalPath}${window.location.search}${window.location.hash}`);
+      }
     }
     const passwordRecoveryRoute = getPasswordRecoveryRoute(window.location);
 
-    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && ((normalizedPath.startsWith('/admin') && normalizedPath !== '/admin/approvals') || normalizedPath === '/marketing')) {
-      window.history.replaceState({}, '', '/');
-    } else if (normalizedPath === '/marketing') {
-      const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));
-      return (
-        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
-          <PrintableMarketingAssets />
-        </Suspense>
-      );
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME) {
+      if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && ((normalizedPath.startsWith('/admin') && normalizedPath !== '/admin/approvals') || normalizedPath === '/marketing')) {
+        window.history.replaceState({}, '', '/');
+      } else if (normalizedPath === '/marketing') {
+        return (
+          <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+            <PrintableMarketingAssets />
+          </Suspense>
+        );
+      }
     }
 
     if (passwordRecoveryRoute) {
@@ -806,7 +818,7 @@ export default function App() {
       );
     }
 
-    if (canonicalPath === '/provider' || normalizedPath === '/vendor') {
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && (canonicalPath === '/provider' || normalizedPath === '/vendor')) {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <ProviderLanding
@@ -840,13 +852,16 @@ export default function App() {
     }
 
     if (
-      normalizedPath === '/provider/onboarding' ||
-      normalizedPath === '/vendor/onboarding' ||
-      canonicalPath === '/provider/onboarding' ||
-      normalizedPath === '/provider/connect/return' ||
-      normalizedPath === '/provider/connect/refresh' ||
-      canonicalPath === '/provider/connect/return' ||
-      canonicalPath === '/provider/connect/refresh'
+      !APP_STORE_CONSUMER_ONLY_COMPILE_TIME &&
+      (
+        normalizedPath === '/provider/onboarding' ||
+        normalizedPath === '/vendor/onboarding' ||
+        canonicalPath === '/provider/onboarding' ||
+        normalizedPath === '/provider/connect/return' ||
+        normalizedPath === '/provider/connect/refresh' ||
+        canonicalPath === '/provider/connect/return' ||
+        canonicalPath === '/provider/connect/refresh'
+      )
     ) {
       const isStripeConnectReturn = canonicalPath.endsWith('/connect/return') || canonicalPath.endsWith('/connect/refresh');
       return (
@@ -861,14 +876,14 @@ export default function App() {
       );
     }
 
-    if (normalizedPath === '/admin') {
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && normalizedPath === '/admin') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <AdminDashboard />
         </Suspense>
       );
     }
-    if (normalizedPath === '/admin/approvals') {
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && normalizedPath === '/admin/approvals') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <AdminApprovals />
@@ -941,7 +956,7 @@ export default function App() {
               setIsValet(res.valet?.status === 'active');
             }).catch(() => { /* ignore */ });
           }
-          if (!localStorage.getItem('bytspot_onboarding_seen')) {
+          if (!localStorage.getItem('bytspot_intro_seen')) {
             setOnboardingSlide(0);
             setShowOnboarding(true);
           }
@@ -2003,7 +2018,7 @@ export default function App() {
             const isLast = quizStep === total - 1;
             const dismiss = (final?: typeof quizSelections) => {
               const answers = final ?? quizSelections;
-              localStorage.setItem('bytspot_onboarding_seen', 'true');
+              localStorage.setItem('bytspot_intro_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
               const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'] };
               const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
@@ -2030,7 +2045,7 @@ export default function App() {
             const ringR = 18; const ringC = 2 * Math.PI * ringR;
             const ringFill = isConfirmation ? 1 : (quizStep + 1) / total;
             return (
-              <motion.div key="onboarding-quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              <motion.div key="parker-intro-quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 z-[9999] flex items-end justify-center"
                 style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
                 <motion.div key={quizStep} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}

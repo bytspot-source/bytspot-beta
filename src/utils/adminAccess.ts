@@ -30,7 +30,7 @@ export function decodeJwtPayload(token: string): JwtPayload | null {
 }
 
 export function getAdminApprovalAccessFromToken(token: string | null, nowMs = Date.now()): AdminApprovalAccess {
-  if (!token || token === 'beta_guest') {
+  if (!token || token === 'guest_session') {
     return { allowed: false, groups: [], reason: 'Sign in with an internal operations account to review provider approvals.' };
   }
   const payload = decodeJwtPayload(token);

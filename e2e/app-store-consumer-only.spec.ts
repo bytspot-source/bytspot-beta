@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test.describe('App Store consumer-only gate', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      localStorage.setItem('bytspot_onboarding_seen', 'true');
+      localStorage.setItem('bytspot_intro_seen', 'true');
       (window as unknown as { __BYT_APP_STORE_CONSUMER_ONLY__?: boolean }).__BYT_APP_STORE_CONSUMER_ONLY__ = true;
     });
   });

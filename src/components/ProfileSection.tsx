@@ -26,6 +26,8 @@ import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReserva
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 
+const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
+
 interface ProfileSectionProps {
   isDarkMode: boolean;
   isHost?: boolean;
@@ -112,7 +114,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
-    return !!token && token !== 'beta_guest';
+  return !!token && token !== 'guest_session';
   })();
   const subscriptionStateLabel = membership.isActive
     ? membership.source === 'premium'
@@ -1187,7 +1189,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}').id || 'guest'; }
             catch { return 'guest'; }
           })();
-          const referralUrl = `https://bytspot-beta-app.onrender.com?ref=${userId}`;
+          const referralUrl = `https://bytspot.app?ref=${userId}`;
 
           const handleShare = async () => {
             impactLight();
@@ -1299,7 +1301,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
         ))}
 
         {/* Become a Provider Button */}
-        {onBecomeHost && (
+        {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && onBecomeHost && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

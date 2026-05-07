@@ -9,9 +9,9 @@ import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
 import { loadVirtualPatchContext } from '../virtualPatch';
-import { vendorServiceToCard } from '../vendorServiceCards';
 
 const FALLBACK_VENUES: ApiVenue[] = [];
+const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
 /** Haversine — returns distance in miles between two lat/lng points */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -223,7 +223,10 @@ export function useVenues(): UseVenuesResult {
   }, []);
 
   const fetchVendorServiceCards = async (): Promise<DiscoverCard[]> => {
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return [];
+
     try {
+      const { vendorServiceToCard } = await import('../vendorServiceCards');
       const context = loadVirtualPatchContext();
       const patchId = context?.patchId ?? null;
       const distanceMeters = context?.distanceMeters ?? null;
@@ -238,7 +241,7 @@ export function useVenues(): UseVenuesResult {
             vendorServiceToCard(patchResult.service, 0, { patchVerified: true, distanceMeters }),
           );
         } catch {
-          // Patch may be venue-bound or not service-bound; keep the general vendor feed.
+          // Patch may be venue-bound or not service-bound; keep the general service feed.
         }
       }
 
@@ -250,7 +253,7 @@ export function useVenues(): UseVenuesResult {
 
       return Array.from(cardsByServiceId.values());
     } catch (err: any) {
-      console.warn('[useVenues] Vendor services unavailable:', err?.message);
+      console.warn('[useVenues] Service discovery unavailable:', err?.message);
       return [];
     }
   };
@@ -274,7 +277,7 @@ export function useVenues(): UseVenuesResult {
       vendorServiceCardsRef.current = vendorCards;
 
       if (venuesResult.status !== 'fulfilled') {
-        console.warn('[useVenues] Venue API unavailable, keeping vendor service discovery alive:', venuesResult.reason?.message ?? venuesResult.reason);
+        console.warn('[useVenues] Venue API unavailable, keeping service discovery alive:', venuesResult.reason?.message ?? venuesResult.reason);
         const cached = localStorage.getItem('bytspot_venues_cache');
         let fallback: ApiVenue[] = FALLBACK_VENUES;
         if (cached) {

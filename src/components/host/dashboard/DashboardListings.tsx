@@ -60,7 +60,7 @@ function serviceToForm(service: VendorService): EditForm {
 function hasVendorAuthToken(): boolean {
   if (typeof window === 'undefined') return false;
   const token = localStorage.getItem('bytspot_auth_token');
-  return Boolean(token && token !== 'beta_guest');
+  return Boolean(token && token !== 'guest_session');
 }
 
 export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {

@@ -88,9 +88,9 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
     }
   };
 
-  // Beta guest bypass — no OAuth needed for now
+  // Guest preview bypass — no OAuth needed for now
   const handleGuestContinue = () => {
-    localStorage.setItem('bytspot_auth_token', 'beta_guest');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
     onComplete();
   };
 

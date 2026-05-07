@@ -75,9 +75,9 @@
         external: ['@capacitor/haptics', '@capacitor/share', '@capawesome/capacitor-badge'],
         output: {
           manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-motion': ['motion', 'motion/react'],
-            'vendor-radix': [
+            'framework-react': ['react', 'react-dom'],
+            'motion-kit': ['motion', 'motion/react'],
+            'ui-radix': [
               '@radix-ui/react-accordion',
               '@radix-ui/react-alert-dialog',
               '@radix-ui/react-avatar',
@@ -104,10 +104,10 @@
               '@radix-ui/react-toggle-group',
               '@radix-ui/react-tooltip',
             ],
-            'vendor-trpc': ['@trpc/client'],
-            'vendor-recharts': ['recharts', 'recharts@2.15.2'],
-            'vendor-gmaps': ['@react-google-maps/api'],
-            'vendor-icons': ['lucide-react', 'lucide-react@0.487.0'],
+            'api-client': ['@trpc/client'],
+            'charts-kit': ['recharts', 'recharts@2.15.2'],
+            'maps-kit': ['@react-google-maps/api'],
+            'icon-kit': ['lucide-react', 'lucide-react@0.487.0'],
           },
         },
       },

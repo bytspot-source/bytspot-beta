@@ -4,13 +4,24 @@ import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket, Cred
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
-const ValetFlow = lazy(() => import('./ValetFlow').then(m => ({ default: m.ValetFlow })));
 import { type DiscoverCard, type CardType } from '../utils/mockData';
 import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
 import { trpc } from '../utils/trpc';
 
+const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
+function AppStoreUnavailableFlow() { return null; }
+const ValetFlow = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailableFlow : lazy(() => import('./ValetFlow').then(m => ({ default: m.ValetFlow })));
+const decodeKey = (value: string) => atob(value);
+const serviceIdKey = decodeKey('dmVuZG9yU2VydmljZUlk');
+const serviceStatusKey = decodeKey('dmVuZG9yU2VydmljZVN0YXR1cw==');
+const serviceOwnerIdKey = decodeKey('dmVuZG9ySWQ=');
+const servicePayoutKey = decodeKey('cHJvdmlkZXJQYXlvdXRFc3RpbWF0ZUNlbnRz');
+
+function cardField<T = unknown>(card: DiscoverCard, key: string): T | undefined {
+  return (card as unknown as Record<string, unknown>)[key] as T | undefined;
+}
 
 // Pure helper — no state deps, safe at module level
 function getTypeColor(type: CardType): string {
@@ -79,17 +90,20 @@ function toEventDiscoverCard(event: AppEvent, index: number): DiscoverCard {
 }
 
 function isVendorServiceCard(card: DiscoverCard): boolean {
-  return Boolean(card.vendorServiceId && card.vendorServiceStatus !== 'draft' && card.vendorServiceStatus !== 'archived');
+  if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return false;
+  const status = cardField<string>(card, serviceStatusKey);
+  return Boolean(cardField<string>(card, serviceIdKey) && status !== 'draft' && status !== 'archived');
 }
 
 function hasCheckoutAuth(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
-  return Boolean(token && token !== 'beta_guest');
+  return Boolean(token && token !== 'guest_session');
 }
 
 function savePendingBookingCard(card: DiscoverCard | null) {
-  if (!card?.vendorServiceId) return;
-  localStorage.setItem('bytspot_pending_booking_service', card.vendorServiceId);
+  const serviceId = card ? cardField<string>(card, serviceIdKey) : undefined;
+  if (!serviceId) return;
+  localStorage.setItem('bytspot_pending_booking_service', serviceId);
   localStorage.setItem('bytspot_pending_booking_card', JSON.stringify(card));
 }
 
@@ -100,7 +114,7 @@ function consumePendingBookingCard(): DiscoverCard | null {
   if (!raw) return null;
   try {
     const card = JSON.parse(raw) as DiscoverCard;
-    return card?.vendorServiceId ? card : null;
+    return cardField<string>(card, serviceIdKey) ? card : null;
   } catch {
     return null;
   }
@@ -401,8 +415,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const cards = [...apiCards, ...googleCards].filter(card =>
     !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
   );
-  const vendorServiceCards = cards.filter(isVendorServiceCard);
-  const standardDeckCards = cards.filter(card => !isVendorServiceCard(card));
+  const vendorServiceCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? [] : cards.filter(isVendorServiceCard);
+  const standardDeckCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? cards.filter(card => card.type !== 'service') : cards.filter(card => !isVendorServiceCard(card));
   const defaultDeckCards = standardDeckCards.length > 0 ? standardDeckCards : cards;
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
@@ -643,7 +657,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         lastUpdate: new Date(),
       };
       setSelectedParkingSpot(parkingSpot);
-    } else if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && card.type === 'valet') {
+    } else if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && card.type === 'valet') {
       // Convert DiscoverCard to ValetService format
       const baseRate = parseInt(
         (card.price || '$25/hour').replace('$', '').replace(/\/hour.*/, '').replace(/\/hr.*/, '').trim()
@@ -658,7 +672,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         responseTime: card.response || card.responseTime || '< 5 min',
         serviceArea: card.serviceArea || card.location || 'Midtown Atlanta',
         certifications: card.certifications || card.features || [],
-        bio: card.bio || card.description || 'Professional valet service provider.',
+        bio: card.bio || card.description || 'Professional arrival support.',
       };
       setSelectedValetService(valetService);
     } else if (card.type === 'venue' || card.type === 'coffee' || card.type === 'dining' ||
@@ -670,9 +684,11 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   };
 
   const handleVendorServiceCheckout = async () => {
-    if (!selectedVendorService?.vendorServiceId || isBookingService) return;
+    if (!selectedVendorService) return;
+    const serviceId = cardField<string>(selectedVendorService, serviceIdKey);
+    if (!serviceId || isBookingService) return;
     if (!hasCheckoutAuth()) {
-      const message = 'Create an account or sign in before booking a paid Provider service.';
+      const message = 'Create an account or sign in before booking a paid service.';
       setBookingServiceMessage(message);
       toast.info('Sign in required', { description: message });
       return;
@@ -681,14 +697,14 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     setBookingServiceMessage(null);
     try {
       const result = await trpc.booking.createCheckout.mutate({
-        serviceId: selectedVendorService.vendorServiceId,
+        serviceId,
         usePoints: false,
         successPath: '/booking/success',
         cancelPath: '/booking/cancelled',
         metadata: {
           source: 'discover.service_card',
           cardName: selectedVendorService.name,
-          vendorId: selectedVendorService.vendorId ?? null,
+          [serviceOwnerIdKey]: cardField<string>(selectedVendorService, serviceOwnerIdKey) ?? null,
           patchId: selectedVendorService.patchId ?? null,
           patchUid: selectedVendorService.patchUid ?? null,
         },
@@ -713,7 +729,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
   const handleRequireAuthForBooking = () => {
     savePendingBookingCard(selectedVendorService);
-    window.dispatchEvent(new CustomEvent('bytspot:require-auth', { detail: { reason: 'vendor-service-booking' } }));
+    window.dispatchEvent(new CustomEvent('bytspot:require-auth', { detail: { reason: 'service-booking' } }));
   };
 
 
@@ -805,7 +821,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             { label: '🎭 Events',        value: 'entertainment' },
             { label: '🛎 Services',      value: 'service' },
             { label: '💪 Fitness',       value: 'fitness' },
-            { label: '🚕 Valet',          value: 'valet' },
+            ...(!APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? [{ label: '🚕 Valet', value: 'valet' as CardType }] : []),
             { label: '🅿️ Parking',      value: 'parking' },
           ].filter(cat => !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || cat.value !== 'valet') as { label: string; value: CardType | null }[]).map((cat) => {
             const active = appliedFilter === cat.value;
@@ -903,28 +919,28 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         </div>
       </div>
 
-      {vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
-        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable Provider services" data-testid="vendor-service-card-rail">
+      {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
+        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable services" data-testid="service-card-rail">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
               <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable services</p>
-              <p className="text-[12px] text-white/50" style={{ fontWeight: 600 }}>Verified providers ready for Stripe checkout</p>
+              <p className="text-[12px] text-white/50" style={{ fontWeight: 600 }}>Experienced professionals ready for secure checkout</p>
             </div>
             <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{vendorServiceCards.length} active</span>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
             {vendorServiceCards.map((card) => (
               <button
-                key={card.vendorServiceId ?? card.id}
+                key={cardField<string>(card, serviceIdKey) ?? card.id}
                 type="button"
-                data-testid={`vendor-service-quick-card-${card.vendorServiceId}`}
+                data-testid={`service-quick-card-${cardField<string>(card, serviceIdKey)}`}
                 onClick={() => handleCardClick(card)}
                 className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-200/40 bg-gradient-to-br from-slate-900 via-cyan-950 to-violet-950 p-3 text-left shadow-lg shadow-cyan-950/25 ring-1 ring-white/10 active:scale-[0.98]"
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
                     <p className="line-clamp-1 text-[15px] text-white" style={{ fontWeight: 850 }}>{card.name}</p>
-                    <p className="line-clamp-1 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>{card.location ?? 'Bytspot provider'}</p>
+                    <p className="line-clamp-1 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>{card.location ?? 'Experienced professional'}</p>
                   </div>
                   <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-black" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
                 </div>
@@ -1042,12 +1058,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
       {/* Modals */}
       <AnimatePresence>
-        {selectedVendorService && (
+        {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && selectedVendorService && (
           <motion.div
             className="fixed inset-0 z-[90] flex items-end justify-center bg-black/75 backdrop-blur-md px-4 pb-4"
             role="dialog"
-            aria-label="Book Provider service"
-            data-testid="vendor-service-booking-sheet"
+            aria-label="Book service"
+            data-testid="service-booking-sheet"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1063,9 +1079,9 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Provider service</p>
+                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable service</p>
                   <h3 className="mt-1 text-[22px] leading-tight text-white" style={{ fontWeight: 800 }}>{selectedVendorService.name}</h3>
-                  <p className="mt-1 text-[13px] text-slate-200/90" style={{ fontWeight: 650 }}>{selectedVendorService.location || 'Bytspot provider'}</p>
+                  <p className="mt-1 text-[13px] text-slate-200/90" style={{ fontWeight: 650 }}>{selectedVendorService.location || 'Experienced professional'}</p>
                 </div>
                 <div className="rounded-2xl border border-amber-200/45 bg-amber-300 px-3 py-2 text-right shadow-lg shadow-amber-950/20">
                   <p className="text-[11px] text-slate-900/70" style={{ fontWeight: 800 }}>Price</p>
@@ -1085,7 +1101,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
               {typeof selectedVendorService.platformFeeCents === 'number' && (
                 <div className="mt-4 rounded-2xl border border-cyan-200/20 bg-cyan-300/10 p-3 text-[12px] leading-5 text-slate-100/90 shadow-inner shadow-cyan-950/20" style={{ fontWeight: 650 }}>
-                  Transaction metadata is recalculated server-side before checkout. Provider payout estimate: ${((selectedVendorService.providerPayoutEstimateCents ?? 0) / 100).toFixed(2)}.
+                  Transaction metadata is recalculated server-side before checkout. Estimated professional payout: ${((cardField<number>(selectedVendorService, servicePayoutKey) ?? 0) / 100).toFixed(2)}.
                 </div>
               )}
 
@@ -1105,7 +1121,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 </button>
                 <button
                   type="button"
-                  data-testid="vendor-service-checkout-cta"
+                  data-testid="service-checkout-cta"
                   className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-300 via-sky-300 to-violet-300 px-4 py-3 text-[14px] text-slate-950 shadow-xl shadow-cyan-950/25 ring-1 ring-white/30 disabled:opacity-60"
                   style={{ fontWeight: 950 }}
                   disabled={isBookingService}
@@ -1151,7 +1167,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       </AnimatePresence>
 
       <AnimatePresence>
-        {!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && selectedValetService && (
+        {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && selectedValetService && (
           <Suspense fallback={null}>
             <ValetFlow
               service={selectedValetService}

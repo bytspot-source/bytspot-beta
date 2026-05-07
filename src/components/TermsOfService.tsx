@@ -83,7 +83,7 @@ export function TermsOfService() {
 
       <Section title="6. Third-Party Services">
         <p>
-          The App integrates with third-party services (mapping providers, ride-share
+          The App integrates with third-party services (mapping data, ride-share
           links, payment processors). We are not responsible for the availability,
           accuracy, or practices of these third-party services. Your use of them is
           governed by their respective terms and privacy policies.

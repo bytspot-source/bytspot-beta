@@ -92,7 +92,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const [ticketLoading, setTicketLoading] = useState(false);
   const hasRealAccessSync = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
-    return !!token && token !== 'beta_guest';
+  return !!token && token !== 'guest_session';
   })();
   const accessMembershipLabel = APPLE_REVIEW_HIDE_INSIDER_PREMIUM
     ? 'Saved on this profile'

@@ -134,7 +134,7 @@ export const POINT_ACTIONS = {
   PHOTO_REVIEW: { points: 25, description: 'Photo review submission', limit: null },
   VALET_COMPLETION: { points: 50, description: 'Valet service completed', limit: null },
   FRIEND_REFERRAL: { points: 100, description: 'Successful friend referral', limit: null },
-  HOST_ONBOARDING: { points: 500, description: 'Host onboarding completed', oneTime: true },
+  PROFESSIONAL_SETUP: { points: 500, description: 'Professional setup completed', oneTime: true },
   SOCIAL_SHARE: { points: 5, description: 'Social sharing', limit: 3 }, // Max 3 per day
   PARKING_BOOKING: { points: 15, description: 'Parking spot booking', limit: null },
   FIRST_BOOKING: { points: 50, description: 'First booking bonus', oneTime: true },
@@ -196,7 +196,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: 'social-butterfly',
     name: 'Social Butterfly',
-    description: 'Successfully invite 5 friends who complete onboarding',
+    description: 'Successfully invite 5 friends who complete intro setup',
     icon: '👥',
     category: 'social',
     requirement: 5,

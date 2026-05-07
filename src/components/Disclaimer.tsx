@@ -28,7 +28,7 @@ export function Disclaimer() {
       <Section title="2. Parking Information">
         <p className="mb-3">
           Parking availability, pricing, and location information displayed in the App are
-          sourced from third-party providers and public data. Actual parking availability and
+          sourced from third-party data sources and public data. Actual parking availability and
           pricing may differ from what is shown. Bytspot is not responsible for parking
           violations, towing, incorrect pricing, or unavailable spaces. Always verify parking
           rules and signage at the physical location.

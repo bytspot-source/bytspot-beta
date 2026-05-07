@@ -70,7 +70,7 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
                       {'What we read, and what we don\u2019t'}
                     </h3>
                     <p className="text-[13px] text-white/68 mt-2 leading-[1.55]" style={{ fontWeight: 500 }}>
-                      {'The map ranks venues from operational signals about places, not predictions about people. Staff decide service at every venue \u2014 the score never does.'}
+                      {'The map ranks venues from operational signals about places, not predictions about people. Venue teams decide service at every venue \u2014 the score never does.'}
                     </p>
                   </div>
                   <motion.button
@@ -117,7 +117,7 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
                 </div>
 
                 <p className="text-[11px] text-white/45 leading-[1.55] mb-4" style={{ fontWeight: 500 }}>
-                  {'Operational efficiency surfaces shown to venue staff describe a venue session \u2014 not a customer. Customers cannot be scored. The score never decides who is served.'}
+                  {'Operational efficiency surfaces shown to venue teams describe a venue session \u2014 not a customer. Customers cannot be scored. The score never decides who is served.'}
                 </p>
 
                 <motion.button

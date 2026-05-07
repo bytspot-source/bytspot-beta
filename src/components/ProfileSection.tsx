@@ -423,7 +423,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
           <div className="rounded-[20px] p-4 border border-white/15 bg-white/5">
             <p className="text-[13px] text-white/50 mb-1" style={{ fontWeight: 700 }}>VERSION</p>
-            <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>Bytspot 1.1</p>
+	            <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>Bytspot 1.1.1</p>
           </div>
         </div>
       </div>

@@ -9,7 +9,7 @@ Thank you for reviewing Bytspot.
 - No special demo account is required.
 - Launch the app, tap **Get Started**, then tap **Continue as Guest** to enter the core experience immediately.
 - The main reviewable flows for this build are:
-  - Home feed / venue discovery
+  - Home feed / tiered Parker experience cards
   - Discover cards and filters
   - Map view
   - Profile, legal links, and saved content
@@ -17,7 +17,8 @@ Thank you for reviewing Bytspot.
 
 ## Review-Build Notes
 
-- This submission build hides provider/valet onboarding, internal admin/marketing routes, and Insider premium review-risk surfaces.
+- This submission build is focused on the Parker consumer experience. Non-consumer business tools and operations utilities are not available in the review build.
+- Parker Home shows consumer-facing Explorer, Insider, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
 - Location permission is optional. The app can still be reviewed without granting location access.
 - Notification permission is optional.
 - The app does **not** use background location.

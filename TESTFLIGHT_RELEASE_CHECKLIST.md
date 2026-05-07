@@ -9,9 +9,13 @@
 
 ## 2. Local Verification
 
-- [ ] Run `cmd /c npm run build`
-- [ ] Run `cmd /c npm run test:e2e:ticketing:spec`
-- [ ] Confirm no reviewer-visible `Beta`, `Coming Soon`, `mock checkout`, or `Stripe not configured` copy remains in app UI
+- [ ] Run `npm run type-check`
+- [ ] Run `npm run test:unit`
+- [ ] Run `npm run lint`
+- [ ] Run `npm run build`
+- [ ] Run `npm run build:app-store`
+- [ ] Run `npm run test:e2e:apple-review`
+- [ ] Confirm no reviewer-visible `Beta`, internal planning metrics, Provider/Admin dashboard copy, or incomplete checkout copy remains in app UI
 
 ## 3. App Store Connect Metadata
 
@@ -38,6 +42,7 @@
 - [ ] Paste `APP_REVIEW_NOTES.md` into App Store Connect review notes
 - [ ] Confirm guest path still works: `Get Started` → `Continue as Guest`
 - [ ] Confirm legal routes open correctly
+- [ ] Confirm Home shows consumer tier cards, not internal priority/score cards
 
 ## 6. TestFlight / Upload
 

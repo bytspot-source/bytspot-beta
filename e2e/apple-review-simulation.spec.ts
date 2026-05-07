@@ -74,6 +74,24 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service' })).toBeVisible();
   });
 
+  test('iPhone reviewer sees tiered consumer cards without internal planning UI', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/');
+
+    await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
+    await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
+    await expect(page.getByTestId('home-tier-card-cottage-massage')).toContainText('In-Home Deep Tissue Massage');
+    await expect(page.getByTestId('home-simplex-priority-section')).toHaveCount(0);
+    await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);
+
+    const layout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
+  });
+
   test('App Clip or NFC deep link opens Parker map tap/scan flow without internal routes', async ({ page }) => {
     await page.goto('/p/review-patch-123?venue=Review%20Rooftop');
     await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });

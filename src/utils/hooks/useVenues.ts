@@ -245,7 +245,7 @@ export function useVenues(): UseVenuesResult {
         }
       }
 
-      for (const [index, service] of (searchResult.services ?? []).entries()) {
+      for (const [index, service] of (searchResult?.services ?? []).entries()) {
         if (!cardsByServiceId.has(service.id)) {
           cardsByServiceId.set(service.id, vendorServiceToCard(service, index + 1));
         }
@@ -291,12 +291,13 @@ export function useVenues(): UseVenuesResult {
         return;
       }
 
-      venuesRef.current = venuesResult.value.venues;
-      setVenues(venuesResult.value.venues);
-      setCombinedCards(venuesResult.value.venues, vendorCards);
+      const liveVenues = venuesResult.value?.venues ?? [];
+      venuesRef.current = liveVenues;
+      setVenues(liveVenues);
+      setCombinedCards(liveVenues, vendorCards);
       setError(null);
       // Cache successful API response for offline/cold-start resilience.
-      try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(venuesResult.value.venues)); } catch { /* quota exceeded — ignore */ }
+      try { localStorage.setItem('bytspot_venues_cache', JSON.stringify(liveVenues)); } catch { /* quota exceeded — ignore */ }
     } catch (err: any) {
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) return;
       console.warn('[useVenues] API unavailable, using cached venues:', err?.message);
@@ -435,7 +436,7 @@ export function useVenues(): UseVenuesResult {
     setPlacesLoading(true);
     try {
       const res = await trpc.places.textSearch.query({ query, maxResults: 10 });
-      return res.places.map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
+      return (res?.places ?? []).map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
     } catch (err: any) {
       console.error('[searchPlaces]', err?.message);
       return [];
@@ -450,7 +451,7 @@ export function useVenues(): UseVenuesResult {
     setPlacesLoading(true);
     try {
       const res = await trpc.places.nearbySearch.query({ lat: coords.lat, lng: coords.lng, type, maxResults: 10 });
-      return res.places.map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
+      return (res?.places ?? []).map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
     } catch (err: any) {
       console.error('[searchNearby]', err?.message);
       return [];

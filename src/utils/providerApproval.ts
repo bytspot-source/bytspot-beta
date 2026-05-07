@@ -27,6 +27,8 @@ export type ProviderReviewInput = {
   };
 };
 
+export type ProviderBackendStatus = 'draft' | 'pending' | 'approved' | 'rejected' | string | null | undefined;
+
 export const PROVIDER_REVIEW_STORAGE_KEY = 'bytspot_provider_review_state';
 
 function hasText(value: unknown, minLength = 2) {
@@ -79,6 +81,36 @@ export function evaluateProviderApplication(data: ProviderReviewInput, now = new
     checks,
     updatedAt: now.toISOString(),
   };
+}
+
+export function resolveProviderReviewState(
+  backendStatus: ProviderBackendStatus,
+  data?: ProviderReviewInput | null,
+  now = new Date(),
+): ProviderReviewState {
+  const metadataState = data
+    ? evaluateProviderApplication(data, now)
+    : {
+        status: 'manual_verification' as const,
+        label: 'Pending Verification' as const,
+        reasons: ['Provider application metadata has not been loaded yet.'],
+        checks: { businessLegalName: false, taxId: false, verifiedAddress: false, stripeConnectActive: false },
+        updatedAt: now.toISOString(),
+      };
+
+  if (backendStatus === 'approved') {
+    return { ...metadataState, status: 'approved', label: 'Approved', reasons: [], updatedAt: now.toISOString() };
+  }
+  if (backendStatus === 'rejected') {
+    return {
+      ...metadataState,
+      status: 'manual_verification',
+      label: 'Pending Verification',
+      reasons: ['Backend provider approval status is rejected. Contact Bytspot support before publishing marketplace services.'],
+      updatedAt: now.toISOString(),
+    };
+  }
+  return metadataState;
 }
 
 export function persistProviderReviewState(state: ProviderReviewState) {

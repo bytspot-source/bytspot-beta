@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { trpc } from '../../utils/trpc';
-import { evaluateProviderApplication, persistProviderReviewState, readProviderReviewState, type ProviderReviewState } from '../../utils/providerApproval';
+import { persistProviderReviewState, readProviderReviewState, resolveProviderReviewState, type ProviderReviewState } from '../../utils/providerApproval';
 import { saveProviderProgress } from '../../utils/providerOnboardingApi';
 import { isProviderStripeConnectPath, syncProviderStripeConnectReturn } from '../../utils/providerStripeConnectReturn';
 import { ProviderLanding } from './ProviderLanding';
@@ -76,11 +76,9 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
               });
             }
           }
-          if (providerOnboardingData) {
-            const reviewState = evaluateProviderApplication(providerOnboardingData);
-            persistProviderReviewState(reviewState);
-            setProviderReviewState(reviewState);
-          }
+          const reviewState = resolveProviderReviewState(status, providerOnboardingData);
+          persistProviderReviewState(reviewState);
+          setProviderReviewState(reviewState);
           if (status === 'approved' || status === 'pending') {
             setCurrentScreen('dashboard');
           } else if (status === 'draft') {

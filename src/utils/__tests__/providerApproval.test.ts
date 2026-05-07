@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { evaluateProviderApplication } from '../providerApproval.ts';
+import { evaluateProviderApplication, resolveProviderReviewState } from '../providerApproval.ts';
 
 const baseApplication = {
   businessInfo: {
@@ -41,5 +41,15 @@ describe('provider approval metadata review', () => {
     assert.equal(result.status, 'manual_verification');
     assert.equal(result.checks.businessLegalName, false);
     assert.equal(result.checks.taxId, false);
+  });
+
+  it('treats backend approved status as authoritative over local metadata review', () => {
+    const result = resolveProviderReviewState('approved', {
+      ...baseApplication,
+      payout: { stripeConnect: { status: 'pending', onboardingStarted: true } },
+    }, new Date('2026-05-04T00:00:00Z'));
+    assert.equal(result.status, 'approved');
+    assert.equal(result.label, 'Approved');
+    assert.deepEqual(result.reasons, []);
   });
 });

@@ -147,6 +147,11 @@ export function AdminDashboard() {
         </button>
       </div>
 
+      <button onClick={() => { window.location.href = '/admin/approvals'; }}
+        className="mb-6 w-full rounded-[16px] border border-cyan-300/20 bg-cyan-400/10 px-4 py-3 text-left text-[14px] font-bold text-cyan-100 active:bg-cyan-400/15">
+        Provider approval queue →
+      </button>
+
       {/* Stats grid */}
       {stats && (
         <div className="grid grid-cols-2 gap-3 mb-6">

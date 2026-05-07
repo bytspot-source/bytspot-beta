@@ -39,6 +39,7 @@ const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminApprovals = lazy(() => import('./components/admin/AdminApprovals').then(m => ({ default: m.AdminApprovals })));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
@@ -761,7 +762,7 @@ export default function App() {
     }
     const passwordRecoveryRoute = getPasswordRecoveryRoute(window.location);
 
-    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath === '/admin' || normalizedPath === '/marketing')) {
+    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath.startsWith('/admin') || normalizedPath === '/marketing')) {
       window.history.replaceState({}, '', '/');
     } else if (normalizedPath === '/marketing') {
       const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));
@@ -846,6 +847,13 @@ export default function App() {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <AdminDashboard />
+        </Suspense>
+      );
+    }
+    if (normalizedPath === '/admin/approvals') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <AdminApprovals />
         </Suspense>
       );
     }

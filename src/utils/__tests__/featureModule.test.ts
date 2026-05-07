@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { calculateExecutionScore, isAppStoreEligibleModule, rankFeatureModules, validateFeatureModule } from '../../features/featureModule.ts';
 import { allRankableModules, featureModules } from '../../features/registry.ts';
-import { allPrioritizableWork, homepagePriorityCards, rankedReleaseWorkCards } from '../../features/prioritization.ts';
+import { allPrioritizableWork, internalPlanningPriorityCards, rankedReleaseWorkCards } from '../../features/prioritization.ts';
 import { swipeableCardModules } from '../../features/swipeableCardRegistry.ts';
 
 describe('feature module registry', () => {
@@ -44,9 +44,9 @@ describe('feature module registry', () => {
     assert.ok(rankedReleaseWorkCards.every((card) => card.kind === 'release-work'));
   });
 
-  it('publishes Home priority cards with Cottage Industry Services included', () => {
-    assert.ok(homepagePriorityCards.length >= 1);
-    assert.ok(homepagePriorityCards.some((card) => card.id === 'cottage-industry-services'));
-    assert.ok(homepagePriorityCards.every((card) => card.formula === 'Es = Φ_EM + Φ_E + ΔD + f × λ_sim'));
+  it('keeps internal planning priority cards available without requiring consumer Home exposure', () => {
+    assert.ok(internalPlanningPriorityCards.length >= 1);
+    assert.ok(internalPlanningPriorityCards.some((card) => card.id === 'cottage-industry-services'));
+    assert.ok(internalPlanningPriorityCards.every((card) => card.formula === 'Es = Φ_EM + Φ_E + ΔD + f × λ_sim'));
   });
 });

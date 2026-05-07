@@ -63,8 +63,8 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
     await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
     await expect(page.getByTestId('home-tier-card-premium-valet')).toContainText('Book Valet');
-    await expect(page.getByTestId('home-simplex-priority-section')).toBeVisible();
-    await expect(page.getByTestId('home-priority-card-cottage-industry-services')).toContainText('Cottage Industry Services');
+    await expect(page.getByTestId('home-simplex-priority-section')).toHaveCount(0);
+    await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();
     await page.getByRole('button', { name: 'Voice input' }).click();
     await expect(page.getByRole('status')).toContainText(/Voice input is not available|could not start/i);

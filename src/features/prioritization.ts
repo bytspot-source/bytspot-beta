@@ -125,7 +125,7 @@ export function toSimplexPriorityCard(module: FeatureModule): SimplexPriorityCar
   };
 }
 
-const homepageCandidateIds = new Set([
+const planningCandidateIds = new Set([
   ...currentCardIds,
   'cottage-industry-services',
   'events-nightlife',
@@ -134,16 +134,16 @@ const homepageCandidateIds = new Set([
   ...releaseWorkIds,
 ]);
 
-const homepageRankedModules = rankFeatureModules(
-  allPrioritizableWork.filter((module) => homepageCandidateIds.has(module.id) && isAppStoreEligibleModule(module)),
+const planningRankedModules = rankFeatureModules(
+  allPrioritizableWork.filter((module) => planningCandidateIds.has(module.id) && isAppStoreEligibleModule(module)),
 );
 
-const topHomepageModules = homepageRankedModules.slice(0, 7);
-const cottageModule = homepageRankedModules.find((module) => module.id === 'cottage-industry-services');
+const topPlanningModules = planningRankedModules.slice(0, 7);
+const cottageModule = planningRankedModules.find((module) => module.id === 'cottage-industry-services');
 
-export const homepagePriorityCards = [
-  ...topHomepageModules,
-  ...(cottageModule && !topHomepageModules.some((module) => module.id === cottageModule.id) ? [cottageModule] : []),
+export const internalPlanningPriorityCards = [
+  ...topPlanningModules,
+  ...(cottageModule && !topPlanningModules.some((module) => module.id === cottageModule.id) ? [cottageModule] : []),
 ].map(toSimplexPriorityCard);
 
 export const rankedReleaseWorkCards = rankFeatureModules(releaseWorkModules).map(toSimplexPriorityCard);

@@ -9,7 +9,7 @@ const PROVIDER_PAYOUT_DRAFT_STORAGE_KEY = 'bytspot_provider_payout_draft';
 async function installProviderLandingMocks(page: Page) {
   await page.addInitScript(({ connectUrl }) => {
     // Skip onboarding gates so the path-level route handler runs unimpeded.
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
     (window as any).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
     let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
     (window as any).google = {

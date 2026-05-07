@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function installGoogleAuthMocks(page: Page) {
   await page.addInitScript(() => {
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
     (window as any).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
     let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
     (window as any).google = {

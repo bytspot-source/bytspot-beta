@@ -116,7 +116,7 @@ test.describe('Virtual Patch', () => {
     );
 
     await page.addInitScript(({ context, contextKey }) => {
-      localStorage.setItem('bytspot_onboarding_seen', 'true');
+      localStorage.setItem('bytspot_intro_seen', 'true');
       localStorage.setItem('bytspot_profile_focus', 'tickets');
       localStorage.setItem(contextKey, JSON.stringify(context));
     }, { context: verifiedContext, contextKey: VIRTUAL_PATCH_CONTEXT_KEY });

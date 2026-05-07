@@ -74,7 +74,7 @@ test.use({ geolocation: { latitude: TEST_COORDS.lat, longitude: TEST_COORDS.lng 
 
 async function installVendorServiceMocks(page: Page, opts: { failVenues?: boolean } = {}) {
   await page.addInitScript(({ services, venues, failVenues }) => {
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
     if ('serviceWorker' in navigator) {
       try {
         Object.defineProperty(navigator, 'serviceWorker', {

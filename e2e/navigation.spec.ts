@@ -105,7 +105,7 @@ async function getToMainApp(page: import('@playwright/test').Page) {
   // Pre-set localStorage to skip onboarding quiz overlay (z-[9999] blocks all clicks)
   await page.goto('/');
   await page.evaluate(() => {
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
   });
   await page.goto('/');
 

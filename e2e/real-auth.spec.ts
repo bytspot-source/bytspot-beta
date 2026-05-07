@@ -37,7 +37,7 @@ test('real signup, logout, and login reaches main app', async ({ page }) => {
   const openAuth = async () => {
     log('open auth');
     await page.goto('/');
-    await page.evaluate(() => localStorage.setItem('bytspot_onboarding_seen', 'true'));
+  await page.evaluate(() => localStorage.setItem('bytspot_intro_seen', 'true'));
     await page.goto('/');
     await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 20_000 });
     log("landing visible");

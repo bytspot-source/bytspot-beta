@@ -55,7 +55,7 @@ const STATUS_INSIDER: SubscriptionStatus = {
 
 async function installCheckoutMocks(page: Page, status: SubscriptionStatus) {
   await page.addInitScript(({ subscriptionStatus, verifiedVenue }) => {
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
     localStorage.removeItem('bytspot_provider_premium_entitlement');
     if ('serviceWorker' in navigator) {
       try {

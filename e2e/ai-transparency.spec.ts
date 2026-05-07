@@ -82,7 +82,7 @@ async function installMapMocks(page: import('@playwright/test').Page) {
 
 async function enterMapTab(page: import('@playwright/test').Page) {
   await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('bytspot_onboarding_seen', 'true'));
+    await page.evaluate(() => localStorage.setItem('bytspot_intro_seen', 'true'));
   await page.goto('/');
   await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
   await page.getByText("Let's Go").click();

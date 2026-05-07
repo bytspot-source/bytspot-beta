@@ -69,7 +69,7 @@ async function installVendorOnboardingMocks(
 ) {
   await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service, services, bookings, patches, authToken }) => {
     localStorage.setItem('bytspot_auth_token', authToken);
-    localStorage.setItem('bytspot_onboarding_seen', 'true');
+    localStorage.setItem('bytspot_intro_seen', 'true');
     localStorage.setItem('bytspot_user_name', vendorName);
     localStorage.setItem('bytspot_provider_role', providerRole);
     localStorage.setItem('bytspot_provider_business_mode', providerBusinessMode);

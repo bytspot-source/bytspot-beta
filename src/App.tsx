@@ -762,7 +762,7 @@ export default function App() {
     }
     const passwordRecoveryRoute = getPasswordRecoveryRoute(window.location);
 
-    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && (normalizedPath.startsWith('/admin') || normalizedPath === '/marketing')) {
+    if (APPLE_REVIEW_HIDE_INTERNAL_ROUTES && ((normalizedPath.startsWith('/admin') && normalizedPath !== '/admin/approvals') || normalizedPath === '/marketing')) {
       window.history.replaceState({}, '', '/');
     } else if (normalizedPath === '/marketing') {
       const PrintableMarketingAssets = lazy(() => import('./components/PrintableMarketingAssets'));

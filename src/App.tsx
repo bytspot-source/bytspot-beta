@@ -1292,8 +1292,7 @@ export default function App() {
 	                    <div className="mb-6" data-testid="home-tiered-experience-section">
 	                      <div className="mb-3 flex items-center justify-between gap-3">
 	                        <div>
-	                          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40" style={{ fontWeight: 800 }}>{tieredExperience.profile.eyebrow} · {tieredExperience.profile.name}</p>
-	                          <h2 className="mt-0.5 text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>{tieredExperience.profile.priorityRailLabel}</h2>
+	                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>{tieredExperience.profile.priorityRailLabel}</h2>
 	                        </div>
 	                        <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] text-white/75" style={{ fontWeight: 700 }}>{tieredExperience.profile.accessLevel}</span>
 	                      </div>
@@ -1315,12 +1314,10 @@ export default function App() {
 	                            <div className="relative h-[92px] overflow-hidden bg-black/25">
 	                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(255,255,255,0.28),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(0,191,255,0.18),transparent_36%)]" />
 	                              <div className="absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-[22px] bg-black/30 text-[30px] ring-1 ring-white/20">{card.imageCue}</div>
-	                              <div className="absolute bottom-3 right-3 rounded-full border border-white/20 bg-black/45 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white" style={{ fontWeight: 850 }}>{card.tierBadge}</div>
 	                            </div>
 	                            <div className="p-4">
-	                              <div className="mb-2 flex items-center justify-between gap-2">
+	                              <div className="mb-2 flex items-center gap-2">
 	                                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 800 }}>{card.badge}</span>
-	                                <span className="text-[10px] text-white/45" style={{ fontWeight: 700 }}>{card.cardStyleLabel}</span>
 	                              </div>
 	                              <h3 className="text-[17px] leading-tight text-white line-clamp-2" style={{ fontWeight: 800 }}>{card.title}</h3>
 	                              <p className="mt-1 text-[12px] text-white/62 line-clamp-1" style={{ fontWeight: 600 }}>{card.subtitle}</p>

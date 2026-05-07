@@ -296,6 +296,15 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
 
     try {
       const result = await trpc.concierge.chat.mutate({ messages: history, venues: venueContext, quizAnswers });
+      if (!result || typeof result !== 'object') {
+        const { reply, matchedVenues } = getLocalResponse(query);
+        setMessages(prev => [
+          ...prev,
+          { id: createMessageId(), sender: 'ai', text: reply, venues: matchedVenues.length > 0 ? matchedVenues : undefined },
+        ]);
+        setConnectionState('fallback');
+        return;
+      }
       const { reply, venueIds, liveEvents, livePlaces } = result as any;
       // Map returned IDs back to full venue objects for the card UI
       const venueCards = (venueIds ?? [])

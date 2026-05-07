@@ -923,8 +923,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
         <div className={`rounded-[24px] border-2 bg-gradient-to-br ${consumerExperienceProfile.accentClass} p-5 shadow-xl backdrop-blur-xl`}>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[12px] uppercase tracking-[0.18em] text-white/55" style={{ fontWeight: 850 }}>{consumerExperienceProfile.eyebrow}</p>
-              <h3 className="mt-1 text-[24px] text-white" style={{ fontWeight: 850 }}>{consumerExperienceProfile.name}</h3>
+              <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker benefits</h3>
               <p className="mt-2 text-[13px] leading-5 text-white/70" style={{ fontWeight: 600 }}>{consumerExperienceProfile.accessLevel}</p>
             </div>
             <div className="rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-right">

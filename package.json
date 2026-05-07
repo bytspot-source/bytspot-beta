@@ -81,10 +81,11 @@
             "typescript-eslint": "^8.0.0",
             "vite": "6.3.5"
       },
-      "scripts": {
-            "dev": "vite",
-            "build": "vite build",
-            "build:app-store": "vite build --mode app-store && node scripts/assert-app-store-purity.mjs",
+	      "scripts": {
+	            "dev": "vite",
+	            "postinstall": "node scripts/patch-capacitor-apple-sign-in-spm.mjs",
+	            "build": "vite build",
+	            "build:app-store": "vite build --mode app-store && node scripts/assert-app-store-purity.mjs",
             "preview:e2e": "node ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort",
             "type-check": "tsc -p tsconfig.app.json --noEmit",
             "lint": "eslint src --quiet",

@@ -32,7 +32,7 @@ import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription'
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
-import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from './utils/reviewBuild';
+import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
 const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
@@ -74,6 +74,18 @@ function canonicalProviderPath(pathname: string) {
   if (pathname === '/host') return '/provider';
   if (pathname.startsWith('/host/')) return pathname.replace(/^\/host/, '/provider');
   return pathname;
+}
+
+function ConsumerOnlyRouteRedirect() {
+  useEffect(() => {
+    window.location.replace('/');
+  }, []);
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-[#07080D] text-white" data-testid="consumer-only-route-redirect">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" aria-label="Loading Parker" />
+    </div>
+  );
 }
 
 function MarketplaceBookingReturnScreen({ status, onContinue }: { status: 'success' | 'cancelled'; onContinue: () => void }) {
@@ -698,13 +710,15 @@ export default function App() {
     const authToken = localStorage.getItem('bytspot_auth_token');
     if (authToken) {
       setCurrentScreen('main');
-      // Fetch provider status to populate isHost / isValet flags
-      trpc.providers.getStatus.query().then((res) => {
-        setIsHost(
-          res.host?.status === 'approved' || res.host?.status === 'pending'
-        );
-        setIsValet(res.valet?.status === 'active');
-      }).catch(() => { /* silently ignore — user may not be a provider */ });
+      // Fetch provider status to populate isHost / isValet flags only when Provider/Valet is exposed.
+      if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+        trpc.providers.getStatus.query().then((res) => {
+          setIsHost(
+            res.host?.status === 'approved' || res.host?.status === 'pending'
+          );
+          setIsValet(res.valet?.status === 'active');
+        }).catch(() => { /* silently ignore — user may not be a provider */ });
+      }
     }
 
     // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
@@ -755,6 +769,10 @@ export default function App() {
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
     const canonicalPath = canonicalProviderPath(normalizedPath);
+    if (APP_STORE_CONSUMER_ONLY_BUILD && (isAppStoreConsumerOnlyBlockedPath(normalizedPath) || isAppStoreConsumerOnlyBlockedPath(canonicalPath))) {
+      return <ConsumerOnlyRouteRedirect />;
+    }
+
     // Phase 4 rollout alias: legacy Host URLs remain functional for one sprint,
     // but users are canonicalized to Provider URLs. Remove after 2026-05-20.
     if (canonicalPath !== normalizedPath) {
@@ -914,13 +932,15 @@ export default function App() {
             setActiveTab('discover');
             toast.success('Ready to book', { description: 'Review the service and continue to Stripe Checkout.' });
           }
-          // Refresh provider status after login
-          trpc.providers.getStatus.query().then((res) => {
-            setIsHost(
-              res.host?.status === 'approved' || res.host?.status === 'pending'
-            );
-            setIsValet(res.valet?.status === 'active');
-          }).catch(() => { /* ignore */ });
+          // Refresh provider status after login only when the build exposes Provider/Valet.
+          if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+            trpc.providers.getStatus.query().then((res) => {
+              setIsHost(
+                res.host?.status === 'approved' || res.host?.status === 'pending'
+              );
+              setIsValet(res.valet?.status === 'active');
+            }).catch(() => { /* ignore */ });
+          }
           if (!localStorage.getItem('bytspot_onboarding_seen')) {
             setOnboardingSlide(0);
             setShowOnboarding(true);

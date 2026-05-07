@@ -467,8 +467,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-patches-form')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Premium Patch Toolkit');
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Provider Premium unlocks recommendations');
-    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-    await expect(page.getByTestId('provider-patches-form')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toHaveCSS('background-color', 'rgb(2, 6, 23)');
+    await expect(page.getByTestId('provider-patches-form')).toHaveCSS('background-color', 'rgb(2, 6, 23)');
 
     const select = page.getByTestId('provider-patches-service-select');
     await expect(select).toBeEnabled();

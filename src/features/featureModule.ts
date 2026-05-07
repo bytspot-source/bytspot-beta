@@ -58,6 +58,10 @@ export interface FeatureModule {
   dependencies: string[];
 }
 
+export function defineFeatureModule(input: Omit<FeatureModule, 'priorityScore'>): FeatureModule {
+  return { ...input, priorityScore: calculateExecutionScore(input.score) };
+}
+
 export function calculateExecutionScore(score: FeatureModuleScore): number {
   const es = score.phiMarket + score.phiExecution + score.deltaDifferentiation + score.feasibility * score.lambdaSimilarity;
   return Number(es.toFixed(2));

@@ -1,8 +1,7 @@
-import { calculateExecutionScore, type FeatureModule } from './featureModule.ts';
+import { defineFeatureModule, type FeatureModule } from './featureModule.ts';
+import { swipeableCardModules } from './swipeableCardRegistry.ts';
 
-function module(input: Omit<FeatureModule, 'priorityScore'>): FeatureModule {
-  return { ...input, priorityScore: calculateExecutionScore(input.score) };
-}
+const module = defineFeatureModule;
 
 export const featureModules = [
   module({
@@ -110,3 +109,10 @@ export const featureModules = [
 ] as const satisfies readonly FeatureModule[];
 
 export type FeatureModuleRegistryId = (typeof featureModules)[number]['id'];
+
+export const allRankableModules = [
+  ...swipeableCardModules,
+  ...featureModules,
+] as const satisfies readonly FeatureModule[];
+
+export type RankableModuleId = (typeof allRankableModules)[number]['id'];

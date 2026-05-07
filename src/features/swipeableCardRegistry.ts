@@ -72,7 +72,7 @@ export const swipeableCardModules = [
   defineFeatureModule({
     id: 'home-social-carousel',
     name: 'Home Social Carousel',
-    stage: 'internal-beta',
+    stage: 'app-store-safe',
     audience: ['parker-consumer'],
     route: '/',
     featureFlag: 'VITE_FEATURE_HOME_SOCIAL_CAROUSEL',

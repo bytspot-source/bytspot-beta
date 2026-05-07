@@ -69,6 +69,7 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
+import { homepagePriorityCards, type SimplexPriorityCard } from './features/prioritization.ts';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -76,6 +77,7 @@ type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
+const HOME_PRIORITY_CARD_STYLE = { width: 'clamp(236px, 72vw, 280px)', minHeight: 176 };
 
 function canonicalProviderPath(pathname: string) {
   if (pathname === '/host') return '/provider';
@@ -552,6 +554,35 @@ export default function App() {
       description: `Swipe to explore nearby options`,
       duration: 2000,
     });
+  };
+
+  const handlePriorityCardClick = (card: SimplexPriorityCard) => {
+    trackEvent('simplex_priority_selected', {
+      id: card.id,
+      kind: card.kind,
+      priorityScore: card.priorityScore,
+    });
+
+    if (card.id === 'cottage-industry-services') {
+      handleCategoryClick('dining', card.title);
+      return;
+    }
+    if (card.route === '/discover') {
+      setDiscoverFilter(undefined);
+      setActiveTab('discover');
+      return;
+    }
+    if (card.route === '/events' || card.route === '/shows') {
+      handleCategoryClick('entertainment', card.title);
+      return;
+    }
+    if (card.route === '/rewards') {
+      setActiveTab('profile');
+      toast.success(card.title, { description: 'Opening your Parker rewards area.', duration: 2000 });
+      return;
+    }
+
+    toast.success(card.title, { description: card.summary, duration: 2400 });
   };
 
   // PERFORMANCE: Memoize user preferences and behavior to prevent redundant calculations
@@ -1251,6 +1282,54 @@ export default function App() {
                         }}
                       />
                     </div>
+
+	                    {/* ── Simplex Priority Board ── */}
+	                    <div className="mb-6" data-testid="home-simplex-priority-section">
+	                      <div className="mb-3 flex items-center justify-between gap-3">
+	                        <div>
+	                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>Parker Priority Board</h2>
+	                          <p className="mt-0.5 text-[11px] text-white/45">Ranked by Es = Φ_EM + Φ_E + ΔD + f × λ_sim</p>
+	                        </div>
+	                        <span className="rounded-full border border-cyan-300/30 bg-cyan-400/15 px-2.5 py-1 text-[11px] text-cyan-200" style={{ fontWeight: 700 }}>Live rank</span>
+	                      </div>
+	                      <div className={HOME_CAROUSEL_CLASS}>
+	                        {homepagePriorityCards.map((card, index) => (
+	                          <motion.button
+	                            key={card.id}
+	                            type="button"
+	                            data-testid={`home-priority-card-${card.id}`}
+	                            onClick={() => handlePriorityCardClick(card)}
+	                            className="relative flex-shrink-0 snap-start overflow-hidden rounded-[24px] border border-cyan-300/20 bg-[#12131A]/95 p-3 text-left shadow-[0_18px_46px_rgba(0,191,255,0.13)] ring-1 ring-white/10"
+	                            style={HOME_PRIORITY_CARD_STYLE}
+	                            initial={{ opacity: 0, y: 12 }}
+	                            animate={{ opacity: 1, y: 0 }}
+	                            transition={{ ...springConfig, delay: 0.22 + index * 0.04 }}
+	                            whileTap={{ scale: 0.97 }}
+	                            whileHover={{ scale: 1.01, y: -2 }}
+	                          >
+	                            <div className="absolute inset-x-3 top-0 h-px bg-cyan-200/40" />
+	                            <div className="mb-3 flex items-start justify-between gap-3">
+	                              <div className="rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-white/60" style={{ fontWeight: 800 }}>{card.kicker}</div>
+	                              <div className="rounded-2xl bg-cyan-400/15 px-2.5 py-1 text-right ring-1 ring-cyan-200/25">
+	                                <p className="text-[10px] uppercase tracking-[0.12em] text-cyan-200/70">Es</p>
+	                                <p className="text-[18px] leading-5 text-cyan-100" style={{ fontWeight: 800 }}>{card.priorityScore}</p>
+	                              </div>
+	                            </div>
+	                            <h3 className="text-[15px] leading-tight text-white line-clamp-2" style={{ fontWeight: 750 }}>{card.title}</h3>
+	                            <p className="mt-2 text-[11px] leading-[15px] text-white/55 line-clamp-2">{card.summary}</p>
+	                            <div className="mt-3 flex flex-wrap gap-1.5">
+	                              <span className="rounded-full border border-emerald-300/25 bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-200" style={{ fontWeight: 700 }}>Rev {card.revenuePotential}/5</span>
+	                              <span className="rounded-full border border-purple-300/25 bg-purple-400/15 px-2 py-0.5 text-[10px] text-purple-200" style={{ fontWeight: 700 }}>Cap {card.capacityScore}/5</span>
+	                              <span className="rounded-full border border-amber-300/25 bg-amber-400/15 px-2 py-0.5 text-[10px] text-amber-200" style={{ fontWeight: 700 }}>Risk {card.appStoreRisk}/5</span>
+	                            </div>
+	                            <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+	                              <span className="text-white/45">{card.timeToReleaseWeeks}w · {card.complianceRisk}</span>
+	                              <span className="text-cyan-200" style={{ fontWeight: 700 }}>{card.ctaLabel}</span>
+	                            </div>
+	                          </motion.button>
+	                        ))}
+	                      </div>
+	                    </div>
 
 	                    {/* ── Tonight's Events ── */}
 	                    <div className="mb-6">

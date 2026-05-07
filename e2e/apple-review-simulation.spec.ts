@@ -60,6 +60,8 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('tab', { name: 'Discover tab' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Map tab' })).toBeVisible();
+    await expect(page.getByTestId('home-simplex-priority-section')).toBeVisible();
+    await expect(page.getByTestId('home-priority-card-cottage-industry-services')).toContainText('Cottage Industry Services');
     await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();
     await page.getByRole('button', { name: 'Voice input' }).click();
     await expect(page.getByRole('status')).toContainText(/Voice input is not available|could not start/i);

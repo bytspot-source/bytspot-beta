@@ -10,4 +10,4 @@ Required gate:
 4. Keep `appleReviewSafe: false` or `appStoreExposure: hidden-behind-flag` until consumer copy and routes are approved.
 5. Add focused tests before wiring the module into navigation or checkout.
 
-Phase 5 must rank `allRankableModules`, which includes both current swipeable cards and future module proposals. This keeps Parker App Store scope stable while allowing Premium Valet, Cottage Hospitality, Events, Music, Loyalty, and Concierge modules to plug in later.
+Phase 5 must rank `allRankableModules`, which includes both current swipeable cards and future module proposals. It also layers release-work batches through `allPrioritizableWork` so Homepage priority cards, bug batches, and future modules use the same `Es = Φ_EM + Φ_E + ΔD + f × λ_sim` discipline. This keeps Parker App Store scope stable while allowing Premium Valet, Cottage Industry Services, Events, Music, Loyalty, and Concierge modules to plug in later.

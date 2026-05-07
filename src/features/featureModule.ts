@@ -82,6 +82,6 @@ export function validateFeatureModule(module: FeatureModule): string[] {
   return errors;
 }
 
-export function rankFeatureModules(modules: FeatureModule[]): FeatureModule[] {
+export function rankFeatureModules(modules: readonly FeatureModule[]): FeatureModule[] {
   return [...modules].sort((a, b) => b.priorityScore - a.priorityScore || a.constraints.appStoreRisk - b.constraints.appStoreRisk || a.id.localeCompare(b.id));
 }

@@ -1,25 +1,13 @@
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  X, ChevronLeft, MapPin, Star, Shield, Clock, DollarSign,
+  X, ChevronLeft, MapPin, Star, Shield, Clock,
   Phone, Camera, Check, AlertCircle, Navigation, User, Car,
-  CreditCard, Apple, Smartphone, ChevronRight, MessageCircle,
-  Award, TrendingUp, Zap, Bell, Info, FileText, Image as ImageIcon,
-  Share2, Mail, Download, Trophy, Gift, Calendar, Sparkles, Droplet,
+  CreditCard, Apple, Smartphone, MessageCircle,
+  Zap, Bell,
+  Mail, Download, Trophy, Gift, Calendar, Sparkles, Droplet,
   Wrench, Package, Fuel, Bike
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
-
-const VALET_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyB-b2l6T-saxk5h9PZUPRBmC7R_4pxryNk';
-
-const VALET_DARK_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#1d1d1d' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1d1d1d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2c2c2c' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252525' }] },
-];
 
 interface ValetService {
   id: string;
@@ -122,8 +110,7 @@ const ADDON_SERVICES: AddonService[] = [
   },
 ];
 
-export function ValetFlow({ service: initialService, isDarkMode, onClose }: ValetFlowProps) {
-  const { isLoaded: mapsLoaded } = useJsApiLoader({ googleMapsApiKey: VALET_MAPS_API_KEY });
+export function ValetFlow({ service: initialService, isDarkMode: _isDarkMode, onClose }: ValetFlowProps) {
   const [currentStep, setCurrentStep] = useState<FlowStep>('overview');
   const [bookingDetails, setBookingDetails] = useState<BookingDetails>({
     firstName: '',
@@ -142,7 +129,7 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
   const [selectedPayment, setSelectedPayment] = useState<'card' | 'apple' | 'google'>('card');
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [assignedValet, setAssignedValet] = useState({
+  const [assignedValet] = useState({
     name: 'Michael Chen',
     photo: 'https://i.pravatar.cc/150?img=12',
     rating: 4.9,
@@ -345,7 +332,6 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
                 setDetails={setBookingDetails}
                 onContinue={() => setCurrentStep('booking')}
                 springConfig={springConfig}
-                mapsLoaded={mapsLoaded}
               />
             )}
 
@@ -383,7 +369,6 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
                 estimatedTime={estimatedTime}
                 onRequestRetrieval={handleRequestRetrieval}
                 springConfig={springConfig}
-                mapsLoaded={mapsLoaded}
               />
             )}
 
@@ -417,8 +402,44 @@ export function ValetFlow({ service: initialService, isDarkMode, onClose }: Vale
   );
 }
 
+function ValetServiceAreaPreview({ serviceArea }: { serviceArea: string }) {
+  return (
+    <div className="w-full h-48 rounded-[12px] overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-purple-950 mb-3 relative border border-white/10">
+      <div className="absolute inset-0 opacity-35" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+      <div className="absolute left-8 right-8 top-1/2 h-1 rounded-full bg-gradient-to-r from-cyan-300 via-purple-400 to-pink-400 shadow-[0_0_24px_rgba(168,85,247,.55)]" />
+      <div className="absolute left-10 top-12 w-16 h-16 rounded-full border border-cyan-300/40 bg-cyan-400/15 blur-[1px]" />
+      <div className="absolute right-9 bottom-10 w-20 h-20 rounded-full border border-purple-300/45 bg-purple-500/15 blur-[1px]" />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-purple-500/90 border-4 border-white flex items-center justify-center shadow-xl">
+        <Car className="w-7 h-7 text-white" />
+      </div>
+      <div className="absolute left-5 bottom-5 flex items-center gap-2 rounded-full bg-black/45 border border-white/15 px-3 py-2 text-[12px] text-white">
+        <MapPin className="w-3.5 h-3.5 text-cyan-200" />
+        <span style={{ fontWeight: 700 }}>{serviceArea}</span>
+      </div>
+      <div className="absolute right-5 top-5 rounded-full bg-emerald-400/20 border border-emerald-200/30 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 800 }}>
+        Live coverage
+      </div>
+    </div>
+  );
+}
+
+function ValetTrackingPreview() {
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950">
+      <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+      <div className="absolute left-10 right-10 top-[54%] h-1 rounded-full bg-cyan-300/65" />
+      <div className="absolute left-[22%] top-[43%] w-9 h-9 rounded-full bg-cyan-400 border-2 border-white flex items-center justify-center shadow-lg">
+        <MapPin className="w-5 h-5 text-white" />
+      </div>
+      <div className="absolute right-[20%] top-[47%] w-11 h-11 rounded-full bg-purple-500 border-2 border-white flex items-center justify-center shadow-lg">
+        <Car className="w-6 h-6 text-white" />
+      </div>
+    </div>
+  );
+}
+
 // Step 1: Service Overview
-function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, springConfig, details, setDetails, mapsLoaded }: any) {
+function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, springConfig, details, setDetails }: any) {
   const toggleAddon = (addonId: string) => {
     setDetails((prev: BookingDetails) => ({
       ...prev,
@@ -490,27 +511,12 @@ function OverviewStep({ service, duration, setDuration, serviceFee, onContinue, 
         )}
       </div>
 
-      {/* Service Area Map */}
+      {/* Service Area */}
       <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border-2 border-white/30">
         <h3 className="text-[15px] text-white mb-3" style={{ fontWeight: 600 }}>
           Service Area
         </h3>
-        <div className="w-full h-48 rounded-[12px] overflow-hidden bg-gray-800 mb-3 relative">
-          {mapsLoaded ? (
-            <GoogleMap
-              mapContainerStyle={{ width: '100%', height: '100%' }}
-              center={{ lat: 33.7756, lng: -84.3963 }}
-              zoom={13}
-              options={{ disableDefaultUI: true, styles: VALET_DARK_STYLES, gestureHandling: 'cooperative' }}
-            >
-              <MarkerF position={{ lat: 33.7756, lng: -84.3963 }} />
-            </GoogleMap>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-white/40" />
-            </div>
-          )}
-        </div>
+        <ValetServiceAreaPreview serviceArea={service.serviceArea} />
         <div className="flex items-center gap-2 text-[13px] text-white/70">
           <MapPin className="w-4 h-4" />
           <span style={{ fontWeight: 500 }}>{service.serviceArea}</span>
@@ -1213,7 +1219,7 @@ function PaymentStep({ serviceFee, addonsCost, platformFee, tax, totalCost, sele
 }
 
 // Step 4: Active Service Tracking
-function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, springConfig, mapsLoaded }: any) {
+function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, springConfig }: any) {
   const currentPhaseIndex = VALET_PHASES.findIndex(p => p.key === status.phase);
 
   return (
@@ -1288,46 +1294,7 @@ function TrackingStep({ valet, status, estimatedTime, onRequestRetrieval, spring
         </div>
         
         <div className="w-full h-56 rounded-[12px] overflow-hidden bg-gray-800 relative">
-          {mapsLoaded ? (
-            <GoogleMap
-              mapContainerStyle={{ width: '100%', height: '100%' }}
-              center={{ lat: 33.7756, lng: -84.3963 }}
-              zoom={15}
-              options={{
-                styles: VALET_DARK_STYLES,
-                disableDefaultUI: true,
-                gestureHandling: 'none',
-                zoomControl: false,
-              }}
-            >
-              {/* Driver marker */}
-              <MarkerF
-                position={{ lat: 33.7770, lng: -84.3950 }}
-                icon={{
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
-                    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="%23A855F7" stroke="white" stroke-width="3"/><text x="20" y="26" text-anchor="middle" font-size="18" fill="white">🚗</text></svg>'
-                  ),
-                  scaledSize: new google.maps.Size(40, 40),
-                  anchor: new google.maps.Point(20, 20),
-                }}
-              />
-              {/* User pickup pin */}
-              <MarkerF
-                position={{ lat: 33.7740, lng: -84.3975 }}
-                icon={{
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
-                    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="%2300BCD4" stroke="white" stroke-width="3"/><text x="16" y="22" text-anchor="middle" font-size="14" fill="white">📍</text></svg>'
-                  ),
-                  scaledSize: new google.maps.Size(32, 32),
-                  anchor: new google.maps.Point(16, 16),
-                }}
-              />
-            </GoogleMap>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-purple-500 animate-spin" />
-            </div>
-          )}
+          <ValetTrackingPreview />
           {/* Pulsing car overlay */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <motion.div

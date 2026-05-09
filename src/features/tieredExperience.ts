@@ -44,6 +44,10 @@ export interface TieredHomeCard {
   cardStyleLabel: string;
 }
 
+export function isServiceDiscoveryHomeCard(cardId: TieredHomeCard['id']): boolean {
+  return cardId === 'hero-chef-dinner' || cardId === 'cottage-massage';
+}
+
 export const TIERED_EXPERIENCE_PROFILES: Record<ConsumerExperienceTier, ConsumerTierProfile> = {
   explorer: {
     tier: 'explorer',
@@ -145,13 +149,13 @@ export function getTieredHomeCards(tier: ConsumerExperienceTier): TieredHomeCard
     },
     {
       id: 'cottage-massage',
-      title: 'In-Home Deep Tissue Massage',
-      subtitle: 'Trending Cottage Experience',
+      title: 'Cottage Industry Services',
+      subtitle: 'Massage, chef, wellness · local providers',
       priceLine: isInsider ? '$114 · 60 min' : '$120 · 60 min',
       availabilityLine: isVip ? 'Multiple slots today · first choice' : 'Multiple slots today',
       badge: profile.patchVerifiedLabel,
       tierBadge: isVip ? 'Curated' : isInsider ? 'Recommended for You' : 'Cottage',
-      ctaLabel: 'View Options',
+      ctaLabel: 'View Services',
       imageCue: '🌿',
       accentClass: profile.accentClass,
       cardStyleLabel: profile.cardStyleLabel,

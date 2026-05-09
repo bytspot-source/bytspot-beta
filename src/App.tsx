@@ -70,7 +70,8 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
-import { deriveConsumerExperienceTier, getTieredHomeCards, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
+import { deriveConsumerExperienceTier, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
+import type { CardType } from './utils/mockData';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -174,7 +175,7 @@ export default function App() {
   const [isScrolling, setIsScrolling] = useState(false);
   const navHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [discoverFilter, setDiscoverFilter] = useState<'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | undefined>(undefined);
+  const [discoverFilter, setDiscoverFilter] = useState<CardType | undefined>(undefined);
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
   const [rideDestination, setRideDestination] = useState<{ name: string; lat?: number; lng?: number } | undefined>(undefined);
@@ -584,6 +585,11 @@ export default function App() {
     if (card.id === 'premium-valet') {
       setShowRideSelection(true);
       toast.success(card.title, { description: card.availabilityLine, duration: 2200 });
+      return;
+    }
+
+    if (isServiceDiscoveryHomeCard(card.id)) {
+      handleCategoryClick('service', card.id === 'cottage-massage' ? 'Cottage Industry Services' : card.title);
       return;
     }
 
@@ -1294,7 +1300,7 @@ export default function App() {
 	                        <div>
 	                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>{tieredExperience.profile.priorityRailLabel}</h2>
 	                        </div>
-	                        <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] text-white/75" style={{ fontWeight: 700 }}>{tieredExperience.profile.accessLevel}</span>
+                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 800 }}>{tieredExperience.profile.accessLevel}</span>
 	                      </div>
 	                      <div className={HOME_CAROUSEL_CLASS}>
 	                        {tieredExperience.cards.map((card, index) => (
@@ -1303,7 +1309,7 @@ export default function App() {
 	                            type="button"
 	                            data-testid={`home-tier-card-${card.id}`}
 	                            onClick={() => handleTieredCardClick(card)}
-	                            className={`relative flex-shrink-0 snap-start overflow-hidden rounded-[28px] border bg-gradient-to-br ${card.accentClass} p-0 text-left shadow-[0_18px_50px_rgba(0,0,0,0.30)] ring-1 ring-white/10`}
+                            className="relative flex-shrink-0 snap-start overflow-hidden rounded-[28px] border border-slate-700 bg-slate-950 p-0 text-left shadow-[0_20px_52px_rgba(0,0,0,0.38)] ring-1 ring-white/15"
 	                            style={HOME_TIER_CARD_STYLE}
 	                            initial={{ opacity: 0, y: 12 }}
 	                            animate={{ opacity: 1, y: 0 }}
@@ -1311,21 +1317,22 @@ export default function App() {
 	                            whileTap={{ scale: 0.97 }}
 	                            whileHover={{ scale: 1.01, y: -2 }}
 	                          >
-	                            <div className="relative h-[92px] overflow-hidden bg-black/25">
-	                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(255,255,255,0.28),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(0,191,255,0.18),transparent_36%)]" />
-	                              <div className="absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-[22px] bg-black/30 text-[30px] ring-1 ring-white/20">{card.imageCue}</div>
+                            <div className="relative h-[92px] overflow-hidden bg-slate-900">
+                              <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${card.accentClass}`} />
+                              <div className="absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[30px] shadow-lg ring-1 ring-slate-200">{card.imageCue}</div>
+                              <span className="absolute right-4 top-4 rounded-full bg-cyan-300 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-950" style={{ fontWeight: 900 }}>{card.tierBadge}</span>
 	                            </div>
 	                            <div className="p-4">
 	                              <div className="mb-2 flex items-center gap-2">
-	                                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/15 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 800 }}>{card.badge}</span>
+                                <span className="rounded-full border border-emerald-300 bg-emerald-300 px-2 py-0.5 text-[10px] text-emerald-950 shadow-sm" style={{ fontWeight: 900 }}>{card.badge}</span>
 	                              </div>
 	                              <h3 className="text-[17px] leading-tight text-white line-clamp-2" style={{ fontWeight: 800 }}>{card.title}</h3>
-	                              <p className="mt-1 text-[12px] text-white/62 line-clamp-1" style={{ fontWeight: 600 }}>{card.subtitle}</p>
+                              <p className="mt-1 text-[12px] text-slate-200 line-clamp-1" style={{ fontWeight: 650 }}>{card.subtitle}</p>
 	                              <p className="mt-3 text-[14px] text-white" style={{ fontWeight: 800 }}>{card.priceLine}</p>
-	                              <p className="mt-0.5 text-[12px] text-white/58" style={{ fontWeight: 600 }}>{card.availabilityLine}</p>
+                              <p className="mt-0.5 text-[12px] text-slate-300" style={{ fontWeight: 650 }}>{card.availabilityLine}</p>
 	                              <div className="mt-4 flex items-center justify-between gap-3">
-	                                <span className="text-[11px] text-white/48">{tieredExperience.profile.heroLabel}</span>
-	                                <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-black" style={{ fontWeight: 850 }}>{card.ctaLabel}</span>
+                                <span className="text-[11px] text-slate-400" style={{ fontWeight: 650 }}>{tieredExperience.profile.heroLabel}</span>
+                                <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.ctaLabel}</span>
 	                              </div>
 	                            </div>
 	                          </motion.button>

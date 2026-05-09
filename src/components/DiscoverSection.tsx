@@ -95,6 +95,18 @@ function isVendorServiceCard(card: DiscoverCard): boolean {
   return Boolean(cardField<string>(card, serviceIdKey) && status !== 'draft' && status !== 'archived');
 }
 
+function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
+  if (isVendorServiceCard(card)) return false;
+  const type = normalizeCardType(card.type);
+  if (type === 'dining' || type === 'fitness' || type === 'entertainment') return true;
+
+  const searchable = [card.name, card.description, card.location, ...(card.features ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return ['chef', 'massage', 'wellness', 'service', 'private', 'cottage'].some((term) => searchable.includes(term));
+}
+
 function hasCheckoutAuth(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
   return Boolean(token && token !== 'guest_session');
@@ -264,7 +276,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               )}
             </div>
             <div className="absolute bottom-0 left-0 right-0 p-5">
-              <div className={isServiceCard ? 'rounded-3xl border border-white/15 bg-black/55 p-3 shadow-2xl backdrop-blur-md' : ''}>
+              <div className={isServiceCard ? 'rounded-3xl border border-slate-700 bg-slate-950 p-3 shadow-2xl' : ''}>
               <div className="flex items-center gap-2 mb-1.5">
                 <h2 className="text-title-2 text-white drop-shadow-lg">{card.name}</h2>
                 {card.verified && (
@@ -274,7 +286,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 )}
               </div>
               {isServiceCard && (
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-300/35 bg-cyan-300/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-cyan-100">
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-300 bg-cyan-300 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-slate-950">
                   <CreditCard className="h-3 w-3" strokeWidth={2.6} /> Ready to book
                 </div>
               )}
@@ -309,24 +321,24 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
             </div>
           </div>
-          <div className="flex-1 flex flex-col p-4 bg-[#1C1C1E] gap-2">
-            {card.description && (<p className="text-[13px] text-white/80 line-clamp-2 flex-shrink-0" style={{ fontWeight: 400 }}>{card.description}</p>)}
+          <div className={`flex-1 flex flex-col p-4 gap-2 ${isServiceCard ? 'bg-white' : 'bg-[#1C1C1E]'}`}>
+            {card.description && (<p className={`text-[13px] line-clamp-2 flex-shrink-0 ${isServiceCard ? 'text-slate-700' : 'text-white/80'}`} style={{ fontWeight: isServiceCard ? 650 : 400 }}>{card.description}</p>)}
             {card.entryType === 'paid' && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
-                <div className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-cyan-400/15 border-cyan-300/35' : 'bg-amber-500/10 border-amber-400/25'}`}>
-                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-cyan-100' : 'text-amber-200'}`} style={{ fontWeight: 700 }}>{isServiceCard ? 'Bookable service' : 'Paid entry'}</span>
+                <div className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-slate-950 border-slate-950' : 'bg-amber-500/10 border-amber-400/25'}`}>
+                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-white' : 'text-amber-200'}`} style={{ fontWeight: 800 }}>{isServiceCard ? 'Bookable service' : 'Paid entry'}</span>
                 </div>
-                <div className="px-2.5 py-1 rounded-full bg-fuchsia-500/10 border border-fuchsia-400/25 flex items-center gap-1.5">
-                  <Ticket className="w-3 h-3 text-fuchsia-300" strokeWidth={2.4} />
-                  <span className="text-[11px] text-white/85 whitespace-nowrap" style={{ fontWeight: 600 }}>My Access ready</span>
+                <div className={`px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${isServiceCard ? 'bg-cyan-50 border-cyan-200' : 'bg-fuchsia-500/10 border-fuchsia-400/25'}`}>
+                  <Ticket className={`w-3 h-3 ${isServiceCard ? 'text-cyan-700' : 'text-fuchsia-300'}`} strokeWidth={2.4} />
+                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-slate-800' : 'text-white/85'}`} style={{ fontWeight: 700 }}>My Access ready</span>
                 </div>
               </div>
             )}
             {card.features && card.features.length > 0 && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                 {card.features.slice(0, 4).map((feature, idx) => (
-                  <div key={idx} className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20">
-                    <span className="text-[11px] text-white/90 whitespace-nowrap" style={{ fontWeight: 500 }}>{feature}</span>
+                  <div key={idx} className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
+                    <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-slate-800' : 'text-white/90'}`} style={{ fontWeight: isServiceCard ? 750 : 500 }}>{feature}</span>
                   </div>
                 ))}
                 {card.features.length > 4 && (
@@ -417,6 +429,9 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   );
   const vendorServiceCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? [] : cards.filter(isVendorServiceCard);
   const standardDeckCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? cards.filter(card => card.type !== 'service') : cards.filter(card => !isVendorServiceCard(card));
+  const cottageServiceFallbackCards = appliedFilter === 'service' && vendorServiceCards.length === 0
+    ? standardDeckCards.filter(isCottageServiceFallbackCard).slice(0, 8)
+    : [];
   const defaultDeckCards = standardDeckCards.length > 0 ? standardDeckCards : cards;
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
@@ -455,6 +470,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   // 1. Category filter
   let filteredCards = isEventSurface
     ? eventCards
+    : appliedFilter === 'service' && cottageServiceFallbackCards.length > 0
+      ? cottageServiceFallbackCards
     : appliedFilter
       ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
       : defaultDeckCards;
@@ -785,7 +802,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           >
             <RefreshCw className="w-6 h-6 text-white" />
           </motion.div>
-          <p className="text-white/60 text-sm">{isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
+          <p className="text-white/70 text-sm" style={{ fontWeight: 650 }}>{appliedFilter === 'service' ? 'Loading bookable services from providers and venues…' : isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
         </div>
       )}
 
@@ -929,31 +946,36 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{vendorServiceCards.length} active</span>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            {vendorServiceCards.map((card) => (
-              <button
+            {vendorServiceCards.map((card, index) => (
+              <motion.button
                 key={cardField<string>(card, serviceIdKey) ?? card.id}
                 type="button"
                 data-testid={`service-quick-card-${cardField<string>(card, serviceIdKey)}`}
                 onClick={() => handleCardClick(card)}
-                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-200/40 bg-gradient-to-br from-slate-900 via-cyan-950 to-violet-950 p-3 text-left shadow-lg shadow-cyan-950/25 ring-1 ring-white/10 active:scale-[0.98]"
+                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-slate-200 bg-white p-3 text-left text-slate-950 shadow-[0_16px_34px_rgba(15,23,42,0.22)] ring-1 ring-white active:scale-[0.98]"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, delay: index * 0.035 }}
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.98 }}
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
-                    <p className="line-clamp-1 text-[15px] text-white" style={{ fontWeight: 850 }}>{card.name}</p>
-                    <p className="line-clamp-1 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>{card.location ?? 'Experienced professional'}</p>
+                    <p className="line-clamp-1 text-[15px] text-slate-950" style={{ fontWeight: 900 }}>{card.name}</p>
+                    <p className="line-clamp-1 text-[12px] text-slate-600" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
                   </div>
-                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-black" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
+                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
                 </div>
-                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white/90" style={{ fontWeight: 650 }}>{card.description}</p>
+                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-slate-700" style={{ fontWeight: 650 }}>{card.description}</p>
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/25 bg-black/40 px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 750 }}>
-                    <Shield className="h-3 w-3 text-cyan-200" strokeWidth={2.6} /> Active
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-950 bg-slate-950 px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>
+                    <Shield className="h-3 w-3 text-cyan-300" strokeWidth={2.6} /> Active
                   </span>
-                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-700" style={{ fontWeight: 900 }}>
                     Book <CreditCard className="h-3 w-3" strokeWidth={2.6} />
                   </span>
                 </div>
-              </button>
+              </motion.button>
             ))}
           </div>
         </section>
@@ -984,15 +1006,22 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             {isEventSurface ? <Sparkles className="w-7 h-7 text-white/20" strokeWidth={1.5} /> : <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />}
           </div>
           <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
-            {isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />Try a different category.
+            {appliedFilter === 'service' ? 'No bookable services or nearby providers loaded yet.' : isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />{appliedFilter === 'service' ? 'Refresh to pull the latest provider and venue data.' : 'Try a different category.'}
           </p>
           <motion.button
-            onClick={() => { setAppliedFilter(null); setCurrentIndex(0); }}
+            onClick={() => {
+              if (appliedFilter === 'service') {
+                void handleRefresh(true);
+                return;
+              }
+              setAppliedFilter(null);
+              setCurrentIndex(0);
+            }}
             className="px-5 py-2 rounded-full bg-cyan-600 text-white text-[14px]"
             style={{ fontWeight: 600 }}
             whileTap={{ scale: 0.96 }}
           >
-            Show All
+            {appliedFilter === 'service' ? 'Refresh Services' : 'Show All'}
           </motion.button>
         </div>
       )}

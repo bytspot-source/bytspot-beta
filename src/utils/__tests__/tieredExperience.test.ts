@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { deriveConsumerExperienceTier, getConsumerTierProgress, getTieredHomeCards, TIERED_EXPERIENCE_PROFILES } from '../../features/tieredExperience.ts';
+import { deriveConsumerExperienceTier, getConsumerTierProgress, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES } from '../../features/tieredExperience.ts';
 
 describe('tiered Parker experience', () => {
   it('derives consumer benefit levels from bookings and activity', () => {
@@ -21,5 +21,12 @@ describe('tiered Parker experience', () => {
     assert.deepEqual(vipCards.map((card) => card.id), ['hero-chef-dinner', 'premium-valet', 'cottage-massage']);
     assert.ok(vipCards.every((card) => !/tier|explorer|insider|vip/i.test(`${card.title} ${card.priceLine} ${card.tierBadge} ${card.cardStyleLabel}`)));
     assert.ok(vipCards.every((card) => card.badge === TIERED_EXPERIENCE_PROFILES.vip.patchVerifiedLabel));
+    assert.equal(vipCards.find((card) => card.id === 'cottage-massage')?.title, 'Cottage Industry Services');
+  });
+
+  it('routes home service cards to vendor service discovery', () => {
+    assert.equal(isServiceDiscoveryHomeCard('hero-chef-dinner'), true);
+    assert.equal(isServiceDiscoveryHomeCard('cottage-massage'), true);
+    assert.equal(isServiceDiscoveryHomeCard('premium-valet'), false);
   });
 });

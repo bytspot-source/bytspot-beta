@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SignInWithApple } from '@capacitor-community/apple-sign-in';
 
@@ -74,6 +74,10 @@ function getAppleRedirectUri(): string {
   return DEFAULT_WEB_REDIRECT_URI;
 }
 
+function isNativeIOS(): boolean {
+  return Capacitor.getPlatform() === 'ios' && Capacitor.isNativePlatform();
+}
+
 function AppleLogoMark() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[22px] w-[18px] shrink-0 fill-current" focusable="false">
@@ -91,6 +95,13 @@ export function AppleSignInButton({ disabled = false, label = 'continue', appear
     ? 'bg-white text-black border-black/10 hover:bg-white/95'
     : 'bg-black text-white border-white/25 hover:bg-neutral-900';
 
+  useEffect(() => {
+    if (isNativeIOS()) return;
+    void loadAppleScript().catch(() => {
+      // Surface load failures on tap so the UI does not show an error before user intent.
+    });
+  }, []);
+
   const handleClick = async () => {
     if (disabled || loading) return;
     setLoading(true);
@@ -98,7 +109,7 @@ export function AppleSignInButton({ disabled = false, label = 'continue', appear
       const clientId = getAppleClientId();
       const redirectURI = getAppleRedirectUri();
 
-      if (Capacitor.getPlatform() === 'ios' && Capacitor.isNativePlatform()) {
+      if (isNativeIOS()) {
         const result = await SignInWithApple.authorize({ clientId, redirectURI, scopes: 'email name', state });
         const identityToken = result.response.identityToken;
         if (!identityToken) throw new Error('Apple did not return a sign-in credential. Please try again.');
@@ -108,7 +119,7 @@ export function AppleSignInButton({ disabled = false, label = 'continue', appear
         return;
       }
 
-      await loadAppleScript();
+      if (!window.AppleID?.auth) await loadAppleScript();
       window.AppleID?.auth?.init({ clientId, redirectURI, scope: 'name email', state, usePopup: true });
       const result = await window.AppleID?.auth?.signIn();
       const identityToken = result?.authorization?.id_token;

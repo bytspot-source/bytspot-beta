@@ -16,7 +16,7 @@ interface AuthenticationFlowProps {
 
 type AuthMode = 'signup' | 'login';
 
-export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', initialRef = '' }: AuthenticationFlowProps) {
+export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initialEmail = '', initialRef = '' }: AuthenticationFlowProps) {
   const [mode, setMode] = useState<AuthMode>('signup');
   const [name, setName] = useState('');
   const [email, setEmail] = useState(initialEmail);
@@ -32,14 +32,26 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
     mass: 0.8,
   };
 
+  const isSignup = mode === 'signup';
+  const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const passwordIsValid = password.length >= 6;
+  const nameIsValid = !isSignup || name.trim().length >= 2;
+  const canSubmit = emailIsValid && passwordIsValid && nameIsValid && !loading;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!canSubmit) {
+      setError(isSignup
+        ? 'Please enter your name, a valid email address, and a password with at least 6 characters.'
+        : 'Please enter a valid email address and password.');
+      return;
+    }
     setLoading(true);
     try {
       // Use invite code if entered; otherwise fall back to URL ?ref= param (referral user ID)
       const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
-      const res = mode === 'signup'
+      const res = isSignup
         ? await trpc.auth.signup.mutate({ email: email.trim(), password, name: name.trim(), ref: refValue })
         : await trpc.auth.login.mutate({ email: email.trim(), password });
 
@@ -49,7 +61,7 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
         if (res.user?.name) {
           localStorage.setItem('bytspot_user_name', res.user.name.split(' ')[0]);
         }
-        toast.success(mode === 'signup' ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
+        toast.success(isSignup ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
         onComplete();
       } else {
         setError('Something went wrong. Please try again.');
@@ -89,28 +101,22 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
     }
   };
 
-	  const handleAppleCredential = async ({ identityToken, email: appleEmail, name: appleName }: { identityToken: string; email?: string; name?: string }) => {
-	    setError('');
-	    setLoading(true);
-	    try {
-	      const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
-	      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name: appleName, ref: refValue });
-	      persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
-	    } catch (err: any) {
-	      setError(err?.message || 'Sign in with Apple failed. Please try again.');
-	    } finally {
-	      setLoading(false);
-	    }
-	  };
-
-  // Guest preview bypass — no OAuth needed for now
-  const handleGuestContinue = () => {
-    localStorage.setItem('bytspot_auth_token', 'guest_session');
-    onComplete();
+  const handleAppleCredential = async ({ identityToken, email: appleEmail, name: appleName }: { identityToken: string; email?: string; name?: string }) => {
+    setError('');
+    setLoading(true);
+    try {
+      const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
+      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name: appleName, ref: refValue });
+      persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
+    } catch (err: any) {
+      setError(err?.message || 'Sign in with Apple failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#000000]">
+    <div className="min-h-[100dvh] overflow-y-auto bg-[#000000]">
       {/* Background gradients */}
       <div className="absolute inset-0">
         <div className="absolute inset-0 bg-[#000000]" />
@@ -122,20 +128,22 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
         </div>
       </div>
 
-      <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col px-6 py-12 justify-center">
+      <div className="relative mx-auto flex min-h-[100dvh] max-w-[393px] flex-col justify-start px-6 py-6 sm:justify-center sm:py-10">
 
         {/* Logo + heading */}
         <motion.div
-          className="text-center mb-10"
+          className="text-center mb-6"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springConfig}
         >
-          <div className="w-20 h-20 rounded-[24px] bg-gradient-to-br from-purple-500 via-pink-500 to-cyan-500 flex items-center justify-center mx-auto mb-5 shadow-xl">
-            <span className="text-[36px]">👋</span>
+          <div className="w-16 h-16 rounded-[22px] bg-gradient-to-br from-purple-500 via-pink-500 to-cyan-500 flex items-center justify-center mx-auto mb-4 shadow-xl">
+            <span className="text-[30px]">👋</span>
           </div>
           <h1 className="text-large-title text-white mb-2">Welcome to Bytspot</h1>
-          <p className="text-[15px] text-white/60" style={{ fontWeight: 400 }}>Midtown Atlanta, know before you go</p>
+          <p className="text-[15px] text-white/60" style={{ fontWeight: 400 }}>
+            {isSignup ? 'Create your account to save spots, preferences, and reservations.' : 'Sign in to access your saved Bytspot profile.'}
+          </p>
         </motion.div>
 
         {/* Mode toggle */}
@@ -159,13 +167,15 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
           ))}
         </motion.div>
 
-	        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
-	          <AppleSignInButton
-	            disabled={loading}
-	            onCredential={handleAppleCredential}
-	            onError={(message) => setError(message)}
-	          />
-	        </motion.div>
+		        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
+		          <AppleSignInButton
+                appearance="white"
+                label="continue"
+		            disabled={loading}
+		            onCredential={handleAppleCredential}
+		            onError={(message) => setError(message)}
+		          />
+		        </motion.div>
 
 	        <motion.div className="mt-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.14 }}>
           <GoogleSignInButton
@@ -185,6 +195,7 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
         <motion.form
           onSubmit={handleSubmit}
           className="space-y-3"
+            noValidate
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ ...springConfig, delay: 0.15 }}
@@ -199,7 +210,7 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+                  <div className={`flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl transition-colors ${name || !isSignup ? nameIsValid ? 'border-emerald-400/35' : 'border-orange-400/45' : 'border-white/20'}`}>
                     <User className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
                     <input
                       type="text"
@@ -210,6 +221,9 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
                       className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
                     />
                   </div>
+                  {isSignup && name.length > 0 && !nameIsValid && (
+                    <p className="mt-1.5 px-1 text-[12px] text-orange-300" style={{ fontWeight: 600 }}>Enter the name reviewers will see on the new account.</p>
+                  )}
                 </motion.div>
                 <motion.div
                   key="invite"
@@ -235,7 +249,7 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
             )}
           </AnimatePresence>
 
-          <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+          <div className={`flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl transition-colors ${email ? emailIsValid ? 'border-emerald-400/35' : 'border-orange-400/45' : 'border-white/20'}`}>
             <Mail className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
             <input
               type="email"
@@ -246,8 +260,11 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
               className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
             />
           </div>
+          {email.length > 0 && !emailIsValid && (
+            <p className="mt-1.5 px-1 text-[12px] text-orange-300" style={{ fontWeight: 600 }}>Enter a valid email address.</p>
+          )}
 
-          <div className="flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl">
+          <div className={`flex items-center gap-3 px-4 py-3.5 rounded-[14px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl transition-colors ${password ? passwordIsValid ? 'border-emerald-400/35' : 'border-orange-400/45' : 'border-white/20'}`}>
             <Lock className="w-5 h-5 text-white/40 flex-shrink-0" strokeWidth={2} />
             <input
               type="password"
@@ -259,6 +276,9 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
               className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
             />
           </div>
+          {password.length > 0 && !passwordIsValid && (
+            <p className="mt-1.5 px-1 text-[12px] text-orange-300" style={{ fontWeight: 600 }}>Use at least 6 characters.</p>
+          )}
 
           {mode === 'login' && (
             <div className="flex justify-end">
@@ -289,38 +309,18 @@ export function AuthenticationFlow({ isDarkMode, onComplete, initialEmail = '', 
 
           <motion.button
             type="submit"
-            disabled={loading}
-            className="w-full py-4 rounded-[16px] bg-gradient-to-r from-purple-500 to-cyan-500 text-white flex items-center justify-center gap-2 shadow-lg disabled:opacity-60"
+            disabled={!canSubmit}
+            className="w-full py-4 rounded-[16px] bg-gradient-to-r from-purple-500 to-cyan-500 text-white flex items-center justify-center gap-2 shadow-lg disabled:cursor-not-allowed disabled:opacity-45"
             style={{ fontWeight: 600, fontSize: 17 }}
             whileTap={{ scale: loading ? 1 : 0.98 }}
             transition={springConfig}
           >
             {loading
               ? <Loader2 className="w-5 h-5 animate-spin" />
-              : mode === 'signup' ? 'Create Account' : 'Log In'
+              : isSignup ? 'Create Account' : 'Log In'
             }
           </motion.button>
         </motion.form>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 h-px bg-white/10" />
-          <span className="text-[12px] text-white/30" style={{ fontWeight: 500 }}>or</span>
-          <div className="flex-1 h-px bg-white/10" />
-        </div>
-
-        {/* Beta guest bypass */}
-        <motion.button
-          onClick={handleGuestContinue}
-          className="w-full py-3.5 rounded-[16px] border-2 border-white/20 text-white/60 text-[15px]"
-          style={{ fontWeight: 500 }}
-          whileTap={{ scale: 0.98 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ ...springConfig, delay: 0.3 }}
-        >
-          Continue as Guest
-        </motion.button>
 
         <p className="text-[11px] text-white/25 text-center mt-6" style={{ fontWeight: 400 }}>
           By continuing, you agree to our Terms of Service and Privacy Policy

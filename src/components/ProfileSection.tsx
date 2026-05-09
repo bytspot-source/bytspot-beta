@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, ExternalLink, AlertTriangle, Ticket, Receipt, Trash2 } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Receipt, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
 import { VehicleManagement } from './VehicleManagement';
@@ -20,7 +20,7 @@ import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
 import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
-import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, getSocialFeedAsync, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
+import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
@@ -37,6 +37,19 @@ interface ProfileSectionProps {
   onBecomeValet?: () => void;
   onLogout?: () => void;
 }
+
+type ProfileMenuItem = {
+  icon: ReactNode;
+  label: string;
+  badge: string | null;
+  screen: ProfileScreen;
+  danger?: boolean;
+};
+
+type ProfileMenuSection = {
+  title: string;
+  items: ProfileMenuItem[];
+};
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 
@@ -83,7 +96,9 @@ function formatReservationWindow(startTime: string, endTime: string): string {
 
 export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
+  const [deleteReturnScreen, setDeleteReturnScreen] = useState<ProfileScreen>('general-settings');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [showDeleteFinalConfirm, setShowDeleteFinalConfirm] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const savedSpotsStats = getSavedSpotsStats();
 
@@ -259,6 +274,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       toast.error('Sign in required', { description: 'Please sign in before deleting an account.' });
       return;
     }
+    setShowDeleteFinalConfirm(false);
     setIsDeletingAccount(true);
     try {
       await trpc.user.profile.deleteAccount.mutate({ confirmation: 'DELETE' });
@@ -282,7 +298,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const insiderEstimatedCents = Math.max(50, insiderBaseCents - insiderPointsDiscountCents);
   const formatSubscriptionCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-  const menuSections = [
+  const menuSections: ProfileMenuSection[] = [
     {
       title: 'Account',
       items: [
@@ -309,6 +325,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       items: [
         { icon: <MapPin className="w-5 h-5" />, label: 'Location & Privacy', badge: null, screen: 'location-settings' as ProfileScreen },
         { icon: <Settings className="w-5 h-5" />, label: 'General', badge: null, screen: 'general-settings' as ProfileScreen },
+	        { icon: <Trash2 className="w-5 h-5" />, label: 'Delete Account', badge: null, screen: 'delete-account' as ProfileScreen, danger: true },
       ],
     },
     {
@@ -408,7 +425,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               </button>
 
               <button
-                onClick={() => setCurrentScreen('delete-account')}
+	                onClick={() => { setDeleteReturnScreen('general-settings'); setDeleteConfirmation(''); setShowDeleteFinalConfirm(false); setCurrentScreen('delete-account'); }}
                 className="w-full flex items-center justify-between rounded-[18px] p-4 bg-red-600/15 border border-red-500/35 text-left"
                 data-testid="profile-delete-account-entry"
               >
@@ -435,7 +452,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     return (
       <div className="h-full flex flex-col bg-[#000000]">
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
-          <motion.button onClick={() => setCurrentScreen('general-settings')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+	          <motion.button onClick={() => { setShowDeleteFinalConfirm(false); setCurrentScreen(deleteReturnScreen); }} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
             <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
           </motion.button>
@@ -460,7 +477,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               <p className="text-[13px] text-white/75" style={{ fontWeight: 650 }}>To confirm, type DELETE below.</p>
               <input
                 value={deleteConfirmation}
-                onChange={(event) => setDeleteConfirmation(event.target.value.toUpperCase())}
+	                onChange={(event) => { setDeleteConfirmation(event.target.value.toUpperCase()); setShowDeleteFinalConfirm(false); }}
                 placeholder="DELETE"
                 data-testid="delete-account-confirmation-input"
                 className="w-full rounded-[14px] border-2 border-white/20 bg-[#1C1C1E] px-4 py-3 text-[16px] text-white outline-none placeholder:text-white/35 focus:border-red-300/70"
@@ -470,7 +487,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             <button
               type="button"
               disabled={!canDelete}
-              onClick={handleDeleteAccount}
+	              onClick={() => setShowDeleteFinalConfirm(true)}
               data-testid="delete-account-confirm-button"
               className="mt-4 w-full rounded-[18px] bg-red-600 px-4 py-4 text-[16px] text-white shadow-lg disabled:bg-white/15 disabled:text-white/45"
               style={{ fontWeight: 800 }}
@@ -479,6 +496,48 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             </button>
           </div>
         </div>
+
+	        {showDeleteFinalConfirm && (
+	          <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 px-4 pb-6 backdrop-blur-sm sm:items-center sm:pb-0">
+	            <motion.div
+	              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+	              animate={{ opacity: 1, y: 0, scale: 1 }}
+	              className="w-full max-w-[360px] rounded-[28px] border-2 border-red-400/45 bg-[#1C1C1E] p-5 shadow-2xl"
+	            >
+	              <div className="mb-4 flex items-start gap-3">
+	                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-600/25 text-red-100">
+	                  <AlertTriangle className="h-6 w-6" strokeWidth={2.5} />
+	                </div>
+	                <div>
+	                  <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>Final confirmation</p>
+	                  <p className="mt-1 text-[13px] leading-5 text-white/65" style={{ fontWeight: 500 }}>
+	                    This permanently deletes your Bytspot account and removes your profile data. This action cannot be undone.
+	                  </p>
+	                </div>
+	              </div>
+	              <div className="grid grid-cols-1 gap-3">
+	                <button
+	                  type="button"
+	                  onClick={handleDeleteAccount}
+	                  disabled={isDeletingAccount}
+	                  className="w-full rounded-[16px] bg-red-600 px-4 py-3.5 text-[15px] text-white shadow-lg disabled:opacity-60"
+	                  style={{ fontWeight: 850 }}
+	                >
+	                  {isDeletingAccount ? 'Deleting…' : 'Permanently Delete Account'}
+	                </button>
+	                <button
+	                  type="button"
+	                  onClick={() => setShowDeleteFinalConfirm(false)}
+	                  disabled={isDeletingAccount}
+	                  className="w-full rounded-[16px] border border-white/15 bg-white/10 px-4 py-3.5 text-[15px] text-white disabled:opacity-60"
+	                  style={{ fontWeight: 750 }}
+	                >
+	                  Cancel
+	                </button>
+	              </div>
+	            </motion.div>
+	          </div>
+	        )}
       </div>
     );
   }
@@ -1414,22 +1473,27 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                   data-testid={`profile-menu-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                   onClick={() => {
                     if (item.screen) {
+	                      if (item.screen === 'delete-account') {
+	                        setDeleteReturnScreen('main');
+	                        setDeleteConfirmation('');
+	                        setShowDeleteFinalConfirm(false);
+	                      }
                       setCurrentScreen(item.screen);
                     }
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-4 ${
+	                  className={`w-full flex items-center gap-3 px-4 py-4 ${
                     index !== section.items.length - 1 
                       ? 'border-b border-white/20'
                       : ''
-                  } hover:bg-white/5`}
+	                  } ${item.danger ? 'bg-red-600/10 hover:bg-red-600/15' : 'hover:bg-white/5'}`}
                   whileTap={{ scale: 0.98 }}
                   style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                   transition={springConfig}
                 >
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 text-white">
+	                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${item.danger ? 'bg-red-500/20 text-red-100' : 'bg-white/15 text-white'}`}>
                     {item.icon}
                   </div>
-                  <span className="flex-1 text-left text-[15px] text-white" style={{ fontWeight: 500 }}>
+	                  <span className={`flex-1 text-left text-[15px] ${item.danger ? 'text-red-100' : 'text-white'}`} style={{ fontWeight: item.danger ? 750 : 500 }}>
                     {item.label}
                   </span>
                   {item.badge && (
@@ -1437,7 +1501,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                       {item.badge}
                     </div>
                   )}
-                  <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
+	                  <ChevronRight className={`w-5 h-5 ${item.danger ? 'text-red-100/70' : 'text-white/60'}`} strokeWidth={2} />
                 </motion.button>
               ))}
             </div>

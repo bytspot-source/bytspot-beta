@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Lock, Phone, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, Mail, Lock, Phone, Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
 import type { OnboardingData } from '../ProviderOnboarding';
 import { GoogleSignInButton } from '../../GoogleSignInButton';
@@ -33,11 +33,14 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
   };
 
   const isSignup = authMode === 'signup';
+  const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const phoneIsValid = phone.replace(/\D/g, '').length >= 10;
+  const passwordIsValid = password.length >= 8;
 
   const isValid = () => {
-    if (!email.includes('@') || password.length < 8) return false;
+    if (!emailIsValid || !passwordIsValid) return false;
     if (!isSignup) return true;
-    return phone.length >= 10 && termsAccepted;
+    return phoneIsValid && termsAccepted;
   };
 
   const persistAuth = (res: any) => {
@@ -100,22 +103,22 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
     }
   };
 
-	  const handleAppleCredential = async ({ identityToken, email: appleEmail, name }: { identityToken: string; email?: string; name?: string }) => {
-	    if (isSubmitting) return;
-	    setIsSubmitting(true);
-	    setError(null);
-	    try {
-	      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name, ref: 'provider-onboarding' });
-	      persistAuth(res);
-	      const accountEmail = res.user?.email ?? appleEmail ?? email.trim();
-	      setEmail(accountEmail);
-	      onComplete({ account: { email: accountEmail, phone, password: '' } });
-	    } catch (err: any) {
-	      setError(err?.message || 'Sign in with Apple failed. Please try again.');
-	    } finally {
-	      setIsSubmitting(false);
-	    }
-	  };
+  const handleAppleCredential = async ({ identityToken, email: appleEmail, name }: { identityToken: string; email?: string; name?: string }) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name, ref: 'provider-onboarding' });
+      persistAuth(res);
+      const accountEmail = res.user?.email ?? appleEmail ?? email.trim();
+      setEmail(accountEmail);
+      onComplete({ account: { email: accountEmail, phone, password: '' } });
+    } catch (err: any) {
+      setError(err?.message || 'Sign in with Apple failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="max-w-[800px] mx-auto px-4">
@@ -127,10 +130,10 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         transition={springConfig}
       >
         <h1 className="text-large-title text-white mb-3">
-          {isSignup ? 'Create Your Account' : 'Sign In to Provider Account'}
+          {isSignup ? 'Create your Provider account' : 'Sign in to Provider account'}
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          {isSignup ? "Welcome to Bytspot Provider. Let's get started." : 'Continue onboarding with your existing Provider business account.'}
+          {isSignup ? 'Use Apple, Google, or email to create a secure account before business setup.' : 'Continue onboarding with your existing Provider business account.'}
         </p>
       </motion.div>
 
@@ -160,14 +163,20 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
         </button>
       </motion.div>
 
-	      {/* Third-party sign in options */}
+		      {/* Third-party sign in options */}
       <motion.div
-	        className="w-full mb-6 space-y-3 rounded-[20px] border-2 border-white/30 bg-white/10 p-4 backdrop-blur-xl"
+		        className="w-full mb-6 space-y-3 rounded-[20px] border-2 border-white/30 bg-white/10 p-4 backdrop-blur-xl"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
       >
+		        <div>
+		          <p className="text-[13px] text-white" style={{ fontWeight: 800 }}>Recommended</p>
+		          <p className="text-[12px] text-white/55">Apple keeps setup fast and supports Hide My Email.</p>
+		        </div>
 	        <AppleSignInButton
+		          appearance="white"
+		          label="continue"
 	          disabled={isSubmitting}
 	          onCredential={handleAppleCredential}
 	          onError={(message) => setError(message)}
@@ -215,10 +224,13 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
+              className={`w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none transition-colors ${email ? emailIsValid ? 'border-emerald-400/40 focus:border-emerald-300/70' : 'border-orange-400/50 focus:border-orange-300/70' : 'border-white/30 focus:border-purple-500/50'}`}
               style={{ fontSize: '17px', fontWeight: 400 }}
             />
           </div>
+          {email.length > 0 && !emailIsValid && (
+            <p className="mt-2 text-[13px] text-orange-300" style={{ fontWeight: 600 }}>Enter a valid email address.</p>
+          )}
         </motion.div>
 
         {isSignup && (
@@ -240,10 +252,13 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="(555) 123-4567"
-                className="w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
+                className={`w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none transition-colors ${phone ? phoneIsValid ? 'border-emerald-400/40 focus:border-emerald-300/70' : 'border-orange-400/50 focus:border-orange-300/70' : 'border-white/30 focus:border-purple-500/50'}`}
                 style={{ fontSize: '17px', fontWeight: 400 }}
               />
             </div>
+            {phone.length > 0 && !phoneIsValid && (
+              <p className="mt-2 text-[13px] text-orange-300" style={{ fontWeight: 600 }}>Enter a phone number with at least 10 digits.</p>
+            )}
           </motion.div>
         )}
 
@@ -266,7 +281,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Min. 8 characters"
-              className="w-full pl-12 pr-12 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
+              className={`w-full pl-12 pr-12 py-3.5 rounded-[16px] border-2 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none transition-colors ${password ? passwordIsValid ? 'border-emerald-400/40 focus:border-emerald-300/70' : 'border-orange-400/50 focus:border-orange-300/70' : 'border-white/30 focus:border-purple-500/50'}`}
               style={{ fontSize: '17px', fontWeight: 400 }}
             />
             <button
@@ -281,7 +296,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
               )}
             </button>
           </div>
-          {password.length > 0 && password.length < 8 && (
+          {password.length > 0 && !passwordIsValid && (
             <p className="text-[13px] text-orange-400 mt-2" style={{ fontWeight: 400 }}>
               Password must be at least 8 characters
             </p>
@@ -290,9 +305,10 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
       </div>
 
       {error && (
-        <p className="mb-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-[13px] text-red-100" role="alert" style={{ fontWeight: 650 }}>
-          {error}
-        </p>
+        <div className="mb-4 flex items-start gap-2 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-[13px] text-red-100" role="alert" style={{ fontWeight: 650 }}>
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-200" />
+          <p>{error}</p>
+        </div>
       )}
 
       {isSignup && (

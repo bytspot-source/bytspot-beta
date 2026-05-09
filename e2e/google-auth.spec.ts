@@ -9,6 +9,7 @@ async function installGoogleAuthMocks(page: Page) {
       accounts: {
         id: {
           initialize: (config: { callback: (response: { credential?: string }) => void }) => { googleCredentialCallback = config.callback; },
+          prompt: () => googleCredentialCallback?.({ credential: 'mock-google-id-token' }),
           renderButton: (element: HTMLElement) => {
             const button = document.createElement('button');
             button.type = 'button';
@@ -52,7 +53,7 @@ test('Parker consumer can continue with Google Sign-In', async ({ page }) => {
   await page.getByText("Let's Go").click();
   await expect(page.getByRole('button', { name: 'Continue as Guest' })).toBeVisible({ timeout: 15_000 });
 
-  await page.getByTestId('mock-google-signin').click();
+  await page.getByTestId('google-signin-button').click();
 
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('parker-google-token');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').email)).toBe('google.consumer@bytspot.test');

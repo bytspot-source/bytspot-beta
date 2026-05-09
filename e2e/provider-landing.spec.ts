@@ -16,6 +16,7 @@ async function installProviderLandingMocks(page: Page) {
       accounts: {
         id: {
           initialize: (config: { callback: (response: { credential?: string }) => void }) => { googleCredentialCallback = config.callback; },
+          prompt: () => googleCredentialCallback?.({ credential: 'mock-google-id-token' }),
           renderButton: (element: HTMLElement) => {
             const button = document.createElement('button');
             button.type = 'button';
@@ -353,7 +354,7 @@ test.describe('Provider landing route', () => {
     await page.getByTestId('provider-start-cta').click();
     await expectOnboardingStep(page, 1);
 
-    await page.getByTestId('mock-google-signin').click();
+    await page.getByTestId('google-signin-button').click();
 
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('provider-onboarding-token');
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').email)).toBe('google.vendor@bytspot.test');

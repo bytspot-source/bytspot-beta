@@ -16,6 +16,16 @@ interface AuthenticationFlowProps {
 
 type AuthMode = 'signup' | 'login';
 
+type AuthResponse = {
+  token?: string;
+  user?: { name?: string | null } | null;
+  isNewUser?: boolean;
+};
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initialEmail = '', initialRef = '' }: AuthenticationFlowProps) {
   const [mode, setMode] = useState<AuthMode>('signup');
   const [name, setName] = useState('');
@@ -66,14 +76,14 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
       } else {
         setError('Something went wrong. Please try again.');
       }
-    } catch (err: any) {
-      setError(err?.message || 'Connection error. Please try again.');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Connection error. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
 
-  const persistAuth = (res: any, successMessage: string) => {
+  const persistAuth = (res: AuthResponse, successMessage: string) => {
     if (!res?.token) {
       setError('Something went wrong. Please try again.');
       return;
@@ -94,8 +104,8 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
       const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
       const res = await trpc.auth.googleSignIn.mutate({ idToken, ref: refValue, surface: 'parker' });
       persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
-    } catch (err: any) {
-      setError(err?.message || 'Google sign-in failed. Please try again.');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Google sign-in failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -108,8 +118,8 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
       const refValue = inviteCode.trim().toUpperCase() || initialRef || undefined;
       const res = await trpc.auth.appleSignIn.mutate({ identityToken, email: appleEmail, name: appleName, ref: refValue });
       persistAuth(res, res.isNewUser ? 'Welcome to Bytspot! 🎉' : 'Welcome back!');
-    } catch (err: any) {
-      setError(err?.message || 'Sign in with Apple failed. Please try again.');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Sign in with Apple failed. Please try again.'));
     } finally {
       setLoading(false);
     }

@@ -234,8 +234,9 @@ function flushEvents(debug: boolean = false, sync: boolean = false): void {
     });
   }
   
-  // Custom API endpoint
-  const apiEndpoint = '/api/analytics/events';
+  // Optional custom analytics endpoint. Leave unset unless a backend route exists.
+  const apiEndpoint = String(import.meta.env.VITE_ANALYTICS_ENDPOINT || '').trim();
+  if (!apiEndpoint) return;
   
   if (sync) {
     // Use sendBeacon for page unload

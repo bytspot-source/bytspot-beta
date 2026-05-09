@@ -7,6 +7,7 @@ import { trpc } from '../utils/trpc';
 interface PaymentMethodsProps {
   isDarkMode: boolean;
   onBack: () => void;
+  onPaymentMethodsChanged?: (count: number) => void;
 }
 
 interface PaymentMethod {
@@ -19,17 +20,21 @@ interface PaymentMethod {
   isDefault: boolean;
 }
 
-export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
+export function PaymentMethods({ isDarkMode, onBack, onPaymentMethodsChanged }: PaymentMethodsProps) {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isStartingSetup, setIsStartingSetup] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
+  const [setupMessage, setSetupMessage] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const loadMethods = async () => {
     setIsLoading(true);
     try {
       const result = await trpc.payments.listMethods.query();
-      setMethods((result ?? []) as PaymentMethod[]);
+      const nextMethods = (result ?? []) as PaymentMethod[];
+      setMethods(nextMethods);
+      onPaymentMethodsChanged?.(nextMethods.length);
     } catch (err: any) {
       toast.error('Unable to load payment methods', { description: err?.message ?? 'Please try again.' });
     } finally {
@@ -47,6 +52,15 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
     damping: 30,
     mass: 0.8,
   };
+
+  const surfaceClass = isDarkMode
+    ? 'border-slate-700 bg-slate-950 text-white shadow-[0_18px_46px_rgba(0,0,0,0.36)]'
+    : 'border-slate-200 bg-white text-slate-950 shadow-[0_18px_44px_rgba(15,23,42,0.12)]';
+  const mutedTextClass = isDarkMode ? 'text-slate-300' : 'text-slate-600';
+  const subtleTextClass = isDarkMode ? 'text-slate-400' : 'text-slate-500';
+  const iconButtonClass = isDarkMode
+    ? 'bg-slate-900 border-slate-700 text-white shadow-xl'
+    : 'bg-white border-slate-200 text-slate-950 shadow-lg';
 
   const getMethodIcon = (type: PaymentMethod['type']) => {
     switch (type) {
@@ -78,22 +92,22 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
   const getMethodColor = (type: PaymentMethod['type']) => {
     switch (type) {
       case 'card':
-        return 'from-blue-500/40 to-cyan-500/40 border-blue-400/30';
+        return 'from-slate-900 to-cyan-800 border-cyan-300 text-white';
       case 'apple_pay':
-        return 'from-gray-700/40 to-gray-900/40 border-gray-400/30';
+        return 'from-slate-900 to-slate-700 border-slate-300 text-white';
       case 'google_pay':
-        return 'from-green-500/40 to-emerald-500/40 border-green-400/30';
+        return 'from-emerald-700 to-cyan-700 border-emerald-300 text-white';
       case 'paypal':
-        return 'from-blue-600/40 to-blue-800/40 border-blue-500/30';
+        return 'from-blue-700 to-blue-950 border-blue-300 text-white';
       default:
-        return 'from-purple-500/40 to-pink-500/40 border-purple-400/30';
+        return 'from-slate-800 to-fuchsia-800 border-fuchsia-300 text-white';
     }
   };
 
   const handleSetDefault = async (id: string) => {
     try {
       await trpc.payments.setDefaultMethod.mutate({ paymentMethodId: id });
-      setMethods(methods.map(m => ({ ...m, isDefault: m.id === id })));
+      setMethods(current => current.map(m => ({ ...m, isDefault: m.id === id })));
       toast.success('Default payment method updated');
     } catch (err: any) {
       toast.error('Unable to update default', { description: err?.message ?? 'Please try again.' });
@@ -103,7 +117,11 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
   const handleDelete = async (id: string) => {
     try {
       await trpc.payments.removeMethod.mutate({ paymentMethodId: id });
-      setMethods(methods.filter(m => m.id !== id));
+      setMethods(current => {
+        const nextMethods = current.filter(m => m.id !== id);
+        onPaymentMethodsChanged?.(nextMethods.length);
+        return nextMethods;
+      });
       toast.success('Payment method removed');
     } catch (err: any) {
       toast.error('Unable to remove payment method', { description: err?.message ?? 'Please try again.' });
@@ -111,19 +129,38 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
   };
 
   const handleAddCard = async () => {
+    if (isStartingSetup) return;
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token || token === 'guest_session') {
+      const message = 'Sign in before saving a payment method.';
+      setSetupError(message);
+      toast.info('Sign in required', { description: message });
+      return;
+    }
+
     setIsStartingSetup(true);
+    setSetupError(null);
+    setSetupMessage('Creating a secure Stripe setup session…');
     try {
       const result = await trpc.payments.setupSession.mutate({
         successPath: '/profile/payment',
         cancelPath: '/profile/payment',
       });
       if (result?.url) {
-        window.location.href = result.url;
+        setSetupMessage('Stripe is ready. Redirecting now…');
+        localStorage.setItem('bytspot_profile_focus', 'payment');
+        window.location.assign(result.url);
         return;
       }
-      toast.error('Unable to start secure card setup');
+      const message = 'Stripe did not return a secure setup link.';
+      setSetupError(message);
+      setSetupMessage(null);
+      toast.error('Unable to start secure card setup', { description: message });
     } catch (err: any) {
-      toast.error('Unable to start secure card setup', { description: err?.message ?? 'Please try again.' });
+      const message = err?.message ?? 'Please try again.';
+      setSetupError(message);
+      setSetupMessage(null);
+      toast.error('Unable to start secure card setup', { description: message });
     } finally {
       setIsStartingSetup(false);
     }
@@ -131,23 +168,23 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
 
   if (showAddCard) {
     return (
-      <div className="h-full overflow-y-auto pb-24">
+      <div className="h-full overflow-y-auto bg-black pb-24 text-white">
         {/* Header */}
         <motion.div
-          className="px-4 pt-4 pb-4 flex items-center gap-3 sticky top-0 bg-[#000000] z-10"
+          className="sticky top-0 z-10 flex items-center gap-3 bg-black px-4 pb-4 pt-4"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springConfig}
         >
           <motion.button
             onClick={() => setShowAddCard(false)}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-[#1C1C1E]/80 backdrop-blur-xl border-2 border-white/30 shadow-xl tap-target"
+            className={`tap-target flex h-10 w-10 items-center justify-center rounded-full border-2 ${iconButtonClass}`}
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
           >
             <ArrowLeft className="w-5 h-5 text-white" strokeWidth={2.5} />
           </motion.button>
-          <h1 className="text-title-2 text-white">
+          <h1 className="text-title-2 text-white" style={{ fontWeight: 850 }}>
             Add Card
           </h1>
         </motion.div>
@@ -155,7 +192,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
         <div className="px-4 space-y-6">
           {/* Security Notice */}
           <motion.div
-            className="rounded-[20px] p-4 border-2 border-green-500/30 bg-gradient-to-br from-green-500/20 to-emerald-500/20"
+            className="rounded-[24px] border-2 border-emerald-500/45 bg-emerald-950 p-4 shadow-[0_16px_40px_rgba(0,0,0,0.28)]"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.1 }}
@@ -163,10 +200,10 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
             <div className="flex items-start gap-3">
               <Shield className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" strokeWidth={2.5} />
               <div>
-                <h3 className="text-[15px] mb-1 text-white" style={{ fontWeight: 600 }}>
+                <h3 className="mb-1 text-[15px] text-white" style={{ fontWeight: 850 }}>
                   PCI-DSS Compliant
                 </h3>
-                <p className="text-[13px] text-white/80" style={{ fontWeight: 400 }}>
+                <p className="text-[13px] leading-5 text-emerald-50" style={{ fontWeight: 650 }}>
                   Your payment information is encrypted and securely stored. We never see or store your CVV.
                 </p>
               </div>
@@ -175,24 +212,37 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
 
           {/* Hosted Stripe Card Setup */}
           <motion.div
-            className="rounded-[24px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+            className="rounded-[28px] border-2 border-slate-700 bg-slate-950 p-6 shadow-[0_20px_54px_rgba(0,0,0,0.38)]"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.15 }}
           >
-            <h3 className="text-[17px] mb-4 text-white" style={{ fontWeight: 600 }}>
+            <h3 className="mb-3 text-[18px] text-white" style={{ fontWeight: 900 }}>
               Secure Stripe setup
             </h3>
-            <p className="text-[14px] leading-5 text-white/75" style={{ fontWeight: 400 }}>
+            <p className="text-[14px] leading-6 text-slate-200" style={{ fontWeight: 650 }}>
               You will be redirected to Stripe Checkout to add a card. Bytspot never receives or stores raw card numbers, expiry dates, or CVV values.
             </p>
+            <div className="mt-5 rounded-[18px] border border-cyan-300/30 bg-cyan-950/70 p-3">
+              <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Secure save flow</p>
+              <p className="mt-1 text-[13px] leading-5 text-cyan-50" style={{ fontWeight: 650 }}>
+                Bytspot starts a PCI-safe Stripe setup session, then Stripe attaches the new card to your customer profile.
+              </p>
+            </div>
+            {(setupMessage || setupError) && (
+              <div className={`mt-4 rounded-[16px] border px-3 py-2 ${setupError ? 'border-red-300/45 bg-red-950 text-red-100' : 'border-emerald-300/45 bg-emerald-950 text-emerald-50'}`}>
+                <p className="text-[13px]" style={{ fontWeight: 750 }}>{setupError ?? setupMessage}</p>
+              </div>
+            )}
           </motion.div>
 
           {/* Add Button */}
           <motion.button
             onClick={handleAddCard}
             disabled={isStartingSetup}
-            className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl disabled:opacity-60"
+            aria-busy={isStartingSetup}
+            data-testid="payment-method-start-stripe-setup"
+            className="flex w-full items-center justify-center gap-2 rounded-[22px] border-2 border-white/30 bg-gradient-to-br from-cyan-500 via-purple-500 to-pink-500 px-6 py-4 text-white shadow-xl transition disabled:cursor-wait disabled:opacity-75"
             whileTap={{ scale: 0.98 }}
             transition={springConfig}
             initial={{ opacity: 0, y: 10 }}
@@ -200,7 +250,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
           >
             {isStartingSetup ? <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} /> : <ExternalLink className="w-5 h-5" strokeWidth={2.5} />}
             <span className="text-[17px]" style={{ fontWeight: 600 }}>
-              {isStartingSetup ? 'Opening Stripe...' : 'Continue to Stripe'}
+              {isStartingSetup ? 'Preparing Stripe...' : 'Continue to Stripe'}
             </span>
           </motion.button>
         </div>
@@ -209,10 +259,10 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto pb-24">
+    <div className={`h-full overflow-y-auto pb-24 ${isDarkMode ? 'bg-black text-white' : 'bg-slate-50 text-slate-950'}`}>
       {/* Header */}
       <motion.div
-        className="px-4 pt-4 pb-4 flex items-center justify-between sticky top-0 bg-[#000000] z-10"
+        className={`sticky top-0 z-10 flex items-center justify-between px-4 pb-4 pt-4 ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
@@ -220,20 +270,20 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
         <div className="flex items-center gap-3">
           <motion.button
             onClick={onBack}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-[#1C1C1E]/80 backdrop-blur-xl border-2 border-white/30 shadow-xl tap-target"
+            className={`tap-target flex h-10 w-10 items-center justify-center rounded-full border-2 ${iconButtonClass}`}
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
           >
-            <ArrowLeft className="w-5 h-5 text-white" strokeWidth={2.5} />
+            <ArrowLeft className={`h-5 w-5 ${isDarkMode ? 'text-white' : 'text-slate-950'}`} strokeWidth={2.5} />
           </motion.button>
-          <h1 className="text-title-2 text-white">
+          <h1 className={isDarkMode ? 'text-title-2 text-white' : 'text-title-2 text-slate-950'}>
             Payment Methods
           </h1>
         </div>
 
         <motion.button
           onClick={() => setShowAddCard(true)}
-          className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500 border-2 border-white/30 shadow-xl tap-target"
+          className="tap-target flex h-10 w-10 items-center justify-center rounded-full border-2 border-white/30 bg-gradient-to-br from-cyan-500 via-purple-500 to-pink-500 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
         >
@@ -244,7 +294,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
       <div className="px-4 space-y-4">
         {/* Security Notice */}
         <motion.div
-          className="rounded-[20px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-lg"
+          className={`rounded-[22px] border-2 p-4 ${surfaceClass}`}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springConfig}
@@ -252,7 +302,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
           <div className="flex items-start gap-3">
             <Shield className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" strokeWidth={2.5} />
             <div>
-              <p className="text-[13px] text-white/80" style={{ fontWeight: 400 }}>
+              <p className={`text-[13px] ${mutedTextClass}`} style={{ fontWeight: 650 }}>
                 All payment methods are encrypted and PCI-DSS compliant
               </p>
             </div>
@@ -260,17 +310,17 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
         </motion.div>
 
         {isLoading && (
-          <div className="rounded-[20px] p-8 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-center">
+          <div className={`rounded-[22px] border-2 p-8 text-center ${surfaceClass}`}>
             <Loader2 className="w-8 h-8 text-purple-300 animate-spin mx-auto mb-3" />
-            <p className="text-[15px] text-white/75" style={{ fontWeight: 500 }}>Loading saved payment methods...</p>
+            <p className={`text-[15px] ${mutedTextClass}`} style={{ fontWeight: 650 }}>Loading saved payment methods...</p>
           </div>
         )}
 
         {!isLoading && methods.length === 0 && (
-          <div className="rounded-[20px] p-8 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-center">
-            <CreditCard className="w-14 h-14 text-white/35 mx-auto mb-4" strokeWidth={1.6} />
-            <h3 className="text-[17px] text-white mb-2" style={{ fontWeight: 600 }}>No saved cards</h3>
-            <p className="text-[14px] text-white/70" style={{ fontWeight: 400 }}>Add a card through Stripe to speed up future parking checkout.</p>
+          <div className={`rounded-[22px] border-2 p-8 text-center ${surfaceClass}`}>
+            <CreditCard className={`mx-auto mb-4 h-14 w-14 ${subtleTextClass}`} strokeWidth={1.8} />
+            <h3 className={isDarkMode ? 'mb-2 text-[17px] text-white' : 'mb-2 text-[17px] text-slate-950'} style={{ fontWeight: 850 }}>No saved cards</h3>
+            <p className={`text-[14px] ${mutedTextClass}`} style={{ fontWeight: 650 }}>Add a card through Stripe to speed up future parking checkout.</p>
           </div>
         )}
 
@@ -278,22 +328,22 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
         {methods.map((method, index) => (
           <motion.div
             key={method.id}
-            className="rounded-[20px] p-4 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+            className={`rounded-[22px] border-2 p-4 ${surfaceClass}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.05 + index * 0.05 }}
           >
             <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-[12px] flex items-center justify-center bg-gradient-to-br ${getMethodColor(method.type)} border-2 flex-shrink-0`}>
+              <div className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-[14px] border-2 bg-gradient-to-br ${getMethodColor(method.type)}`}>
                 {getMethodIcon(method.type)}
               </div>
 
               <div className="flex-1 min-w-0">
-                <h3 className="text-[17px] mb-1 text-white" style={{ fontWeight: 600 }}>
+                <h3 className={isDarkMode ? 'mb-1 text-[17px] text-white' : 'mb-1 text-[17px] text-slate-950'} style={{ fontWeight: 850 }}>
                   {getMethodLabel(method)}
                 </h3>
                 {method.type === 'card' && method.expiryMonth && method.expiryYear && (
-                  <p className="text-[15px] text-white/80" style={{ fontWeight: 400 }}>
+                  <p className={`text-[15px] ${mutedTextClass}`} style={{ fontWeight: 650 }}>
                     Expires {method.expiryMonth}/{method.expiryYear}
                   </p>
                 )}
@@ -309,7 +359,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
                 {!method.isDefault && (
                   <motion.button
                     onClick={() => handleSetDefault(method.id)}
-                    className="px-3 py-2 rounded-[12px] text-[13px] bg-white/10 border-2 border-white/30 text-white"
+                    className={isDarkMode ? 'rounded-[12px] border-2 border-slate-600 bg-slate-900 px-3 py-2 text-[13px] text-white' : 'rounded-[12px] border-2 border-slate-200 bg-slate-100 px-3 py-2 text-[13px] text-slate-950'}
                     style={{ fontWeight: 600 }}
                     whileTap={{ scale: 0.95 }}
                     transition={springConfig}

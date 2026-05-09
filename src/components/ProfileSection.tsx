@@ -195,7 +195,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
-    if (profileFocus === 'reservations' || profileFocus === 'tickets') {
+    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment') {
       setCurrentScreen(profileFocus);
       localStorage.removeItem('bytspot_profile_focus');
     }
@@ -364,7 +364,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   }
 
   if (currentScreen === 'payment') {
-    return <PaymentMethods isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
+    return <PaymentMethods isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} onPaymentMethodsChanged={setPaymentMethodCount} />;
   }
 
   if (currentScreen === 'notifications') {

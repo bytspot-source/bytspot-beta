@@ -772,13 +772,25 @@ export default function App() {
       }
     }
 
-    // Handle Stripe return URLs (/premium/success, /parking/success, /premium/cancelled)
+    // Handle Stripe return URLs (/premium/success, /parking/success, /profile/payment, /premium/cancelled)
     const path = window.location.pathname;
+    const query = new URLSearchParams(window.location.search);
     if (path.includes('/booking/success') || path.includes('/booking/cancelled')) {
       setCurrentScreen('main');
       return;
     }
-    if (path.includes('/premium/success')) {
+    if (path.includes('/profile/payment')) {
+      const setupStatus = query.get('setup');
+      localStorage.setItem('bytspot_profile_focus', 'payment');
+      setActiveTab('profile');
+      setCurrentScreen('main');
+      if (setupStatus === 'success') {
+        toast.success('Card setup complete', { description: 'Refreshing saved payment methods now.', duration: 3500 });
+      } else if (setupStatus === 'cancelled') {
+        toast('Card setup cancelled — no card was saved.', { duration: 3000 });
+      }
+      window.history.replaceState({}, '', '/');
+    } else if (path.includes('/premium/success')) {
       if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
         setActiveTab('profile');
         setCurrentScreen('main');

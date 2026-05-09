@@ -130,6 +130,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [useInsiderPoints, setUseInsiderPoints] = useState(false);
   const [insiderCouponCode, setInsiderCouponCode] = useState('');
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
+  const [vehicleCount, setVehicleCount] = useState<number | null>(null);
+  const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
   return !!token && token !== 'guest_session';
@@ -203,6 +205,20 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
   }, []);
+
+  useEffect(() => {
+    if (currentScreen !== 'main') return;
+    let mounted = true;
+    Promise.all([
+      trpc.user.vehicles.list.query().catch(() => []),
+      trpc.payments.listMethods.query().catch(() => []),
+    ]).then(([vehicles, paymentMethods]) => {
+      if (!mounted) return;
+      setVehicleCount((vehicles ?? []).length);
+      setPaymentMethodCount((paymentMethods ?? []).length);
+    });
+    return () => { mounted = false; };
+  }, [currentScreen]);
 
   // B5: refresh the verified-patch card every time the tickets screen mounts so
   // a verification persisted while ProfileSection was already alive is picked up.
@@ -303,8 +319,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
       title: 'Account',
       items: [
         { icon: <User className="w-5 h-5" />, label: 'Personal Information', badge: null, screen: 'personal-info' as ProfileScreen },
-        { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: '2', screen: 'vehicles' as ProfileScreen },
-        { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: '2', screen: 'payment' as ProfileScreen },
+        { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: vehicleCount && vehicleCount > 0 ? String(vehicleCount) : null, screen: 'vehicles' as ProfileScreen },
+        { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
         { icon: <Ticket className="w-5 h-5" />, label: 'My Access', badge: walletPasses.length > 0 ? walletPasses.length.toString() : null, screen: 'tickets' as ProfileScreen },
         { icon: <Receipt className="w-5 h-5" />, label: 'My Reservations', badge: parkingReservations.length > 0 ? parkingReservations.length.toString() : null, screen: 'reservations' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },

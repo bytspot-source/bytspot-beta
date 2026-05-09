@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, Plus, CreditCard, Smartphone, Edit, Trash2, Check, Shield } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Plus, CreditCard, Trash2, Check, Shield, Loader2, ExternalLink } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { trpc } from '../utils/trpc';
 
 interface PaymentMethodsProps {
   isDarkMode: boolean;
@@ -19,30 +20,26 @@ interface PaymentMethod {
 }
 
 export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
-  const [methods, setMethods] = useState<PaymentMethod[]>([
-    {
-      id: '1',
-      type: 'card',
-      last4: '4242',
-      brand: 'Visa',
-      expiryMonth: '12',
-      expiryYear: '25',
-      isDefault: true,
-    },
-    {
-      id: '2',
-      type: 'apple_pay',
-      isDefault: false,
-    },
-  ]);
-
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStartingSetup, setIsStartingSetup] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
-  const [cardData, setCardData] = useState({
-    number: '',
-    name: '',
-    expiry: '',
-    cvv: '',
-  });
+
+  const loadMethods = async () => {
+    setIsLoading(true);
+    try {
+      const result = await trpc.payments.listMethods.query();
+      setMethods((result ?? []) as PaymentMethod[]);
+    } catch (err: any) {
+      toast.error('Unable to load payment methods', { description: err?.message ?? 'Please try again.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMethods();
+  }, []);
 
   const springConfig = {
     type: "spring" as const,
@@ -57,7 +54,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
         return <CreditCard className="w-5 h-5" strokeWidth={2.5} />;
       case 'apple_pay':
       case 'google_pay':
-        return <Smartphone className="w-5 h-5" strokeWidth={2.5} />;
+        return <CreditCard className="w-5 h-5" strokeWidth={2.5} />;
       default:
         return <CreditCard className="w-5 h-5" strokeWidth={2.5} />;
     }
@@ -93,74 +90,43 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
     }
   };
 
-  const handleSetDefault = (id: string) => {
-    setMethods(methods.map(m => ({ ...m, isDefault: m.id === id })));
-    toast.success('Default payment method updated');
+  const handleSetDefault = async (id: string) => {
+    try {
+      await trpc.payments.setDefaultMethod.mutate({ paymentMethodId: id });
+      setMethods(methods.map(m => ({ ...m, isDefault: m.id === id })));
+      toast.success('Default payment method updated');
+    } catch (err: any) {
+      toast.error('Unable to update default', { description: err?.message ?? 'Please try again.' });
+    }
   };
 
-  const handleDelete = (id: string) => {
-    const method = methods.find(m => m.id === id);
-    if (method?.isDefault && methods.length > 1) {
-      toast.error('Cannot delete default payment method', {
-        description: 'Please set another method as default first',
+  const handleDelete = async (id: string) => {
+    try {
+      await trpc.payments.removeMethod.mutate({ paymentMethodId: id });
+      setMethods(methods.filter(m => m.id !== id));
+      toast.success('Payment method removed');
+    } catch (err: any) {
+      toast.error('Unable to remove payment method', { description: err?.message ?? 'Please try again.' });
+    }
+  };
+
+  const handleAddCard = async () => {
+    setIsStartingSetup(true);
+    try {
+      const result = await trpc.payments.setupSession.mutate({
+        successPath: '/profile/payment',
+        cancelPath: '/profile/payment',
       });
-      return;
+      if (result?.url) {
+        window.location.href = result.url;
+        return;
+      }
+      toast.error('Unable to start secure card setup');
+    } catch (err: any) {
+      toast.error('Unable to start secure card setup', { description: err?.message ?? 'Please try again.' });
+    } finally {
+      setIsStartingSetup(false);
     }
-    setMethods(methods.filter(m => m.id !== id));
-    toast.success('Payment method removed');
-  };
-
-  const handleAddCard = () => {
-    if (!cardData.number || !cardData.name || !cardData.expiry || !cardData.cvv) {
-      toast.error('Please fill all fields');
-      return;
-    }
-
-    // Basic validation
-    if (cardData.number.replace(/\s/g, '').length !== 16) {
-      toast.error('Invalid card number');
-      return;
-    }
-
-    const newCard: PaymentMethod = {
-      id: Date.now().toString(),
-      type: 'card',
-      last4: cardData.number.slice(-4),
-      brand: 'Visa', // In real app, detect from card number
-      expiryMonth: cardData.expiry.split('/')[0],
-      expiryYear: cardData.expiry.split('/')[1],
-      isDefault: methods.length === 0,
-    };
-
-    setMethods([...methods, newCard]);
-    toast.success('Card added successfully');
-    setShowAddCard(false);
-    setCardData({ number: '', name: '', expiry: '', cvv: '' });
-  };
-
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = (matches && matches[0]) || '';
-    const parts = [];
-
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-
-    if (parts.length) {
-      return parts.join(' ');
-    } else {
-      return value;
-    }
-  };
-
-  const formatExpiry = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    if (v.length >= 2) {
-      return v.slice(0, 2) + '/' + v.slice(2, 4);
-    }
-    return v;
   };
 
   if (showAddCard) {
@@ -207,7 +173,7 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
             </div>
           </motion.div>
 
-          {/* Card Form */}
+          {/* Hosted Stripe Card Setup */}
           <motion.div
             className="rounded-[24px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
             initial={{ opacity: 0, y: 10 }}
@@ -215,89 +181,26 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
             transition={{ ...springConfig, delay: 0.15 }}
           >
             <h3 className="text-[17px] mb-4 text-white" style={{ fontWeight: 600 }}>
-              Card Information
+              Secure Stripe setup
             </h3>
-            
-            <div className="space-y-4">
-              {/* Card Number */}
-              <div>
-                <label className="text-[13px] text-white/80 mb-2 block" style={{ fontWeight: 500 }}>
-                  Card Number
-                </label>
-                <input
-                  type="text"
-                  value={cardData.number}
-                  onChange={(e) => setCardData({ ...cardData, number: formatCardNumber(e.target.value) })}
-                  placeholder="1234 5678 9012 3456"
-                  maxLength={19}
-                  className="w-full rounded-[16px] px-4 py-3 border-2 border-white/30 bg-white/5 text-[17px] outline-none text-white placeholder:text-white/40"
-                  style={{ fontWeight: 600, letterSpacing: '0.5px' }}
-                />
-              </div>
-
-              {/* Cardholder Name */}
-              <div>
-                <label className="text-[13px] text-white/80 mb-2 block" style={{ fontWeight: 500 }}>
-                  Cardholder Name
-                </label>
-                <input
-                  type="text"
-                  value={cardData.name}
-                  onChange={(e) => setCardData({ ...cardData, name: e.target.value.toUpperCase() })}
-                  placeholder="JOHN DOE"
-                  className="w-full rounded-[16px] px-4 py-3 border-2 border-white/30 bg-white/5 text-[15px] outline-none text-white placeholder:text-white/40 uppercase"
-                  style={{ fontWeight: 600 }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {/* Expiry */}
-                <div>
-                  <label className="text-[13px] text-white/80 mb-2 block" style={{ fontWeight: 500 }}>
-                    Expiry
-                  </label>
-                  <input
-                    type="text"
-                    value={cardData.expiry}
-                    onChange={(e) => setCardData({ ...cardData, expiry: formatExpiry(e.target.value) })}
-                    placeholder="MM/YY"
-                    maxLength={5}
-                    className="w-full rounded-[16px] px-4 py-3 border-2 border-white/30 bg-white/5 text-[15px] outline-none text-white placeholder:text-white/40"
-                    style={{ fontWeight: 600 }}
-                  />
-                </div>
-
-                {/* CVV */}
-                <div>
-                  <label className="text-[13px] text-white/80 mb-2 block" style={{ fontWeight: 500 }}>
-                    CVV
-                  </label>
-                  <input
-                    type="password"
-                    value={cardData.cvv}
-                    onChange={(e) => setCardData({ ...cardData, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                    placeholder="123"
-                    maxLength={4}
-                    className="w-full rounded-[16px] px-4 py-3 border-2 border-white/30 bg-white/5 text-[15px] outline-none text-white placeholder:text-white/40"
-                    style={{ fontWeight: 600 }}
-                  />
-                </div>
-              </div>
-            </div>
+            <p className="text-[14px] leading-5 text-white/75" style={{ fontWeight: 400 }}>
+              You will be redirected to Stripe Checkout to add a card. Bytspot never receives or stores raw card numbers, expiry dates, or CVV values.
+            </p>
           </motion.div>
 
           {/* Add Button */}
           <motion.button
             onClick={handleAddCard}
-            className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl"
+            disabled={isStartingSetup}
+            className="w-full rounded-[20px] px-6 py-4 flex items-center justify-center gap-2 border-2 border-white/30 bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-xl disabled:opacity-60"
             whileTap={{ scale: 0.98 }}
             transition={springConfig}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <Plus className="w-5 h-5" strokeWidth={2.5} />
+            {isStartingSetup ? <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} /> : <ExternalLink className="w-5 h-5" strokeWidth={2.5} />}
             <span className="text-[17px]" style={{ fontWeight: 600 }}>
-              Add Card
+              {isStartingSetup ? 'Opening Stripe...' : 'Continue to Stripe'}
             </span>
           </motion.button>
         </div>
@@ -355,6 +258,21 @@ export function PaymentMethods({ isDarkMode, onBack }: PaymentMethodsProps) {
             </div>
           </div>
         </motion.div>
+
+        {isLoading && (
+          <div className="rounded-[20px] p-8 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-center">
+            <Loader2 className="w-8 h-8 text-purple-300 animate-spin mx-auto mb-3" />
+            <p className="text-[15px] text-white/75" style={{ fontWeight: 500 }}>Loading saved payment methods...</p>
+          </div>
+        )}
+
+        {!isLoading && methods.length === 0 && (
+          <div className="rounded-[20px] p-8 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-center">
+            <CreditCard className="w-14 h-14 text-white/35 mx-auto mb-4" strokeWidth={1.6} />
+            <h3 className="text-[17px] text-white mb-2" style={{ fontWeight: 600 }}>No saved cards</h3>
+            <p className="text-[14px] text-white/70" style={{ fontWeight: 400 }}>Add a card through Stripe to speed up future parking checkout.</p>
+          </div>
+        )}
 
         {/* Payment Methods List */}
         {methods.map((method, index) => (

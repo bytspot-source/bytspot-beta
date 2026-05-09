@@ -27,6 +27,25 @@ interface ParkingSpot {
   lastUpdate?: Date | string; // Optional and can be Date or string
 }
 
+type SavedVehicle = {
+  id: string;
+  make: string;
+  model: string;
+  year: number;
+  color?: string;
+  licensePlate: string;
+};
+
+type SavedPaymentMethod = {
+  id: string;
+  type: 'card';
+  brand?: string;
+  last4?: string;
+  expiryMonth?: string;
+  expiryYear?: string;
+  isDefault: boolean;
+};
+
 interface ParkingReservationFlowProps {
   spot: ParkingSpot;
   isDarkMode: boolean;
@@ -46,6 +65,10 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
   const [isReserving, setIsReserving] = useState(false);
   const [reservationCode, setReservationCode] = useState('');
   const [availabilityTimer, setAvailabilityTimer] = useState(30);
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicle[]>([]);
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('');
   
   const springConfig = {
     type: "spring" as const,
@@ -82,6 +105,28 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
     };
   }, [currentScreen]);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [vehicles, paymentMethods] = await Promise.all([
+          trpc.user.vehicles.list.query().catch(() => []),
+          trpc.payments.listMethods.query().catch(() => []),
+        ]);
+        if (!mounted) return;
+        const vehicleList = (vehicles ?? []) as SavedVehicle[];
+        const methodList = (paymentMethods ?? []) as SavedPaymentMethod[];
+        setSavedVehicles(vehicleList);
+        setSavedPaymentMethods(methodList);
+        setSelectedVehicleId((current) => current || vehicleList[0]?.id || '');
+        setSelectedPaymentMethodId((current) => current || methodList.find((method) => method.isDefault)?.id || methodList[0]?.id || '');
+      } catch {
+        // Checkout still works through hosted Stripe even if saved assets fail to load.
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const handleReserve = async () => {
     setIsReserving(true);
     const reservationDraft = {
@@ -90,6 +135,8 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
       address: selectedSpot.address,
       durationHours: duration,
       totalCost,
+      vehicleId: selectedVehicleId || undefined,
+      paymentMethodId: selectedPaymentMethodId || undefined,
     };
 
     try {
@@ -99,6 +146,8 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
         address: selectedSpot.address,
         duration,
         totalCost,
+        vehicleId: selectedVehicleId || undefined,
+        paymentMethodId: selectedPaymentMethodId || undefined,
       });
       if (result.url) {
         // Real Stripe Checkout — redirect to hosted payment page
@@ -208,6 +257,12 @@ export function ParkingReservationFlow({ spot: initialSpot, isDarkMode, onClose 
                 spot={selectedSpot}
                 duration={duration}
                 totalCost={totalCost}
+                savedVehicles={savedVehicles}
+                savedPaymentMethods={savedPaymentMethods}
+                selectedVehicleId={selectedVehicleId}
+                selectedPaymentMethodId={selectedPaymentMethodId}
+                onSelectVehicle={setSelectedVehicleId}
+                onSelectPaymentMethod={setSelectedPaymentMethodId}
                 isReserving={isReserving}
                 onConfirm={handleReserve}
                 springConfig={springConfig}
@@ -678,7 +733,24 @@ function ReviewsScreen({ spot, reviews, springConfig }: any) {
 }
 
 // Confirmation Screen Component
-function ConfirmationScreen({ spot, duration, totalCost, isReserving, onConfirm, springConfig }: any) {
+function ConfirmationScreen({
+  spot,
+  duration,
+  totalCost,
+  savedVehicles = [],
+  savedPaymentMethods = [],
+  selectedVehicleId,
+  selectedPaymentMethodId,
+  onSelectVehicle,
+  onSelectPaymentMethod,
+  isReserving,
+  onConfirm,
+  springConfig,
+}: any) {
+  const selectedVehicle = savedVehicles.find((vehicle: SavedVehicle) => vehicle.id === selectedVehicleId);
+  const selectedMethod = savedPaymentMethods.find((method: SavedPaymentMethod) => method.id === selectedPaymentMethodId);
+  const formatBrand = (brand?: string) => brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : 'Card';
+
   return (
     <motion.div
       key="confirmation"
@@ -786,8 +858,40 @@ function ConfirmationScreen({ spot, duration, totalCost, isReserving, onConfirm,
         </div>
       </div>
 
+      {/* Vehicle Selection */}
+      <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border-2 border-white/30">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] text-white" style={{ fontWeight: 600 }}>Vehicle</h3>
+          <Car className="w-5 h-5 text-cyan-300" />
+        </div>
+        {savedVehicles.length > 0 ? (
+          <select
+            value={selectedVehicleId}
+            onChange={(event) => onSelectVehicle(event.target.value)}
+            className="w-full rounded-[14px] border-2 border-white/20 bg-black/30 px-3 py-3 text-[14px] text-white outline-none"
+          >
+            {savedVehicles.map((vehicle: SavedVehicle) => (
+              <option key={vehicle.id} value={vehicle.id} className="bg-[#111]">
+                {vehicle.year} {vehicle.make} {vehicle.model} · {vehicle.licensePlate}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <p className="text-[13px] text-white/65" style={{ fontWeight: 400 }}>
+            No saved vehicle yet. You can still pay now and add vehicles from Profile later.
+          </p>
+        )}
+        {selectedVehicle && (
+          <p className="mt-2 text-[12px] text-white/55" style={{ fontWeight: 500 }}>{selectedVehicle.color || 'Vehicle'} saved to this reservation.</p>
+        )}
+      </div>
+
       {/* Payment Method */}
       <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border-2 border-white/30">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] text-white" style={{ fontWeight: 600 }}>Payment</h3>
+          <CreditCard className="w-5 h-5 text-cyan-300" />
+        </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-8 rounded bg-gradient-to-br from-blue-600 to-blue-400 flex items-center justify-center">
@@ -795,17 +899,27 @@ function ConfirmationScreen({ spot, duration, totalCost, isReserving, onConfirm,
             </div>
             <div>
               <div className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                •••• 4242
+                {selectedMethod?.last4 ? `•••• ${selectedMethod.last4}` : 'Stripe Checkout'}
               </div>
               <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                Visa ending in 4242
+                {selectedMethod ? `${formatBrand(selectedMethod.brand)} ending in ${selectedMethod.last4}` : 'Choose or add a card securely with Stripe'}
               </div>
             </div>
           </div>
-          <button className="text-[15px] text-cyan-400" style={{ fontWeight: 600 }}>
-            Change
-          </button>
         </div>
+        {savedPaymentMethods.length > 0 && (
+          <select
+            value={selectedPaymentMethodId}
+            onChange={(event) => onSelectPaymentMethod(event.target.value)}
+            className="mt-3 w-full rounded-[14px] border-2 border-white/20 bg-black/30 px-3 py-3 text-[14px] text-white outline-none"
+          >
+            {savedPaymentMethods.map((method: SavedPaymentMethod) => (
+              <option key={method.id} value={method.id} className="bg-[#111]">
+                {formatBrand(method.brand)} •••• {method.last4} {method.isDefault ? '· Default' : ''}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Confirm Button */}

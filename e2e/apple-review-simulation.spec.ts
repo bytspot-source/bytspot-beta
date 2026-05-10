@@ -56,6 +56,11 @@ test.describe('Apple Review simulation', () => {
   });
 
   test('iPad reviewer can use Parker home, voice fallback, and legal routes', async ({ page }) => {
+    const crowdStreamRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/venues/crowd/stream')) crowdStreamRequests.push(request.url());
+    });
+
     await page.goto('/');
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('tab', { name: 'Discover tab' })).toBeVisible();
@@ -72,6 +77,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
     await page.goto('/terms');
     await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service' })).toBeVisible();
+    expect(crowdStreamRequests).toHaveLength(0);
   });
 
   test('iPhone reviewer sees consumer cards without tier labels or internal planning UI', async ({ page }) => {
@@ -81,7 +87,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
     await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
-    await expect(page.getByTestId('home-tier-card-cottage-massage')).toContainText('In-Home Deep Tissue Massage');
+    await expect(page.getByTestId('home-tier-card-cottage-massage')).toContainText('Cottage Industry Services');
     await expect(page.locator('body')).not.toContainText(/Tier 1|Tier 2|Tier 3|Explorer|Insider Pick|Insider Deal|VIP Only|VIP Valet|VIP Curated|Basic card|Enhanced card|Premium card/i);
     await expect(page.getByTestId('home-simplex-priority-section')).toHaveCount(0);
     await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);

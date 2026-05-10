@@ -465,38 +465,54 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 
   if (currentScreen === 'delete-account') {
     const canDelete = deleteConfirmation === 'DELETE' && !isDeletingAccount;
+    const deleteShellClass = isDarkMode ? 'bg-black text-white' : 'bg-slate-50 text-slate-950';
+    const deletePanelClass = isDarkMode
+      ? 'border-red-400/55 bg-red-950 text-white shadow-[0_22px_60px_rgba(127,29,29,0.30)]'
+      : 'border-red-300 bg-white text-slate-950 shadow-[0_20px_48px_rgba(127,29,29,0.14)]';
+    const deleteNoticeClass = isDarkMode
+      ? 'border-red-300/35 bg-slate-950 text-red-100'
+      : 'border-red-200 bg-red-50 text-red-950';
+    const deleteInputClass = isDarkMode
+      ? 'border-slate-600 bg-slate-950 text-white placeholder:text-slate-500 focus:border-red-300 focus:ring-red-400/25'
+      : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 focus:border-red-500 focus:ring-red-300/40';
+    const deleteDialogClass = isDarkMode
+      ? 'border-red-300/55 bg-slate-950 text-white'
+      : 'border-red-300 bg-white text-slate-950';
     return (
-      <div className="h-full flex flex-col bg-[#000000]">
+      <div className={`h-full flex flex-col ${deleteShellClass}`}>
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
-	          <motion.button onClick={() => { setShowDeleteFinalConfirm(false); setCurrentScreen(deleteReturnScreen); }} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+          <motion.button onClick={() => { setShowDeleteFinalConfirm(false); setCurrentScreen(deleteReturnScreen); }} className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-950'}`} whileTap={{ scale: 0.95 }}>
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
             <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
           </motion.button>
-          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Delete Account</h2>
+          <h2 className={isDarkMode ? 'ml-1 text-[20px] text-white' : 'ml-1 text-[20px] text-slate-950'} style={{ fontWeight: 850 }}>Delete Account</h2>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
-          <div className="rounded-[24px] p-5 border-2 border-red-500/45 bg-red-950/30 shadow-xl">
+          <div className={`rounded-[24px] p-5 border-2 ${deletePanelClass}`}>
             <div className="flex items-start gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-600/30 border border-red-400/40 flex items-center justify-center">
-                <Trash2 className="w-6 h-6 text-red-100" strokeWidth={2.5} />
+              <div className="w-12 h-12 rounded-full bg-red-600 border border-red-300 flex items-center justify-center shadow-lg shadow-red-950/30">
+                <Trash2 className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
               <div className="flex-1">
-                <p className="text-[20px] text-white" style={{ fontWeight: 800 }}>Permanently delete your account?</p>
-                <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 500 }}>
+                <p className={isDarkMode ? 'text-[20px] text-white' : 'text-[20px] text-slate-950'} style={{ fontWeight: 900 }}>Permanently delete your account?</p>
+                <p className={isDarkMode ? 'text-[13px] text-red-100 mt-1 leading-5' : 'text-[13px] text-slate-700 mt-1 leading-5'} style={{ fontWeight: 650 }}>
                   This removes your Bytspot profile, saved spots, preferences, check-ins, access passes, reservations, and sign-in session.
                 </p>
               </div>
             </div>
 
-            <div className="rounded-[18px] border border-white/15 bg-black/35 p-4 space-y-2">
-              <p className="text-[13px] text-white/75" style={{ fontWeight: 650 }}>To confirm, type DELETE below.</p>
+            <div className={`rounded-[18px] border p-4 space-y-2 ${deleteNoticeClass}`}>
+              <p className={isDarkMode ? 'text-[13px] text-red-100' : 'text-[13px] text-red-950'} style={{ fontWeight: 850 }}>To confirm, type DELETE below.</p>
+              <p className={isDarkMode ? 'text-[12px] leading-5 text-slate-200' : 'text-[12px] leading-5 text-slate-700'} style={{ fontWeight: 650 }}>
+                This action is immediate and permanent. You will be signed out after deletion succeeds.
+              </p>
               <input
                 value={deleteConfirmation}
 	                onChange={(event) => { setDeleteConfirmation(event.target.value.toUpperCase()); setShowDeleteFinalConfirm(false); }}
                 placeholder="DELETE"
                 data-testid="delete-account-confirmation-input"
-                className="w-full rounded-[14px] border-2 border-white/20 bg-[#1C1C1E] px-4 py-3 text-[16px] text-white outline-none placeholder:text-white/35 focus:border-red-300/70"
+                className={`w-full rounded-[14px] border-2 px-4 py-3 text-[16px] outline-none ring-4 ring-transparent transition ${deleteInputClass}`}
               />
             </div>
 
@@ -505,8 +521,8 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               disabled={!canDelete}
 	              onClick={() => setShowDeleteFinalConfirm(true)}
               data-testid="delete-account-confirm-button"
-              className="mt-4 w-full rounded-[18px] bg-red-600 px-4 py-4 text-[16px] text-white shadow-lg disabled:bg-white/15 disabled:text-white/45"
-              style={{ fontWeight: 800 }}
+              className="mt-4 w-full rounded-[18px] border-2 border-red-400 bg-red-600 px-4 py-4 text-[16px] text-white shadow-lg shadow-red-950/30 transition hover:bg-red-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-400 disabled:shadow-none"
+              style={{ fontWeight: 900 }}
             >
               {isDeletingAccount ? 'Deleting account…' : 'Delete My Account'}
             </button>
@@ -518,15 +534,15 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 	            <motion.div
 	              initial={{ opacity: 0, y: 24, scale: 0.98 }}
 	              animate={{ opacity: 1, y: 0, scale: 1 }}
-	              className="w-full max-w-[360px] rounded-[28px] border-2 border-red-400/45 bg-[#1C1C1E] p-5 shadow-2xl"
+              className={`w-full max-w-[360px] rounded-[28px] border-2 p-5 shadow-2xl ${deleteDialogClass}`}
 	            >
 	              <div className="mb-4 flex items-start gap-3">
-	                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-600/25 text-red-100">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/30">
 	                  <AlertTriangle className="h-6 w-6" strokeWidth={2.5} />
 	                </div>
 	                <div>
-	                  <p className="text-[19px] text-white" style={{ fontWeight: 850 }}>Final confirmation</p>
-	                  <p className="mt-1 text-[13px] leading-5 text-white/65" style={{ fontWeight: 500 }}>
+                  <p className={isDarkMode ? 'text-[19px] text-white' : 'text-[19px] text-slate-950'} style={{ fontWeight: 900 }}>Final confirmation</p>
+                  <p className={isDarkMode ? 'mt-1 text-[13px] leading-5 text-red-100' : 'mt-1 text-[13px] leading-5 text-slate-700'} style={{ fontWeight: 650 }}>
 	                    This permanently deletes your Bytspot account and removes your profile data. This action cannot be undone.
 	                  </p>
 	                </div>
@@ -536,8 +552,9 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 	                  type="button"
 	                  onClick={handleDeleteAccount}
 	                  disabled={isDeletingAccount}
-	                  className="w-full rounded-[16px] bg-red-600 px-4 py-3.5 text-[15px] text-white shadow-lg disabled:opacity-60"
-	                  style={{ fontWeight: 850 }}
+                  data-testid="delete-account-final-confirm-button"
+                  className="w-full rounded-[16px] border-2 border-red-400 bg-red-600 px-4 py-3.5 text-[15px] text-white shadow-lg shadow-red-950/30 transition hover:bg-red-500 active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
+                  style={{ fontWeight: 900 }}
 	                >
 	                  {isDeletingAccount ? 'Deleting…' : 'Permanently Delete Account'}
 	                </button>
@@ -545,7 +562,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
 	                  type="button"
 	                  onClick={() => setShowDeleteFinalConfirm(false)}
 	                  disabled={isDeletingAccount}
-	                  className="w-full rounded-[16px] border border-white/15 bg-white/10 px-4 py-3.5 text-[15px] text-white disabled:opacity-60"
+                  className={isDarkMode ? 'w-full rounded-[16px] border border-slate-600 bg-slate-900 px-4 py-3.5 text-[15px] text-white disabled:opacity-60' : 'w-full rounded-[16px] border border-slate-300 bg-slate-100 px-4 py-3.5 text-[15px] text-slate-950 disabled:opacity-60'}
 	                  style={{ fontWeight: 750 }}
 	                >
 	                  Cancel

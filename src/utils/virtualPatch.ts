@@ -129,12 +129,15 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
 
   try {
     const url = new URL(trimmed);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const patchFromPath = ['p', 'verify'].includes(pathParts[0] ?? '') ? pathParts[1] : null;
+
     return {
       rawValue: trimmed,
-      patchId: url.searchParams.get('patchId') ?? url.searchParams.get('patch') ?? base.patchId,
+      patchId: url.searchParams.get('patchId') ?? url.searchParams.get('patch') ?? patchFromPath ?? base.patchId,
       uid: normalizeMaybeUid(url.searchParams.get('uid')),
       readCounter: parseMaybeInt(url.searchParams.get('readCounter') ?? url.searchParams.get('counter')),
-      token: url.searchParams.get('token'),
+      token: url.searchParams.get('token') ?? url.searchParams.get('t'),
     };
   } catch {
     return base;

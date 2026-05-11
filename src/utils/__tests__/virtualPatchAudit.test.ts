@@ -15,6 +15,7 @@ import {
   isPatchRevoked,
   loadRevocationList,
   markPatchRevoked,
+  parseScannedPatchPayload,
   type VirtualPatchAuditEvent,
 } from '../virtualPatch.ts';
 
@@ -207,4 +208,19 @@ test('createAuditEvent: rejects coord-shaped extras silently — schema is close
   const json = JSON.stringify(evt);
   assert.ok(!json.includes('33.789'), `audit JSON leaked lat value: ${json}`);
   assert.ok(!json.includes('-84.384'), `audit JSON leaked lng value: ${json}`);
+});
+
+// ─── NFC URL parsing ───────────────────────────────────────────────────────
+
+test('parseScannedPatchPayload: supports clean /p patch URLs for NFC tags', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/p/PATCH-PROD-20260511-A7F2K9?venue=Bytspot%20Demo');
+  assert.equal(parsed.patchId, 'PATCH-PROD-20260511-A7F2K9');
+  assert.equal(parsed.token, null);
+});
+
+test('parseScannedPatchPayload: supports /verify patch URLs with token alias', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/verify/PATCH-DEMO-1?t=secure-token-123&uid=B4AE347131AF4D');
+  assert.equal(parsed.patchId, 'PATCH-DEMO-1');
+  assert.equal(parsed.token, 'secure-token-123');
+  assert.equal(parsed.uid, 'B4AE347131AF4D');
 });

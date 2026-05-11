@@ -580,15 +580,15 @@ export function VirtualPatchScannerSheet({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[1005] bg-black/70 backdrop-blur-[3px] flex items-end justify-center p-3"
+          className="fixed inset-0 z-[1005] bg-slate-950/55 backdrop-blur-[2px] flex items-end justify-center p-3"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-sm rounded-[28px] border border-cyan-300/30 bg-[#0D1017]/97 backdrop-blur-2xl shadow-2xl overflow-hidden"
-            style={{ boxShadow: '0 0 42px rgba(34,211,238,0.18), 0 18px 54px rgba(0,0,0,0.56)' }}
+            className="w-full max-w-sm max-h-[calc(100vh-24px)] overflow-y-auto rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+            style={{ boxShadow: '0 24px 70px rgba(15,23,42,0.36)' }}
             initial={{ y: 140, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 140, opacity: 0 }}
@@ -598,31 +598,31 @@ export function VirtualPatchScannerSheet({
             <div className="p-5 pb-4">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-400/12 border border-cyan-300/25 text-cyan-200 text-[11px] mb-2" style={{ fontWeight: 800 }}>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-800 text-[11px] mb-2" style={{ fontWeight: 900 }}>
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
-                    {activeMethod === 'nfc' ? 'Tap Reader' : 'QR Scanner'}
+                    {activeMethod === 'nfc' ? 'NFC Tap Reader' : 'QR Backup Scanner'}
                   </div>
-                  <h3 className="text-[20px] text-white leading-tight" style={{ fontWeight: 800 }}>{activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
-                  <p className="text-[13px] text-white/65 mt-1" style={{ fontWeight: 500 }}>{venueName}</p>
+                  <h3 className="text-[21px] text-slate-950 leading-tight" style={{ fontWeight: 900 }}>{activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
+                  <p className="text-[13.5px] text-slate-700 mt-1" style={{ fontWeight: 700 }}>{venueName}</p>
                 </div>
                 <motion.button
                   onClick={onClose}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-white/8 border border-white/15"
+                  className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 border border-slate-200"
                   whileTap={{ scale: 0.92 }}
                 >
-                  <X className="w-4 h-4 text-white/75" />
+                  <X className="w-4 h-4 text-slate-700" />
                 </motion.button>
               </div>
 
               {!hasAffirmedAge && ageGate && (
-                <div className="rounded-[24px] border border-amber-300/30 bg-gradient-to-br from-amber-500/10 via-orange-500/8 to-rose-500/8 p-5 mb-4">
+                <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-5 mb-4">
                   <div className="flex items-start gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-400/16 border border-amber-300/35 flex items-center justify-center flex-shrink-0">
-                      <ShieldCheck className="w-5 h-5 text-amber-200" strokeWidth={2.5} />
+                    <div className="w-10 h-10 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-amber-700" strokeWidth={2.5} />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[15px] text-white" style={{ fontWeight: 800 }}>Verify your age</div>
-                      <p className="text-[12.5px] text-white/72 mt-1" style={{ fontWeight: 500 }}>
+                      <div className="text-[15px] text-slate-950" style={{ fontWeight: 900 }}>Verify your age</div>
+                      <p className="text-[12.5px] text-slate-700 mt-1" style={{ fontWeight: 700 }}>
                         {venueName} requires guests to be {ageGate.minAge} or older. Bytspot does not store your date of birth — only your one-tap affirmation, scoped to this session.
                       </p>
                     </div>
@@ -639,14 +639,14 @@ export function VirtualPatchScannerSheet({
                         }));
                         onClose();
                       }}
-                      className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/75"
+                      className="flex-1 py-3 rounded-[16px] bg-white border border-slate-300 text-slate-700"
                       whileTap={{ scale: 0.97 }}
                     >
                       <span className="text-[13.5px]" style={{ fontWeight: 700 }}>{'I\u2019m under ' + ageGate.minAge}</span>
                     </motion.button>
                     <motion.button
                       onClick={() => setHasAffirmedAge(true)}
-                      className="flex-[1.4] py-3 rounded-[16px] bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500 text-white"
+                      className="flex-[1.4] py-3 rounded-[16px] bg-amber-600 text-white shadow-sm"
                       whileTap={{ scale: 0.97 }}
                     >
                       <span className="text-[13.5px]" style={{ fontWeight: 800 }}>{'I\u2019m ' + ageGate.minAge + ' or older'}</span>
@@ -656,19 +656,19 @@ export function VirtualPatchScannerSheet({
               )}
 
               {hasAffirmedAge && !hasConsented && (
-                <div className="rounded-[24px] border border-cyan-300/22 bg-gradient-to-br from-cyan-500/8 via-indigo-500/8 to-fuchsia-500/8 p-5 mb-4">
+                <div className="rounded-[24px] border border-cyan-200 bg-cyan-50 p-5 mb-4">
                   <div className="flex items-start gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-cyan-400/14 border border-cyan-300/30 flex items-center justify-center flex-shrink-0">
-                      <ShieldCheck className="w-5 h-5 text-cyan-200" strokeWidth={2.5} />
+                    <div className="w-10 h-10 rounded-full bg-white border border-cyan-200 flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <ShieldCheck className="w-5 h-5 text-cyan-700" strokeWidth={2.5} />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[15px] text-white" style={{ fontWeight: 800 }}>Confirm intent to read</div>
-                      <p className="text-[12.5px] text-white/72 mt-1" style={{ fontWeight: 500 }}>
+                      <div className="text-[16px] text-slate-950" style={{ fontWeight: 900 }}>Confirm intent to read</div>
+                      <p className="text-[13px] text-slate-700 mt-1 leading-5" style={{ fontWeight: 700 }}>
                         Bytspot needs to use your device’s {supportsNfc ? 'NFC reader' : 'camera'} to verify the {venueName} patch. The reader captures only the patch identifier and a one-time token — no biometrics, no continuous video, no audio.
                       </p>
                     </div>
                   </div>
-                  <ul className="text-[11.5px] text-white/68 space-y-1.5 mb-4 pl-1" style={{ fontWeight: 500 }}>
+                  <ul className="text-[12px] text-slate-700 space-y-1.5 mb-4 pl-1" style={{ fontWeight: 700 }}>
                     <li>• Used only while this sheet is open. Closing the sheet stops the reader.</li>
                     <li>• Patch ID, scan timestamp, and outcome are written to the audit log for your records.</li>
                     <li>• You can revoke at any time — close this sheet, or open Settings → Privacy.</li>
@@ -685,14 +685,14 @@ export function VirtualPatchScannerSheet({
                         }));
                         onClose();
                       }}
-                      className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/75"
+                      className="flex-1 py-3 rounded-[16px] bg-white border border-slate-300 text-slate-700"
                       whileTap={{ scale: 0.97 }}
                     >
                       <span className="text-[13.5px]" style={{ fontWeight: 700 }}>Not now</span>
                     </motion.button>
                     <motion.button
                       onClick={() => setHasConsented(true)}
-                      className="flex-[1.4] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                      className="flex-[1.4] py-3 rounded-[16px] bg-slate-950 text-white shadow-sm"
                       whileTap={{ scale: 0.97 }}
                     >
                       <span className="text-[13.5px]" style={{ fontWeight: 800 }}>I agree — start reader</span>
@@ -714,14 +714,14 @@ export function VirtualPatchScannerSheet({
               )}
 
               {hasConsented && (status === 'starting' || status === 'scanning' || status === 'verifying') && activeMethod === 'nfc' && (
-                <div className="relative rounded-[24px] overflow-hidden border border-cyan-300/18 bg-gradient-to-br from-cyan-500/10 via-indigo-500/10 to-fuchsia-500/10 mb-4 aspect-[3/4] flex items-center justify-center">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.14),transparent_62%)]" />
+                <div className="relative rounded-[24px] overflow-hidden border border-cyan-200 bg-cyan-50 mb-4 aspect-[3/4] flex items-center justify-center">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.16),transparent_62%)]" />
                   <div className="relative flex flex-col items-center text-center px-6">
-                    <div className="w-20 h-20 rounded-full border border-cyan-300/30 bg-black/25 flex items-center justify-center shadow-[0_0_36px_rgba(34,211,238,0.18)] mb-4">
-                      <Zap className="w-9 h-9 text-cyan-200" strokeWidth={2.5} />
+                    <div className="w-20 h-20 rounded-full border border-cyan-200 bg-white flex items-center justify-center shadow-[0_18px_38px_rgba(14,165,233,0.18)] mb-4">
+                      <Zap className="w-9 h-9 text-cyan-700" strokeWidth={2.5} />
                     </div>
-                    <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>Tap ready</p>
-                    <p className="text-[13px] text-white/72 mt-2" style={{ fontWeight: 500 }}>
+                    <p className="text-[20px] text-slate-950" style={{ fontWeight: 900 }}>Tap ready</p>
+                    <p className="text-[14px] text-slate-700 mt-2 leading-5" style={{ fontWeight: 700 }}>
                       Hold the top of your phone close to the Bytspot sticker and keep it steady for a second.
                     </p>
                   </div>
@@ -729,26 +729,26 @@ export function VirtualPatchScannerSheet({
               )}
 
               {(status === 'unsupported' || status === 'error' || status === 'success') && (
-                <div className={`rounded-[22px] border p-4 mb-4 ${status === 'success' ? 'border-emerald-300/25 bg-emerald-400/10' : 'border-white/12 bg-white/6'}`}>
+                <div className={`rounded-[22px] border p-4 mb-4 ${status === 'success' ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
                   <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${status === 'success' ? 'bg-emerald-400/12 border-emerald-300/25' : 'bg-white/8 border-white/10'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${status === 'success' ? 'bg-white border-emerald-200' : 'bg-white border-rose-200'}`}>
                       {status === 'success' ? (
-                        <ShieldCheck className="w-5 h-5 text-emerald-200" strokeWidth={2.5} />
+                        <ShieldCheck className="w-5 h-5 text-emerald-700" strokeWidth={2.5} />
                       ) : status === 'unsupported' ? (
-                        <Camera className="w-5 h-5 text-white/80" strokeWidth={2.4} />
+                        <Camera className="w-5 h-5 text-rose-700" strokeWidth={2.4} />
                       ) : (
-                        <QrCode className="w-5 h-5 text-white/80" strokeWidth={2.4} />
+                        <QrCode className="w-5 h-5 text-rose-700" strokeWidth={2.4} />
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[14px] text-white" style={{ fontWeight: 700 }}>
+                      <div className="text-[15px] text-slate-950" style={{ fontWeight: 900 }}>
                         {status === 'success' ? 'Patch verified' : status === 'unsupported' ? 'Tap / Scan not supported here' : 'Tap / Scan needs attention'}
                       </div>
-                      <p className="text-[12px] text-white/70 mt-1" style={{ fontWeight: 500 }}>{statusMessage}</p>
+                      <p className="text-[13px] text-slate-700 mt-1 leading-5" style={{ fontWeight: 700 }}>{statusMessage}</p>
                       {verification && (
-                        <div className="flex flex-wrap gap-2 mt-3 text-[11px] text-white/75">
-                          <div className="px-2.5 py-1 rounded-full bg-black/20 border border-white/10">Patch {verification.patchId.slice(-6)}</div>
-                          <div className="px-2.5 py-1 rounded-full bg-black/20 border border-white/10">ICT {verification.tokenJti.slice(0, 8)}</div>
+                        <div className="flex flex-wrap gap-2 mt-3 text-[11px] text-slate-700" style={{ fontWeight: 800 }}>
+                          <div className="px-2.5 py-1 rounded-full bg-white border border-emerald-200">Patch {verification.patchId.slice(-6)}</div>
+                          <div className="px-2.5 py-1 rounded-full bg-white border border-emerald-200">ICT {verification.tokenJti.slice(0, 8)}</div>
                         </div>
                       )}
                     </div>
@@ -756,17 +756,17 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              <div className="rounded-[20px] border border-cyan-300/14 bg-cyan-400/8 p-4 mb-4 text-[12px] text-white/72" style={{ fontWeight: 500 }}>
-                <div>• Find the Bytspot sticker near the entrance and tap first when your phone supports NFC.</div>
-                <div className="mt-2">• If tap is unavailable or the sticker exposes a QR fallback, use the camera path instead.</div>
-                <div className="mt-2">• The app verifies the patch through the live Bytspot backend before you continue.</div>
+              <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4 mb-4 text-[12.5px] text-slate-700 leading-5" style={{ fontWeight: 700 }}>
+                <div>• Tap the Bytspot sticker first when NFC is available.</div>
+                <div className="mt-2">• Use QR only if NFC is unavailable.</div>
+                <div className="mt-2">• Bytspot verifies the patch with the live backend.</div>
               </div>
 
               {status !== 'success' && status !== 'verifying' && ((activeMethod === 'nfc' && supportsLiveQr) || (activeMethod === 'qr' && supportsNfc)) && (
                 <div className="mb-4">
                   <motion.button
                     onClick={() => handleSwitchMethod(activeMethod === 'nfc' ? 'qr' : 'nfc')}
-                    className="w-full py-3 rounded-[16px] bg-white/6 border border-white/10 text-white/80"
+                    className="w-full py-3 rounded-[16px] bg-white border border-slate-300 text-slate-800"
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="text-[14px]" style={{ fontWeight: 700 }}>
@@ -779,7 +779,7 @@ export function VirtualPatchScannerSheet({
               <div className="flex gap-2">
                 <motion.button
                   onClick={onClose}
-                  className="flex-1 py-3 rounded-[16px] bg-white/7 border border-white/10 text-white/75"
+                  className="flex-1 py-3 rounded-[16px] bg-white border border-slate-300 text-slate-700"
                   whileTap={{ scale: 0.97 }}
                 >
                   <span className="text-[14px]" style={{ fontWeight: 700 }}>{status === 'success' ? 'Done' : 'Close'}</span>
@@ -788,7 +788,7 @@ export function VirtualPatchScannerSheet({
                 {status === 'success' ? (
                   <motion.button
                     onClick={handleContinue}
-                    className="flex-[1.25] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                    className="flex-[1.25] py-3 rounded-[16px] bg-slate-950 text-white shadow-sm"
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="text-[14px]" style={{ fontWeight: 800 }}>{onOpenAccessWallet ? 'Continue in My Access' : 'Verified'}</span>
@@ -796,7 +796,7 @@ export function VirtualPatchScannerSheet({
                 ) : status === 'unsupported' ? (
                   <motion.button
                     onClick={handleContinue}
-                    className="flex-[1.25] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                    className="flex-[1.25] py-3 rounded-[16px] bg-slate-950 text-white shadow-sm"
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="text-[14px]" style={{ fontWeight: 800 }}>{onOpenAccessWallet ? 'Open My Access' : 'Use Tap / Scan later'}</span>
@@ -804,13 +804,13 @@ export function VirtualPatchScannerSheet({
                 ) : status === 'error' ? (
                   <motion.button
                     onClick={handleRetry}
-                    className="flex-[1.25] py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 text-white"
+                    className="flex-[1.25] py-3 rounded-[16px] bg-slate-950 text-white shadow-sm"
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="text-[14px]" style={{ fontWeight: 800 }}>Retry scan</span>
                   </motion.button>
                 ) : (
-                  <div className="flex-[1.25] py-3 rounded-[16px] bg-white/6 border border-white/10 text-white/75 flex items-center justify-center gap-2">
+                  <div className="flex-[1.25] py-3 rounded-[16px] bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center gap-2">
                     <LoaderCircle className="w-4 h-4 animate-spin" strokeWidth={2.4} />
                     <span className="text-[14px]" style={{ fontWeight: 700 }}>{status === 'verifying' ? 'Verifying…' : activeMethod === 'nfc' ? 'Listening for tap…' : 'Scanner live'}</span>
                   </div>

@@ -327,8 +327,9 @@ export default function App() {
         const path = parsed.pathname.replace(/^\/+/, '');
 
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
+        // Production NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
-        const patchFromPath = path.startsWith('p/') ? path.slice(2).split('/')[0] : null;
+        const patchFromPath = path.startsWith('p/') || path.startsWith('t/') ? path.slice(2).split('/')[0] : null;
         const patchFromQuery = parsed.searchParams.get('patch');
         const patchId = patchFromPath || patchFromQuery;
         if (patchId) {

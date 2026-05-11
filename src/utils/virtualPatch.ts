@@ -130,7 +130,7 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
   try {
     const url = new URL(trimmed);
     const pathParts = url.pathname.split('/').filter(Boolean);
-    const patchFromPath = ['p', 'verify'].includes(pathParts[0] ?? '') ? pathParts[1] : null;
+    const patchFromPath = ['p', 't', 'verify'].includes(pathParts[0] ?? '') ? pathParts[1] : null;
 
     return {
       rawValue: trimmed,

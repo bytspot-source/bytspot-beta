@@ -48,8 +48,12 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
           aria-labelledby="byt-ai-notice-title"
         >
           <motion.div
-            className="w-full max-w-sm rounded-[28px] border border-cyan-300/30 bg-[#11131A]/96 backdrop-blur-2xl shadow-2xl overflow-hidden"
-            style={{ boxShadow: '0 0 46px rgba(34,211,238,0.18), 0 18px 48px rgba(0,0,0,0.52)' }}
+            className="w-full max-w-sm max-h-[calc(100vh-24px)] overflow-y-auto rounded-[28px] border backdrop-blur-2xl shadow-2xl"
+            style={{
+              background: 'linear-gradient(145deg, rgba(13,16,23,0.94), rgba(15,23,42,0.88))',
+              borderColor: 'rgba(103,232,249,0.30)',
+              boxShadow: '0 0 46px rgba(34,211,238,0.18), 0 18px 48px rgba(0,0,0,0.52)',
+            }}
             initial={{ y: 140, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 140, opacity: 0 }}
@@ -69,7 +73,7 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
                     <h3 id="byt-ai-notice-title" className="text-[22px] text-white leading-[1.1] tracking-[-0.02em]" style={{ fontWeight: 800 }}>
                       {'What we read, and what we don\u2019t'}
                     </h3>
-                    <p className="text-[13px] text-white/68 mt-2 leading-[1.55]" style={{ fontWeight: 500 }}>
+                    <p className="text-[13px] mt-2 leading-[1.55]" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 575 }}>
                       {'The map ranks venues from operational signals about places, not predictions about people. Venue teams decide service at every venue \u2014 the score never does.'}
                     </p>
                   </div>
@@ -83,32 +87,32 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
                   </motion.button>
                 </div>
 
-                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 mb-3">
+                <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-300/10 p-4 mb-3 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                   <div className="flex items-center gap-2 mb-3">
                     <Info className="w-3.5 h-3.5 text-cyan-200" strokeWidth={2.4} />
-                    <span className="text-[10px] uppercase tracking-[0.22em] text-cyan-100/70" style={{ fontWeight: 800 }}>Signals we use</span>
+                    <span className="text-[10px] uppercase tracking-[0.22em]" style={{ color: 'rgba(207,250,254,0.78)', fontWeight: 800 }}>Signals we use</span>
                   </div>
                   <ul className="space-y-2.5">
                     {SIGNALS_USED.map((signal) => (
                       <li key={signal.label} className="flex items-start gap-2.5">
                         <span className="mt-[5px] w-1.5 h-1.5 rounded-full bg-cyan-300/80 shrink-0" />
                         <div className="min-w-0">
-                          <div className="text-[13px] text-white" style={{ fontWeight: 700 }}>{signal.label}</div>
-                          <div className="text-[12px] text-white/65 leading-[1.45]" style={{ fontWeight: 500 }}>{signal.detail}</div>
+                          <div className="text-[13px] text-white" style={{ fontWeight: 760 }}>{signal.label}</div>
+                          <div className="text-[12px] leading-[1.45]" style={{ color: 'rgba(255,255,255,0.68)', fontWeight: 560 }}>{signal.detail}</div>
                         </div>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 mb-4">
+                <div className="rounded-[20px] border border-fuchsia-300/20 bg-fuchsia-300/10 p-4 mb-4 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                   <div className="flex items-center gap-2 mb-3">
                     <ShieldCheck className="w-3.5 h-3.5 text-fuchsia-200" strokeWidth={2.4} />
-                    <span className="text-[10px] uppercase tracking-[0.22em] text-fuchsia-100/70" style={{ fontWeight: 800 }}>{'What we don\u2019t do'}</span>
+                    <span className="text-[10px] uppercase tracking-[0.22em]" style={{ color: 'rgba(250,232,255,0.78)', fontWeight: 800 }}>{'What we don\u2019t do'}</span>
                   </div>
                   <ul className="space-y-2">
                     {NOT_USED.map((item) => (
-                      <li key={item} className="flex items-start gap-2.5 text-[12px] text-white/72 leading-[1.5]" style={{ fontWeight: 500 }}>
+                      <li key={item} className="flex items-start gap-2.5 text-[12px] leading-[1.5]" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 575 }}>
                         <span className="mt-[6px] w-1 h-1 rounded-full bg-white/40 shrink-0" />
                         <span>{item}</span>
                       </li>
@@ -116,16 +120,16 @@ export function AITransparencyNotice({ isOpen, onClose }: AITransparencyNoticePr
                   </ul>
                 </div>
 
-                <p className="text-[11px] text-white/45 leading-[1.55] mb-4" style={{ fontWeight: 500 }}>
+                <p className="text-[11px] leading-[1.55] mb-4" style={{ color: 'rgba(255,255,255,0.54)', fontWeight: 550 }}>
                   {'Operational efficiency surfaces shown to venue teams describe a venue session \u2014 not a customer. Customers cannot be scored. The score never decides who is served.'}
                 </p>
 
                 <motion.button
                   onClick={onClose}
-                  className="w-full px-4 py-3 rounded-[16px] bg-white/8 border border-white/12 text-white"
+                  className="w-full px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
                   whileTap={{ scale: 0.98 }}
                 >
-                  <span className="text-[13px]" style={{ fontWeight: 700 }}>Got it</span>
+                  <span className="text-[14px]" style={{ color: '#fff', fontWeight: 875 }}>Got it</span>
                 </motion.button>
               </div>
             </div>

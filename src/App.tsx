@@ -23,7 +23,7 @@ import { describeWeatherCode, getWeatherEmoji, getWeatherTip, useWeather } from 
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { getAuditSink, initAuditSink } from './utils/auditSink';
 import { useRevocationList } from './utils/hooks/useRevocationList';
-import type { VirtualPatchAuditEvent } from './utils/virtualPatch';
+import { isValidTagId, type VirtualPatchAuditEvent } from './utils/virtualPatch';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
@@ -327,9 +327,17 @@ export default function App() {
         const path = parsed.pathname.replace(/^\/+/, '');
 
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
-        // Production NFC tag URL: bytspot.app/t/<unique-serial-number>
+        // Production NFC tag URL: bytspot.app/<uniqueid>?c=<customerId>
+        // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
-        const patchFromPath = path.startsWith('p/') || path.startsWith('t/') ? path.slice(2).split('/')[0] : null;
+        const pathParts = path.split('/').filter(Boolean);
+        const patchFromPath = path.startsWith('p/')
+          ? path.slice(2).split('/')[0]
+          : path.startsWith('t/') && isValidTagId(pathParts[1])
+            ? pathParts[1]
+            : pathParts.length === 1 && isValidTagId(pathParts[0])
+              ? pathParts[0]
+              : null;
         const patchFromQuery = parsed.searchParams.get('patch');
         const patchId = patchFromPath || patchFromQuery;
         if (patchId) {

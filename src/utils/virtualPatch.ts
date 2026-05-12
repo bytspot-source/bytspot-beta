@@ -72,6 +72,7 @@ export interface ParsedVirtualPatchPayload {
   uid: string | null;
   readCounter: number | null;
   token: string | null;
+  customerId: string | null;
 }
 
 interface NativeNdefRecordLike {
@@ -107,9 +108,27 @@ function parseMaybeInt(value: unknown): number | null {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
 }
 
+function normalizeMaybeReference(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function isValidTagId(slug: string | undefined): slug is string {
+  if (!slug) return false;
+  return (
+    slug.length >= 8 &&
+    slug.length <= 64 &&
+    /^[A-Za-z0-9]/.test(slug) &&
+    /^[A-Za-z0-9._-]+$/.test(slug) &&
+    /[0-9]/.test(slug) &&
+    slug.toUpperCase().startsWith('BYT')
+  );
+}
+
 export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: string | null): ParsedVirtualPatchPayload {
   const trimmed = rawValue.trim();
-  const base = { rawValue: trimmed, patchId: fallbackPatchId ?? null, uid: null, readCounter: null, token: null };
+  const base = { rawValue: trimmed, patchId: fallbackPatchId ?? null, uid: null, readCounter: null, token: null, customerId: null };
 
   if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(trimmed)) return { ...base, token: trimmed };
   if (/^[0-9A-F]{14}$/i.test(trimmed)) return { ...base, uid: trimmed.toUpperCase() };
@@ -122,6 +141,7 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
       uid: normalizeMaybeUid(parsed.uid),
       readCounter: parseMaybeInt(parsed.readCounter),
       token: typeof parsed.token === 'string' ? parsed.token : null,
+      customerId: normalizeMaybeReference(parsed.customerId ?? parsed.customer ?? parsed.c),
     };
   } catch {
     // fall through to URL parsing
@@ -130,7 +150,13 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
   try {
     const url = new URL(trimmed);
     const pathParts = url.pathname.split('/').filter(Boolean);
-    const patchFromPath = ['p', 't', 'verify'].includes(pathParts[0] ?? '') ? pathParts[1] : null;
+    const explicitPatchFromPath = ['p', 'verify'].includes(pathParts[0] ?? '')
+      ? pathParts[1]
+      : pathParts[0] === 't' && isValidTagId(pathParts[1])
+        ? pathParts[1]
+        : null;
+    const rootPatchFromPath = pathParts.length === 1 && isValidTagId(pathParts[0]) ? pathParts[0] : null;
+    const patchFromPath = explicitPatchFromPath ?? rootPatchFromPath;
 
     return {
       rawValue: trimmed,
@@ -138,6 +164,7 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
       uid: normalizeMaybeUid(url.searchParams.get('uid')),
       readCounter: parseMaybeInt(url.searchParams.get('readCounter') ?? url.searchParams.get('counter')),
       token: url.searchParams.get('token') ?? url.searchParams.get('t'),
+      customerId: normalizeMaybeReference(url.searchParams.get('customerId') ?? url.searchParams.get('customer') ?? url.searchParams.get('c')),
     };
   } catch {
     return base;

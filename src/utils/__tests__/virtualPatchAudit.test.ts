@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
   createAuditEvent,
   isPatchRevoked,
+  isValidTagId,
   loadRevocationList,
   markPatchRevoked,
   parseScannedPatchPayload,
@@ -222,6 +223,28 @@ test('parseScannedPatchPayload: supports production /t serial URLs for pre-encod
   const parsed = parseScannedPatchPayload('https://bytspot.app/t/BYT424-0001');
   assert.equal(parsed.patchId, 'BYT424-0001');
   assert.equal(parsed.token, null);
+});
+
+test('isValidTagId: accepts only production BYT-prefixed generated tag IDs', () => {
+  assert.equal(isValidTagId('BYT424-0001'), true);
+  assert.equal(isValidTagId('byt424.0001'), true);
+  assert.equal(isValidTagId('PATCH-DEMO-1'), false);
+  assert.equal(isValidTagId('BYTSPOT'), false);
+  assert.equal(isValidTagId('profile'), false);
+  assert.equal(isValidTagId('BYT424/0001'), false);
+});
+
+test('parseScannedPatchPayload: supports root production tag URLs with optional customer reference', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/BYT424-0001?c=CUST-7788');
+  assert.equal(parsed.patchId, 'BYT424-0001');
+  assert.equal(parsed.customerId, 'CUST-7788');
+  assert.equal(parsed.token, null);
+});
+
+test('parseScannedPatchPayload: does not treat normal routes or non-BYT /t slugs as tag IDs', () => {
+  assert.equal(parseScannedPatchPayload('https://bytspot.app/profile').patchId, null);
+  assert.equal(parseScannedPatchPayload('https://bytspot.app/parking/success').patchId, null);
+  assert.equal(parseScannedPatchPayload('https://bytspot.app/t/PATCH-DEMO-1').patchId, null);
 });
 
 test('parseScannedPatchPayload: supports /verify patch URLs with token alias', () => {

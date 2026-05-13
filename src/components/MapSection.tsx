@@ -1,4 +1,5 @@
 import 'leaflet/dist/leaflet.css';
+import { Capacitor } from '@capacitor/core';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
@@ -462,7 +463,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const scanCapabilities = useMemo(
     () => ({
       qr: typeof window !== 'undefined' && 'BarcodeDetector' in window,
-      nfc: typeof window !== 'undefined' && 'NDEFReader' in window,
+      nfc: Capacitor.isNativePlatform() || (typeof window !== 'undefined' && 'NDEFReader' in window),
     }),
     [],
   );
@@ -555,12 +556,40 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
 
+    const suggestedVenue = nearbyVerifiedVenue?.venue ?? (peekVenueIsVerified ? peekVenue : nearestVerifiedVenue?.venue) ?? null;
+
     if (nearbyVerifiedVenue) {
       setShowVirtualPatchSheet(true);
       return;
     }
 
-    const suggestedVenue = peekVenueIsVerified ? peekVenue : nearestVerifiedVenue?.venue ?? null;
+    if (suggestedVenue && (scanCapabilities.nfc || scanCapabilities.qr)) {
+      setQrScannerVenue(suggestedVenue);
+      setShowQrScannerSheet(true);
+      toast.success('Tap / Scan ready', {
+        description: scanCapabilities.nfc
+          ? `Reader opened for ${suggestedVenue.name}. Hold your phone near the sticker when prompted.`
+          : `Camera opened for ${suggestedVenue.name}. Point it at the sticker QR code.`,
+      });
+      return;
+    }
+
+    if (scanCapabilities.nfc || scanCapabilities.qr) {
+      const synthetic = {
+        id: null,
+        name: 'Bytspot patch',
+        hardwarePatch: { id: null },
+      } as unknown as ApiVenue;
+      setQrScannerVenue(synthetic);
+      setShowQrScannerSheet(true);
+      toast.success('Tap / Scan ready', {
+        description: scanCapabilities.nfc
+          ? 'Reader opened. Hold your phone near the Bytspot sticker when prompted.'
+          : 'Camera opened. Point it at the sticker QR code.',
+      });
+      return;
+    }
+
     saveVirtualPatchContext({
       source: 'map',
       mode: 'wallet-fallback',
@@ -586,7 +615,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         : 'Opening My Access for your Tap / Scan flow.',
     });
     onOpenAccessWallet();
-  }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, peekVenue, peekVenueIsVerified]);
+  }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, peekVenue, peekVenueIsVerified, scanCapabilities]);
 
   const premiumOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
   const premiumAvailablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);

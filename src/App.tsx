@@ -23,7 +23,7 @@ import { describeWeatherCode, getWeatherEmoji, getWeatherTip, useWeather } from 
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { getAuditSink, initAuditSink } from './utils/auditSink';
 import { useRevocationList } from './utils/hooks/useRevocationList';
-import { isValidTagId, type VirtualPatchAuditEvent } from './utils/virtualPatch';
+import { isValidTagId, type VirtualPatchAuditEvent, type VirtualPatchContext } from './utils/virtualPatch';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
@@ -213,8 +213,19 @@ export default function App() {
 
   // Universal-link / App Clip handoff — when the user lands via bytspot.app/p/<id>?venue=...
   // we surface this to MapSection which auto-opens the scanner with the patch pre-filled.
-  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId: string; venueName?: string } | null>(null);
+  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId?: string | null; venueName?: string } | null>(null);
   const consumePendingPatchScan = useCallback(() => setPendingPatchScan(null), []);
+
+  const openVirtualPatchFromWallet = useCallback((context: VirtualPatchContext | null) => {
+    localStorage.removeItem('bytspot_profile_focus');
+    setCurrentScreen('main');
+    setSelectedMapFunction('smart-parking');
+    setActiveTab('map');
+    setPendingPatchScan({
+      patchId: context?.patchId ?? null,
+      venueName: context?.venueName ?? undefined,
+    });
+  }, []);
 
   const openAccessWallet = useCallback(() => {
     localStorage.setItem('bytspot_profile_focus', 'tickets');
@@ -1883,6 +1894,7 @@ export default function App() {
                       isValet={isValet}
                       onBecomeHost={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('host')}
                       onBecomeValet={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('valet')}
+                      onOpenVirtualPatch={openVirtualPatchFromWallet}
                       onLogout={() => {
                         localStorage.removeItem('bytspot_auth_token');
                         localStorage.removeItem('bytspot_user');

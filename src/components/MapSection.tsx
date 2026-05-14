@@ -64,7 +64,7 @@ interface MapSectionProps {
   /** Audit log sink (NIST PR.PT-1). Wired by App.tsx to the durable audit pipeline. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
   /** Universal-link / App Clip handoff — auto-opens the scanner with this patch pre-filled. */
-  pendingPatchScan?: { patchId: string; venueName?: string } | null;
+  pendingPatchScan?: { patchId?: string | null; venueName?: string } | null;
   /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
   onPendingPatchScanConsumed?: () => void;
 }
@@ -476,14 +476,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     setQrScannerVenue(null);
   }, []);
 
-  // Universal-link / App Clip handoff: when App.tsx receives a deep-link with a
-  // patch ID, auto-open the scanner pre-loaded with that patch as the fallback.
+  // Universal-link / App Clip / wallet handoff: when App.tsx receives a deep-link
+  // or My Access resume request, auto-open the scanner. If a patch ID is known,
+  // prefill it; otherwise the live NFC/QR payload supplies the patch identifier.
   useEffect(() => {
-    if (!pendingPatchScan?.patchId) return;
+    if (!pendingPatchScan) return;
     const synthetic = {
       id: null,
       name: pendingPatchScan.venueName ?? 'Bytspot patch',
-      hardwarePatch: { id: pendingPatchScan.patchId },
+      hardwarePatch: { id: pendingPatchScan.patchId ?? null },
     } as unknown as ApiVenue;
     setQrScannerVenue(synthetic);
     setShowQrScannerSheet(true);

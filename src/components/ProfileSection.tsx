@@ -35,6 +35,7 @@ interface ProfileSectionProps {
   isValet?: boolean;
   onBecomeHost?: () => void;
   onBecomeValet?: () => void;
+  onOpenVirtualPatch?: (context: VirtualPatchContext | null) => void;
   onLogout?: () => void;
 }
 
@@ -94,7 +95,7 @@ function formatReservationWindow(startTime: string, endTime: string): string {
   return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onLogout }: ProfileSectionProps) {
+export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onOpenVirtualPatch, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const [deleteReturnScreen, setDeleteReturnScreen] = useState<ProfileScreen>('general-settings');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -734,6 +735,24 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                   Verified {formatCommerceTime(virtualPatchContext.scan.verifiedAt)}
                   {virtualPatchContext.scan.binding ? ` · bound to ${virtualPatchContext.scan.binding.type}` : ''}
                 </div>
+              )}
+
+              {!virtualPatchContext.scan && onOpenVirtualPatch && (
+                <motion.button
+                  onClick={() => onOpenVirtualPatch(virtualPatchContext)}
+                  className="mt-4 w-full rounded-[18px] border border-cyan-300/35 bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3 text-left shadow-[0_14px_34px_rgba(6,182,212,0.24)]"
+                  whileTap={{ scale: 0.98 }}
+                  transition={springConfig}
+                  aria-label="Open Virtual Patch scanner from My Access"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[15px] text-white" style={{ fontWeight: 850 }}>Open Virtual Patch</p>
+                      <p className="mt-0.5 text-[12px] text-white/78" style={{ fontWeight: 600 }}>Start the Tap / Scan reader now.</p>
+                    </div>
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-white/90" strokeWidth={2.8} />
+                  </div>
+                </motion.button>
               )}
             </motion.div>
           )}

@@ -338,12 +338,13 @@ export default function App() {
         const path = parsed.pathname.replace(/^\/+/, '');
 
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
+        // App Clip / NFC demo alias: bytspot.app/patch/<patchId>
         // Production NFC tag URL: bytspot.app/<uniqueid>?c=<customerId>
         // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
         const pathParts = path.split('/').filter(Boolean);
-        const patchFromPath = path.startsWith('p/')
-          ? path.slice(2).split('/')[0]
+        const patchFromPath = path.startsWith('p/') || path.startsWith('patch/')
+          ? pathParts[1] ?? null
           : path.startsWith('t/') && isValidTagId(pathParts[1])
             ? pathParts[1]
             : pathParts.length === 1 && isValidTagId(pathParts[0])

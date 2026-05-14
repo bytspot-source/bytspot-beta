@@ -219,6 +219,12 @@ test('parseScannedPatchPayload: supports clean /p patch URLs for NFC tags', () =
   assert.equal(parsed.token, null);
 });
 
+test('parseScannedPatchPayload: supports /patch URLs for App Clip NFC demos', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/patch/cmp0oy6g6000cjg40rrf2lu63');
+  assert.equal(parsed.patchId, 'cmp0oy6g6000cjg40rrf2lu63');
+  assert.equal(parsed.token, null);
+});
+
 test('parseScannedPatchPayload: supports production /t serial URLs for pre-encoded tags', () => {
   const parsed = parseScannedPatchPayload('https://bytspot.app/t/BYT424-0001');
   assert.equal(parsed.patchId, 'BYT424-0001');

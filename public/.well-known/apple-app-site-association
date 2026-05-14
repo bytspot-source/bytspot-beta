@@ -9,6 +9,8 @@
         ],
         "components": [
           { "/": "/p/*", "comment": "Patch verify deep link" },
+          { "/": "/patch/*", "comment": "Patch verify deep link alias for NFC/App Clip demos" },
+          { "/": "/t/*", "comment": "Production NFC tag serial deep link" },
           { "/": "/v/*", "comment": "Venue deep link" },
           { "/": "/clip", "comment": "App Clip launch path" },
           { "/": "/", "?": { "patch": "?*" }, "comment": "Patch query parameter" }

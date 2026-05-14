@@ -14,6 +14,8 @@
 	<array>
 		<string>applinks:bytspot.app</string>
 		<string>appclips:bytspot.app</string>
+			<string>applinks:bytspot-beta-app.onrender.com</string>
+			<string>appclips:bytspot-beta-app.onrender.com</string>
 	</array>
 </dict>
 </plist>

@@ -158,6 +158,18 @@ export function VirtualPatchScannerSheet({
     () => isNativeApp || supportsBrowserNfc,
     [isNativeApp, supportsBrowserNfc],
   );
+  const isIosWebFallback = useMemo(
+    () => !isNativeApp && typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent),
+    [isNativeApp],
+  );
+  const nativeAppUrl = useMemo(() => {
+    if (typeof window === 'undefined') return 'bytspot://map';
+    const current = new URL(window.location.href);
+    const parts = current.pathname.split('/').filter(Boolean);
+    const pathPatchId = ['p', 'patch', 't'].includes(parts[0] ?? '') ? parts[1] : null;
+    const patchId = fallbackPatchId ?? current.searchParams.get('patch') ?? pathPatchId;
+    return patchId ? `bytspot://patch/${encodeURIComponent(patchId)}` : 'bytspot://map';
+  }, [fallbackPatchId]);
 
   const stopScanner = useCallback(() => {
     if (rafRef.current !== null) {
@@ -387,7 +399,9 @@ export function VirtualPatchScannerSheet({
 
     if (!resolvedMethod) {
       setStatus('unsupported');
-      setStatusMessage('This device does not expose Tap / Scan APIs here yet. Continue in My Access and use the venue fallback flow.');
+      setStatusMessage(isIosWebFallback
+        ? 'Safari opened this NFC tag as a website. Use the App Clip card at the top of Safari, or open the installed Bytspot app to start the reader.'
+        : 'This device does not expose Tap / Scan APIs here yet. Continue in My Access and use the venue fallback flow.');
       return;
     }
 
@@ -542,7 +556,7 @@ export function VirtualPatchScannerSheet({
       cancelled = true;
       stopScanner();
     };
-  }, [hasAffirmedAge, hasConsented, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
+  }, [hasAffirmedAge, hasConsented, isIosWebFallback, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
 
   const handleRetry = useCallback(() => {
     stopScanner();
@@ -575,6 +589,10 @@ export function VirtualPatchScannerSheet({
     onClose();
     onOpenAccessWallet?.();
   }, [onClose, onOpenAccessWallet, verification, venueId, venueName]);
+
+  const handleOpenNativeApp = useCallback(() => {
+    window.location.href = nativeAppUrl;
+  }, [nativeAppUrl]);
 
   return (
     <AnimatePresence>
@@ -803,12 +821,12 @@ export function VirtualPatchScannerSheet({
                   </motion.button>
                 ) : status === 'unsupported' ? (
                   <motion.button
-                    onClick={handleContinue}
+                    onClick={isIosWebFallback ? handleOpenNativeApp : handleContinue}
                     className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
                     style={{ flex: '1.55 1 0', minWidth: 0 }}
                     whileTap={{ scale: 0.97 }}
                   >
-                    <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>{onOpenAccessWallet ? 'Open My Access' : 'Use Tap / Scan later'}</span>
+                    <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>{isIosWebFallback ? 'Open Bytspot App' : onOpenAccessWallet ? 'Open My Access' : 'Use Tap / Scan later'}</span>
                   </motion.button>
                 ) : status === 'error' ? (
                   <motion.button

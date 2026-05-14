@@ -335,7 +335,10 @@ export default function App() {
     const handleDeepLink = (url: string) => {
       try {
         const parsed = new URL(url);
-        const path = parsed.pathname.replace(/^\/+/, '');
+        const pathFromName = parsed.protocol === 'bytspot:' && parsed.hostname
+          ? `${parsed.hostname}${parsed.pathname}`
+          : parsed.pathname;
+        const path = pathFromName.replace(/^\/+/, '');
 
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
         // App Clip / NFC demo alias: bytspot.app/patch/<patchId>

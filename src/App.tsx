@@ -70,7 +70,7 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
-import { focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
+import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { deriveConsumerExperienceTier, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
 import type { CardType } from './utils/mockData';
 
@@ -254,6 +254,7 @@ export default function App() {
 
     setActiveTab('map');
     setPendingPatchScan({ patchId, venueName });
+    window.history.replaceState({}, '', consumerPatchPath(patchId));
   }, [openProviderPatchManager]);
 
   useEffect(() => {
@@ -369,7 +370,7 @@ export default function App() {
         // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
         const pathParts = path.split('/').filter(Boolean);
-        const patchFromPath = path.startsWith('p/') || path.startsWith('patch/')
+        const patchFromPath = path.startsWith('p/') || path.startsWith('patch/') || path.startsWith('access/')
           ? pathParts[1] ?? null
           : path.startsWith('t/') && isValidTagId(pathParts[1])
             ? pathParts[1]

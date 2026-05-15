@@ -11,11 +11,15 @@ export function getPatchIdFromContext(context: VirtualPatchContext | null | unde
 }
 
 export function providerPatchPath(patchId: string): string {
-  return `/provider/patch/${encodeURIComponent(patchId)}`;
+  return `/vendor/station/${encodeURIComponent(patchId)}`;
+}
+
+export function consumerPatchPath(patchId: string): string {
+  return `/access/${encodeURIComponent(patchId)}`;
 }
 
 export function readProviderPatchIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/(?:provider|vendor)\/patch\/([^/?#]+)/);
+  const match = pathname.match(/^\/(?:provider|vendor)\/(?:patch|station)\/([^/?#]+)/);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -32,6 +36,14 @@ export async function isLoggedInProviderPatchOwner(patchId: string | null | unde
 
   const token = window.localStorage.getItem('bytspot_auth_token');
   if (!token || token === 'guest_session') return false;
+
+  try {
+    const resolved = await trpc.patch.resolve.query({ patchId: normalized });
+    if (resolved?.type === 'VENDOR_STATION') return true;
+    if (resolved?.type === 'CONSUMER_ACCESS') return false;
+  } catch {
+    // Fall back to the older provider patch list while the API rollout completes.
+  }
 
   try {
     const result = await trpc.vendors.listPatches.query({ limit: 100 });

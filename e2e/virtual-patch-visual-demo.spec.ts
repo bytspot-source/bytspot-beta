@@ -191,12 +191,13 @@ async function installVirtualPatchDemoMocks(
 
 async function enterMainApp(page: import('@playwright/test').Page) {
   await page.goto('/');
-    await page.evaluate(() => localStorage.setItem('bytspot_intro_seen', 'true'));
+  await page.evaluate(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+    localStorage.setItem('bytspot_user_name', 'Guest');
+  });
   await page.goto('/');
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-  await page.getByText("Let's Go").click();
-  await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-  await page.getByText('Continue as Guest').click();
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(VISUAL_PAUSE_MS);
 }
@@ -270,7 +271,7 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
   // Consent gate (BIPA / CCPA / WA MHMD): the user must affirmatively grant
   // intent-to-read before any sensor (NFC / camera) is started.
   await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /I agree/i }));
+  await robustClick(page.getByRole('button', { name: /Start reader/i }));
 
   await expect(page.getByText('Tap the Bytspot patch')).toBeVisible({ timeout: 10_000 });
   await page.waitForTimeout(VISUAL_PAUSE_MS * 2);
@@ -325,10 +326,10 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
   await robustClick(page.getByRole('button', { name: 'Start Tap / Scan' }));
 
   await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /I agree/i }));
+  await robustClick(page.getByRole('button', { name: /Start reader/i }));
 
   await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('QR Scanner')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('QR Backup Scanner')).toBeVisible({ timeout: 10_000 });
 
   await expect(page.getByText('Patch verified')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Continue in My Access' })).toBeVisible();

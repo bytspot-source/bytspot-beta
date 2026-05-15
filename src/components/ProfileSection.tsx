@@ -25,6 +25,7 @@ import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { getPatchIdFromContext, isLoggedInProviderPatchOwner } from '../utils/providerPatchRouting';
 import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
@@ -36,6 +37,7 @@ interface ProfileSectionProps {
   onBecomeHost?: () => void;
   onBecomeValet?: () => void;
   onOpenVirtualPatch?: (context: VirtualPatchContext | null) => void;
+  onManageVirtualPatch?: (patchId?: string | null) => void;
   onLogout?: () => void;
 }
 
@@ -95,7 +97,7 @@ function formatReservationWindow(startTime: string, endTime: string): string {
   return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onOpenVirtualPatch, onLogout }: ProfileSectionProps) {
+export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet, onOpenVirtualPatch, onManageVirtualPatch, onLogout }: ProfileSectionProps) {
   const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
   const [deleteReturnScreen, setDeleteReturnScreen] = useState<ProfileScreen>('general-settings');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -131,6 +133,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const [useInsiderPoints, setUseInsiderPoints] = useState(false);
   const [insiderCouponCode, setInsiderCouponCode] = useState('');
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
+  const [isProviderOwnedPatch, setIsProviderOwnedPatch] = useState(false);
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
   const hasRealInsiderCheckout = (() => {
@@ -227,6 +230,23 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
     if (currentScreen !== 'tickets') return;
     setVirtualPatchContext(readVirtualPatchContext());
   }, [currentScreen]);
+
+  useEffect(() => {
+    const patchId = getPatchIdFromContext(virtualPatchContext);
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME || !patchId || !onManageVirtualPatch) {
+      setIsProviderOwnedPatch(false);
+      return;
+    }
+
+    let mounted = true;
+    isLoggedInProviderPatchOwner(patchId).then((owned) => {
+      if (mounted) setIsProviderOwnedPatch(owned);
+    }).catch(() => {
+      if (mounted) setIsProviderOwnedPatch(false);
+    });
+
+    return () => { mounted = false; };
+  }, [onManageVirtualPatch, virtualPatchContext]);
 
   const springConfig = {
     type: "spring" as const,
@@ -737,7 +757,25 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 </div>
               )}
 
-              {!virtualPatchContext.scan && onOpenVirtualPatch && (
+              {isProviderOwnedPatch && onManageVirtualPatch && (
+                <motion.button
+                  onClick={() => onManageVirtualPatch(getPatchIdFromContext(virtualPatchContext))}
+                  className="mt-4 w-full rounded-[18px] border border-cyan-300/35 bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3 text-left shadow-[0_14px_34px_rgba(6,182,212,0.24)]"
+                  whileTap={{ scale: 0.98 }}
+                  transition={springConfig}
+                  aria-label="Manage Virtual Patch from My Access"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[15px] text-white" style={{ fontWeight: 850 }}>Manage Virtual Patch</p>
+                      <p className="mt-0.5 text-[12px] text-white/78" style={{ fontWeight: 600 }}>Open Provider patch controls.</p>
+                    </div>
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-white/90" strokeWidth={2.8} />
+                  </div>
+                </motion.button>
+              )}
+
+              {!isProviderOwnedPatch && !virtualPatchContext.scan && onOpenVirtualPatch && (
                 <motion.button
                   onClick={() => onOpenVirtualPatch(virtualPatchContext)}
                   className="mt-4 w-full rounded-[18px] border border-cyan-300/35 bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3 text-left shadow-[0_14px_34px_rgba(6,182,212,0.24)]"

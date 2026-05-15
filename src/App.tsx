@@ -70,6 +70,7 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
+import { focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { deriveConsumerExperienceTier, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
 import type { CardType } from './utils/mockData';
 
@@ -203,6 +204,14 @@ export default function App() {
     setProviderRouteVersion(version => version + 1);
   }, []);
 
+  const openProviderPatchManager = useCallback((patchId?: string | null) => {
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME || APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) return;
+    const normalizedPatchId = patchId?.trim();
+    if (normalizedPatchId) focusProviderPatch(normalizedPatchId);
+    window.history.replaceState({}, '', normalizedPatchId ? providerPatchPath(normalizedPatchId) : '/provider');
+    setProviderRouteVersion(version => version + 1);
+  }, []);
+
   const startProviderOnboarding = useCallback((role: ProviderRole) => {
     if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return;
     localStorage.setItem('bytspot_provider_role', role);
@@ -232,6 +241,20 @@ export default function App() {
     setCurrentScreen('main');
     setActiveTab('profile');
   }, []);
+
+  const routePatchTap = useCallback(async (patchId: string, venueName?: string) => {
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+      const isProviderOwner = await isLoggedInProviderPatchOwner(patchId);
+      if (isProviderOwner) {
+        openProviderPatchManager(patchId);
+        toast.success('Provider patch detected', { description: 'Opening your Provider patch controls.' });
+        return;
+      }
+    }
+
+    setActiveTab('map');
+    setPendingPatchScan({ patchId, venueName });
+  }, [openProviderPatchManager]);
 
   useEffect(() => {
     const refreshTheme = () => {
@@ -357,8 +380,7 @@ export default function App() {
         const patchId = patchFromPath || patchFromQuery;
         if (patchId) {
           const venueName = parsed.searchParams.get('venue') || undefined;
-          setActiveTab('map');
-          setPendingPatchScan({ patchId, venueName });
+          void routePatchTap(patchId, venueName);
           return;
         }
 
@@ -415,7 +437,7 @@ export default function App() {
         // @capacitor/status-bar not available → running in browser, skip
       }
     })();
-  }, []);
+  }, [routePatchTap]);
 
   // ─── "Near me now" push alerts ───────────────────────────────────────────
   // When a saved venue hits Packed, fire a browser notification (30-min cooldown per venue)
@@ -905,6 +927,21 @@ export default function App() {
               window.history.replaceState({}, '', '/');
               setProviderRouteVersion(version => version + 1);
             }}
+          />
+        </Suspense>
+      );
+    }
+
+    const providerPatchRouteId = readProviderPatchIdFromPath(canonicalPath) ?? readProviderPatchIdFromPath(normalizedPath);
+    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && providerPatchRouteId) {
+      focusProviderPatch(providerPatchRouteId);
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <ProviderApp
+            isDarkMode={isDarkMode}
+            initialScreen="dashboard"
+            initialDashboardView="patches"
+            onBackToMain={openProviderLanding}
           />
         </Suspense>
       );
@@ -1899,6 +1936,7 @@ export default function App() {
                       onBecomeHost={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('host')}
                       onBecomeValet={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('valet')}
                       onOpenVirtualPatch={openVirtualPatchFromWallet}
+                      onManageVirtualPatch={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : openProviderPatchManager}
                       onLogout={() => {
                         localStorage.removeItem('bytspot_auth_token');
                         localStorage.removeItem('bytspot_user');

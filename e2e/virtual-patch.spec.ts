@@ -117,15 +117,14 @@ test.describe('Virtual Patch', () => {
 
     await page.addInitScript(({ context, contextKey }) => {
       localStorage.setItem('bytspot_intro_seen', 'true');
+      localStorage.setItem('bytspot_auth_token', 'guest_session');
+      localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+      localStorage.setItem('bytspot_user_name', 'Guest');
       localStorage.setItem('bytspot_profile_focus', 'tickets');
       localStorage.setItem(contextKey, JSON.stringify(context));
     }, { context: verifiedContext, contextKey: VIRTUAL_PATCH_CONTEXT_KEY });
 
     await page.goto('/');
-    await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-    await page.getByText("Let's Go").click();
-    await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-    await page.getByText('Continue as Guest').click();
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId('open-profile-button').click();

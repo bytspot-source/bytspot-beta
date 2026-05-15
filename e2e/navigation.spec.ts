@@ -95,34 +95,28 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 }
 
 /**
- * Helper: Navigate from Splash → Landing → Auth (guest) → Main app
- * Reused by all tests that need the main app screen.
+ * Helper: seed a guest session and navigate directly to the main app.
+ * The app no longer exposes a "Continue as Guest" auth button, but it still
+ * treats the persisted guest_session token as the supported unauthenticated
+ * test/user state.
  */
 async function getToMainApp(page: import('@playwright/test').Page) {
   // Mock the venues API so tests don't depend on external service
   await mockVenuesApi(page);
 
-  // Pre-set localStorage to skip onboarding quiz overlay (z-[9999] blocks all clicks)
-  await page.goto('/');
-  await page.evaluate(() => {
+  // Pre-set localStorage before the SPA mounts so App initializes on main.
+  await page.addInitScript(() => {
     localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+    localStorage.setItem('bytspot_user_name', 'Guest');
   });
   await page.goto('/');
 
-  // 1. Splash screen auto-advances after ~3s
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-
-  // 2. Landing page — click "Let's Go"
-  await page.getByText("Let's Go").click();
-
-  // 3. Auth screen — click "Continue as Guest" to bypass
-  await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-  await page.getByText('Continue as Guest').click();
-
-  // 4. Wait for main app (Home tab) to load
+  // Wait for main app (Home tab) to load
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 
-  // 5. Dismiss any remaining overlays by waiting for stability
+  // Dismiss any remaining overlays by waiting for stability
   await page.waitForTimeout(1500);
 }
 

@@ -168,24 +168,27 @@ async function installMocks(
   });
 }
 
+async function seedGuestSession(page: Page) {
+  await page.evaluate(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+    localStorage.setItem('bytspot_user_name', 'Guest');
+  });
+}
+
 async function enterMainApp(page: Page) {
   await page.goto('/');
-    await page.evaluate(() => localStorage.setItem('bytspot_intro_seen', 'true'));
+  await seedGuestSession(page);
   await page.goto('/');
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-  await page.getByText("Let's Go").click();
-  await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-  await page.getByText('Continue as Guest').click();
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(800);
 }
 
 /**
- * Resilient post-reload re-entry. After `page.reload()`, the SPA's persisted
- * guest-auth state in localStorage skips the splash + "Continue as Guest"
- * flow and lands directly on the Home tab. enterMainApp() can't handle that
- * because it hard-asserts on "Let's Go". This helper races both states and
- * walks the splash only when it actually appears.
+ * Resilient post-reload re-entry. Persisted guest-auth state in localStorage
+ * skips the splash/auth flow and lands directly on the Home tab. If a cold
+ * reload surfaces the landing page anyway, reseed and remount the SPA.
  */
 async function ensureMainApp(page: Page) {
   const letsGo = page.getByText("Let's Go");
@@ -195,9 +198,8 @@ async function ensureMainApp(page: Page) {
     homeTab.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
   ]);
   if (await letsGo.isVisible().catch(() => false)) {
-    await letsGo.click();
-    await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-    await page.getByText('Continue as Guest').click();
+    await seedGuestSession(page);
+    await page.goto('/');
   }
   await expect(homeTab).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(800);

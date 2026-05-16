@@ -31,9 +31,16 @@ test.use({
 
 async function installVirtualPatchDemoMocks(
   page: import('@playwright/test').Page,
-  options: { qrFallback?: boolean } = {},
+  options: { qrFallback?: boolean; iosWebFallback?: boolean; scannerUnavailable?: boolean } = {},
 ) {
-  await page.addInitScript(({ mockVenues, coords, patchId, patchUid, tokenJti, verifiedAt, qrFallback }) => {
+  await page.addInitScript(({ mockVenues, coords, patchId, patchUid, tokenJti, verifiedAt, qrFallback, iosWebFallback, scannerUnavailable }) => {
+    if (iosWebFallback) {
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      });
+    }
+
     const mockPosition = {
       coords: { latitude: coords.lat, longitude: coords.lng, accuracy: 12 },
       timestamp: Date.now(),
@@ -51,7 +58,11 @@ async function installVirtualPatchDemoMocks(
       },
     });
 
-    if (qrFallback) {
+    if (scannerUnavailable) {
+      try { delete (window as Window & { NDEFReader?: unknown }).NDEFReader; } catch { /* browser locked the property */ }
+      try { delete (window as Window & { BarcodeDetector?: unknown }).BarcodeDetector; } catch { /* browser locked the property */ }
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, get: () => undefined });
+    } else if (qrFallback) {
       class MockNDEFReader {
         onreading: ((event: { message: { records: Array<{ recordType: string; data: Uint8Array }> } }) => void) | null = null;
         onreadingerror: (() => void) | null = null;
@@ -186,7 +197,17 @@ async function installVirtualPatchDemoMocks(
         headers: { 'Content-Type': 'application/json' },
       });
     };
-  }, { mockVenues: MOCK_VENUES, coords: TEST_COORDS, patchId: PATCH_ID, patchUid: PATCH_UID, tokenJti: TOKEN_JTI, verifiedAt: VERIFIED_AT, qrFallback: options.qrFallback ?? false });
+  }, {
+    mockVenues: MOCK_VENUES,
+    coords: TEST_COORDS,
+    patchId: PATCH_ID,
+    patchUid: PATCH_UID,
+    tokenJti: TOKEN_JTI,
+    verifiedAt: VERIFIED_AT,
+    qrFallback: options.qrFallback ?? false,
+    iosWebFallback: options.iosWebFallback ?? false,
+    scannerUnavailable: options.scannerUnavailable ?? false,
+  });
 }
 
 async function enterMainApp(page: import('@playwright/test').Page) {
@@ -265,6 +286,24 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await expect(page.getByText('Apple Demo', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Start reader' })).toBeVisible({ timeout: 10_000 });
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
+});
+
+test('iOS web fallback stays in valid web access instead of opening invalid app scheme', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page, { iosWebFallback: true, scannerUnavailable: true });
+
+  await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
+
+  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
+  await robustClick(page.getByRole('button', { name: 'Start reader' }));
+
+  await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Open Bytspot App' })).toHaveCount(0);
+  await robustClick(page.getByRole('button', { name: 'Continue in My Access' }));
+
+  await expect(page.getByTestId('profile-access-wallet')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Apple Demo');
+  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Wallet standby');
 });
 
 test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) => {

@@ -252,6 +252,13 @@ export default function App() {
       }
     }
 
+    if (!localStorage.getItem('bytspot_auth_token')) {
+      localStorage.setItem('bytspot_auth_token', 'guest_session');
+      localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+      localStorage.setItem('bytspot_user_name', 'Guest');
+    }
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    setCurrentScreen('main');
     setActiveTab('map');
     setPendingPatchScan({ patchId, venueName });
     window.history.replaceState({}, '', consumerPatchPath(patchId));

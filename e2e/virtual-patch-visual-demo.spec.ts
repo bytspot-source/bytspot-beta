@@ -255,6 +255,18 @@ async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
   return tapScanFab;
 }
 
+test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page);
+
+  await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
+
+  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Apple Demo', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Start reader' })).toBeVisible({ timeout: 10_000 });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
+});
+
 test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) => {
   await installVirtualPatchDemoMocks(page);
   await enterMainApp(page);

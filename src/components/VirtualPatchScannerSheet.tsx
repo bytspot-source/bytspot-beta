@@ -40,6 +40,13 @@ interface VirtualPatchScannerSheetProps {
   ageGate?: { minAge: number } | null;
 }
 
+const APPLE_DEMO_SERVICES = [
+  'Verified Entry',
+  'VIP Access Demo',
+  'Parking Access',
+  'Concierge Help',
+];
+
 /** Default audit sink — dev-friendly, replaceable in prod via the prop. */
 function defaultAuditSink(event: VirtualPatchAuditEvent): void {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
@@ -164,6 +171,10 @@ export function VirtualPatchScannerSheet({
   const isIosWebFallback = useMemo(
     () => !isNativeApp && typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent),
     [isNativeApp],
+  );
+  const showAppleDemoServices = useMemo(
+    () => /apple\s+demo/i.test(venueName),
+    [venueName],
   );
 
   const stopScanner = useCallback(() => {
@@ -787,6 +798,30 @@ export function VirtualPatchScannerSheet({
                 <div className="mt-2">• Use QR only if NFC is unavailable.</div>
                 <div className="mt-2">• Bytspot verifies the patch with the live backend.</div>
               </div>
+
+              {showAppleDemoServices && (
+                <div className="rounded-[22px] border border-fuchsia-300/25 bg-gradient-to-br from-fuchsia-500/16 via-cyan-500/12 to-white/5 p-4 mb-4 shadow-[0_18px_44px_rgba(168,85,247,0.20)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/80" style={{ fontWeight: 850 }}>Venue Services</p>
+                      <h4 className="mt-1 text-[18px] leading-6 text-white" style={{ fontWeight: 900 }}>Apple Demo Venue Services</h4>
+                      <p className="mt-1.5 text-[12.5px] leading-5 text-white/70" style={{ fontWeight: 620 }}>Review-ready services unlocked from this Virtual Patch.</p>
+                    </div>
+                    <div className="rounded-full border border-emerald-300/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Live</div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {APPLE_DEMO_SERVICES.map((service) => (
+                      <div key={service} className="rounded-[15px] border border-white/12 bg-black/22 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-[12px] text-white" style={{ fontWeight: 820 }}>
+                          <Zap className="h-3.5 w-3.5 text-cyan-200" strokeWidth={2.6} />
+                          <span>{service}</span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-white/55" style={{ fontWeight: 650 }}>Ready after scan</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {status !== 'success' && status !== 'verifying' && ((activeMethod === 'nfc' && supportsLiveQr) || (activeMethod === 'qr' && supportsNfc)) && (
                 <div className="mb-4">

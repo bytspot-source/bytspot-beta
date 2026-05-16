@@ -30,6 +30,13 @@ import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENC
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
+const APPLE_DEMO_SERVICES = [
+  { name: 'Verified Entry', detail: 'Review pass ready' },
+  { name: 'VIP Access Demo', detail: 'Premium entry preview' },
+  { name: 'Parking Access', detail: 'Arrival handoff' },
+  { name: 'Concierge Help', detail: 'Venue assistance' },
+];
+
 interface ProfileSectionProps {
   isDarkMode: boolean;
   isHost?: boolean;
@@ -84,6 +91,11 @@ function formatVirtualPatchMode(mode?: string): string {
     case 'wallet-fallback': return 'Wallet standby';
     default: return 'Virtual Patch';
   }
+}
+
+function isAppleDemoVirtualPatch(context?: VirtualPatchContext | null): boolean {
+  const venueName = context?.venueName ?? '';
+  return /apple\s+demo/i.test(venueName);
 }
 
 function formatCommerceTime(value: string | null): string {
@@ -749,6 +761,30 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                   </div>
                 )}
               </div>
+
+              {isAppleDemoVirtualPatch(virtualPatchContext) && (
+                <div data-testid="apple-demo-services-card" className="mt-4 rounded-[20px] border border-fuchsia-300/25 bg-gradient-to-br from-fuchsia-500/14 via-cyan-500/10 to-white/5 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/80" style={{ fontWeight: 850 }}>Venue Services</p>
+                      <h5 className="mt-1 text-[17px] text-white" style={{ fontWeight: 900 }}>Apple Demo Venue Services</h5>
+                      <p className="mt-1 text-[12px] leading-5 text-white/65" style={{ fontWeight: 620 }}>Proof-of-concept services available from this App Clip patch.</p>
+                    </div>
+                    <span className="rounded-full border border-emerald-300/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Review ready</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    {APPLE_DEMO_SERVICES.map((service) => (
+                      <div key={service.name} className="flex items-center justify-between gap-3 rounded-[15px] border border-white/12 bg-black/22 px-3 py-2.5">
+                        <div>
+                          <p className="text-[13px] text-white" style={{ fontWeight: 820 }}>{service.name}</p>
+                          <p className="mt-0.5 text-[11px] text-white/55" style={{ fontWeight: 620 }}>{service.detail}</p>
+                        </div>
+                        <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-200" strokeWidth={2.6} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {virtualPatchContext.scan?.verifiedAt && (
                 <div className="mt-4 rounded-[16px] p-3 bg-black/20 border border-white/10 text-[12px] text-white/72" style={{ fontWeight: 500 }}>

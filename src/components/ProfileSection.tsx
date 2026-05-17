@@ -32,9 +32,9 @@ const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONS
 
 const APPLE_DEMO_SERVICES = [
   { name: 'Verified Entry', title: 'Instant Access', detail: 'Skip the line and walk straight in.', cta: 'Get Verified Entry Now' },
-  { name: 'VIP Access Demo', title: 'Enter VIP Lounge', detail: 'Premium seating, dedicated service & priority valet.', cta: 'Request VIP Access' },
-  { name: 'Smart Parking', title: 'Find Available Spots', detail: 'Real-time parking + valet pickup at the venue.', cta: 'Find Parking / Valet' },
-  { name: 'Concierge Help', title: 'Live Concierge', detail: 'Need a chef, stylist, massage, or late-night ride?', cta: 'Message Concierge Now' },
+  { name: 'VIP Access Demo', title: 'Premium seating + priority valet', detail: 'Dedicated lounge service for reviewed guests.', cta: 'Request VIP Access' },
+  { name: 'Smart Parking', title: 'Real-time spots & valet', detail: 'Find parking and book venue pickup.', cta: 'Find Parking / Valet' },
+  { name: 'Concierge Help', title: 'Private chef, massage, ride, etc.', detail: 'Message the venue team for anything you need.', cta: 'Message Concierge Now' },
 ];
 
 interface ProfileSectionProps {
@@ -700,18 +700,18 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
           {virtualPatchContext && (
             <motion.div
               data-testid="profile-virtual-patch-card"
-              className="rounded-[24px] p-5 border border-cyan-300/22 bg-gradient-to-br from-cyan-500/12 via-indigo-500/10 to-fuchsia-500/12 backdrop-blur-xl shadow-xl"
+              className="select-none rounded-[24px] border border-cyan-200/35 bg-[linear-gradient(145deg,rgba(8,47,73,0.88),rgba(15,23,42,0.98)_46%,rgba(76,29,149,0.82))] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.42),0_0_36px_rgba(34,211,238,0.18)] ring-1 ring-white/10 backdrop-blur-xl"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.03 }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[12px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>VIRTUAL PATCH</p>
-                  <h4 className="text-[19px] text-white" style={{ fontWeight: 700 }}>
+                  <p className="mb-1 inline-flex rounded-full border border-cyan-200/35 bg-cyan-300/15 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Virtual Patch</p>
+                  <h4 className="text-[21px] leading-7 text-white" style={{ fontWeight: 950 }}>
                     {virtualPatchContext.scan ? 'Patch verified' : virtualPatchContext.venueName || 'Tap / Scan ready'}
                   </h4>
-                  <p className="text-[13px] text-white/68 mt-2" style={{ fontWeight: 500 }}>
+                  <p className="mt-2 text-[13.5px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>
                     {virtualPatchContext.scan
                       ? `${virtualPatchContext.scan.type === 'nfc' ? 'Tap' : 'QR'} verification completed${virtualPatchContext.venueName ? ` for ${virtualPatchContext.venueName}` : ''}.`
                       : virtualPatchContext.venueName
@@ -724,7 +724,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                     clearVirtualPatchContext();
                     setVirtualPatchContext(null);
                   }}
-                  className="px-3 py-1.5 rounded-full border border-white/15 bg-black/20 text-[11px] text-white/75"
+                  className="rounded-full border border-cyan-100/30 bg-cyan-300/12 px-3 py-1.5 text-[11px] text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                   style={{ fontWeight: 700 }}
                 >
                   Clear
@@ -732,7 +732,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               </div>
 
               <div className="flex flex-wrap gap-2 mt-4">
-                <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                <div className="rounded-full border border-cyan-100/25 bg-cyan-300/12 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 800 }}>
                   {formatVirtualPatchMode(virtualPatchContext.mode)}
                 </div>
                 {virtualPatchContext.scan?.type && (
@@ -741,61 +741,61 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                   </div>
                 )}
                 {formatVirtualPatchDistance(virtualPatchContext.distanceMeters) && (
-                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
                     {formatVirtualPatchDistance(virtualPatchContext.distanceMeters)}
                   </div>
                 )}
                 {virtualPatchContext.capabilities?.nfc && (
-                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
                     NFC ready
                   </div>
                 )}
                 {virtualPatchContext.capabilities?.qr && (
-                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
                     QR ready
                   </div>
                 )}
                 {virtualPatchContext.patchId && (
-                  <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/12 text-[12px] text-white/80" style={{ fontWeight: 600 }}>
+                  <div className="rounded-full border border-purple-100/25 bg-purple-300/12 px-3 py-1.5 text-[12px] text-white" style={{ fontWeight: 800 }}>
                     Patch {virtualPatchContext.patchId.slice(-6)}
                   </div>
                 )}
               </div>
 
               {isAppleDemoVirtualPatch(virtualPatchContext) && (
-                <div data-testid="apple-demo-services-card" className="mt-4 rounded-[24px] border border-white/16 bg-[linear-gradient(145deg,rgba(30,41,59,0.98),rgba(15,23,42,0.98))] p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34),0_0_34px_rgba(168,85,247,0.16)]">
+                <div data-testid="apple-demo-services-card" className="mt-4 select-none rounded-[24px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_18px_48px_rgba(0,0,0,0.38),0_0_34px_rgba(168,85,247,0.20)] ring-1 ring-cyan-100/10">
                   <div className="text-center">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Venue Services</p>
-                    <h5 className="mt-1 text-[21px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h5>
-                    <p className="mx-auto mt-1 max-w-[270px] text-[12.5px] leading-5 text-slate-100" style={{ fontWeight: 700 }}>Tap any service below to request instantly.</p>
-                    <div className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/35 bg-emerald-300/15 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
+                    <h5 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h5>
+                    <p className="mx-auto mt-1 max-w-[270px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
+                    <div className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/40 bg-emerald-300/18 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 900 }}>
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live • Midtown Atlanta
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3">
+                  <div className="mt-4 grid grid-cols-1 gap-2.5">
                     {APPLE_DEMO_SERVICES.map((service) => (
                       <motion.button
                         key={service.name}
                         onClick={() => toast.success(service.name, { description: 'Vendor request demo opened from Bytspot Passport.' })}
-                        className="w-full rounded-[20px] border border-white/14 bg-slate-950/72 p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_12px_26px_rgba(0,0,0,0.24)]"
+                        className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.22)]"
                         whileTap={{ scale: 0.98 }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 920 }}>{service.name}</p>
-                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 820 }}>{service.title}</p>
-                            <p className="mt-1 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 640 }}>{service.detail}</p>
+                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{service.name}</p>
+                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{service.title}</p>
+                            <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{service.detail}</p>
                           </div>
                           <ChevronRight className="h-5 w-5 flex-shrink-0 text-cyan-100" strokeWidth={2.8} />
                         </div>
-                        <div className="mt-3 rounded-[15px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3.5 py-2.5 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]" style={{ fontWeight: 900 }}>
+                        <div className="mt-2.5 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]" style={{ fontWeight: 950 }}>
                           → {service.cta}
                         </div>
                       </motion.button>
                     ))}
                   </div>
-                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 680 }}>Tap a service above to send request to the vendor.</p>
-                  <p className="text-center text-[11px] text-cyan-100/85" style={{ fontWeight: 760 }}>Powered by Bytspot Passport</p>
+                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap a service above to send request to the vendor.</p>
+                  <p className="text-center text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Powered by Bytspot Passport</p>
                 </div>
               )}
 

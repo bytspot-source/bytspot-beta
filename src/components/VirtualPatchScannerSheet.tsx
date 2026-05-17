@@ -86,55 +86,123 @@ const DEMO_VENUE_SERVICES = [
   },
 ];
 
-const DEMO_PREMIUM_VENDORS = [
+type PremiumVendor = {
+  id: string;
+  name: string;
+  category: string;
+  photo: string;
+  rating: string;
+  distance: string;
+  eta: string;
+  availability: string;
+  isOpen: boolean;
+  capacity: string;
+  availabilityWindow: string;
+  preview: string;
+  services: string[];
+  contactOptions: string[];
+  bookingCapability: boolean;
+  source: 'live' | 'fallback';
+};
+
+const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
   {
     id: 'chef-collective',
     name: 'Peach & Pearl Private Chef',
+    category: 'Private Chef',
     photo: '🍽️',
     rating: '4.9',
     distance: '0.3 mi',
     eta: 'Ready in 18 min',
+    availability: 'Open now',
+    isOpen: true,
+    capacity: '2 slots left',
+    availabilityWindow: 'Tonight · 6–11 PM',
     preview: 'Chef tasting menu • dessert boards • mocktail pairings',
     services: ['Chef tasting board', 'Dessert table', 'Private dinner setup'],
+    contactOptions: ['In-app request', 'Call vendor'],
+    bookingCapability: true,
+    source: 'fallback',
   },
   {
     id: 'massage-lounge',
     name: 'Midtown Mobile Massage',
+    category: 'Wellness',
     photo: '💆',
     rating: '4.8',
     distance: '0.5 mi',
     eta: 'Ready in 22 min',
+    availability: 'Open now',
+    isOpen: true,
+    capacity: '3 therapists available',
+    availabilityWindow: 'Today · 4–10 PM',
     preview: 'Chair massage • recovery session • aromatherapy',
     services: ['15-min chair massage', 'Recovery stretch', 'Aromatherapy reset'],
+    contactOptions: ['In-app request', 'Call vendor'],
+    bookingCapability: true,
+    source: 'fallback',
   },
   {
     id: 'style-suite',
     name: 'Glow Suite Stylists',
+    category: 'Styling',
     photo: '✨',
     rating: '4.9',
     distance: '0.7 mi',
     eta: 'Ready in 25 min',
+    availability: 'Open now',
+    isOpen: true,
+    capacity: 'Limited appointments',
+    availabilityWindow: 'Today · 5–9 PM',
     preview: 'Quick glam • touch-ups • wardrobe assist',
     services: ['Quick glam touch-up', 'Wardrobe assist', 'Photo-ready styling'],
+    contactOptions: ['In-app request', 'Call vendor'],
+    bookingCapability: true,
+    source: 'fallback',
   },
   {
     id: 'valet-rides',
     name: 'Swift Valet & Rides',
+    category: 'Valet & Rides',
     photo: '🚘',
     rating: '4.7',
     distance: '0.9 mi',
     eta: 'Ready in 12 min',
+    availability: 'Open now',
+    isOpen: true,
+    capacity: '4 drivers nearby',
+    availabilityWindow: 'Now · until 2 AM',
     preview: 'Priority valet • late-night ride • curbside pickup',
     services: ['Priority valet', 'Late-night ride', 'Curbside pickup'],
+    contactOptions: ['In-app request', 'Call vendor'],
+    bookingCapability: true,
+    source: 'fallback',
   },
 ];
 
 type DemoVenueService = (typeof DEMO_VENUE_SERVICES)[number];
-type DemoVenueServicesView = 'cards' | 'venue' | 'nearby' | 'detail';
+type DemoVenueServicesView = 'cards' | 'venue' | 'nearby' | 'detail' | 'booking';
 type AuthPromptIntent =
   | { kind: 'venue-service'; serviceName: string; cta: string }
   | { kind: 'vendor-action'; action: string; vendorName: string; serviceName?: string }
-  | { kind: 'wallet'; serviceIds: string[] };
+  | { kind: 'wallet'; serviceIds: string[] }
+  | { kind: 'booking'; vendorId: string; vendorName: string; serviceName: string; form: BookingFormState };
+type BookingFormState = {
+  time: string;
+  partySize: string;
+  specialRequests: string;
+  contactMethod: string;
+};
+type VirtualPatchAnalyticsEvent =
+  | 'patch_opened'
+  | 'service_tapped'
+  | 'vendor_viewed'
+  | 'booking_requested'
+  | 'checkin_clicked'
+  | 'call_clicked'
+  | 'wallet_fallback_shown'
+  | 'wallet_action_attempted'
+  | 'auth_prompt_shown';
 type AppleCredential = { identityToken: string; email?: string; name?: string };
 type AuthResponse = { token?: string; user?: { name?: string | null } | null; isNewUser?: boolean };
 
@@ -162,6 +230,16 @@ function isGuestSession(): boolean {
   return !token || token === 'guest_session';
 }
 
+function isReviewOrDemoVenueName(value?: string | null): boolean {
+  return /demo\s+venue|review\s+venue/i.test(value ?? '');
+}
+
+function getPublicVenueName(value?: string | null): string {
+  const trimmed = value?.trim();
+  if (!trimmed || isReviewOrDemoVenueName(trimmed)) return 'Venue Services';
+  return trimmed;
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -183,12 +261,92 @@ function savePendingIntent(intent: AuthPromptIntent | null): void {
   }
 }
 
-function logWalletEvent(name: 'wallet_fallback_shown' | 'wallet_action_attempted' | 'auth_prompt_shown', properties: Record<string, unknown>): void {
+function logVirtualPatchEvent(name: VirtualPatchAnalyticsEvent, properties: Record<string, unknown>): void {
   try {
     trackEvent(name, properties);
   } catch {
     // Analytics must never block the App Clip-style flow.
   }
+}
+
+function inferVendorCategory(raw: any): string {
+  const text = `${raw?.category ?? ''} ${raw?.title ?? ''} ${raw?.description ?? ''}`.toLowerCase();
+  if (/chef|dinner|dessert|food|cater/.test(text)) return 'Private Chef';
+  if (/massage|wellness|recovery|stretch|spa/.test(text)) return 'Wellness';
+  if (/style|glam|photo|wardrobe|beauty/.test(text)) return 'Styling';
+  if (/valet|ride|driver|parking|pickup/.test(text)) return 'Valet & Rides';
+  return raw?.category ? String(raw.category) : 'Premium Service';
+}
+
+function iconForVendorCategory(category: string): string {
+  if (/chef|food/i.test(category)) return '🍽️';
+  if (/wellness|massage|spa/i.test(category)) return '💆';
+  if (/style|beauty/i.test(category)) return '✨';
+  if (/valet|ride|parking/i.test(category)) return '🚘';
+  return '✦';
+}
+
+function formatServiceEta(row: any): string {
+  const duration = Number(row?.durationMins ?? 0);
+  if (Number.isFinite(duration) && duration > 0) return `Ready in ${duration} min`;
+  if (row?.eta) return String(row.eta);
+  return 'ETA after request';
+}
+
+function resolveAvailability(row: any): { availability: string; isOpen: boolean } {
+  const raw = row?.availabilityStatus ?? row?.availability ?? row?.vendor?.availabilityStatus ?? row?.vendor?.availability;
+  if (typeof row?.openNow === 'boolean') return { availability: row.openNow ? 'Open now' : 'Closed', isOpen: row.openNow };
+  if (typeof row?.vendor?.openNow === 'boolean') return { availability: row.vendor.openNow ? 'Open now' : 'Closed', isOpen: row.vendor.openNow };
+  if (raw) {
+    const label = String(raw);
+    return { availability: label, isOpen: !/closed|unavailable|offline/i.test(label) };
+  }
+  return { availability: String(row?.status ?? 'active') === 'active' ? 'Open now' : 'Unavailable', isOpen: String(row?.status ?? 'active') === 'active' };
+}
+
+function defaultBookingForm(contactOptions: string[] = ['In-app request']): BookingFormState {
+  return { time: '', partySize: '2', specialRequests: '', contactMethod: contactOptions[0] ?? 'In-app request' };
+}
+
+function normalizeVendorServices(rows: any[]): PremiumVendor[] {
+  const grouped = new Map<string, any[]>();
+  for (const row of rows) {
+    const vendorId = String(row?.vendor?.id ?? row?.vendorId ?? row?.id ?? 'vendor');
+    const key = vendorId || String(row?.vendor?.displayName ?? row?.vendorName ?? 'vendor');
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  }
+
+  return Array.from(grouped.entries()).slice(0, 6).map(([key, services]) => {
+    const first = services[0] ?? {};
+    const category = inferVendorCategory(first);
+    const serviceNames = services
+      .map((service) => String(service?.title ?? service?.name ?? 'Premium service'))
+      .filter(Boolean)
+      .slice(0, 4);
+    const descriptions = services
+      .map((service) => String(service?.description ?? '').trim())
+      .filter(Boolean);
+    const availability = resolveAvailability(first);
+    const canBook = availability.isOpen && services.some((service) => String(service?.status ?? 'active') === 'active');
+    return {
+      id: key,
+      name: String(first?.vendor?.displayName ?? first?.vendorName ?? 'Premium Vendor'),
+      category,
+      photo: iconForVendorCategory(category),
+      rating: first?.vendor?.rating ? String(first.vendor.rating) : first?.rating ? String(first.rating) : 'New',
+      distance: first?.distance ?? first?.distanceLabel ?? 'Nearby',
+      eta: formatServiceEta(first),
+      availability: availability.availability,
+      isOpen: availability.isOpen,
+      capacity: String(first?.capacity ?? first?.vendor?.capacity ?? first?.slotsAvailable ?? 'Capacity updates live'),
+      availabilityWindow: String(first?.availabilityWindow ?? first?.vendor?.availabilityWindow ?? 'Availability window updates live'),
+      preview: serviceNames.length > 0 ? serviceNames.slice(0, 3).join(' • ') : descriptions.slice(0, 2).join(' • ') || category,
+      services: serviceNames.length > 0 ? serviceNames : ['Request service'],
+      contactOptions: first?.vendor?.phone || first?.phone ? ['In-app request', 'Call vendor'] : ['In-app request'],
+      bookingCapability: canBook,
+      source: 'live' as const,
+    };
+  });
 }
 
 // NFC Forum URI Record Type Definition prefix table — first byte of a raw 'U'
@@ -272,6 +430,12 @@ export function VirtualPatchScannerSheet({
   const [hasAffirmedAge, setHasAffirmedAge] = useState(!ageGate);
   const [demoVenueServicesView, setDemoVenueServicesView] = useState<DemoVenueServicesView>('cards');
   const [selectedPremiumVendorId, setSelectedPremiumVendorId] = useState<string | null>(null);
+  const [premiumVendors, setPremiumVendors] = useState<PremiumVendor[]>(FALLBACK_PREMIUM_VENDORS);
+  const [premiumVendorsLoading, setPremiumVendorsLoading] = useState(false);
+  const [premiumVendorsSource, setPremiumVendorsSource] = useState<'live' | 'fallback'>('fallback');
+  const [premiumVendorsError, setPremiumVendorsError] = useState('');
+  const [selectedBookingService, setSelectedBookingService] = useState<string | null>(null);
+  const [bookingForm, setBookingForm] = useState<BookingFormState>(() => defaultBookingForm());
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [authPromptIntent, setAuthPromptIntent] = useState<AuthPromptIntent | null>(null);
   const [authPromptError, setAuthPromptError] = useState('');
@@ -305,13 +469,14 @@ export function VirtualPatchScannerSheet({
     () => !isNativeApp && typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent),
     [isNativeApp],
   );
+  const publicVenueName = useMemo(() => getPublicVenueName(venueName), [venueName]);
   const showDemoVenueServices = useMemo(
-    () => /demo\s+venue|review\s+venue/i.test(venueName),
+    () => isReviewOrDemoVenueName(venueName),
     [venueName],
   );
   const selectedPremiumVendor = useMemo(
-    () => DEMO_PREMIUM_VENDORS.find((vendor) => vendor.id === selectedPremiumVendorId) ?? null,
-    [selectedPremiumVendorId],
+    () => premiumVendors.find((vendor) => vendor.id === selectedPremiumVendorId) ?? null,
+    [premiumVendors, selectedPremiumVendorId],
   );
   const selectedServices = useMemo(
     () => DEMO_VENUE_SERVICES.filter((service) => selectedServiceIds.includes(service.id)),
@@ -326,6 +491,21 @@ export function VirtualPatchScannerSheet({
     [selectedServices],
   );
   const hasWalletEligibleSelection = walletEligibleSelectedServices.length > 0;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    logVirtualPatchEvent('patch_opened', {
+      surface: 'virtual_patch',
+      patchId: fallbackPatchId ?? verification?.patchId ?? null,
+      venueId,
+      venueName: publicVenueName,
+      rawVenueName: venueName,
+      reviewOrDemoVenue: showDemoVenueServices,
+      supportsNfc,
+      supportsQr: supportsLiveQr,
+      isNativeApp,
+    });
+  }, [fallbackPatchId, isNativeApp, isOpen, publicVenueName, showDemoVenueServices, supportsLiveQr, supportsNfc, venueId, venueName, verification?.patchId]);
 
   const stopScanner = useCallback(() => {
     if (rafRef.current !== null) {
@@ -358,7 +538,7 @@ export function VirtualPatchScannerSheet({
   const verifyRawValue = useCallback(async (rawValue: string, method: ScanMethod) => {
     stopScanner();
     setStatus('verifying');
-    setStatusMessage(`Verifying ${venueName} ${method === 'nfc' ? 'tap' : 'scan'}…`);
+    setStatusMessage(`Verifying ${publicVenueName} ${method === 'nfc' ? 'tap' : 'scan'}…`);
 
     let parsedPatchId: string | null = null;
     let parsedUid: string | null = null;
@@ -419,7 +599,7 @@ export function VirtualPatchScannerSheet({
 
       setVerification(summary);
       setStatus('success');
-      setStatusMessage(`${venueName} is ready for frictionless entry.`);
+      setStatusMessage(`${publicVenueName} is ready for frictionless entry.`);
       // NIST PR.PT-1: audit log on success. Tenant + token JTI captured so the
       // entry is independently reconcilable against the server-side ledger.
       emitAudit(createAuditEvent({
@@ -432,7 +612,7 @@ export function VirtualPatchScannerSheet({
         tokenJti: summary.tokenJti,
       }));
       onVerified?.(summary);
-      toast.success('Bytspot Verified', { description: `${venueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.` });
+      toast.success('Bytspot Verified', { description: `${publicVenueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.` });
       await notifySuccess();
     } catch (error: any) {
       const message = error?.message || 'Unable to verify this patch code.';
@@ -454,7 +634,7 @@ export function VirtualPatchScannerSheet({
       toast.error(method === 'nfc' ? 'Tap verification failed' : 'QR scan failed', { description: message });
       await notifyError();
     }
-  }, [emitAudit, fallbackPatchId, onVerified, stopScanner, userCoords, vendorId, venueId, venueName]);
+  }, [emitAudit, fallbackPatchId, onVerified, publicVenueName, stopScanner, userCoords, vendorId, venueId]);
 
   const scheduleScan = useCallback(() => {
     rafRef.current = window.requestAnimationFrame(async () => {
@@ -525,6 +705,12 @@ export function VirtualPatchScannerSheet({
       setHasAffirmedAge(!ageGate);
       setDemoVenueServicesView('cards');
       setSelectedPremiumVendorId(null);
+      setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
+      setPremiumVendorsLoading(false);
+      setPremiumVendorsSource('fallback');
+      setPremiumVendorsError('');
+      setSelectedBookingService(null);
+      setBookingForm(defaultBookingForm());
       setSelectedServiceIds([]);
       setAuthPromptIntent(null);
       setAuthPromptError('');
@@ -532,6 +718,36 @@ export function VirtualPatchScannerSheet({
       savePendingIntent(null);
     }
   }, [isOpen, ageGate]);
+
+  useEffect(() => {
+    if (!isOpen || !showDemoVenueServices || demoVenueServicesView !== 'nearby') return;
+    let cancelled = false;
+    setPremiumVendorsLoading(true);
+    setPremiumVendorsError('');
+    trpc.vendors.search.query({ patchId: fallbackPatchId ?? undefined, limit: 24 })
+      .then((res: any) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res?.services) ? res.services : [];
+        const mapped = normalizeVendorServices(rows);
+        if (mapped.length > 0) {
+          setPremiumVendors(mapped);
+          setPremiumVendorsSource('live');
+        } else {
+          setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
+          setPremiumVendorsSource('fallback');
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
+        setPremiumVendorsSource('fallback');
+        setPremiumVendorsError('Live vendor records unavailable. Showing curated venue services.');
+      })
+      .finally(() => {
+        if (!cancelled) setPremiumVendorsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [demoVenueServicesView, fallbackPatchId, isOpen, showDemoVenueServices]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -768,10 +984,13 @@ export function VirtualPatchScannerSheet({
     setAuthPromptIntent(intent);
     setAuthPromptError('');
     savePendingIntent(intent);
-    logWalletEvent('auth_prompt_shown', {
+    logVirtualPatchEvent('auth_prompt_shown', {
       surface: 'virtual_patch',
       reason: intent.kind,
       selectedServiceIds: intent.kind === 'wallet' ? intent.serviceIds : undefined,
+      vendorId: intent.kind === 'booking' ? intent.vendorId : undefined,
+      vendorName: intent.kind === 'booking' || intent.kind === 'vendor-action' ? intent.vendorName : undefined,
+      serviceName: intent.kind === 'booking' || intent.kind === 'vendor-action' || intent.kind === 'venue-service' ? intent.serviceName : undefined,
     });
   }, []);
 
@@ -790,7 +1009,7 @@ export function VirtualPatchScannerSheet({
     }
     setDemoVenueServicesView('venue');
     if (walletEligibleSelectedServices.length > 0) {
-      logWalletEvent('wallet_fallback_shown', {
+      logVirtualPatchEvent('wallet_fallback_shown', {
         surface: 'virtual_patch',
         selectedServiceIds: selectedServices.map((service) => service.id),
         walletEligibleServiceIds: walletEligibleSelectedServices.map((service) => service.id),
@@ -815,7 +1034,7 @@ export function VirtualPatchScannerSheet({
   }, [handleContinue]);
 
   const handleWalletAction = useCallback(() => {
-    logWalletEvent('wallet_action_attempted', {
+    logVirtualPatchEvent('wallet_action_attempted', {
       surface: 'virtual_patch',
       selectedServiceIds: selectedServices.map((service) => service.id),
       walletEligibleServiceIds: walletEligibleSelectedServices.map((service) => service.id),
@@ -869,6 +1088,28 @@ export function VirtualPatchScannerSheet({
     });
   }, []);
 
+  const completeBookingRequest = useCallback((vendor: PremiumVendor, serviceName: string, form: BookingFormState, mode: 'guest' | 'signed-in' = 'guest') => {
+    logVirtualPatchEvent('booking_requested', {
+      surface: 'virtual_patch',
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      serviceName,
+      time: form.time || 'asap',
+      partySize: form.partySize,
+      contactMethod: form.contactMethod,
+      signedIn: mode === 'signed-in',
+      source: vendor.source,
+      category: vendor.category,
+    });
+    toast.success('Booking requested', {
+      description: mode === 'signed-in'
+        ? `${serviceName} request sent to ${vendor.name}. Saved to your wallet.`
+        : `${serviceName} request sent to ${vendor.name} as guest.`,
+    });
+    setDemoVenueServicesView('detail');
+    setSelectedBookingService(null);
+  }, []);
+
   const resumeAuthPromptIntent = useCallback((mode: 'guest' | 'signed-in') => {
     if (!authPromptIntent) return;
     const intent = authPromptIntent;
@@ -884,29 +1125,100 @@ export function VirtualPatchScannerSheet({
       performWalletAction(eligibleServices, mode);
       return;
     }
+    if (intent.kind === 'booking') {
+      const vendor = premiumVendors.find((item) => item.id === intent.vendorId) ?? selectedPremiumVendor;
+      if (vendor) completeBookingRequest(vendor, intent.serviceName, intent.form, mode);
+      return;
+    }
     completePremiumVendorAction(intent.action, intent.vendorName, intent.serviceName, mode);
-  }, [authPromptIntent, completePremiumVendorAction, completeVenueServiceRequest, performWalletAction]);
+  }, [authPromptIntent, completeBookingRequest, completePremiumVendorAction, completeVenueServiceRequest, performWalletAction, premiumVendors, selectedPremiumVendor]);
 
   const handleServiceRequest = useCallback((serviceName: string, cta: string) => {
+    const service = DEMO_VENUE_SERVICES.find((item) => item.name === serviceName);
+    logVirtualPatchEvent('service_tapped', {
+      surface: 'virtual_patch',
+      serviceId: service?.id ?? null,
+      serviceName,
+      cta,
+      walletEnabled: service?.walletEnabled ?? false,
+      venueName: publicVenueName,
+      signedIn: !isGuestSession(),
+    });
     if (isGuestSession()) {
       openAuthPrompt({ kind: 'venue-service', serviceName, cta });
       return;
     }
     completeVenueServiceRequest(serviceName, cta, 'signed-in');
-  }, [completeVenueServiceRequest, openAuthPrompt]);
+  }, [completeVenueServiceRequest, openAuthPrompt, publicVenueName]);
 
   const handleOpenPremiumVendor = useCallback((vendorId: string) => {
+    const vendor = premiumVendors.find((item) => item.id === vendorId);
     setSelectedPremiumVendorId(vendorId);
+    logVirtualPatchEvent('vendor_viewed', {
+      surface: 'virtual_patch',
+      vendorId,
+      vendorName: vendor?.name ?? null,
+      category: vendor?.category ?? null,
+      source: vendor?.source ?? null,
+      availability: vendor?.availability ?? null,
+      bookingCapability: vendor?.bookingCapability ?? null,
+    });
     setDemoVenueServicesView('detail');
+  }, [premiumVendors]);
+
+  const handleStartBooking = useCallback((vendor: PremiumVendor, serviceName: string) => {
+    if (!vendor.bookingCapability || !vendor.isOpen) {
+      toast.info('Booking unavailable', { description: `${vendor.name} is not accepting bookings right now.` });
+      return;
+    }
+    setSelectedPremiumVendorId(vendor.id);
+    setSelectedBookingService(serviceName);
+    setBookingForm(defaultBookingForm(vendor.contactOptions));
+    setDemoVenueServicesView('booking');
   }, []);
 
+  const handleSubmitBooking = useCallback((mode?: 'guest') => {
+    if (!selectedPremiumVendor || !selectedBookingService) return;
+    const form = bookingForm;
+    if (!form.partySize || Number(form.partySize) < 1) {
+      toast.error('Add number of people', { description: 'Enter at least 1 guest for this booking.' });
+      return;
+    }
+    if (mode === 'guest') {
+      completeBookingRequest(selectedPremiumVendor, selectedBookingService, form, 'guest');
+      return;
+    }
+    if (isGuestSession()) {
+      openAuthPrompt({ kind: 'booking', vendorId: selectedPremiumVendor.id, vendorName: selectedPremiumVendor.name, serviceName: selectedBookingService, form });
+      return;
+    }
+    completeBookingRequest(selectedPremiumVendor, selectedBookingService, form, 'signed-in');
+  }, [bookingForm, completeBookingRequest, openAuthPrompt, selectedBookingService, selectedPremiumVendor]);
+
   const handlePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName?: string) => {
+    const vendor = premiumVendors.find((item) => item.name === vendorName);
+    const eventName = action === 'Check-in'
+      ? 'checkin_clicked'
+      : action === 'Call Vendor'
+        ? 'call_clicked'
+        : null;
+    if (eventName) {
+      logVirtualPatchEvent(eventName, {
+        surface: 'virtual_patch',
+        vendorId: vendor?.id ?? null,
+        vendorName,
+        serviceName: serviceName ?? null,
+        signedIn: !isGuestSession(),
+        source: vendor?.source ?? null,
+        category: vendor?.category ?? null,
+      });
+    }
     if (isGuestSession()) {
       openAuthPrompt({ kind: 'vendor-action', action, vendorName, serviceName });
       return;
     }
     completePremiumVendorAction(action, vendorName, serviceName, 'signed-in');
-  }, [completePremiumVendorAction, openAuthPrompt]);
+  }, [completePremiumVendorAction, openAuthPrompt, premiumVendors]);
 
   const handleAppleCredential = useCallback(async ({ identityToken, email, name }: AppleCredential) => {
     if (!authPromptIntent) return;
@@ -957,8 +1269,8 @@ export function VirtualPatchScannerSheet({
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
                     {activeMethod === 'nfc' ? 'NFC Tap Reader' : 'QR Backup Scanner'}
                   </div>
-                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showDemoVenueServices ? 'Demo Venue' : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
-                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showDemoVenueServices ? 'Live • Midtown Atlanta' : venueName}</p>
+                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showDemoVenueServices ? publicVenueName : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
+                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showDemoVenueServices ? 'Live • Midtown Atlanta' : publicVenueName}</p>
                 </div>
                 <motion.button
                   onClick={onClose}
@@ -978,7 +1290,7 @@ export function VirtualPatchScannerSheet({
                     <div className="min-w-0">
                       <div className="text-[15px] text-white" style={{ fontWeight: 850 }}>Verify your age</div>
                       <p className="text-[12.5px] text-white/70 mt-1" style={{ fontWeight: 600 }}>
-                        {venueName} requires guests to be {ageGate.minAge} or older. Bytspot does not store your date of birth — only your one-tap affirmation, scoped to this session.
+                        {publicVenueName} requires guests to be {ageGate.minAge} or older. Bytspot does not store your date of birth — only your one-tap affirmation, scoped to this session.
                       </p>
                     </div>
                   </div>
@@ -1041,7 +1353,7 @@ export function VirtualPatchScannerSheet({
                     <div className="min-w-0">
                       <div className="text-[16px] text-white tracking-[-0.01em]" style={{ fontWeight: 850 }}>Confirm intent to read</div>
                       <p className="text-[13px] mt-1.5" style={{ color: 'rgba(255,255,255,0.80)', fontWeight: 625, lineHeight: 1.55 }}>
-                        Bytspot needs to use your device’s {supportsNfc ? 'NFC reader' : 'camera'} to verify the {venueName} patch. The reader captures only the patch identifier and a one-time token — no biometrics, no continuous video, no audio.
+                        Bytspot needs to use your device’s {supportsNfc ? 'NFC reader' : 'camera'} to verify the {publicVenueName} patch. The reader captures only the patch identifier and a one-time token — no biometrics, no continuous video, no audio.
                       </p>
                     </div>
                   </div>
@@ -1151,10 +1463,20 @@ export function VirtualPatchScannerSheet({
                       <div className="text-center">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Concierge Help</p>
                         <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Nearby Premium Services</h4>
-                        <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Top vendors prioritized by proximity, rating, availability, and vibe match.</p>
+                        <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>
+                          {premiumVendorsSource === 'live'
+                            ? 'Live vendor records prioritized by availability, service fit, and proximity.'
+                            : 'Curated services shown until live vendor records are available.'}
+                        </p>
+                        {premiumVendorsLoading && (
+                          <p className="mt-2 text-[12px] text-cyan-100" style={{ fontWeight: 850 }}>Loading live vendor records…</p>
+                        )}
+                        {premiumVendorsError && (
+                          <p className="mx-auto mt-2 max-w-[280px] rounded-[14px] border border-amber-200/25 bg-amber-300/10 px-3 py-2 text-[12px] text-amber-100" style={{ fontWeight: 760 }}>{premiumVendorsError}</p>
+                        )}
                       </div>
                       <div className="mt-[18px] grid grid-cols-1 gap-3">
-                        {DEMO_PREMIUM_VENDORS.map((vendor) => (
+                        {premiumVendors.map((vendor) => (
                           <motion.button
                             key={vendor.id}
                             onClick={() => handleOpenPremiumVendor(vendor.id)}
@@ -1167,9 +1489,11 @@ export function VirtualPatchScannerSheet({
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-2">
                                   <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{vendor.name}</p>
-                                  <span className="rounded-full bg-emerald-300/18 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 900 }}>Patch Verified</span>
+                                  <span className="rounded-full bg-emerald-300/18 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 900 }}>{vendor.source === 'live' ? 'Live Vendor' : 'Patch Verified'}</span>
                                 </div>
-                                <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {vendor.rating} • {vendor.distance} • {vendor.eta}</p>
+                                <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{vendor.category} • {vendor.availability}</p>
+                                <p className="text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {vendor.rating} • {vendor.distance} • {vendor.eta}</p>
+                                <p className="text-[11.5px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>{vendor.capacity} • {vendor.availabilityWindow}</p>
                                 <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{vendor.preview}</p>
                                 <div className="mt-2.5 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white" style={{ fontWeight: 950 }}>View Services</div>
                               </div>
@@ -1178,21 +1502,91 @@ export function VirtualPatchScannerSheet({
                         ))}
                       </div>
                     </>
+                  ) : demoVenueServicesView === 'booking' && selectedPremiumVendor && selectedBookingService ? (
+                    <>
+                      <button onClick={() => setDemoVenueServicesView('detail')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to vendor</button>
+                      <div className="text-center">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Booking Request</p>
+                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Request Booking</h4>
+                        <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{selectedBookingService} with {selectedPremiumVendor.name}</p>
+                      </div>
+                      <div className="mt-[18px] space-y-3">
+                        <label className="block rounded-[18px] border border-white/14 bg-white/8 p-3.5">
+                          <span className="text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>Time</span>
+                          <input
+                            type="datetime-local"
+                            value={bookingForm.time}
+                            onChange={(event) => setBookingForm((current) => ({ ...current, time: event.target.value }))}
+                            className="mt-2 w-full rounded-[14px] border border-white/14 bg-slate-950/70 px-3 py-2 text-[13px] text-white outline-none focus:border-cyan-200/50"
+                          />
+                        </label>
+                        <label className="block rounded-[18px] border border-white/14 bg-white/8 p-3.5">
+                          <span className="text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>Number of people</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            value={bookingForm.partySize}
+                            onChange={(event) => setBookingForm((current) => ({ ...current, partySize: event.target.value }))}
+                            className="mt-2 w-full rounded-[14px] border border-white/14 bg-slate-950/70 px-3 py-2 text-[13px] text-white outline-none focus:border-cyan-200/50"
+                          />
+                        </label>
+                        <label className="block rounded-[18px] border border-white/14 bg-white/8 p-3.5">
+                          <span className="text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>Contact method</span>
+                          <select
+                            value={bookingForm.contactMethod}
+                            onChange={(event) => setBookingForm((current) => ({ ...current, contactMethod: event.target.value }))}
+                            className="mt-2 w-full rounded-[14px] border border-white/14 bg-slate-950/70 px-3 py-2 text-[13px] text-white outline-none focus:border-cyan-200/50"
+                          >
+                            {selectedPremiumVendor.contactOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </label>
+                        <label className="block rounded-[18px] border border-white/14 bg-white/8 p-3.5">
+                          <span className="text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>Special requests</span>
+                          <textarea
+                            value={bookingForm.specialRequests}
+                            onChange={(event) => setBookingForm((current) => ({ ...current, specialRequests: event.target.value }))}
+                            placeholder="Anything the vendor should know?"
+                            rows={3}
+                            className="mt-2 w-full resize-none rounded-[14px] border border-white/14 bg-slate-950/70 px-3 py-2 text-[13px] text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/50"
+                          />
+                        </label>
+                      </div>
+                      <div className="mt-[18px] space-y-2.5">
+                        <button onClick={() => handleSubmitBooking()} className="w-full rounded-[17px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-3 text-[14px] text-white shadow-[0_14px_30px_rgba(168,85,247,0.28)]" style={{ fontWeight: 950 }}>Request Booking</button>
+                        {isGuestSession() && !authPromptIntent && (
+                          <button onClick={() => handleSubmitBooking('guest')} className="w-full rounded-[17px] border border-cyan-200/30 bg-cyan-300/14 px-4 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 900 }}>Continue as Guest</button>
+                        )}
+                        <p className="text-center text-[11px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>Sign in to save to wallet and earn points.</p>
+                      </div>
+                    </>
                   ) : demoVenueServicesView === 'detail' && selectedPremiumVendor ? (
                     <>
                       <button onClick={() => setDemoVenueServicesView('nearby')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Nearby Premium Services</button>
                       <div className="text-center">
                         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[22px] bg-white/12 text-[28px] ring-1 ring-white/15">{selectedPremiumVendor.photo}</div>
                         <h4 className="mt-2 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{selectedPremiumVendor.name}</h4>
-                        <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {selectedPremiumVendor.rating} • Patch Verified • {selectedPremiumVendor.eta}</p>
+                        <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{selectedPremiumVendor.category} • {selectedPremiumVendor.availability} • {selectedPremiumVendor.distance}</p>
+                        <p className="text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {selectedPremiumVendor.rating} • {selectedPremiumVendor.source === 'live' ? 'Live Vendor' : 'Patch Verified'} • {selectedPremiumVendor.eta}</p>
+                        <p className="text-[12px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>{selectedPremiumVendor.capacity} • {selectedPremiumVendor.availabilityWindow}</p>
                         <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{selectedPremiumVendor.preview}</p>
+                        <p className="mx-auto mt-2 max-w-[280px] text-[12px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>
+                          Contact: {selectedPremiumVendor.contactOptions.join(' • ')} · Booking {selectedPremiumVendor.bookingCapability ? 'available' : 'not available'}
+                        </p>
                       </div>
                       <div className="mt-[18px] space-y-3">
                         {selectedPremiumVendor.services.map((serviceName) => (
                           <div key={serviceName} className="rounded-[18px] border border-white/14 bg-white/8 p-3.5">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-[14px] text-white" style={{ fontWeight: 900 }}>{serviceName}</p>
-                              <button onClick={() => handlePremiumVendorAction('Book Now', selectedPremiumVendor.name, serviceName)} className="rounded-full bg-cyan-300 px-3 py-1.5 text-[12px] text-slate-950" style={{ fontWeight: 950 }}>Book Now</button>
+                              <button
+                                onClick={() => handleStartBooking(selectedPremiumVendor, serviceName)}
+                                disabled={!selectedPremiumVendor.bookingCapability || !selectedPremiumVendor.isOpen}
+                                className="rounded-full bg-cyan-300 px-3 py-1.5 text-[12px] text-slate-950 disabled:cursor-not-allowed disabled:bg-white/15 disabled:text-slate-300"
+                                style={{ fontWeight: 950 }}
+                              >
+                                {selectedPremiumVendor.bookingCapability && selectedPremiumVendor.isOpen ? 'Book Now' : 'Unavailable'}
+                              </button>
                             </div>
                           </div>
                         ))}
@@ -1206,7 +1600,7 @@ export function VirtualPatchScannerSheet({
                     <>
                       <div className="text-center">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
-                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Demo Venue</h4>
+                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{publicVenueName}</h4>
                         <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>Live • Midtown Atlanta</p>
                         <p className="mx-auto mt-1 max-w-[260px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
                       </div>
@@ -1262,7 +1656,9 @@ export function VirtualPatchScannerSheet({
                         ? authPromptIntent.serviceName
                         : authPromptIntent.kind === 'wallet'
                           ? 'Wallet save'
-                          : `${authPromptIntent.action}${authPromptIntent.serviceName ? ` · ${authPromptIntent.serviceName}` : ''}`}
+                          : authPromptIntent.kind === 'booking'
+                            ? `Request Booking · ${authPromptIntent.serviceName}`
+                            : `${authPromptIntent.action}${authPromptIntent.serviceName ? ` · ${authPromptIntent.serviceName}` : ''}`}
                     </p>
                   </div>
                   {authPromptError && (

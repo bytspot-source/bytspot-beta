@@ -174,6 +174,46 @@ async function installVirtualPatchDemoMocks(
         if (procedure.includes('social.venueCheckins')) return { result: { data: { items: [] } } };
         if (procedure.includes('venues.getBySlug')) return { result: { data: { crowd: { history: [] } } } };
         if (procedure.includes('venues.getSimilar')) return { result: { data: { similar: [] } } };
+        if (procedure.includes('vendors.search')) {
+          return { result: { data: { services: [
+            {
+              id: 'svc-chef-board',
+              title: 'Chef tasting board',
+              description: 'Private chef tasting menu for venue guests.',
+              priceCents: 12500,
+              durationMins: 18,
+              status: 'active',
+              openNow: true,
+              capacity: '2 slots left',
+              availabilityWindow: 'Tonight · 6–11 PM',
+              vendor: { id: 'vendor-chef', displayName: 'Aster Room Private Chef', rating: 4.9 },
+            },
+            {
+              id: 'svc-dessert-table',
+              title: 'Dessert table',
+              description: 'Dessert boards and mocktail pairings.',
+              priceCents: 9500,
+              durationMins: 20,
+              status: 'active',
+              openNow: true,
+              capacity: '2 slots left',
+              availabilityWindow: 'Tonight · 6–11 PM',
+              vendor: { id: 'vendor-chef', displayName: 'Aster Room Private Chef', rating: 4.9 },
+            },
+            {
+              id: 'svc-valet',
+              title: 'Priority valet',
+              description: 'Curbside pickup and late-night rides.',
+              priceCents: 3500,
+              durationMins: 12,
+              status: 'active',
+              openNow: true,
+              capacity: '4 drivers nearby',
+              availabilityWindow: 'Now · until 2 AM',
+              vendor: { id: 'vendor-valet', displayName: 'Civic Valet Collective', rating: 4.8 },
+            },
+          ] } } };
+        }
         if (procedure.includes('patch.rotatingToken')) return { result: { data: { token: 'demo-rotating-token' } } };
         if (procedure.includes('patch.verifyTap')) {
           return { result: { data: {
@@ -282,7 +322,7 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Tap any service below to request instantly.', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
@@ -295,13 +335,28 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
   await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
   await expect(page.getByRole('heading', { name: 'Nearby Premium Services' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Peach & Pearl Private Chef')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Midtown Mobile Massage')).toBeVisible({ timeout: 10_000 });
-  const chefVendor = page.getByRole('button', { name: 'Open Peach & Pearl Private Chef details' });
+  await expect(page.getByText('Live vendor records prioritized by availability, service fit, and proximity.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Aster Room Private Chef')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Civic Valet Collective')).toBeVisible({ timeout: 10_000 });
+  const chefVendor = page.getByRole('button', { name: 'Open Aster Room Private Chef details' });
   await chefVendor.waitFor({ state: 'visible', timeout: 10_000 });
   await chefVendor.evaluate((element: HTMLElement) => element.click());
-  await expect(page.getByText('Chef tasting board')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Book Now' }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('2 slots left')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Tonight · 6–11 PM')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Chef tasting board', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: 'Book Now' }).first());
+  await expect(page.getByRole('heading', { name: 'Request Booking' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Time')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Number of people')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Contact method')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Special requests')).toBeVisible({ timeout: 10_000 });
+  await page.getByLabel('Number of people').fill('4');
+  await page.getByLabel('Special requests').fill('Window table if available');
+  await robustClick(page.getByRole('button', { name: 'Request Booking' }));
+  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Request Booking · Chef tasting board')).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
+  await expect(page.getByText('Chef tasting board', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Check-in' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Call Vendor' })).toBeVisible({ timeout: 10_000 });
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
@@ -313,7 +368,7 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
   await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
   await robustClick(page.getByRole('button', { name: /Start Reader/i }).first());
 
   await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
@@ -321,9 +376,9 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
   await robustClick(page.getByRole('button', { name: 'Continue in My Access' }));
 
   await expect(page.getByTestId('profile-access-wallet')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Demo Venue');
+  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Venue Services');
   await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Wallet standby');
-  await expect(page.getByTestId('demo-venue-services-card')).toContainText('Demo Venue');
+  await expect(page.getByTestId('demo-venue-services-card')).toContainText('Venue Services');
   await expect(page.getByTestId('demo-venue-services-card')).toContainText('Smart Parking');
 });
 

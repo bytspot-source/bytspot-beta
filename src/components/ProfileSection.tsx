@@ -31,10 +31,10 @@ import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENC
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
 const APPLE_DEMO_SERVICES = [
-  { name: 'Verified Entry', detail: 'Review pass ready' },
-  { name: 'VIP Access Demo', detail: 'Premium entry preview' },
-  { name: 'Parking Access', detail: 'Arrival handoff' },
-  { name: 'Concierge Help', detail: 'Venue assistance' },
+  { name: 'Verified Entry', title: 'Instant Access', detail: 'Skip the line and walk straight in.', cta: 'Get Verified Entry Now' },
+  { name: 'VIP Access Demo', title: 'Enter VIP Lounge', detail: 'Premium seating, dedicated service & priority valet.', cta: 'Request VIP Access' },
+  { name: 'Smart Parking', title: 'Find Available Spots', detail: 'Real-time parking + valet pickup at the venue.', cta: 'Find Parking / Valet' },
+  { name: 'Concierge Help', title: 'Live Concierge', detail: 'Need a chef, stylist, massage, or late-night ride?', cta: 'Message Concierge Now' },
 ];
 
 interface ProfileSectionProps {
@@ -763,26 +763,39 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               </div>
 
               {isAppleDemoVirtualPatch(virtualPatchContext) && (
-                <div data-testid="apple-demo-services-card" className="mt-4 rounded-[20px] border border-fuchsia-300/25 bg-gradient-to-br from-fuchsia-500/14 via-cyan-500/10 to-white/5 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/80" style={{ fontWeight: 850 }}>Venue Services</p>
-                      <h5 className="mt-1 text-[17px] text-white" style={{ fontWeight: 900 }}>Apple Demo Venue Services</h5>
-                      <p className="mt-1 text-[12px] leading-5 text-white/65" style={{ fontWeight: 620 }}>Proof-of-concept services available from this App Clip patch.</p>
+                <div data-testid="apple-demo-services-card" className="mt-4 rounded-[24px] border border-white/16 bg-[linear-gradient(145deg,rgba(30,41,59,0.98),rgba(15,23,42,0.98))] p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34),0_0_34px_rgba(168,85,247,0.16)]">
+                  <div className="text-center">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Venue Services</p>
+                    <h5 className="mt-1 text-[21px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h5>
+                    <p className="mx-auto mt-1 max-w-[270px] text-[12.5px] leading-5 text-slate-100" style={{ fontWeight: 700 }}>Tap any service below to request instantly.</p>
+                    <div className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/35 bg-emerald-300/15 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live • Midtown Atlanta
                     </div>
-                    <span className="rounded-full border border-emerald-300/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Review ready</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-2">
+                  <div className="mt-4 grid grid-cols-1 gap-3">
                     {APPLE_DEMO_SERVICES.map((service) => (
-                      <div key={service.name} className="flex items-center justify-between gap-3 rounded-[15px] border border-white/12 bg-black/22 px-3 py-2.5">
-                        <div>
-                          <p className="text-[13px] text-white" style={{ fontWeight: 820 }}>{service.name}</p>
-                          <p className="mt-0.5 text-[11px] text-white/55" style={{ fontWeight: 620 }}>{service.detail}</p>
+                      <motion.button
+                        key={service.name}
+                        onClick={() => toast.success(service.name, { description: 'Vendor request demo opened from Bytspot Passport.' })}
+                        className="w-full rounded-[20px] border border-white/14 bg-slate-950/72 p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_12px_26px_rgba(0,0,0,0.24)]"
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 920 }}>{service.name}</p>
+                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 820 }}>{service.title}</p>
+                            <p className="mt-1 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 640 }}>{service.detail}</p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 flex-shrink-0 text-cyan-100" strokeWidth={2.8} />
                         </div>
-                        <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-200" strokeWidth={2.6} />
-                      </div>
+                        <div className="mt-3 rounded-[15px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3.5 py-2.5 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]" style={{ fontWeight: 900 }}>
+                          → {service.cta}
+                        </div>
+                      </motion.button>
                     ))}
                   </div>
+                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 680 }}>Tap a service above to send request to the vendor.</p>
+                  <p className="text-center text-[11px] text-cyan-100/85" style={{ fontWeight: 760 }}>Powered by Bytspot Passport</p>
                 </div>
               )}
 

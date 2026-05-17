@@ -41,10 +41,38 @@ interface VirtualPatchScannerSheetProps {
 }
 
 const APPLE_DEMO_SERVICES = [
-  'Verified Entry',
-  'VIP Access Demo',
-  'Parking Access',
-  'Concierge Help',
+  {
+    name: 'Verified Entry',
+    title: 'Instant Access',
+    detail: 'Skip the line and walk straight in.',
+    cta: 'Get Verified Entry Now',
+    accent: 'from-fuchsia-500 to-purple-600',
+    icon: '✓',
+  },
+  {
+    name: 'VIP Access Demo',
+    title: 'Enter VIP Lounge',
+    detail: 'Premium seating, dedicated service & priority valet.',
+    cta: 'Request VIP Access',
+    accent: 'from-purple-500 to-indigo-600',
+    icon: '★',
+  },
+  {
+    name: 'Smart Parking',
+    title: 'Find Available Spots',
+    detail: 'Real-time parking + valet pickup at the venue.',
+    cta: 'Find Parking / Valet',
+    accent: 'from-cyan-500 to-blue-600',
+    icon: 'P',
+  },
+  {
+    name: 'Concierge Help',
+    title: 'Live Concierge',
+    detail: 'Need a chef, stylist, massage, or late-night ride?',
+    cta: 'Message Concierge Now',
+    accent: 'from-emerald-500 to-teal-600',
+    icon: '✦',
+  },
 ];
 
 /** Default audit sink — dev-friendly, replaceable in prod via the prop. */
@@ -607,6 +635,16 @@ export function VirtualPatchScannerSheet({
     onOpenAccessWallet?.();
   }, [fallbackPatchId, onClose, onOpenAccessWallet, supportsLiveQr, supportsNfc, verification, venueId, venueName]);
 
+  const handleServiceRequest = useCallback((serviceName: string) => {
+    if (!hasConsented && hasAffirmedAge) {
+      setHasConsented(true);
+      toast.success(serviceName, { description: 'Reader starting — verify the patch to request this service.' });
+      return;
+    }
+    toast.success(serviceName, { description: 'Opening your Bytspot Passport request.' });
+    handleContinue();
+  }, [handleContinue, hasAffirmedAge, hasConsented]);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -637,8 +675,8 @@ export function VirtualPatchScannerSheet({
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
                     {activeMethod === 'nfc' ? 'NFC Tap Reader' : 'QR Backup Scanner'}
                   </div>
-                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
-                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{venueName}</p>
+                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showAppleDemoServices ? 'Apple Demo Venue' : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
+                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showAppleDemoServices ? 'Live • Midtown Atlanta' : venueName}</p>
                 </div>
                 <motion.button
                   onClick={onClose}
@@ -690,7 +728,29 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {hasAffirmedAge && !hasConsented && (
+              {showAppleDemoServices && hasAffirmedAge && !hasConsented && (
+                <div className="mb-4 rounded-[24px] border border-fuchsia-200/30 bg-[linear-gradient(145deg,rgba(31,41,55,0.98),rgba(17,24,39,0.98))] p-4 shadow-[0_18px_44px_rgba(168,85,247,0.22)]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/18 bg-white/10 shadow-[0_0_30px_rgba(217,70,239,0.24)]">
+                      <ShieldCheck className="h-6 w-6 text-cyan-100" strokeWidth={2.6} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[12px] uppercase tracking-[0.15em] text-cyan-100" style={{ fontWeight: 850 }}>Patch reader</p>
+                      <p className="mt-1 text-[13px] leading-5 text-white/78" style={{ fontWeight: 650 }}>Start the reader once, then tap any service below to request instantly.</p>
+                    </div>
+                  </div>
+                  <motion.button
+                    onClick={() => setHasConsented(true)}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-4 text-white shadow-[0_18px_42px_rgba(168,85,247,0.35)]"
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <Zap className="h-4 w-4" strokeWidth={2.8} />
+                    <span className="text-[15px]" style={{ fontWeight: 900 }}>Start Reader</span>
+                  </motion.button>
+                </div>
+              )}
+
+              {hasAffirmedAge && !hasConsented && !showAppleDemoServices && (
                 <div className="rounded-[26px] border border-cyan-300/25 bg-gradient-to-br from-cyan-400/10 via-indigo-500/10 to-fuchsia-500/10 p-6 mb-5 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_42px_rgba(0,0,0,0.18)]">
                   <div className="flex items-start gap-4 mb-4">
                     <div className="w-11 h-11 rounded-full bg-cyan-300/10 border border-cyan-300/30 flex items-center justify-center flex-shrink-0 shadow-[0_0_22px_rgba(34,211,238,0.12)]">
@@ -793,33 +853,47 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-300/10 p-4 mb-4 text-[12.5px] leading-5 backdrop-blur-xl" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 600 }}>
-                <div>• Tap the Bytspot sticker first when NFC is available.</div>
-                <div className="mt-2">• Use QR only if NFC is unavailable.</div>
-                <div className="mt-2">• Bytspot verifies the patch with the live backend.</div>
-              </div>
+              {!showAppleDemoServices && (
+                <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-300/10 p-4 mb-4 text-[12.5px] leading-5 backdrop-blur-xl" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 600 }}>
+                  <div>• Tap the Bytspot sticker first when NFC is available.</div>
+                  <div className="mt-2">• Use QR only if NFC is unavailable.</div>
+                  <div className="mt-2">• Bytspot verifies the patch with the live backend.</div>
+                </div>
+              )}
 
               {showAppleDemoServices && (
-                <div className="rounded-[22px] border border-fuchsia-300/25 bg-gradient-to-br from-fuchsia-500/16 via-cyan-500/12 to-white/5 p-4 mb-4 shadow-[0_18px_44px_rgba(168,85,247,0.20)]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/80" style={{ fontWeight: 850 }}>Venue Services</p>
-                      <h4 className="mt-1 text-[18px] leading-6 text-white" style={{ fontWeight: 900 }}>Apple Demo Venue Services</h4>
-                      <p className="mt-1.5 text-[12.5px] leading-5 text-white/70" style={{ fontWeight: 620 }}>Review-ready services unlocked from this Virtual Patch.</p>
-                    </div>
-                    <div className="rounded-full border border-emerald-300/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Live</div>
+                <div className="mb-4 rounded-[26px] border border-white/14 bg-[linear-gradient(145deg,rgba(248,250,252,0.12),rgba(15,23,42,0.96)_42%,rgba(30,41,59,0.98))] p-4 shadow-[0_20px_55px_rgba(0,0,0,0.36),0_0_36px_rgba(168,85,247,0.18)]">
+                  <div className="text-center">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 900 }}>Venue Services</p>
+                    <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h4>
+                    <p className="mx-auto mt-1 max-w-[260px] text-[13px] leading-5 text-slate-100" style={{ fontWeight: 700 }}>Tap any service below to request instantly.</p>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-4 grid grid-cols-1 gap-3">
                     {APPLE_DEMO_SERVICES.map((service) => (
-                      <div key={service} className="rounded-[15px] border border-white/12 bg-black/22 px-3 py-2.5">
-                        <div className="flex items-center gap-2 text-[12px] text-white" style={{ fontWeight: 820 }}>
-                          <Zap className="h-3.5 w-3.5 text-cyan-200" strokeWidth={2.6} />
-                          <span>{service}</span>
+                      <motion.button
+                        key={service.name}
+                        onClick={() => handleServiceRequest(service.name)}
+                        className="w-full rounded-[22px] border border-white/18 bg-slate-950/74 p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.28)]"
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[18px] bg-gradient-to-br ${service.accent} text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]`} style={{ fontWeight: 950 }}>
+                            {service.icon}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 920 }}>{service.name}</p>
+                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 820 }}>{service.title}</p>
+                            <p className="mt-1 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 640 }}>{service.detail}</p>
+                            <div className="mt-3 rounded-[15px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3.5 py-2.5 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.25)]" style={{ fontWeight: 900 }}>
+                              → {service.cta}
+                            </div>
+                          </div>
                         </div>
-                        <p className="mt-1 text-[11px] text-white/55" style={{ fontWeight: 650 }}>Ready after scan</p>
-                      </div>
+                      </motion.button>
                     ))}
                   </div>
+                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 680 }}>Tap a service above to send request to the vendor.</p>
+                  <p className="text-center text-[11px] text-cyan-100/85" style={{ fontWeight: 760 }}>Powered by Bytspot Passport</p>
                 </div>
               )}
 
@@ -873,6 +947,15 @@ export function VirtualPatchScannerSheet({
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>Retry scan</span>
+                  </motion.button>
+                ) : !hasConsented && hasAffirmedAge && showAppleDemoServices ? (
+                  <motion.button
+                    onClick={() => setHasConsented(true)}
+                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 900 }}>Start Reader</span>
                   </motion.button>
                 ) : (
                   <div className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 flex items-center justify-center gap-2 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ flex: '1.1 1 0', minWidth: 0, color: 'rgba(255,255,255,0.78)' }}>

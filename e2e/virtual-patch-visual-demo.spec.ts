@@ -282,11 +282,11 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Apple Demo', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Apple Demo Venue Services')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Apple Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Tap any service below to request instantly.', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Start reader' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: /Start Reader/i }).first()).toBeVisible({ timeout: 10_000 });
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
 });
 
@@ -296,8 +296,8 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
   await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
-  await robustClick(page.getByRole('button', { name: 'Start reader' }));
+  await expect(page.getByText('Apple Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await robustClick(page.getByRole('button', { name: /Start Reader/i }).first());
 
   await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Open Bytspot App' })).toHaveCount(0);
@@ -306,8 +306,8 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
   await expect(page.getByTestId('profile-access-wallet')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Apple Demo');
   await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Wallet standby');
-  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Apple Demo Venue Services');
-  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Parking Access');
+  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Apple Demo Venue');
+  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Smart Parking');
 });
 
 test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) => {

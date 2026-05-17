@@ -3,7 +3,7 @@ import { allRankableModules } from './registry.ts';
 
 export type PriorityCardKind = 'current-card' | 'future-feature' | 'release-work';
 
-export interface SimplexPriorityCard {
+export interface PlanningPriorityCard {
   id: string;
   title: string;
   kicker: string;
@@ -106,7 +106,7 @@ function ctaLabel(module: FeatureModule): string {
   return 'View priority';
 }
 
-export function toSimplexPriorityCard(module: FeatureModule): SimplexPriorityCard {
+export function toPlanningPriorityCard(module: FeatureModule): PlanningPriorityCard {
   return {
     id: module.id,
     title: module.name,
@@ -144,6 +144,6 @@ const cottageModule = planningRankedModules.find((module) => module.id === 'cott
 export const internalPlanningPriorityCards = [
   ...topPlanningModules,
   ...(cottageModule && !topPlanningModules.some((module) => module.id === cottageModule.id) ? [cottageModule] : []),
-].map(toSimplexPriorityCard);
+].map(toPlanningPriorityCard);
 
-export const rankedReleaseWorkCards = rankFeatureModules(releaseWorkModules).map(toSimplexPriorityCard);
+export const rankedReleaseWorkCards = rankFeatureModules(releaseWorkModules).map(toPlanningPriorityCard);

@@ -30,7 +30,7 @@ import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENC
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
-const APPLE_DEMO_SERVICES = [
+const DEMO_VENUE_SERVICES = [
   { name: 'Verified Entry', title: 'Instant Access', detail: 'Skip the line and walk straight in.', cta: 'Get Verified Entry Now' },
   { name: 'VIP Access Demo', title: 'Premium seating + priority valet', detail: 'Dedicated lounge service for reviewed guests.', cta: 'Request VIP Access' },
   { name: 'Smart Parking', title: 'Real-time spots & valet', detail: 'Find parking and book venue pickup.', cta: 'Find Parking / Valet' },
@@ -93,9 +93,9 @@ function formatVirtualPatchMode(mode?: string): string {
   }
 }
 
-function isAppleDemoVirtualPatch(context?: VirtualPatchContext | null): boolean {
+function isDemoVenueVirtualPatch(context?: VirtualPatchContext | null): boolean {
   const venueName = context?.venueName ?? '';
-  return /apple\s+demo/i.test(venueName);
+  return /demo\s+venue|review\s+venue/i.test(venueName);
 }
 
 function formatCommerceTime(value: string | null): string {
@@ -762,18 +762,18 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 )}
               </div>
 
-              {isAppleDemoVirtualPatch(virtualPatchContext) && (
-                <div data-testid="apple-demo-services-card" className="mt-4 select-none rounded-[24px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_18px_48px_rgba(0,0,0,0.38),0_0_34px_rgba(168,85,247,0.20)] ring-1 ring-cyan-100/10">
+              {isDemoVenueVirtualPatch(virtualPatchContext) && (
+                <div data-testid="demo-venue-services-card" className="mt-4 select-none rounded-[24px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_18px_48px_rgba(0,0,0,0.38),0_0_34px_rgba(168,85,247,0.20)] ring-1 ring-cyan-100/10">
                   <div className="text-center">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
-                    <h5 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h5>
+                    <h5 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Demo Venue</h5>
                     <p className="mx-auto mt-1 max-w-[270px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
                     <div className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/40 bg-emerald-300/18 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 900 }}>
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live • Midtown Atlanta
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-2.5">
-                    {APPLE_DEMO_SERVICES.map((service) => (
+                    {DEMO_VENUE_SERVICES.map((service) => (
                       <motion.button
                         key={service.name}
                         onClick={() => toast.success(service.name, { description: 'Vendor request demo opened from Bytspot Passport.' })}

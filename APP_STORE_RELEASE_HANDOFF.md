@@ -7,7 +7,7 @@ Baseline release commit before Phase 6 handoff: `c7a9482`.
 - App Store build is Parker consumer-only.
 - Provider, Vendor, Host legacy, Admin, Marketing, and internal review surfaces are hidden from the App Store build.
 - Home exposes consumer experiences only: Explorer / Insider / VIP cards, private chef dinner, premium valet, and cottage experience cards.
-- Simplex scoring remains internal only: `Es = Φ_EM + Φ_E + ΔD + f × λ_sim` must not appear in Parker consumer UI.
+- Internal scoring remains hidden from consumer UI: `Es = Φ_EM + Φ_E + ΔD + f × λ_sim` must not appear in Parker consumer UI.
 
 ## Final Validation Commands
 

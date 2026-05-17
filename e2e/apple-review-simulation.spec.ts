@@ -68,7 +68,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
     await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
     await expect(page.getByTestId('home-tier-card-premium-valet')).toContainText('Book Valet');
-    await expect(page.getByTestId('home-simplex-priority-section')).toHaveCount(0);
+    await expect(page.getByTestId('home-priority-planning-section')).toHaveCount(0);
     await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();
     await page.getByRole('button', { name: 'Voice input' }).click();
@@ -89,7 +89,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
     await expect(page.getByTestId('home-tier-card-cottage-massage')).toContainText('Cottage Industry Services');
     await expect(page.locator('body')).not.toContainText(/Tier 1|Tier 2|Tier 3|Explorer|Insider Pick|Insider Deal|VIP Only|VIP Valet|VIP Curated|Basic card|Enhanced card|Premium card/i);
-    await expect(page.getByTestId('home-simplex-priority-section')).toHaveCount(0);
+    await expect(page.getByTestId('home-priority-planning-section')).toHaveCount(0);
     await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);
 
     const layout = await page.evaluate(() => ({

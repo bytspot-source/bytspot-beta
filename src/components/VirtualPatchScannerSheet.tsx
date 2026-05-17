@@ -5,7 +5,9 @@ import { Camera, LoaderCircle, QrCode, ShieldCheck, X, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { notifyError, notifySuccess } from '../utils/haptics';
+import { trackEvent } from '../utils/analytics';
 import { trpc } from '../utils/trpc';
+import { AppleSignInButton } from './AppleSignInButton';
 import {
   buildVerifiedVirtualPatchContext,
   createAuditEvent,
@@ -40,40 +42,103 @@ interface VirtualPatchScannerSheetProps {
   ageGate?: { minAge: number } | null;
 }
 
-const APPLE_DEMO_SERVICES = [
+const DEMO_VENUE_SERVICES = [
   {
+    id: 'verified-entry',
     name: 'Verified Entry',
     title: 'Instant Access',
     detail: 'Skip the line and walk straight in.',
     cta: 'Get Verified Entry Now',
     accent: 'from-fuchsia-500 to-purple-600',
     icon: '✓',
+    walletEnabled: true,
   },
   {
+    id: 'vip-access',
     name: 'VIP Access Demo',
     title: 'Premium seating + priority valet',
     detail: 'Dedicated lounge service for reviewed guests.',
     cta: 'Request VIP Access',
     accent: 'from-purple-500 to-indigo-600',
     icon: '★',
+    walletEnabled: true,
   },
   {
+    id: 'smart-parking',
     name: 'Smart Parking',
     title: 'Real-time spots & valet',
     detail: 'Find parking and book venue pickup.',
     cta: 'Find Parking / Valet',
     accent: 'from-cyan-500 to-blue-600',
     icon: 'P',
+    walletEnabled: true,
   },
   {
+    id: 'concierge-help',
     name: 'Concierge Help',
     title: 'Private chef, massage, ride, etc.',
     detail: 'Message the venue team for anything you need.',
     cta: 'Message Concierge Now',
     accent: 'from-emerald-500 to-teal-600',
     icon: '✦',
+    walletEnabled: false,
+    walletUnavailableReason: 'Not available for this service',
   },
 ];
+
+const DEMO_PREMIUM_VENDORS = [
+  {
+    id: 'chef-collective',
+    name: 'Peach & Pearl Private Chef',
+    photo: '🍽️',
+    rating: '4.9',
+    distance: '0.3 mi',
+    eta: 'Ready in 18 min',
+    preview: 'Chef tasting menu • dessert boards • mocktail pairings',
+    services: ['Chef tasting board', 'Dessert table', 'Private dinner setup'],
+  },
+  {
+    id: 'massage-lounge',
+    name: 'Midtown Mobile Massage',
+    photo: '💆',
+    rating: '4.8',
+    distance: '0.5 mi',
+    eta: 'Ready in 22 min',
+    preview: 'Chair massage • recovery session • aromatherapy',
+    services: ['15-min chair massage', 'Recovery stretch', 'Aromatherapy reset'],
+  },
+  {
+    id: 'style-suite',
+    name: 'Glow Suite Stylists',
+    photo: '✨',
+    rating: '4.9',
+    distance: '0.7 mi',
+    eta: 'Ready in 25 min',
+    preview: 'Quick glam • touch-ups • wardrobe assist',
+    services: ['Quick glam touch-up', 'Wardrobe assist', 'Photo-ready styling'],
+  },
+  {
+    id: 'valet-rides',
+    name: 'Swift Valet & Rides',
+    photo: '🚘',
+    rating: '4.7',
+    distance: '0.9 mi',
+    eta: 'Ready in 12 min',
+    preview: 'Priority valet • late-night ride • curbside pickup',
+    services: ['Priority valet', 'Late-night ride', 'Curbside pickup'],
+  },
+];
+
+type DemoVenueService = (typeof DEMO_VENUE_SERVICES)[number];
+type DemoVenueServicesView = 'cards' | 'venue' | 'nearby' | 'detail';
+type AuthPromptIntent =
+  | { kind: 'venue-service'; serviceName: string; cta: string }
+  | { kind: 'vendor-action'; action: string; vendorName: string; serviceName?: string }
+  | { kind: 'wallet'; serviceIds: string[] };
+type AppleCredential = { identityToken: string; email?: string; name?: string };
+type AuthResponse = { token?: string; user?: { name?: string | null } | null; isNewUser?: boolean };
+
+const VIRTUAL_PATCH_PENDING_INTENT_KEY = 'bytspot_virtual_patch_pending_intent';
 
 /** Default audit sink — dev-friendly, replaceable in prod via the prop. */
 function defaultAuditSink(event: VirtualPatchAuditEvent): void {
@@ -90,6 +155,40 @@ function getCameraErrorMessage(error: any): string {
   if (error?.name === 'NotFoundError') return 'No rear camera was found on this device.';
   if (error?.name === 'NotReadableError') return 'Your camera is already in use by another app.';
   return 'Unable to start the camera for QR scanning.';
+}
+
+function isGuestSession(): boolean {
+  const token = localStorage.getItem('bytspot_auth_token');
+  return !token || token === 'guest_session';
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function persistAuthResponse(res: AuthResponse): boolean {
+  if (!res?.token) return false;
+  localStorage.setItem('bytspot_auth_token', res.token);
+  localStorage.setItem('bytspot_user', JSON.stringify(res.user ?? { name: 'Guest' }));
+  if (res.user?.name) localStorage.setItem('bytspot_user_name', res.user.name.split(' ')[0]);
+  return true;
+}
+
+function savePendingIntent(intent: AuthPromptIntent | null): void {
+  try {
+    if (intent) localStorage.setItem(VIRTUAL_PATCH_PENDING_INTENT_KEY, JSON.stringify(intent));
+    else localStorage.removeItem(VIRTUAL_PATCH_PENDING_INTENT_KEY);
+  } catch {
+    // Keep the prompt usable even if storage is unavailable.
+  }
+}
+
+function logWalletEvent(name: 'wallet_fallback_shown' | 'wallet_action_attempted' | 'auth_prompt_shown', properties: Record<string, unknown>): void {
+  try {
+    trackEvent(name, properties);
+  } catch {
+    // Analytics must never block the App Clip-style flow.
+  }
 }
 
 // NFC Forum URI Record Type Definition prefix table — first byte of a raw 'U'
@@ -171,6 +270,12 @@ export function VirtualPatchScannerSheet({
    * sensor is never armed. Defaults to true when no gate is configured.
    */
   const [hasAffirmedAge, setHasAffirmedAge] = useState(!ageGate);
+  const [demoVenueServicesView, setDemoVenueServicesView] = useState<DemoVenueServicesView>('cards');
+  const [selectedPremiumVendorId, setSelectedPremiumVendorId] = useState<string | null>(null);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [authPromptIntent, setAuthPromptIntent] = useState<AuthPromptIntent | null>(null);
+  const [authPromptError, setAuthPromptError] = useState('');
+  const [authPromptLoading, setAuthPromptLoading] = useState(false);
 
   const emitAudit = useCallback((event: VirtualPatchAuditEvent) => {
     const sink = onAuditEvent ?? defaultAuditSink;
@@ -200,10 +305,27 @@ export function VirtualPatchScannerSheet({
     () => !isNativeApp && typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent),
     [isNativeApp],
   );
-  const showAppleDemoServices = useMemo(
-    () => /apple\s+demo/i.test(venueName),
+  const showDemoVenueServices = useMemo(
+    () => /demo\s+venue|review\s+venue/i.test(venueName),
     [venueName],
   );
+  const selectedPremiumVendor = useMemo(
+    () => DEMO_PREMIUM_VENDORS.find((vendor) => vendor.id === selectedPremiumVendorId) ?? null,
+    [selectedPremiumVendorId],
+  );
+  const selectedServices = useMemo(
+    () => DEMO_VENUE_SERVICES.filter((service) => selectedServiceIds.includes(service.id)),
+    [selectedServiceIds],
+  );
+  const walletEligibleSelectedServices = useMemo(
+    () => selectedServices.filter((service) => service.walletEnabled),
+    [selectedServices],
+  );
+  const nonWalletSelectedServices = useMemo(
+    () => selectedServices.filter((service) => !service.walletEnabled),
+    [selectedServices],
+  );
+  const hasWalletEligibleSelection = walletEligibleSelectedServices.length > 0;
 
   const stopScanner = useCallback(() => {
     if (rafRef.current !== null) {
@@ -401,6 +523,13 @@ export function VirtualPatchScannerSheet({
       // Age affirmation is also per-session. Defaults to true when the
       // venue carries no ageGate so the consent panel renders immediately.
       setHasAffirmedAge(!ageGate);
+      setDemoVenueServicesView('cards');
+      setSelectedPremiumVendorId(null);
+      setSelectedServiceIds([]);
+      setAuthPromptIntent(null);
+      setAuthPromptError('');
+      setAuthPromptLoading(false);
+      savePendingIntent(null);
     }
   }, [isOpen, ageGate]);
 
@@ -635,15 +764,168 @@ export function VirtualPatchScannerSheet({
     onOpenAccessWallet?.();
   }, [fallbackPatchId, onClose, onOpenAccessWallet, supportsLiveQr, supportsNfc, verification, venueId, venueName]);
 
-  const handleServiceRequest = useCallback((serviceName: string) => {
-    if (!hasConsented && hasAffirmedAge) {
-      setHasConsented(true);
-      toast.success(serviceName, { description: 'Reader starting — verify the patch to request this service.' });
+  const openAuthPrompt = useCallback((intent: AuthPromptIntent) => {
+    setAuthPromptIntent(intent);
+    setAuthPromptError('');
+    savePendingIntent(intent);
+    logWalletEvent('auth_prompt_shown', {
+      surface: 'virtual_patch',
+      reason: intent.kind,
+      selectedServiceIds: intent.kind === 'wallet' ? intent.serviceIds : undefined,
+    });
+  }, []);
+
+  const toggleSelectedService = useCallback((serviceId: string) => {
+    setSelectedServiceIds((current) => (
+      current.includes(serviceId)
+        ? current.filter((id) => id !== serviceId)
+        : [...current, serviceId]
+    ));
+  }, []);
+
+  const handleOpenVenueDetails = useCallback(() => {
+    if (selectedServices.length === 0) {
+      toast.info('Select a service first', { description: 'Choose one or more venue services before opening venue details.' });
       return;
     }
-    toast.success(serviceName, { description: 'Opening your Bytspot Passport request.' });
+    setDemoVenueServicesView('venue');
+    if (walletEligibleSelectedServices.length > 0) {
+      logWalletEvent('wallet_fallback_shown', {
+        surface: 'virtual_patch',
+        selectedServiceIds: selectedServices.map((service) => service.id),
+        walletEligibleServiceIds: walletEligibleSelectedServices.map((service) => service.id),
+        skippedServiceIds: nonWalletSelectedServices.map((service) => service.id),
+      });
+    }
+  }, [nonWalletSelectedServices, selectedServices, walletEligibleSelectedServices]);
+
+  const performWalletAction = useCallback((services: DemoVenueService[], mode: 'guest' | 'signed-in') => {
+    const eligibleServices = services.filter((service) => service.walletEnabled);
+    const skippedServices = services.filter((service) => !service.walletEnabled);
+    if (eligibleServices.length === 0) {
+      toast.info('Wallet not available', { description: 'Selected services do not support wallet save yet.' });
+      return;
+    }
+    toast.success('Wallet request ready', {
+      description: skippedServices.length > 0
+        ? `${eligibleServices.length} service${eligibleServices.length === 1 ? '' : 's'} saved. ${skippedServices.length} unavailable item${skippedServices.length === 1 ? '' : 's'} skipped.`
+        : `${eligibleServices.length} selected service${eligibleServices.length === 1 ? '' : 's'} ${mode === 'signed-in' ? 'saved to your wallet.' : 'ready for wallet fallback.'}`,
+    });
+    handleContinue();
+  }, [handleContinue]);
+
+  const handleWalletAction = useCallback(() => {
+    logWalletEvent('wallet_action_attempted', {
+      surface: 'virtual_patch',
+      selectedServiceIds: selectedServices.map((service) => service.id),
+      walletEligibleServiceIds: walletEligibleSelectedServices.map((service) => service.id),
+      skippedServiceIds: nonWalletSelectedServices.map((service) => service.id),
+      signedIn: !isGuestSession(),
+    });
+    if (!hasWalletEligibleSelection) {
+      toast.info('Wallet not available', { description: 'Not available for this service.' });
+      return;
+    }
+    if (isGuestSession()) {
+      openAuthPrompt({ kind: 'wallet', serviceIds: walletEligibleSelectedServices.map((service) => service.id) });
+      return;
+    }
+    performWalletAction(selectedServices, 'signed-in');
+  }, [hasWalletEligibleSelection, nonWalletSelectedServices, openAuthPrompt, performWalletAction, selectedServices, walletEligibleSelectedServices]);
+
+  const completeVenueServiceRequest = useCallback((serviceName: string, cta?: string, mode: 'guest' | 'signed-in' = 'guest') => {
+    if (serviceName === 'Concierge Help') {
+      setDemoVenueServicesView('nearby');
+      setSelectedPremiumVendorId(null);
+      toast.success('Nearby Premium Services', {
+        description: mode === 'signed-in'
+          ? 'Showing Patch Verified vendors. Your activity can be saved to your wallet.'
+          : 'Showing Patch Verified vendors. Continue as guest or sign in later to save requests.',
+      });
+      return;
+    }
+    if (!hasConsented && hasAffirmedAge) {
+      setHasConsented(true);
+      toast.success(serviceName, { description: `${cta ?? 'Request'} queued — verify the patch to continue.` });
+      return;
+    }
+    toast.success(serviceName, {
+      description: mode === 'signed-in'
+        ? 'Request confirmed and ready to save to your wallet.'
+        : 'Guest request started. Sign in later to save it and earn points.',
+    });
     handleContinue();
   }, [handleContinue, hasAffirmedAge, hasConsented]);
+
+  const completePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName: string | undefined, mode: 'guest' | 'signed-in' = 'guest') => {
+    toast.success(action, {
+      description: serviceName
+        ? mode === 'signed-in'
+          ? `${serviceName} request sent to ${vendorName}. Saved to your wallet.`
+          : `${serviceName} request sent to ${vendorName} as guest.`
+        : mode === 'signed-in'
+          ? `${vendorName} will respond in Bytspot Passport. Points enabled.`
+          : `${vendorName} will respond to your guest request.`,
+    });
+  }, []);
+
+  const resumeAuthPromptIntent = useCallback((mode: 'guest' | 'signed-in') => {
+    if (!authPromptIntent) return;
+    const intent = authPromptIntent;
+    setAuthPromptIntent(null);
+    setAuthPromptError('');
+    savePendingIntent(null);
+    if (intent.kind === 'venue-service') {
+      completeVenueServiceRequest(intent.serviceName, intent.cta, mode);
+      return;
+    }
+    if (intent.kind === 'wallet') {
+      const eligibleServices = DEMO_VENUE_SERVICES.filter((service) => intent.serviceIds.includes(service.id) && service.walletEnabled);
+      performWalletAction(eligibleServices, mode);
+      return;
+    }
+    completePremiumVendorAction(intent.action, intent.vendorName, intent.serviceName, mode);
+  }, [authPromptIntent, completePremiumVendorAction, completeVenueServiceRequest, performWalletAction]);
+
+  const handleServiceRequest = useCallback((serviceName: string, cta: string) => {
+    if (isGuestSession()) {
+      openAuthPrompt({ kind: 'venue-service', serviceName, cta });
+      return;
+    }
+    completeVenueServiceRequest(serviceName, cta, 'signed-in');
+  }, [completeVenueServiceRequest, openAuthPrompt]);
+
+  const handleOpenPremiumVendor = useCallback((vendorId: string) => {
+    setSelectedPremiumVendorId(vendorId);
+    setDemoVenueServicesView('detail');
+  }, []);
+
+  const handlePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName?: string) => {
+    if (isGuestSession()) {
+      openAuthPrompt({ kind: 'vendor-action', action, vendorName, serviceName });
+      return;
+    }
+    completePremiumVendorAction(action, vendorName, serviceName, 'signed-in');
+  }, [completePremiumVendorAction, openAuthPrompt]);
+
+  const handleAppleCredential = useCallback(async ({ identityToken, email, name }: AppleCredential) => {
+    if (!authPromptIntent) return;
+    setAuthPromptLoading(true);
+    setAuthPromptError('');
+    try {
+      const res = await trpc.auth.appleSignIn.mutate({ identityToken, email, name, ref: 'virtual-patch' });
+      if (!persistAuthResponse(res)) {
+        setAuthPromptError('Sign in did not return a session. Please retry or continue as guest.');
+        return;
+      }
+      toast.success(res.isNewUser ? 'Welcome to Bytspot!' : 'Welcome back!', { description: 'Resuming your venue request.' });
+      resumeAuthPromptIntent('signed-in');
+    } catch (error) {
+      setAuthPromptError(getErrorMessage(error, 'Sign in with Apple failed. Please retry or continue as guest.'));
+    } finally {
+      setAuthPromptLoading(false);
+    }
+  }, [authPromptIntent, resumeAuthPromptIntent]);
 
   return (
     <AnimatePresence>
@@ -675,8 +957,8 @@ export function VirtualPatchScannerSheet({
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
                     {activeMethod === 'nfc' ? 'NFC Tap Reader' : 'QR Backup Scanner'}
                   </div>
-                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showAppleDemoServices ? 'Apple Demo Venue' : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
-                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showAppleDemoServices ? 'Live • Midtown Atlanta' : venueName}</p>
+                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showDemoVenueServices ? 'Demo Venue' : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
+                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showDemoVenueServices ? 'Live • Midtown Atlanta' : venueName}</p>
                 </div>
                 <motion.button
                   onClick={onClose}
@@ -728,7 +1010,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {showAppleDemoServices && hasAffirmedAge && !hasConsented && (
+              {showDemoVenueServices && hasAffirmedAge && !hasConsented && (
                 <div className="mb-4 select-none rounded-[24px] border border-cyan-100/30 bg-[linear-gradient(145deg,rgba(8,47,73,0.92),rgba(17,24,39,0.99)_54%,rgba(88,28,135,0.78))] p-4 text-white shadow-[0_18px_44px_rgba(0,0,0,0.35),0_0_30px_rgba(168,85,247,0.22)] ring-1 ring-white/10">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/18 bg-white/10 shadow-[0_0_30px_rgba(217,70,239,0.24)]">
@@ -750,7 +1032,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {hasAffirmedAge && !hasConsented && !showAppleDemoServices && (
+              {hasAffirmedAge && !hasConsented && !showDemoVenueServices && (
                 <div className="rounded-[26px] border border-cyan-300/25 bg-gradient-to-br from-cyan-400/10 via-indigo-500/10 to-fuchsia-500/10 p-6 mb-5 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_42px_rgba(0,0,0,0.18)]">
                   <div className="flex items-start gap-4 mb-4">
                     <div className="w-11 h-11 rounded-full bg-cyan-300/10 border border-cyan-300/30 flex items-center justify-center flex-shrink-0 shadow-[0_0_22px_rgba(34,211,238,0.12)]">
@@ -853,7 +1135,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {!showAppleDemoServices && (
+              {!showDemoVenueServices && (
                 <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-300/10 p-4 mb-4 text-[12.5px] leading-5 backdrop-blur-xl" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 600 }}>
                   <div>• Tap the Bytspot sticker first when NFC is available.</div>
                   <div className="mt-2">• Use QR only if NFC is unavailable.</div>
@@ -861,41 +1143,165 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {showAppleDemoServices && (
-                <div className="mb-4 select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10">
-                  <div className="text-center">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
-                    <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Apple Demo Venue</h4>
-                    <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>Live • Midtown Atlanta</p>
-                    <p className="mx-auto mt-1 max-w-[260px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
-                  </div>
-                  <div className="mt-4 grid grid-cols-1 gap-2.5">
-                    {APPLE_DEMO_SERVICES.map((service) => (
-                      <motion.button
-                        key={service.name}
-                        onClick={() => handleServiceRequest(service.name)}
-                        className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.24)]"
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[16px] bg-gradient-to-br ${service.accent} text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]`} style={{ fontWeight: 950 }}>
-                            {service.icon}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{service.name}</p>
-                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{service.title}</p>
-                            <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{service.detail}</p>
-                            <div className="mt-2.5 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.25)]" style={{ fontWeight: 950 }}>
-                              → {service.cta}
+              {showDemoVenueServices && (
+                <div className="mb-4 select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-[18px] text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10">
+                  {demoVenueServicesView === 'nearby' ? (
+                    <>
+                      <button onClick={() => setDemoVenueServicesView('cards')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to venue services</button>
+                      <div className="text-center">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Concierge Help</p>
+                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Nearby Premium Services</h4>
+                        <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Top vendors prioritized by proximity, rating, availability, and vibe match.</p>
+                      </div>
+                      <div className="mt-[18px] grid grid-cols-1 gap-3">
+                        {DEMO_PREMIUM_VENDORS.map((vendor) => (
+                          <motion.button
+                            key={vendor.id}
+                            onClick={() => handleOpenPremiumVendor(vendor.id)}
+                            aria-label={`Open ${vendor.name} details`}
+                            className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.24)]"
+                            whileTap={{ scale: 0.98 }}
+                          >
+                            <div className="flex gap-3.5">
+                              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[18px] bg-white/12 text-[24px] ring-1 ring-white/15">{vendor.photo}</div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{vendor.name}</p>
+                                  <span className="rounded-full bg-emerald-300/18 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 900 }}>Patch Verified</span>
+                                </div>
+                                <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {vendor.rating} • {vendor.distance} • {vendor.eta}</p>
+                                <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{vendor.preview}</p>
+                                <div className="mt-2.5 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white" style={{ fontWeight: 950 }}>View Services</div>
+                              </div>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </>
+                  ) : demoVenueServicesView === 'detail' && selectedPremiumVendor ? (
+                    <>
+                      <button onClick={() => setDemoVenueServicesView('nearby')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Nearby Premium Services</button>
+                      <div className="text-center">
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[22px] bg-white/12 text-[28px] ring-1 ring-white/15">{selectedPremiumVendor.photo}</div>
+                        <h4 className="mt-2 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{selectedPremiumVendor.name}</h4>
+                        <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {selectedPremiumVendor.rating} • Patch Verified • {selectedPremiumVendor.eta}</p>
+                        <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{selectedPremiumVendor.preview}</p>
+                      </div>
+                      <div className="mt-[18px] space-y-3">
+                        {selectedPremiumVendor.services.map((serviceName) => (
+                          <div key={serviceName} className="rounded-[18px] border border-white/14 bg-white/8 p-3.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[14px] text-white" style={{ fontWeight: 900 }}>{serviceName}</p>
+                              <button onClick={() => handlePremiumVendorAction('Book Now', selectedPremiumVendor.name, serviceName)} className="rounded-full bg-cyan-300 px-3 py-1.5 text-[12px] text-slate-950" style={{ fontWeight: 950 }}>Book Now</button>
                             </div>
                           </div>
-                        </div>
-                      </motion.button>
-                    ))}
-                  </div>
-                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap a service above to send request to the vendor.</p>
-                  <p className="text-center text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Powered by Bytspot Passport</p>
+                        ))}
+                      </div>
+                      <div className="mt-[18px] grid grid-cols-2 gap-3">
+                        <button onClick={() => handlePremiumVendorAction('Check-in', selectedPremiumVendor.name)} className="rounded-[16px] border border-emerald-200/30 bg-emerald-300/18 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 950 }}>Check-in</button>
+                        <button onClick={() => handlePremiumVendorAction('Call Vendor', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Vendor</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-center">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
+                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Demo Venue</h4>
+                        <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>Live • Midtown Atlanta</p>
+                        <p className="mx-auto mt-1 max-w-[260px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
+                      </div>
+                      <div className="mt-[18px] grid grid-cols-1 gap-3">
+                        {DEMO_VENUE_SERVICES.map((service) => (
+                          <motion.button
+                            key={service.name}
+                            onClick={() => handleServiceRequest(service.name, service.cta)}
+                            className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.24)]"
+                            whileTap={{ scale: 0.98 }}
+                          >
+                            <div className="flex items-start gap-3.5">
+                              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[16px] bg-gradient-to-br ${service.accent} text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]`} style={{ fontWeight: 950 }}>
+                                {service.icon}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{service.name}</p>
+                                <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{service.title}</p>
+                                <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{service.detail}</p>
+                                <div className="mt-3 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.25)]" style={{ fontWeight: 950 }}>
+                                  → {service.cta}
+                                </div>
+                              </div>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </div>
+                      <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap Concierge Help to choose from nearby premium vendors.</p>
+                      <p className="text-center text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Powered by Bytspot Passport</p>
+                    </>
+                  )}
                 </div>
+              )}
+
+              {authPromptIntent && (
+                <motion.div
+                  className="mb-4 rounded-[24px] border border-white/20 bg-[linear-gradient(145deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96)_50%,rgba(8,47,73,0.88))] p-4 text-white shadow-[0_20px_55px_rgba(0,0,0,0.42),0_0_34px_rgba(34,211,238,0.18)] ring-1 ring-cyan-100/10"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                >
+                  <div className="text-center">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Guest Preview</p>
+                    <h4 className="mt-1 text-[21px] leading-7 text-white" style={{ fontWeight: 950 }}>Sign in to confirm request & earn points</h4>
+                    <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>
+                      Sign in to save to your wallet and complete checkout faster.
+                    </p>
+                  </div>
+                  <div className="mt-3 rounded-[16px] border border-cyan-100/18 bg-cyan-300/10 p-3 text-center">
+                    <p className="text-[12px] text-cyan-100" style={{ fontWeight: 850 }}>You selected</p>
+                    <p className="mt-0.5 text-[14px] text-white" style={{ fontWeight: 950 }}>
+                      {authPromptIntent.kind === 'venue-service'
+                        ? authPromptIntent.serviceName
+                        : authPromptIntent.kind === 'wallet'
+                          ? 'Wallet save'
+                          : `${authPromptIntent.action}${authPromptIntent.serviceName ? ` · ${authPromptIntent.serviceName}` : ''}`}
+                    </p>
+                  </div>
+                  {authPromptError && (
+                    <p className="mt-3 rounded-[14px] border border-rose-300/30 bg-rose-500/12 px-3 py-2 text-[12px] text-rose-100" style={{ fontWeight: 760 }}>
+                      {authPromptError}
+                    </p>
+                  )}
+                  <div className="mt-4 space-y-2.5">
+                    <AppleSignInButton
+                      appearance="white"
+                      label="sign-in"
+                      disabled={authPromptLoading}
+                      onCredential={handleAppleCredential}
+                      onError={(message) => setAuthPromptError(message)}
+                    />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        onClick={() => resumeAuthPromptIntent('guest')}
+                        disabled={authPromptLoading}
+                        className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/16 px-3 py-3 text-[13px] text-cyan-100 disabled:opacity-60"
+                        style={{ fontWeight: 950 }}
+                      >
+                        Continue as Guest
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAuthPromptIntent(null);
+                          setAuthPromptError('');
+                          savePendingIntent(null);
+                        }}
+                        disabled={authPromptLoading}
+                        className="rounded-[16px] border border-white/18 bg-white/10 px-3 py-3 text-[13px] text-slate-200 disabled:opacity-60"
+                        style={{ fontWeight: 850 }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
               )}
 
               {status !== 'success' && status !== 'verifying' && ((activeMethod === 'nfc' && supportsLiveQr) || (activeMethod === 'qr' && supportsNfc)) && (
@@ -949,7 +1355,7 @@ export function VirtualPatchScannerSheet({
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>Retry scan</span>
                   </motion.button>
-                ) : !hasConsented && hasAffirmedAge && showAppleDemoServices ? (
+                ) : !hasConsented && hasAffirmedAge && showDemoVenueServices && demoVenueServicesView === 'cards' ? (
                   <motion.button
                     onClick={() => setHasConsented(true)}
                     className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { buildVerifiedVirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../src/utils/virtualPatch';
 
 const TEST_COORDS = { lat: 33.789, lng: -84.384 };
-const PATCH_ID = 'patch-123456';
+const PATCH_ID = 'dc760eff-5805-498b-87df-9520680eac91';
 const PATCH_UID = '04A1B2C3D4E5F6';
 const TOKEN_JTI = 'token-jti-12345678';
 const VERIFIED_AT = '2026-04-25T18:00:00.000Z';
@@ -279,24 +279,41 @@ async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
 test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ page }) => {
   await installVirtualPatchDemoMocks(page);
 
-  await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
+  await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Apple Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Demo Venue').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Tap any service below to request instantly.', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: /Start Reader/i }).first()).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: /VIP Access Demo/i }));
+  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: 'Cancel' }));
+  await robustClick(page.getByRole('button', { name: /Concierge Help/i }));
+  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
+  await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
+  await expect(page.getByRole('heading', { name: 'Nearby Premium Services' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Peach & Pearl Private Chef')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Midtown Mobile Massage')).toBeVisible({ timeout: 10_000 });
+  const chefVendor = page.getByRole('button', { name: 'Open Peach & Pearl Private Chef details' });
+  await chefVendor.waitFor({ state: 'visible', timeout: 10_000 });
+  await chefVendor.evaluate((element: HTMLElement) => element.click());
+  await expect(page.getByText('Chef tasting board')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Book Now' }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Check-in' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Call Vendor' })).toBeVisible({ timeout: 10_000 });
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
 });
 
 test('iOS web fallback stays in valid web access instead of opening invalid app scheme', async ({ page }) => {
   await installVirtualPatchDemoMocks(page, { iosWebFallback: true, scannerUnavailable: true });
 
-  await page.goto(`/patch/${PATCH_ID}?venue=Apple%20Demo`);
+  await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Apple Demo Venue').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Demo Venue').first()).toBeVisible({ timeout: 15_000 });
   await robustClick(page.getByRole('button', { name: /Start Reader/i }).first());
 
   await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
@@ -304,10 +321,10 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
   await robustClick(page.getByRole('button', { name: 'Continue in My Access' }));
 
   await expect(page.getByTestId('profile-access-wallet')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Apple Demo');
+  await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Demo Venue');
   await expect(page.getByTestId('profile-virtual-patch-card')).toContainText('Wallet standby');
-  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Apple Demo Venue');
-  await expect(page.getByTestId('apple-demo-services-card')).toContainText('Smart Parking');
+  await expect(page.getByTestId('demo-venue-services-card')).toContainText('Demo Venue');
+  await expect(page.getByTestId('demo-venue-services-card')).toContainText('Smart Parking');
 });
 
 test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) => {

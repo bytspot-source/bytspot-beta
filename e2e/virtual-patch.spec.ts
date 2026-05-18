@@ -194,7 +194,7 @@ test.describe('Virtual Patch', () => {
     await expect(walletScreen).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('profile-virtual-patch-card')).toHaveCount(0);
     const serviceCard = page.getByTestId('profile-service-request-card');
-    await expect(serviceCard).toContainText('Requested vendor service');
+    await expect(serviceCard).toContainText('Requested local service');
     await expect(serviceCard).toContainText('Chef tasting board');
     await expect(serviceCard).toContainText('Aster Room Private Chef');
     await expect(serviceCard).toContainText('No verified access yet');

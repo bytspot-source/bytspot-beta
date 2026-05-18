@@ -376,7 +376,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const insiderEstimatedCents = Math.max(50, insiderBaseCents - insiderPointsDiscountCents);
   const formatSubscriptionCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   // My Access is the customer's lightweight wallet. Verified physical/QR
-  // patches prove venue access; saved virtual vendor service requests are
+// patches prove venue access; saved virtual service requests are
   // shown beside them but intentionally labeled as requests, not verified entry.
   const savedVirtualServiceRequests = getSavedVirtualServiceRequests(virtualPatchContext);
   const showVirtualPatchCard = shouldShowVirtualPatchAccessCard(virtualPatchContext);
@@ -904,7 +904,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="mb-1 inline-flex rounded-full border border-cyan-200/30 bg-cyan-300/12 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Requested vendor service</p>
+                      <p className="mb-1 inline-flex rounded-full border border-cyan-200/30 bg-cyan-300/12 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Requested local service</p>
                   <h4 className="text-[20px] leading-7 text-white" style={{ fontWeight: 950 }}>{request.serviceName}</h4>
                   <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{request.vendorName}</p>
                   {formatSavedServiceMeta(request) && (
@@ -942,7 +942,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
               </div>
               <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No access yet</p>
               <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
-                Scan a Bytspot patch to unlock venue services. Requested vendor services will appear here separately from verified access.
+                    Scan a Bytspot patch to unlock venue services. Requested local services will appear here separately from verified access.
               </p>
               {onOpenVirtualPatch && (
                 <motion.button

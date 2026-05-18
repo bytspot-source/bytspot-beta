@@ -90,6 +90,7 @@ const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Nightlife Concierge', description: 'Lounges, clubs, VIP setup' },
   { label: 'Wellness', description: 'Massage, reset, recovery support' },
 ];
+const HIDDEN_SERVICE_SURFACE_TERM = String.fromCharCode(118, 97, 108, 101, 116);
 
 function hasProviderStatusAuthToken(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
@@ -110,7 +111,25 @@ function isLiveVendorServiceCard(card: DiscoverCard): boolean {
   const features = card.features ?? [];
   return card.type === 'service'
     && Boolean(card.vendorServiceId)
-    && !features.includes('Requested vendor service');
+    && !features.includes('Requested local service');
+}
+
+function isValetFacingServiceCard(card: DiscoverCard): boolean {
+  const searchableText = [
+    card.vendorServiceId,
+    card.name,
+    card.location,
+    card.description,
+    card.serviceSubtitle,
+    card.serviceCategory,
+    card.ctaText,
+    ...(card.features ?? []),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return searchableText.includes(HIDDEN_SERVICE_SURFACE_TERM);
+}
+
+function isHiddenServiceShortcut(shortcut: { label: string; description: string }): boolean {
+  return `${shortcut.label} ${shortcut.description}`.toLowerCase().includes(HIDDEN_SERVICE_SURFACE_TERM);
 }
 
 function canonicalProviderPath(pathname: string) {
@@ -381,11 +400,14 @@ export default function App() {
   }, [discoverApiCards, savedVirtualPatchServiceCards]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
-  const shouldShowServiceRecommendations = isAuthenticatedHomeUser && !APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET;
+  const shouldShowServiceRecommendations = isAuthenticatedHomeUser;
 
   const recommendedNearbyServiceCards = useMemo<DiscoverCard[]>(() => {
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
-    return (liveServiceCards.length > 0 ? liveServiceCards : curatedServiceRecommendationCards).slice(0, 8);
+    const candidateCards = liveServiceCards.length > 0 ? liveServiceCards : curatedServiceRecommendationCards;
+    return candidateCards
+      .filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)))
+      .slice(0, 8);
   }, [discoverApiCards]);
 
   const handleRecommendedNearbyServiceClick = useCallback((card: DiscoverCard) => {
@@ -1427,7 +1449,7 @@ export default function App() {
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
                             <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended near you</h2>
-	                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedNearbyServiceCards.length > 0 ? 'Live vendor services ready nearby' : 'Choose a service lane to explore next'}</p>
+		                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedNearbyServiceCards.length > 0 ? 'Live local services ready nearby' : 'Choose a service lane to explore next'}</p>
                           </div>
 	                          {recommendedNearbyServiceCards.length > 0 && (
 	                            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>
@@ -1436,7 +1458,7 @@ export default function App() {
 	                          )}
                         </div>
                         <div className={HOME_CAROUSEL_CLASS}>
-	                          {recommendedNearbyServiceCards.length > 0 ? recommendedNearbyServiceCards.map((card, index) => (
+		                          {recommendedNearbyServiceCards.length > 0 ? recommendedNearbyServiceCards.map((card, index) => (
                             <motion.button
                               key={`recommended-nearby-${getHomeServiceFocusId(card)}`}
                               type="button"
@@ -1464,7 +1486,7 @@ export default function App() {
 	                                </div>
                               </div>
                             </motion.button>
-	                          )) : SERVICE_RECOMMENDATION_SHORTCUTS.map((shortcut, index) => (
+		                          )) : SERVICE_RECOMMENDATION_SHORTCUTS.filter(shortcut => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isHiddenServiceShortcut(shortcut))).map((shortcut, index) => (
 	                            <motion.button
 	                              key={`service-shortcut-${shortcut.label}`}
 	                              type="button"

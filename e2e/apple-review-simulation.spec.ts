@@ -20,7 +20,9 @@ const REVIEW_VENUES = [
 async function installReviewMocks(page: Page) {
   await page.addInitScript((venues) => {
     localStorage.setItem('bytspot_intro_seen', 'true');
-    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_auth_token', 'review-consumer-token');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'review-user', email: 'reviewer@example.com', name: 'Apple Reviewer' }));
+    localStorage.setItem('bytspot_user_name', 'Apple Reviewer');
     (window as unknown as { __BYT_APP_STORE_CONSUMER_ONLY__?: boolean }).__BYT_APP_STORE_CONSUMER_ONLY__ = true;
     delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
     delete (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
@@ -65,9 +67,12 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('tab', { name: 'Discover tab' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Map tab' })).toBeVisible();
-    await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
-    await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
-    await expect(page.getByTestId('home-tier-card-premium-valet')).toContainText('Book Valet');
+    const serviceRail = page.getByTestId('home-recommended-nearby-rail');
+    await expect(serviceRail).toBeVisible();
+    await expect(serviceRail).toContainText('Recommended near you');
+    await expect(serviceRail).toContainText('Chef Maria’s Table');
+    await expect(serviceRail).toContainText('Book for Tonight');
+    await expect(serviceRail).not.toContainText(/Valet/i);
     await expect(page.getByTestId('home-priority-planning-section')).toHaveCount(0);
     await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();
@@ -85,9 +90,12 @@ test.describe('Apple Review simulation', () => {
     await page.goto('/');
 
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('home-tiered-experience-section')).toBeVisible();
-    await expect(page.getByTestId('home-tier-card-hero-chef-dinner')).toContainText('Private 5-Course Chef Dinner at Home');
-    await expect(page.getByTestId('home-tier-card-cottage-massage')).toContainText('Cottage Industry Services');
+    const serviceRail = page.getByTestId('home-recommended-nearby-rail');
+    await expect(serviceRail).toBeVisible();
+    await expect(serviceRail).toContainText('Recommended near you');
+    await expect(serviceRail).toContainText('Chef Maria’s Table');
+    await expect(serviceRail).toContainText('Zen Haven Mobile Spa');
+    await expect(serviceRail).not.toContainText(/Valet/i);
     await expect(page.locator('body')).not.toContainText(/Tier 1|Tier 2|Tier 3|Explorer|Insider Pick|Insider Deal|VIP Only|VIP Valet|VIP Curated|Basic card|Enhanced card|Premium card/i);
     await expect(page.getByTestId('home-priority-planning-section')).toHaveCount(0);
     await expect(page.getByText(/Es =|App Store risk|Compliance level|priority score/i)).toHaveCount(0);

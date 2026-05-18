@@ -933,7 +933,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           >
             <RefreshCw className="w-6 h-6 text-white" />
           </motion.div>
-          <p className="text-white/70 text-sm" style={{ fontWeight: 650 }}>{appliedFilter === 'service' ? 'Loading vendor services from providers and venues…' : isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
+          <p className="text-white/70 text-sm" style={{ fontWeight: 650 }}>{appliedFilter === 'service' ? 'Loading local services from providers and venues…' : isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
         </div>
       )}
 
@@ -1092,7 +1092,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             {isEventSurface ? <Sparkles className="w-7 h-7 text-white/20" strokeWidth={1.5} /> : <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />}
           </div>
           <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
-            {appliedFilter === 'service' ? 'No vendor services or nearby providers loaded yet.' : isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />{appliedFilter === 'service' ? 'Refresh to pull the latest provider and venue data.' : 'Try a different category.'}
+            {appliedFilter === 'service' ? 'No local services or nearby providers loaded yet.' : isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />{appliedFilter === 'service' ? 'Refresh to pull the latest provider and venue data.' : 'Try a different category.'}
           </p>
           <motion.button
             onClick={() => {

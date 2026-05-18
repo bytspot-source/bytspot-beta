@@ -94,7 +94,7 @@ export function savedServiceRequestToCard(
     : resolveVenuePhoto({ category: request.vendorCategory ?? 'service', name: `${request.vendorName} ${request.serviceName}` });
   const statusLabel = formatRequestStatus(request.status);
   const features = [
-    'Requested vendor service',
+    'Requested local service',
     request.vendorCategory,
     request.eta,
     request.venueName ? `From ${request.venueName}` : null,

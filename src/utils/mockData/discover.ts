@@ -50,6 +50,12 @@ export interface DiscoverCard {
   vendorId?: string;
   patchId?: string | null;
   patchUid?: string | null;
+  serviceCategory?: string;
+  serviceSubtitle?: string;
+  ctaText?: string;
+  bookingCount?: number;
+  availableSpots?: number;
+  etaMinutes?: number;
   providerPayoutEstimateCents?: number;
   platformFeeCents?: number;
   vendorServiceStatus?: 'active' | 'draft' | 'archived';

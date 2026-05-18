@@ -18,8 +18,7 @@ const serviceIdKey = decodeKey('dmVuZG9yU2VydmljZUlk');
 const serviceStatusKey = decodeKey('dmVuZG9yU2VydmljZVN0YXR1cw==');
 const serviceOwnerIdKey = decodeKey('dmVuZG9ySWQ=');
 const servicePayoutKey = decodeKey('cHJvdmlkZXJQYXlvdXRFc3RpbWF0ZUNlbnRz');
-const DISCOVER_SERVICE_FOCUS_KEY = 'bytspot_discover_focus_service_card';
-
+const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
 function cardField<T = unknown>(card: DiscoverCard, key: string): T | undefined {
   return (card as unknown as Record<string, unknown>)[key] as T | undefined;
 }
@@ -112,6 +111,27 @@ function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
   return ['chef', 'massage', 'wellness', 'service', 'private', 'cottage'].some((term) => searchable.includes(term));
 }
 
+function getServiceMetricLine(card: DiscoverCard): string {
+  return [
+    card.rating ? `${card.rating.toFixed(2)} ★${card.bookingCount ? ` (${card.bookingCount} bookings)` : ''}` : null,
+    card.price ?? card.entryPrice,
+    card.availability,
+  ].filter(Boolean).join(' • ');
+}
+
+function calculateSimplexScore(card: DiscoverCard, preferredCategory = 'service'): number {
+  const numericDistance = Number.parseFloat(card.distance || '999');
+  const safeDistance = Number.isFinite(numericDistance) && numericDistance > 0 ? numericDistance : 999;
+  const scarcityBoost = card.availableSpots && card.availableSpots <= 4 ? 15 : 0;
+  const bookingBoost = Math.min((card.bookingCount ?? 0) / 6, 18);
+  const phiEm = (card.rating ?? 4.5) * 0.4 + scarcityBoost + bookingBoost;
+  const phiE = 10 * (1 / safeDistance) + (card.etaMinutes ? Math.max(0, 12 - card.etaMinutes / 5) : 0);
+  const deltaD = card.price || card.entryPrice ? 10 : 5;
+  const lambdaSim = card.serviceCategory?.toLowerCase().includes(preferredCategory) || card.type === 'service' ? 25 : 0;
+  const f = 1;
+  return phiEm + phiE + deltaD + f * lambdaSim;
+}
+
 function hasCheckoutAuth(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
   return Boolean(token && token !== 'guest_session');
@@ -139,16 +159,18 @@ function consumePendingBookingCard(): DiscoverCard | null {
 
 interface SwipeableCardProps {
   card: DiscoverCard;
+  isHighlighted?: boolean;
   onSwipe: (direction: 'left' | 'right') => void;
   onShowBottomNav?: () => void;
   onTouch?: () => void;
   onCardTap?: (card: DiscoverCard) => void;
+  onServiceCta?: (card: DiscoverCard) => void;
   onSaveSpot: (card: DiscoverCard) => void;
 }
 
 
 const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
-  ({ card, onSwipe, onShowBottomNav, onTouch, onCardTap, onSaveSpot }, ref) => {
+  ({ card, isHighlighted = false, onSwipe, onShowBottomNav, onTouch, onCardTap, onServiceCta, onSaveSpot }, ref) => {
     const [dragX, setDragX] = useState(0);
     const [dragY, setDragY] = useState(0);
     const [exitX, setExitX] = useState<number | null>(null);
@@ -157,6 +179,8 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     const hasDraggedRef = useRef<boolean>(false);
     const isEventCard = card.type === 'entertainment' && (!!card.eventDate || !!card.eventTime);
     const isServiceCard = isVendorServiceCard(card);
+    const serviceFocusId = isServiceCard ? getServiceFocusId(card) : undefined;
+    const serviceMetricLine = isServiceCard ? getServiceMetricLine(card) : '';
 
     const handlePan = (_event: any, info: PanInfo) => {
       if (exitX !== null) return;
@@ -206,8 +230,9 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     return (
       <motion.div
         ref={ref}
-        className="absolute inset-4 cursor-grab active:cursor-grabbing"
+        className="absolute inset-4 cursor-grab select-none text-white active:cursor-grabbing"
         data-testid={`discover-swipe-card-${String(card.id)}`}
+        data-service-focus-id={serviceFocusId}
         drag={exitX === null}
         dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
         onPan={handlePan}
@@ -217,14 +242,14 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
         initial={{ scale: 0.9, opacity: 0, y: 20 }}
         exit={{ x: exitX !== null ? exitX : (dragX > 0 ? 1000 : -1000), opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
         transition={{ type: "spring", stiffness: 320, damping: 30 }}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
       >
         <motion.div
-          className={`w-full h-full rounded-[32px] overflow-hidden border-4 shadow-2xl bg-[#1C1C1E] flex flex-col ${isServiceCard ? 'border-cyan-300/70 shadow-cyan-500/20' : 'border-white/30'}`}
+          className={`w-full h-full select-none rounded-[32px] overflow-hidden border-4 shadow-2xl bg-[#1C1C1E] text-white flex flex-col ${isServiceCard ? 'border-cyan-300/70 shadow-cyan-500/20' : 'border-white/30'} ${isHighlighted ? 'ring-4 ring-cyan-200/70' : ''}`}
           onClick={handleCardTap}
           whileTap={{ scale: 0.98 }}
         >
-          <div className="relative flex-shrink-0" style={{ height: '240px' }}>
+          <div className="relative flex-shrink-0" style={{ height: isServiceCard ? '205px' : '240px' }}>
             <img src={card.image} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
             <AnimatePresence>
@@ -258,7 +283,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
               {/* Entry type badge — Free (green) or Paid entry (amber with price) */}
               {card.entryType === 'paid' ? (
-                <div className="px-2.5 py-1 rounded-full bg-amber-500/90 border border-amber-300/50 shadow-lg">
+                <div className={`px-2.5 py-1 rounded-full border shadow-lg ${isServiceCard ? 'border-cyan-200/50 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-cyan-950/30' : 'bg-amber-500/90 border-amber-300/50'}`}>
                   <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{card.entryPrice || 'Paid entry'}</span>
                 </div>
               ) : card.entryType === 'free' ? (
@@ -280,10 +305,10 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 </div>
               )}
             </div>
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5 pt-16">
-              <div className={isServiceCard ? 'rounded-3xl border border-white/20 bg-black/55 p-3 shadow-2xl shadow-black/40 backdrop-blur-md' : ''}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <h2 className="text-title-2 text-white drop-shadow-sm shadow-black">{card.name}</h2>
+            <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent ${isServiceCard ? 'p-4 pt-12 text-white' : 'p-5 pt-16'}`}>
+              <div className={isServiceCard ? 'select-none rounded-3xl border border-white/20 bg-black/55 p-2.5 text-white shadow-2xl shadow-black/40 backdrop-blur-md' : ''}>
+		              <div className="flex items-center gap-2 mb-1.5">
+		                <h2 className={`${isServiceCard ? 'line-clamp-1 text-[16px] leading-5' : 'text-title-2'} text-white drop-shadow-sm shadow-black`}>{isServiceCard ? card.location ?? card.name : card.name}</h2>
                 {card.verified && (
                   <div className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500 border-2 border-white">
                     <Shield className="w-3 h-3 text-white" strokeWidth={3} />
@@ -291,9 +316,13 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 )}
               </div>
               {isServiceCard && (
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-300 bg-cyan-300 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-slate-950">
-                  <CreditCard className="h-3 w-3" strokeWidth={2.6} /> Ready to book
-                </div>
+		                <>
+		                  <p className="mb-1 line-clamp-2 text-[17px] leading-5 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 950 }}>{card.name}</p>
+		                  <p className="mb-2 line-clamp-1 text-[12px] text-white/90 drop-shadow-sm shadow-black" style={{ fontWeight: 750 }}>{card.serviceSubtitle ?? card.description}</p>
+		                  <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-cyan-200/60 bg-gradient-to-r from-cyan-500 to-blue-600 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-white shadow-lg shadow-cyan-950/25">
+		                    <CreditCard className="h-3 w-3" strokeWidth={2.6} /> Ready to book
+		                  </div>
+		                </>
               )}
               <div className="flex items-center gap-3 text-white/90 drop-shadow-md flex-wrap">
                 {isEventCard ? (
@@ -303,7 +332,8 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                   </>
                 ) : (
                   <>
-                    {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating.toFixed(1)}</span></div>)}
+		                    {card.rating && (<div className="flex items-center gap-1"><Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.rating.toFixed(2)}</span></div>)}
+		                    {isServiceCard && card.bookingCount && (<span className="text-[13px]" style={{ fontWeight: 700 }}>{card.bookingCount} bookings</span>)}
                     {card.price && (<span className="text-[15px]" style={{ fontWeight: 600 }}>{card.price}</span>)}
                     {card.spots && (<div className="flex items-center gap-1"><Shield className="w-4 h-4 text-green-400" strokeWidth={2.5} /><span className="text-[15px]" style={{ fontWeight: 600 }}>{card.spots} spots</span></div>)}
                     {card.availability && card.availability !== 'Unknown' && (
@@ -326,43 +356,90 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
             </div>
           </div>
-          <div className="flex-1 flex flex-col p-4 gap-2 bg-gradient-to-t from-black/90 via-[#14141A] to-[#1C1C1E]">
-            {card.description && (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white drop-shadow-sm shadow-black" style={{ fontWeight: isServiceCard ? 650 : 500 }}>{card.description}</p>)}
-            {card.entryType === 'paid' && (
-              <div className="flex flex-wrap gap-1.5 flex-shrink-0">
-                <div className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-slate-950 border-slate-950' : 'bg-amber-500/10 border-amber-400/25'}`}>
-                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-white' : 'text-amber-200'}`} style={{ fontWeight: 800 }}>{isServiceCard ? 'Bookable service' : 'Paid entry'}</span>
-                </div>
-                <div className={`px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${isServiceCard ? 'bg-cyan-300/20 border-cyan-200/40' : 'bg-fuchsia-500/10 border-fuchsia-400/25'}`}>
-                  <Ticket className={`w-3 h-3 ${isServiceCard ? 'text-cyan-200' : 'text-fuchsia-300'}`} strokeWidth={2.4} />
-                  <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 700 }}>My Access ready</span>
-                </div>
-              </div>
-            )}
-            {card.features && card.features.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 flex-shrink-0">
-                {card.features.slice(0, 4).map((feature, idx) => (
-                  <div key={idx} className="px-2.5 py-1 rounded-full border bg-white/10 border-white/20">
-                    <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: isServiceCard ? 750 : 500 }}>{feature}</span>
+          <div className={`flex-1 min-h-0 flex flex-col bg-gradient-to-t from-black/90 via-[#14141A] to-[#1C1C1E] text-white ${isServiceCard ? 'gap-2 overflow-hidden p-3' : 'gap-2 p-4'}`}>
+            {isServiceCard ? (
+              <>
+                {card.description && (
+                  <p className="line-clamp-2 flex-shrink-0 text-[12px] leading-4 text-white/90 drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>
+                    {card.description}
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-1.5 flex-shrink-0">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-2.5 py-1.5">
+                    <p className="text-[10px] uppercase tracking-[0.1em] text-white/70" style={{ fontWeight: 850 }}>Rating</p>
+                    <p className="text-[12px] text-white" style={{ fontWeight: 900 }}>{card.rating ? `${card.rating.toFixed(2)} ★` : 'Verified'}</p>
                   </div>
-                ))}
-                {card.features.length > 4 && (
-                  <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
-                    <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>+{card.features.length - 4}</span>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-2.5 py-1.5">
+                    <p className="text-[10px] uppercase tracking-[0.1em] text-white/70" style={{ fontWeight: 850 }}>Demand</p>
+                    <p className="line-clamp-1 text-[12px] text-white" style={{ fontWeight: 900 }}>{card.bookingCount ? `${card.bookingCount} bookings` : card.availability ?? 'Available'}</p>
+                  </div>
+                </div>
+                <div className="flex max-h-[34px] flex-wrap gap-1.5 overflow-hidden flex-shrink-0">
+                  {[card.serviceCategory, card.availableSpots ? `${card.availableSpots} spots left` : null, card.etaMinutes ? `${card.etaMinutes} min` : null, card.price ?? card.entryPrice]
+                    .filter(Boolean)
+                    .slice(0, 4)
+                    .map((feature, idx) => (
+                      <div key={`${feature}-${idx}`} className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-2.5 py-1">
+                        <span className="text-[10px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{feature}</span>
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-auto flex-shrink-0 rounded-[22px] border border-cyan-200/25 bg-cyan-300/10 p-2.5 shadow-[0_16px_32px_rgba(0,0,0,0.28)]">
+                  <p className="mb-2 line-clamp-1 text-[11px] text-white/90" style={{ fontWeight: 780 }}>{serviceMetricLine}</p>
+                  <button
+                    type="button"
+                    data-testid="service-card-cta"
+                    className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 via-sky-500 to-blue-600 px-4 py-3 text-center text-[14px] text-white shadow-[0_12px_30px_rgba(8,145,178,0.36)] ring-1 ring-white/30 transition-transform active:scale-[0.98]"
+                    style={{ fontWeight: 950 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onServiceCta?.(card);
+                    }}
+                  >
+                    {card.ctaText ?? `Book Now • ${card.price ?? card.entryPrice ?? 'View'}`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {card.description && (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>{card.description}</p>)}
+                {card.entryType === 'paid' && (
+                  <div className="flex flex-wrap gap-1.5 flex-shrink-0">
+                    <div className="px-2.5 py-1 rounded-full border bg-amber-500/10 border-amber-400/25">
+                      <span className="text-[11px] whitespace-nowrap text-amber-200" style={{ fontWeight: 800 }}>Paid entry</span>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-full border flex items-center gap-1.5 bg-fuchsia-500/10 border-fuchsia-400/25">
+                      <Ticket className="w-3 h-3 text-fuchsia-300" strokeWidth={2.4} />
+                      <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 700 }}>My Access ready</span>
+                    </div>
                   </div>
                 )}
-              </div>
-            )}
-            {card.vibe && (
-              <div className="mt-auto pt-1 flex-shrink-0">
-                <div className="flex items-center justify-between mb-1.5">
-	                  <span className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>Vibe Score</span>
-                  <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>
-                </div>
-                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 rounded-full" style={{ width: `${card.vibe * 10}%` }} />
-                </div>
-              </div>
+                {card.features && card.features.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 flex-shrink-0">
+                    {card.features.slice(0, 4).map((feature, idx) => (
+                      <div key={idx} className="px-2.5 py-1 rounded-full border bg-white/10 border-white/20">
+                        <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>{feature}</span>
+                      </div>
+                    ))}
+                    {card.features.length > 4 && (
+                      <div className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
+                        <span className="text-[11px] text-white/60 whitespace-nowrap" style={{ fontWeight: 500 }}>+{card.features.length - 4}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {card.vibe && (
+                  <div className="mt-auto pt-1 flex-shrink-0">
+                    <div className="flex items-center justify-between mb-1.5">
+		                    <span className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>Vibe Score</span>
+                      <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 rounded-full" style={{ width: `${card.vibe * 10}%` }} />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </motion.div>
@@ -427,9 +504,14 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const [pullDistance, setPullDistance] = useState(0);
   const [startY, setStartY] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const serviceRailRef = useRef<HTMLElement | null>(null);
-  const serviceCardRefs = useRef(new Map<string, HTMLButtonElement>());
-  const [highlightedServiceFocusId, setHighlightedServiceFocusId] = useState<string | null>(null);
+  const [prioritizedServiceFocusId, setPrioritizedServiceFocusId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(DISCOVER_SERVICE_HIGHLIGHT_KEY);
+  });
+  const [highlightedServiceFocusId, setHighlightedServiceFocusId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(DISCOVER_SERVICE_HIGHLIGHT_KEY);
+  });
   const eventCards = events.map(toEventDiscoverCard);
   const isEventSurface = appliedFilter === 'entertainment';
   const cards = [...apiCards, ...googleCards].filter(card =>
@@ -441,7 +523,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const cottageServiceFallbackCards = appliedFilter === 'service' && vendorServiceCards.length === 0
     ? standardDeckCards.filter(isCottageServiceFallbackCard).slice(0, 8)
     : [];
-  const defaultDeckCards = standardDeckCards.length > 0 ? standardDeckCards : cards;
+  const defaultDeckCards = standardDeckCards;
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
 
@@ -479,10 +561,10 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   // 1. Category filter
   let filteredCards = isEventSurface
     ? eventCards
-    : appliedFilter === 'service' && cottageServiceFallbackCards.length > 0
-      ? cottageServiceFallbackCards
+    : appliedFilter === 'service'
+      ? vendorServiceCards.length > 0 ? vendorServiceCards : cottageServiceFallbackCards
     : appliedFilter
-      ? cards.filter(card => normalizeCardType(card.type) === appliedFilter)
+      ? standardDeckCards.filter(card => normalizeCardType(card.type) === appliedFilter)
       : defaultDeckCards;
 
   // 1b. Entry type filter (composable with category)
@@ -503,6 +585,17 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
   // 3. Sort
   filteredCards = [...filteredCards].sort((a, b) => {
+    if (appliedFilter === 'service' && prioritizedServiceFocusId) {
+      const aFocused = getServiceFocusId(a) === prioritizedServiceFocusId;
+      const bFocused = getServiceFocusId(b) === prioritizedServiceFocusId;
+      if (aFocused !== bFocused) return aFocused ? -1 : 1;
+    }
+
+    if (appliedFilter === 'service') {
+      // Simplex service ranking: Es = Φ_EM + Φ_E + ΔD + f × λ_sim
+      return calculateSimplexScore(b) - calculateSimplexScore(a);
+    }
+
     if (sortBy === 'crowd') {
       // vibe is inverse of crowd: high vibe = chill, low vibe = packed
       // Sort hottest first (Packed first = low vibe first)
@@ -589,6 +682,25 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     setCurrentIndex(0);
   }, [appliedFilter, showSavedOnly]);
 
+  useEffect(() => {
+    if (appliedFilter !== 'service') {
+      setPrioritizedServiceFocusId(null);
+      setHighlightedServiceFocusId(null);
+      return;
+    }
+
+    const focusId = sessionStorage.getItem(DISCOVER_SERVICE_HIGHLIGHT_KEY);
+    if (!focusId) return;
+
+    setPrioritizedServiceFocusId(focusId);
+    setHighlightedServiceFocusId(focusId);
+    setCurrentIndex(0);
+    sessionStorage.removeItem(DISCOVER_SERVICE_HIGHLIGHT_KEY);
+
+    const highlightTimeout = window.setTimeout(() => setHighlightedServiceFocusId(null), 2200);
+    return () => window.clearTimeout(highlightTimeout);
+  }, [appliedFilter, vendorServiceCards.length]);
+
   // Fetch Google Places results when a category filter is applied
   useEffect(() => {
     if (!appliedFilter || appliedFilter === 'entertainment' || !searchNearby) {
@@ -635,26 +747,6 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     setBookingServiceMessage('You are signed in. Confirm this service to continue to Stripe Checkout.');
     setSelectedVendorService(pendingCard);
   }, [selectedVendorService]);
-
-  useEffect(() => {
-    if (appliedFilter !== 'service' || vendorServiceCards.length === 0) return;
-    const focusId = sessionStorage.getItem(DISCOVER_SERVICE_FOCUS_KEY);
-    if (!focusId) return;
-
-    const timeout = window.setTimeout(() => {
-      serviceRailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      serviceCardRefs.current.get(focusId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-      setHighlightedServiceFocusId(focusId);
-      sessionStorage.removeItem(DISCOVER_SERVICE_FOCUS_KEY);
-    }, 80);
-
-    const highlightTimeout = window.setTimeout(() => setHighlightedServiceFocusId(null), 1900);
-
-    return () => {
-      window.clearTimeout(timeout);
-      window.clearTimeout(highlightTimeout);
-    };
-  }, [appliedFilter, vendorServiceCards.length]);
 
   // Pull to refresh
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -729,9 +821,9 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     }
   };
 
-  const handleVendorServiceCheckout = async () => {
-    if (!selectedVendorService) return;
-    const serviceId = cardField<string>(selectedVendorService, serviceIdKey);
+  const handleVendorServiceCheckout = async (serviceCard = selectedVendorService) => {
+    if (!serviceCard) return;
+    const serviceId = cardField<string>(serviceCard, serviceIdKey);
     if (!serviceId || isBookingService) return;
     if (!hasCheckoutAuth()) {
       const message = 'Create an account or sign in before booking a paid service.';
@@ -749,10 +841,10 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         cancelPath: '/booking/cancelled',
         metadata: {
           source: 'discover.service_card',
-          cardName: selectedVendorService.name,
-          [serviceOwnerIdKey]: cardField<string>(selectedVendorService, serviceOwnerIdKey) ?? null,
-          patchId: selectedVendorService.patchId ?? null,
-          patchUid: selectedVendorService.patchUid ?? null,
+          cardName: serviceCard.name,
+          [serviceOwnerIdKey]: cardField<string>(serviceCard, serviceOwnerIdKey) ?? null,
+          patchId: serviceCard.patchId ?? null,
+          patchUid: serviceCard.patchUid ?? null,
         },
       });
 
@@ -775,6 +867,16 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
   const handleRequireAuthForBooking = () => {
     savePendingBookingCard(selectedVendorService);
+    window.dispatchEvent(new CustomEvent('bytspot:require-auth', { detail: { reason: 'service-booking' } }));
+  };
+
+  const handleServiceCardCta = (card: DiscoverCard) => {
+    setBookingServiceMessage(null);
+    if (hasCheckoutAuth()) {
+      void handleVendorServiceCheckout(card);
+      return;
+    }
+    savePendingBookingCard(card);
     window.dispatchEvent(new CustomEvent('bytspot:require-auth', { detail: { reason: 'service-booking' } }));
   };
 
@@ -831,7 +933,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           >
             <RefreshCw className="w-6 h-6 text-white" />
           </motion.div>
-          <p className="text-white/70 text-sm" style={{ fontWeight: 650 }}>{appliedFilter === 'service' ? 'Loading bookable services from providers and venues…' : isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
+          <p className="text-white/70 text-sm" style={{ fontWeight: 650 }}>{appliedFilter === 'service' ? 'Loading vendor services from providers and venues…' : isEventSurface ? 'Loading tonight’s events…' : 'Loading Atlanta venues…'}</p>
         </div>
       )}
 
@@ -965,50 +1067,6 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         </div>
       </div>
 
-      {!serviceDiscoveryHidden && vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
-        <section ref={serviceRailRef} className="flex-shrink-0 px-4 pt-3" aria-label="Bookable services" data-testid="service-card-rail">
-          <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            {vendorServiceCards.map((card, index) => {
-              const focusId = getServiceFocusId(card);
-              const isHighlighted = highlightedServiceFocusId === focusId;
-              return (
-                <motion.button
-		                key={focusId}
-                type="button"
-	                ref={(node) => {
-	                  if (node) serviceCardRefs.current.set(focusId, node);
-	                  else serviceCardRefs.current.delete(focusId);
-	                }}
-		                data-testid={`service-quick-card-${focusId}`}
-		                data-service-focus-id={focusId}
-                onClick={() => handleCardClick(card)}
-                className={`min-w-[184px] max-w-[196px] rounded-[20px] border bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/80 p-3 text-left text-white shadow-[0_14px_30px_rgba(0,0,0,0.34)] ring-1 transition-all active:scale-[0.98] ${isHighlighted ? 'border-cyan-200/70 ring-cyan-200/70 shadow-cyan-500/20' : 'border-white/10 ring-white/10'}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0, scale: isHighlighted ? [1, 1.035, 1] : 1 }}
-                transition={{ duration: 0.18, delay: index * 0.035 }}
-                whileHover={{ y: -2 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <div className="flex min-h-[102px] flex-col justify-between gap-2">
-		                  <div>
-                    <p className="line-clamp-2 text-[14px] leading-[17px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>{card.name}</p>
-                    <p className="mt-1 line-clamp-1 text-[11px] text-white/90 drop-shadow-sm shadow-black" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
-                  </div>
-		                <p className="line-clamp-2 text-[11px] leading-4 text-white/85 drop-shadow-sm shadow-black" style={{ fontWeight: 600 }}>{card.description}</p>
-                  <div className="flex items-center justify-between gap-2">
-		                  <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white ring-1 ring-white/15 shadow-black drop-shadow-sm" style={{ fontWeight: 850 }}>{card.entryPrice ?? card.price ?? 'View'}</span>
-		                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-100 drop-shadow-sm shadow-black" style={{ fontWeight: 850 }}>
-                      Details <CreditCard className="h-3 w-3" strokeWidth={2.4} />
-                    </span>
-                  </div>
-                </div>
-              </motion.button>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
       {/* Empty saved state */}
       {showSavedOnly && filteredCards.length === 0 && !loading && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 px-6">
@@ -1034,7 +1092,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             {isEventSurface ? <Sparkles className="w-7 h-7 text-white/20" strokeWidth={1.5} /> : <MapPin className="w-7 h-7 text-white/20" strokeWidth={1.5} />}
           </div>
           <p className="text-white/50 text-[15px] text-center" style={{ fontWeight: 500 }}>
-            {appliedFilter === 'service' ? 'No bookable services or nearby providers loaded yet.' : isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />{appliedFilter === 'service' ? 'Refresh to pull the latest provider and venue data.' : 'Try a different category.'}
+            {appliedFilter === 'service' ? 'No vendor services or nearby providers loaded yet.' : isEventSurface ? 'No events match this filter.' : 'No spots match this filter.'}<br />{appliedFilter === 'service' ? 'Refresh to pull the latest provider and venue data.' : 'Try a different category.'}
           </p>
           <motion.button
             onClick={() => {
@@ -1058,9 +1116,10 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       <div
         className="relative flex-shrink-0"
         style={{
-          minHeight: '480px',
-          maxHeight: 'calc(100vh - 280px)',
-          height: 'auto'
+          minHeight: currentCard && isVendorServiceCard(currentCard) ? '540px' : '480px',
+          maxHeight: currentCard && isVendorServiceCard(currentCard) ? 'calc(100vh - 220px)' : 'calc(100vh - 280px)',
+          height: currentCard && isVendorServiceCard(currentCard) ? 'min(640px, calc(100vh - 220px))' : 'auto',
+          marginBottom: currentCard && isVendorServiceCard(currentCard) ? '72px' : undefined,
         }}
       >
         {/* Background card — depth/stack effect */}
@@ -1084,10 +1143,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             <SwipeableCard
               key={`${appliedFilter ?? 'all'}-${currentCard.type}-${currentCard.id}-${safeCurrentIndex}`}
               card={currentCard}
+              isHighlighted={isVendorServiceCard(currentCard) && getServiceFocusId(currentCard) === highlightedServiceFocusId}
               onSwipe={handleSwipe}
               onShowBottomNav={onShowBottomNav}
               onTouch={onTouch}
               onCardTap={handleCardClick}
+              onServiceCta={handleServiceCardCta}
               onSaveSpot={handleSaveSpot}
             />
           )}
@@ -1136,13 +1197,13 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable service</p>
+                  <p className="text-[12px] uppercase tracking-[0.2em] text-cyan-200" style={{ fontWeight: 850 }}>Service details</p>
                   <h3 className="mt-1 text-[22px] leading-tight text-white" style={{ fontWeight: 800 }}>{selectedVendorService.name}</h3>
                   <p className="mt-1 text-[13px] text-slate-200/90" style={{ fontWeight: 650 }}>{selectedVendorService.location || 'Experienced professional'}</p>
                 </div>
-                <div className="rounded-2xl border border-amber-200/45 bg-amber-300 px-3 py-2 text-right shadow-lg shadow-amber-950/20">
-                  <p className="text-[11px] text-slate-900/70" style={{ fontWeight: 800 }}>Price</p>
-                  <p className="text-[16px] text-slate-950" style={{ fontWeight: 900 }}>{selectedVendorService.entryPrice || selectedVendorService.price}</p>
+                <div className="rounded-2xl border border-cyan-200/40 bg-gradient-to-r from-cyan-500 to-blue-600 px-3 py-2 text-right shadow-lg shadow-cyan-950/30">
+                  <p className="text-[11px] text-white/80" style={{ fontWeight: 800 }}>Price</p>
+                  <p className="text-[16px] text-white" style={{ fontWeight: 900 }}>{selectedVendorService.entryPrice || selectedVendorService.price}</p>
                 </div>
               </div>
 
@@ -1179,7 +1240,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 <button
                   type="button"
                   data-testid="service-checkout-cta"
-                  className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-300 via-sky-300 to-violet-300 px-4 py-3 text-[14px] text-slate-950 shadow-xl shadow-cyan-950/25 ring-1 ring-white/30 disabled:opacity-60"
+                  className="flex-[1.4] rounded-2xl bg-gradient-to-r from-cyan-500 via-sky-500 to-blue-600 px-4 py-3 text-[14px] text-white shadow-xl shadow-cyan-950/30 ring-1 ring-white/30 disabled:opacity-60"
                   style={{ fontWeight: 950 }}
                   disabled={isBookingService}
                   onClick={() => hasCheckoutAuth() ? void handleVendorServiceCheckout() : handleRequireAuthForBooking()}

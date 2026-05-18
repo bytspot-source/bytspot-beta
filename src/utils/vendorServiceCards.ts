@@ -12,6 +12,14 @@ export type VendorDiscoveryService = {
   vendor: { id: string; displayName: string; onboardingStatus: string };
   patch: { id: string; uid: string; label: string | null } | null;
   cashFlow?: { platformFeeCents: number; providerPayoutEstimateCents: number; commissionBps: number };
+  category?: string;
+  subtitle?: string;
+  rating?: number;
+  bookingCount?: number;
+  availableSpots?: number;
+  etaMinutes?: number;
+  availability?: string;
+  ctaText?: string;
 };
 
 function formatDistance(miles: number): string {
@@ -33,6 +41,41 @@ function stableNumericId(value: string, offset: number): number {
 function formatPrice(cents: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
+
+export const curatedServiceRecommendationCards: DiscoverCard[] = [
+  ['chef-maria', 'Chef Maria’s Table', '5-Course Italian Dinner at Home', 'Midtown • Tonight 7:30 PM', 4.98, 87, '$285/person', '4 spots left', 'Book for Tonight →', 'Private Chef', 4, undefined],
+  ['vip-valet', 'Atlanta Black Car Valet', 'VIP Door-to-Door Valet', 'Mercedes S-Class • Professional Chauffeur', 4.9, 64, '$95', 'Arrives in 9 min', 'Request Valet Now →', 'Premium Valet', undefined, 9],
+  ['zen-massage', 'Zen Haven Mobile Spa', 'Deep Tissue Massage at Your Place', '60 or 90 minutes • Therapist comes to you', 4.95, 52, '$135', 'Next available: 45 min', 'Book Massage →', 'In-Home Massage', undefined, 45],
+  ['smart-parking', 'Midtown Secure Parking', 'Reserved Parking Spot + Valet Option', '2 blocks from Fox Theatre', 4.7, 118, '$22 for 6hrs', 'Live', 'Reserve Spot →', 'Smart Parking', 11, undefined],
+  ['private-bartender', 'Craft & Pour Mobile Bar', 'Private Cocktail Party Service', 'Your home or rooftop • Full setup', 4.97, 43, '$180/hr', '3 bartenders available', 'Book Bartender →', 'Private Bartender', 3, undefined],
+  ['luxury-transport', 'Executive Ride Atlanta', 'Airport Transfer or Night Out Ride', 'Black SUV • Professional Driver', 4.92, 76, '$75–$120', 'Next available: 18 min', 'Book Ride →', 'Luxury Transportation', undefined, 18],
+  ['event-photography', 'Moments by Elena', 'Private Event & Portrait Photography', 'Birthdays, proposals, dinners', 5, 39, 'Starting at $250', 'Limited evening slots', 'Book Photographer →', 'Event Photography', undefined, undefined],
+  ['wellness-recovery', 'Restore IV & Recovery', 'Mobile IV Hydration + Recovery', 'At home or hotel • 45 min session', 4.96, 58, '$179', 'Next slot: Today 6 PM', 'Book Recovery Session →', 'Wellness & Recovery', undefined, undefined],
+].map(([id, vendor, title, subtitle, rating, bookingCount, price, availability, ctaText, category, spots, eta], index) => ({
+  id: stableNumericId(String(id), 50_000 + index),
+  type: 'service',
+  name: String(title),
+  image: resolveVenuePhoto({ category: String(category), name: `${vendor} ${title}` }),
+  distance: index < 4 ? ['1.2 mi', '0.8 mi', '2.1 mi', '0.4 mi'][index] : 'Nearby',
+  price: String(price),
+  rating: Number(rating),
+  bookingCount: Number(bookingCount),
+  availability: String(availability),
+  availableSpots: typeof spots === 'number' ? spots : undefined,
+  etaMinutes: typeof eta === 'number' ? eta : undefined,
+  description: String(subtitle),
+  location: String(vendor),
+  serviceSubtitle: String(subtitle),
+  serviceCategory: String(category),
+  ctaText: String(ctaText),
+  features: [String(vendor), `${bookingCount} bookings`, String(category)],
+  verified: true,
+  entryType: 'paid',
+  entryPrice: String(price),
+  vendorServiceId: String(id),
+  vendorId: `vendor-${String(id)}`,
+  vendorServiceStatus: 'active',
+}) as DiscoverCard);
 
 function formatRequestStatus(status: VirtualPatchSavedServiceRequest['status']): string {
   if (status === 'booked') return 'Booking requested';
@@ -91,11 +134,18 @@ export function vendorServiceToCard(
     image: resolveVenuePhoto({ category: 'entertainment', name: service.title }),
     distance: formatMetersDistance(opts.distanceMeters),
     price,
+    rating: service.rating,
+    bookingCount: service.bookingCount,
+    availableSpots: service.availableSpots,
+    etaMinutes: service.etaMinutes,
     description: service.description ?? `Service by ${service.vendor.displayName}`,
     location: service.vendor.displayName,
+    serviceSubtitle: service.subtitle ?? service.description ?? undefined,
+    serviceCategory: service.category,
+    ctaText: service.ctaText,
     features: [
-      'Bookable vendor service',
       service.vendor.displayName,
+      ...(service.bookingCount ? [`${service.bookingCount} bookings`] : []),
       ...(service.durationMins ? [`${service.durationMins} min`] : []),
       ...(patchVerified ? ['Patch-verified'] : []),
       ...(service.vendor.onboardingStatus === 'active' ? ['Connect-ready provider'] : []),
@@ -103,7 +153,7 @@ export function vendorServiceToCard(
     verified: patchVerified,
     entryType: 'paid',
     entryPrice: price,
-    availability: 'Available',
+    availability: service.availability ?? (service.availableSpots ? `${service.availableSpots} spots left` : 'Available'),
     vendorServiceId: service.id,
     vendorId: service.vendor.id,
     patchId: service.patch?.id ?? null,

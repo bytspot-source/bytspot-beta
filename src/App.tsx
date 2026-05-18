@@ -70,7 +70,7 @@ import {
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
-import { savedServiceRequestToCard } from './utils/vendorServiceCards';
+import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
 // Beta MVP: Simplified screen flow
@@ -79,10 +79,11 @@ type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
+const HOME_SERVICE_CARD_STYLE = { width: 'clamp(252px, 74vw, 286px)', height: 216 };
 const HOME_OVERLAY_GRADIENT_CLASS = 'bg-gradient-to-t from-black/90 via-black/40 to-transparent';
 const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
 const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
-const DISCOVER_SERVICE_FOCUS_KEY = 'bytspot_discover_focus_service_card';
+const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
 const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Private Chef', description: 'Dinner, tasting boards, private dining' },
   { label: 'Valet', description: 'Arrival, pickup, premium handoff' },
@@ -108,7 +109,7 @@ function getHomeServiceFocusId(card: DiscoverCard): string {
 function isLiveVendorServiceCard(card: DiscoverCard): boolean {
   const features = card.features ?? [];
   return card.type === 'service'
-    && features.includes('Bookable vendor service')
+    && Boolean(card.vendorServiceId)
     && !features.includes('Requested vendor service');
 }
 
@@ -374,18 +375,21 @@ export default function App() {
   const discoverCardsWithSavedRequests = useMemo<DiscoverCard[]>(() => {
     const existingServiceIds = new Set(discoverApiCards.map(card => card.vendorServiceId).filter(Boolean));
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
-    return [...mirroredCards, ...discoverApiCards];
+    const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
+    const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
+    return [...mirroredCards, ...discoverApiCards, ...curatedFallbackCards];
   }, [discoverApiCards, savedVirtualPatchServiceCards]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
   const shouldShowServiceRecommendations = isAuthenticatedHomeUser && !APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET;
 
   const recommendedNearbyServiceCards = useMemo<DiscoverCard[]>(() => {
-    return discoverApiCards.filter(isLiveVendorServiceCard).slice(0, 8);
+    const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
+    return (liveServiceCards.length > 0 ? liveServiceCards : curatedServiceRecommendationCards).slice(0, 8);
   }, [discoverApiCards]);
 
   const handleRecommendedNearbyServiceClick = useCallback((card: DiscoverCard) => {
-    sessionStorage.setItem(DISCOVER_SERVICE_FOCUS_KEY, getHomeServiceFocusId(card));
+    sessionStorage.setItem(DISCOVER_SERVICE_HIGHLIGHT_KEY, getHomeServiceFocusId(card));
     setDiscoverFilter('service');
     setActiveTab('discover');
   }, []);
@@ -1439,7 +1443,7 @@ export default function App() {
                               data-testid="home-recommended-nearby-card"
                               onClick={() => handleRecommendedNearbyServiceClick(card)}
                               className={`${HOME_FEATURE_CARD_CLASS} border border-cyan-300/25`}
-                              style={HOME_FEATURE_CARD_STYLE}
+	                              style={HOME_SERVICE_CARD_STYLE}
                               initial={{ opacity: 0, y: 12 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ ...springConfig, delay: 0.2 + index * 0.04 }}
@@ -1448,13 +1452,16 @@ export default function App() {
                             >
                               <img src={card.image} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" aria-hidden="true" />
                               <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
-                              <div className="absolute left-3 top-3 rounded-full border border-cyan-200/35 bg-black/65 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 850 }}>
-                                Vendor service
-                              </div>
-                              <div className={`absolute inset-x-0 bottom-0 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
-                                <h3 className={`${HOME_CARD_TITLE_CLASS} line-clamp-1 text-[14px] leading-tight`} style={{ fontWeight: 850 }}>{card.name}</h3>
-                                <p className={`${HOME_CARD_META_CLASS} mt-0.5 line-clamp-1 text-[12px]`} style={{ fontWeight: 700 }}>{card.location ?? 'Experienced professional'}</p>
-                                <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px]`} style={{ fontWeight: 650 }}>{card.entryPrice ?? card.price ?? card.availability ?? 'View services'}</p>
+	                              <div className={`absolute inset-x-0 bottom-0 p-3 pt-16 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+	                                <div className="max-h-[150px] overflow-hidden">
+	                                  <p data-testid="home-service-card-vendor" className={`${HOME_CARD_META_CLASS} line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 850 }}>{card.location ?? 'Experienced professional'}</p>
+	                                  <h3 data-testid="home-service-card-title" className={`${HOME_CARD_TITLE_CLASS} mt-1 line-clamp-2 text-[15px] leading-[18px]`} style={{ fontWeight: 950 }}>{card.name}</h3>
+	                                  <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 680 }}>{card.serviceSubtitle ?? card.description ?? card.availability ?? 'Near you'}</p>
+	                                  <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[10px] leading-[12px]`} style={{ fontWeight: 850 }}>
+	                                    {[card.rating ? `${card.rating.toFixed(2)} ★` : null, card.bookingCount ? `${card.bookingCount} bookings` : null, card.entryPrice ?? card.price].filter(Boolean).join(' • ')}
+	                                  </p>
+	                                  <p data-testid="home-service-card-cta" className="mt-2 inline-flex max-w-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-2.5 py-1 text-[11px] leading-[13px] text-white shadow-lg shadow-cyan-950/25 ring-1 ring-white/25" style={{ fontWeight: 900 }}>{card.ctaText ?? 'Book now →'}</p>
+	                                </div>
                               </div>
                             </motion.button>
 	                          )) : SERVICE_RECOMMENDATION_SHORTCUTS.map((shortcut, index) => (

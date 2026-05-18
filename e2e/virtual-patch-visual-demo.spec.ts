@@ -323,19 +323,11 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
   await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Tap any service below to request instantly.', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Start the reader once, then tap any service below to request instantly.')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: /Start Reader/i }).first()).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /VIP Access Demo/i }));
-  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: 'Cancel' }));
-  await robustClick(page.getByRole('button', { name: /Concierge Help/i }));
-  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
-  await expect(page.getByRole('heading', { name: 'Nearby Premium Services' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Live vendor records prioritized by availability, service fit, and proximity.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: 'Available Local Services' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Ready near this patch. Continue as guest or sign in later to save requests.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('app-clip-local-services-list')).toHaveCSS('overflow-y', 'auto');
   await expect(page.getByText('Aster Room Private Chef')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('Civic Valet Collective')).toBeVisible({ timeout: 10_000 });
   const chefVendor = page.getByRole('button', { name: 'Open Aster Room Private Chef details' });

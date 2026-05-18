@@ -262,6 +262,29 @@ test('guest Home hides Recommended near you service recommendations', async ({ p
   await expect(page.getByTestId('home-recommended-nearby-rail')).toHaveCount(0);
 });
 
+test('guest App Clip patch invoke unlocks local service recommendations', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await page.addInitScript(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  await page.goto('/p/review-patch-123?venue=Review%20Rooftop');
+  await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/access\/review-patch-123/);
+  await expect(page.getByText(/Confirm intent to read|Tap \/ Scan needs attention|Tap \/ Scan not supported here/i)).toBeVisible({ timeout: 15_000 });
+
+  const closeScanner = page.getByRole('button', { name: 'Close' });
+  if (await closeScanner.count()) await closeScanner.click({ force: true });
+
+  await page.getByRole('tab', { name: 'Home tab' }).click();
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toHaveAttribute('aria-selected', 'true');
+  const homeRail = page.getByTestId('home-recommended-nearby-rail');
+  await expect(homeRail).toBeVisible({ timeout: 15_000 });
+  await expect(homeRail).toContainText('Live local services ready nearby');
+  await expect(homeRail).toContainText('Chef Maria’s Table');
+});
+
 test('authenticated Home shows curated service recommendations when no live services are available', async ({ page }) => {
   await installVendorServiceMocks(page);
   await page.addInitScript(() => {

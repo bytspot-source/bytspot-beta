@@ -23,7 +23,7 @@ import { describeWeatherCode, getWeatherEmoji, getWeatherTip, useWeather } from 
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { getAuditSink, initAuditSink } from './utils/auditSink';
 import { useRevocationList } from './utils/hooks/useRevocationList';
-import { isValidTagId, loadVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchSavedServiceRequest } from './utils/virtualPatch';
+import { isValidTagId, loadVirtualPatchContext, saveVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchSavedServiceRequest } from './utils/virtualPatch';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
@@ -307,6 +307,17 @@ export default function App() {
       localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
       localStorage.setItem('bytspot_user_name', 'Guest');
     }
+    const existingPatchContext = loadVirtualPatchContext();
+    if (!existingPatchContext?.patchId || existingPatchContext.patchId !== patchId) {
+      saveVirtualPatchContext({
+        source: 'app-clip',
+        mode: 'patch-invoked',
+        initiatedAt: new Date().toISOString(),
+        patchId,
+        venueName: venueName ?? null,
+        capabilities: { nfc: true, qr: true },
+      });
+    }
     localStorage.setItem('bytspot_intro_seen', 'true');
     setCurrentScreen('main');
     setActiveTab('map');
@@ -387,6 +398,11 @@ export default function App() {
     return (loadVirtualPatchContext()?.serviceRequests ?? []).slice().reverse();
   }, [virtualPatchFeedVersion, activeTab, currentScreen]);
 
+  const hasPatchInvokedGuestContext = useMemo(() => {
+    const context = loadVirtualPatchContext();
+    return Boolean(context?.patchId || context?.serviceRequests?.length);
+  }, [virtualPatchFeedVersion, activeTab, currentScreen]);
+
   const savedVirtualPatchServiceCards = useMemo<DiscoverCard[]>(() => {
     return savedVirtualPatchServiceRequests.map((request, index) => savedServiceRequestToCard(request, index));
   }, [savedVirtualPatchServiceRequests]);
@@ -400,7 +416,7 @@ export default function App() {
   }, [discoverApiCards, savedVirtualPatchServiceCards]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
-  const shouldShowServiceRecommendations = isAuthenticatedHomeUser;
+  const shouldShowServiceRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext;
 
   const recommendedNearbyServiceCards = useMemo<DiscoverCard[]>(() => {
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);

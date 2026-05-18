@@ -1582,7 +1582,11 @@ export function VirtualPatchScannerSheet({
                           <p className="mx-auto mt-2 max-w-[280px] rounded-[14px] border border-amber-200/25 bg-amber-300/10 px-3 py-2 text-[12px] text-amber-100" style={{ fontWeight: 760 }}>{premiumVendorsError}</p>
                         )}
                       </div>
-                      <div className="mt-[18px] grid grid-cols-1 gap-3">
+                      <div
+                        data-testid={appClipEntry ? 'app-clip-local-services-list' : 'virtual-patch-local-services-list'}
+                        className="mt-[18px] grid grid-cols-1 gap-3 overflow-y-auto overscroll-contain pr-1 pb-1"
+                        style={{ maxHeight: 'min(44vh, 420px)' }}
+                      >
                         {visiblePremiumVendors.map((vendor) => (
                           <motion.button
                             key={vendor.id}

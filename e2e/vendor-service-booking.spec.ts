@@ -287,6 +287,9 @@ test('guest App Clip patch invoke lands on scanner with local services visible',
   const appClipServices = page.getByTestId('app-clip-local-services-panel');
   await expect(appClipServices).toBeVisible({ timeout: 15_000 });
   await expect(appClipServices).toContainText('Available Local Services');
+  const appClipServiceList = page.getByTestId('app-clip-local-services-list');
+  await expect(appClipServiceList).toHaveCSS('overflow-y', 'auto');
+  await expect(appClipServiceList).not.toHaveCSS('max-height', 'none');
   await expect(appClipServices).toContainText('Chef Maria’s Table', { timeout: 15_000 });
   await expect(appClipServices).toContainText('5-Course Italian Dinner at Home');
 });

@@ -30,9 +30,8 @@ import { getTrendingVenueIds } from './utils/venueHours';
 import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
-import { getAccessPasses, getInsiderMembership, syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
-import { finalizePendingParkingCheckout, getParkingReservations } from './utils/parkingReservations';
-import { getUserPointsLocal } from './utils/gamification';
+import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
+import { finalizePendingParkingCheckout } from './utils/parkingReservations';
 import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
@@ -71,7 +70,6 @@ import {
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
-import { deriveConsumerExperienceTier, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
 import { savedServiceRequestToCard } from './utils/vendorServiceCards';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
@@ -81,14 +79,37 @@ type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
 const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide scroll-px-4 px-4 pr-10 pb-3';
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
-const HOME_TIER_CARD_STYLE = { width: 'clamp(276px, 82vw, 318px)', minHeight: 238 };
 const HOME_OVERLAY_GRADIENT_CLASS = 'bg-gradient-to-t from-black/90 via-black/40 to-transparent';
 const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
 const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
+const DISCOVER_SERVICE_FOCUS_KEY = 'bytspot_discover_focus_service_card';
+const SERVICE_RECOMMENDATION_SHORTCUTS = [
+  { label: 'Private Chef', description: 'Dinner, tasting boards, private dining' },
+  { label: 'Valet', description: 'Arrival, pickup, premium handoff' },
+  { label: 'Nightlife Concierge', description: 'Lounges, clubs, VIP setup' },
+  { label: 'Wellness', description: 'Massage, reset, recovery support' },
+];
 
 function hasProviderStatusAuthToken(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
   return Boolean(token && token !== 'guest_session');
+}
+
+function hasAuthenticatedConsumerSession(): boolean {
+  const token = localStorage.getItem('bytspot_auth_token');
+  const user = localStorage.getItem('bytspot_user');
+  return Boolean(token && token !== 'guest_session' && user);
+}
+
+function getHomeServiceFocusId(card: DiscoverCard): string {
+  return card.vendorServiceId ?? String(card.id);
+}
+
+function isLiveVendorServiceCard(card: DiscoverCard): boolean {
+  const features = card.features ?? [];
+  return card.type === 'service'
+    && features.includes('Bookable vendor service')
+    && !features.includes('Requested vendor service');
 }
 
 function canonicalProviderPath(pathname: string) {
@@ -355,6 +376,25 @@ export default function App() {
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
     return [...mirroredCards, ...discoverApiCards];
   }, [discoverApiCards, savedVirtualPatchServiceCards]);
+
+  const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
+  const shouldShowServiceRecommendations = isAuthenticatedHomeUser && !APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET;
+
+  const recommendedNearbyServiceCards = useMemo<DiscoverCard[]>(() => {
+    return discoverApiCards.filter(isLiveVendorServiceCard).slice(0, 8);
+  }, [discoverApiCards]);
+
+  const handleRecommendedNearbyServiceClick = useCallback((card: DiscoverCard) => {
+    sessionStorage.setItem(DISCOVER_SERVICE_FOCUS_KEY, getHomeServiceFocusId(card));
+    setDiscoverFilter('service');
+    setActiveTab('discover');
+  }, []);
+
+  const handleServiceShortcutClick = useCallback((label: string) => {
+    trackEvent('service_shortcut_selected', { label, source: 'home.recommended_near_you.empty' });
+    setDiscoverFilter('service');
+    setActiveTab('discover');
+  }, []);
 
   // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
   const tonightsPick = useMemo(() => {
@@ -650,44 +690,6 @@ export default function App() {
       description: `Swipe to explore nearby options`,
       duration: 2000,
     });
-  };
-
-  const tieredExperience = useMemo(() => {
-    const accessPasses = getAccessPasses();
-    const parkingPasses = getParkingReservations();
-    const points = getUserPointsLocal();
-    const membership = getInsiderMembership();
-    const tier = deriveConsumerExperienceTier({
-      bookingCount: accessPasses.length + parkingPasses.length,
-      activityPoints: points.total,
-      hasInsiderMembership: membership.isActive,
-    });
-
-    return {
-      tier,
-      profile: TIERED_EXPERIENCE_PROFILES[tier],
-      cards: getTieredHomeCards(tier),
-    };
-  }, [activeTab, currentScreen]);
-
-  const handleTieredCardClick = (card: TieredHomeCard) => {
-    trackEvent('tiered_experience_selected', {
-      id: card.id,
-      tier: tieredExperience.tier,
-    });
-
-    if (card.id === 'premium-valet') {
-      setShowRideSelection(true);
-      toast.success(card.title, { description: card.availabilityLine, duration: 2200 });
-      return;
-    }
-
-    if (isServiceDiscoveryHomeCard(card.id)) {
-      handleCategoryClick('service', card.id === 'cottage-massage' ? 'Cottage Industry Services' : card.title);
-      return;
-    }
-
-    handleCategoryClick('dining', card.title);
   };
 
   // PERFORMANCE: Memoize user preferences and behavior to prevent redundant calculations
@@ -1415,91 +1417,67 @@ export default function App() {
                       />
                     </div>
 
-	                    {/* ── Tiered Experience Rail ── */}
-	                    <div className="mb-6" data-testid="home-tiered-experience-section">
-	                      <div className="mb-3 flex items-center justify-between gap-3">
-	                        <div>
-	                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>{tieredExperience.profile.priorityRailLabel}</h2>
-	                        </div>
-                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 800 }}>{tieredExperience.profile.accessLevel}</span>
-	                      </div>
-	                      <div className={HOME_CAROUSEL_CLASS}>
-	                        {tieredExperience.cards.map((card, index) => (
-	                          <motion.button
-	                            key={card.id}
-	                            type="button"
-	                            data-testid={`home-tier-card-${card.id}`}
-	                            onClick={() => handleTieredCardClick(card)}
-                            className="relative flex-shrink-0 snap-start overflow-hidden rounded-[28px] border border-slate-700 bg-slate-950 p-0 text-left shadow-[0_20px_52px_rgba(0,0,0,0.38)] ring-1 ring-white/15"
-	                            style={HOME_TIER_CARD_STYLE}
-	                            initial={{ opacity: 0, y: 12 }}
-	                            animate={{ opacity: 1, y: 0 }}
-	                            transition={{ ...springConfig, delay: 0.2 + index * 0.05 }}
-	                            whileTap={{ scale: 0.97 }}
-	                            whileHover={{ scale: 1.01, y: -2 }}
-	                          >
-                            <div className="relative h-[92px] overflow-hidden bg-slate-900">
-                              <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${card.accentClass}`} />
-                              <div className="absolute left-4 top-4 flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[30px] shadow-lg ring-1 ring-slate-200">{card.imageCue}</div>
-                              <span className="absolute right-4 top-4 rounded-full bg-cyan-300 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-950" style={{ fontWeight: 900 }}>{card.tierBadge}</span>
-	                            </div>
-	                            <div className="p-4">
-	                              <div className="mb-2 flex items-center gap-2">
-                                <span className="rounded-full border border-emerald-300 bg-emerald-300 px-2 py-0.5 text-[10px] text-emerald-950 shadow-sm" style={{ fontWeight: 900 }}>{card.badge}</span>
-	                              </div>
-		                              <h3 className="text-[17px] leading-tight text-white line-clamp-2 drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{card.title}</h3>
-                              <p className="mt-1 text-[12px] text-white line-clamp-1 drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.subtitle}</p>
-		                              <p className="mt-3 text-[14px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{card.priceLine}</p>
-                              <p className="mt-0.5 text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.availabilityLine}</p>
-	                              <div className="mt-4 flex items-center justify-between gap-3">
-                                <span className="text-[11px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{tieredExperience.profile.heroLabel}</span>
-                                <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.ctaLabel}</span>
-	                              </div>
-	                            </div>
-	                          </motion.button>
-	                        ))}
-	                      </div>
-	                    </div>
 
-                    {savedVirtualPatchServiceCards.length > 0 && (
-                      <div className="mb-6" data-testid="home-saved-service-rail">
+                    {shouldShowServiceRecommendations && (
+                      <div className="mb-6" data-testid="home-recommended-nearby-rail">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
-                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended for You</h2>
-                            <p className="text-[12px] text-white drop-shadow-sm" style={{ fontWeight: 650 }}>Services mirrored from your Virtual Patch requests</p>
+                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended near you</h2>
+	                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedNearbyServiceCards.length > 0 ? 'Live vendor services ready nearby' : 'Choose a service lane to explore next'}</p>
                           </div>
-                          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>My Access</span>
+	                          {recommendedNearbyServiceCards.length > 0 && (
+	                            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>
+	                              {recommendedNearbyServiceCards.length} nearby
+	                            </span>
+	                          )}
                         </div>
                         <div className={HOME_CAROUSEL_CLASS}>
-                          {savedVirtualPatchServiceCards.map((card, index) => (
+	                          {recommendedNearbyServiceCards.length > 0 ? recommendedNearbyServiceCards.map((card, index) => (
                             <motion.button
-                              key={`saved-service-${card.vendorServiceId ?? card.id}`}
+                              key={`recommended-nearby-${getHomeServiceFocusId(card)}`}
                               type="button"
-                              data-testid="home-saved-service-card"
-                              onClick={() => {
-                                setDiscoverFilter('service');
-                                setActiveTab('discover');
-                              }}
+                              data-testid="home-recommended-nearby-card"
+                              onClick={() => handleRecommendedNearbyServiceClick(card)}
                               className={`${HOME_FEATURE_CARD_CLASS} border border-cyan-300/25`}
                               style={HOME_FEATURE_CARD_STYLE}
                               initial={{ opacity: 0, y: 12 }}
                               animate={{ opacity: 1, y: 0 }}
-                              transition={{ ...springConfig, delay: 0.24 + index * 0.04 }}
+                              transition={{ ...springConfig, delay: 0.2 + index * 0.04 }}
                               whileTap={{ scale: 0.96 }}
                               whileHover={{ scale: 1.02, y: -2 }}
                             >
                               <img src={card.image} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" aria-hidden="true" />
                               <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
                               <div className="absolute left-3 top-3 rounded-full border border-cyan-200/35 bg-black/65 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 850 }}>
-                                Requested service
+                                Vendor service
                               </div>
                               <div className={`absolute inset-x-0 bottom-0 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
-                                <h3 className={`${HOME_CARD_TITLE_CLASS} line-clamp-1 text-[14px] leading-tight`} style={{ fontWeight: 850 }}>{card.location ?? 'Requested vendor service'}</h3>
-                                <p className={`${HOME_CARD_META_CLASS} mt-0.5 line-clamp-1 text-[12px]`} style={{ fontWeight: 700 }}>{card.name}</p>
-                                <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px]`} style={{ fontWeight: 650 }}>{card.availability ?? 'Service requested'}</p>
+                                <h3 className={`${HOME_CARD_TITLE_CLASS} line-clamp-1 text-[14px] leading-tight`} style={{ fontWeight: 850 }}>{card.name}</h3>
+                                <p className={`${HOME_CARD_META_CLASS} mt-0.5 line-clamp-1 text-[12px]`} style={{ fontWeight: 700 }}>{card.location ?? 'Experienced professional'}</p>
+                                <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px]`} style={{ fontWeight: 650 }}>{card.entryPrice ?? card.price ?? card.availability ?? 'View services'}</p>
                               </div>
                             </motion.button>
-                          ))}
+	                          )) : SERVICE_RECOMMENDATION_SHORTCUTS.map((shortcut, index) => (
+	                            <motion.button
+	                              key={`service-shortcut-${shortcut.label}`}
+	                              type="button"
+	                              data-testid="home-service-shortcut-card"
+	                              onClick={() => handleServiceShortcutClick(shortcut.label)}
+	                              className="relative flex-shrink-0 snap-start overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/80 p-3 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-cyan-200/10"
+	                              style={HOME_FEATURE_CARD_STYLE}
+	                              initial={{ opacity: 0, y: 12 }}
+	                              animate={{ opacity: 1, y: 0 }}
+	                              transition={{ ...springConfig, delay: 0.2 + index * 0.04 }}
+	                              whileTap={{ scale: 0.96 }}
+	                              whileHover={{ scale: 1.02, y: -2 }}
+	                            >
+	                              <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
+	                              <div className="relative flex h-full flex-col justify-end">
+	                                <h3 className={`${HOME_CARD_TITLE_CLASS} line-clamp-2 text-[14px] leading-tight`} style={{ fontWeight: 850 }}>{shortcut.label}</h3>
+	                                <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-2 text-[11px]`} style={{ fontWeight: 650 }}>{shortcut.description}</p>
+	                              </div>
+	                            </motion.button>
+	                          ))}
                         </div>
                       </div>
                     )}

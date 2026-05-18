@@ -146,14 +146,15 @@ test.describe('Virtual Patch', () => {
   test('requested vendor services persist in Profile → My Access without verified access', async ({ page }) => {
     await mockVenuesApi(page);
 
+    const requestedAt = new Date().toISOString();
     const serviceOnlyContext = {
       source: 'scanner',
       mode: 'service-request',
-      initiatedAt: '2026-04-25T18:05:00.000Z',
+      initiatedAt: requestedAt,
       venueId: 'test-venue-1',
       venueName: 'Venue Services',
       serviceRequests: [{
-        id: 'booking:vendor-chef:chef-board:2026-04-25T18:05:00.000Z',
+        id: `booking:vendor-chef:chef-board:${requestedAt}`,
         kind: 'booking',
         vendorId: 'vendor-chef',
         vendorName: 'Aster Room Private Chef',
@@ -162,7 +163,7 @@ test.describe('Virtual Patch', () => {
         serviceName: 'Chef tasting board',
         actionLabel: 'Book Now',
         status: 'booked',
-        requestedAt: '2026-04-25T18:05:00.000Z',
+        requestedAt,
         venueId: 'test-venue-1',
         venueName: 'Venue Services',
         source: 'live',

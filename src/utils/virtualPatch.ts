@@ -1,4 +1,5 @@
 export const VIRTUAL_PATCH_CONTEXT_KEY = 'bytspot_virtual_patch_context';
+const SERVICE_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type VirtualPatchScanMethod = 'qr' | 'nfc';
 
@@ -354,7 +355,24 @@ export function loadVirtualPatchContext(): VirtualPatchContext | null {
     const raw = window.localStorage.getItem(VIRTUAL_PATCH_CONTEXT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as VirtualPatchContext) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const context = parsed as VirtualPatchContext;
+    if (!Array.isArray(context.serviceRequests)) return context;
+
+    const now = Date.now();
+    const freshRequests = context.serviceRequests.filter((request) => {
+      const requestedAt = Date.parse(request.requestedAt);
+      return Number.isFinite(requestedAt) && now - requestedAt < SERVICE_REQUEST_TTL_MS;
+    });
+
+    if (freshRequests.length !== context.serviceRequests.length) {
+      const prunedContext = { ...context, serviceRequests: freshRequests };
+      saveVirtualPatchContext(prunedContext);
+      return prunedContext;
+    }
+
+    return context;
   } catch {
     return null;
   }

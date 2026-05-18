@@ -18,9 +18,14 @@ const serviceIdKey = decodeKey('dmVuZG9yU2VydmljZUlk');
 const serviceStatusKey = decodeKey('dmVuZG9yU2VydmljZVN0YXR1cw==');
 const serviceOwnerIdKey = decodeKey('dmVuZG9ySWQ=');
 const servicePayoutKey = decodeKey('cHJvdmlkZXJQYXlvdXRFc3RpbWF0ZUNlbnRz');
+const DISCOVER_SERVICE_FOCUS_KEY = 'bytspot_discover_focus_service_card';
 
 function cardField<T = unknown>(card: DiscoverCard, key: string): T | undefined {
   return (card as unknown as Record<string, unknown>)[key] as T | undefined;
+}
+
+function getServiceFocusId(card: DiscoverCard): string {
+  return cardField<string>(card, serviceIdKey) ?? String(card.id);
 }
 
 // Pure helper — no state deps, safe at module level
@@ -422,13 +427,17 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const [pullDistance, setPullDistance] = useState(0);
   const [startY, setStartY] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const serviceRailRef = useRef<HTMLElement | null>(null);
+  const serviceCardRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [highlightedServiceFocusId, setHighlightedServiceFocusId] = useState<string | null>(null);
   const eventCards = events.map(toEventDiscoverCard);
   const isEventSurface = appliedFilter === 'entertainment';
   const cards = [...apiCards, ...googleCards].filter(card =>
     !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET || card.type !== 'valet'
   );
-  const vendorServiceCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? [] : cards.filter(isVendorServiceCard);
-  const standardDeckCards = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? cards.filter(card => card.type !== 'service') : cards.filter(card => !isVendorServiceCard(card));
+  const serviceDiscoveryHidden = APP_STORE_CONSUMER_ONLY_COMPILE_TIME || APPLE_REVIEW_HIDE_PROVIDER_AND_VALET;
+  const vendorServiceCards = serviceDiscoveryHidden ? [] : cards.filter(isVendorServiceCard);
+  const standardDeckCards = serviceDiscoveryHidden ? cards.filter(card => card.type !== 'service') : cards.filter(card => !isVendorServiceCard(card));
   const cottageServiceFallbackCards = appliedFilter === 'service' && vendorServiceCards.length === 0
     ? standardDeckCards.filter(isCottageServiceFallbackCard).slice(0, 8)
     : [];
@@ -626,6 +635,26 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     setBookingServiceMessage('You are signed in. Confirm this service to continue to Stripe Checkout.');
     setSelectedVendorService(pendingCard);
   }, [selectedVendorService]);
+
+  useEffect(() => {
+    if (appliedFilter !== 'service' || vendorServiceCards.length === 0) return;
+    const focusId = sessionStorage.getItem(DISCOVER_SERVICE_FOCUS_KEY);
+    if (!focusId) return;
+
+    const timeout = window.setTimeout(() => {
+      serviceRailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      serviceCardRefs.current.get(focusId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setHighlightedServiceFocusId(focusId);
+      sessionStorage.removeItem(DISCOVER_SERVICE_FOCUS_KEY);
+    }, 80);
+
+    const highlightTimeout = window.setTimeout(() => setHighlightedServiceFocusId(null), 1900);
+
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearTimeout(highlightTimeout);
+    };
+  }, [appliedFilter, vendorServiceCards.length]);
 
   // Pull to refresh
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -936,47 +965,46 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         </div>
       </div>
 
-      {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
-        <section className="flex-shrink-0 px-4 pt-3" aria-label="Bookable services" data-testid="service-card-rail">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[12px] uppercase tracking-[0.18em] text-cyan-200" style={{ fontWeight: 850 }}>Bookable services</p>
-              <p className="text-[12px] text-white/50" style={{ fontWeight: 600 }}>Experienced professionals ready for secure checkout</p>
-            </div>
-            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{vendorServiceCards.length} active</span>
-          </div>
+      {!serviceDiscoveryHidden && vendorServiceCards.length > 0 && !showSavedOnly && (!appliedFilter || appliedFilter === 'service') && (
+        <section ref={serviceRailRef} className="flex-shrink-0 px-4 pt-3" aria-label="Bookable services" data-testid="service-card-rail">
           <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            {vendorServiceCards.map((card, index) => (
-              <motion.button
-                key={cardField<string>(card, serviceIdKey) ?? card.id}
+            {vendorServiceCards.map((card, index) => {
+              const focusId = getServiceFocusId(card);
+              const isHighlighted = highlightedServiceFocusId === focusId;
+              return (
+                <motion.button
+		                key={focusId}
                 type="button"
-                data-testid={`service-quick-card-${cardField<string>(card, serviceIdKey)}`}
+	                ref={(node) => {
+	                  if (node) serviceCardRefs.current.set(focusId, node);
+	                  else serviceCardRefs.current.delete(focusId);
+	                }}
+		                data-testid={`service-quick-card-${focusId}`}
+		                data-service-focus-id={focusId}
                 onClick={() => handleCardClick(card)}
-                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-200/25 bg-gradient-to-t from-black/90 via-slate-900 to-slate-800 p-3 text-left text-white shadow-[0_16px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/10 active:scale-[0.98]"
+                className={`min-w-[184px] max-w-[196px] rounded-[20px] border bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/80 p-3 text-left text-white shadow-[0_14px_30px_rgba(0,0,0,0.34)] ring-1 transition-all active:scale-[0.98] ${isHighlighted ? 'border-cyan-200/70 ring-cyan-200/70 shadow-cyan-500/20' : 'border-white/10 ring-white/10'}`}
                 initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                animate={{ opacity: 1, y: 0, scale: isHighlighted ? [1, 1.035, 1] : 1 }}
                 transition={{ duration: 0.18, delay: index * 0.035 }}
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.98 }}
               >
-                <div className="mb-2 flex items-start justify-between gap-2">
-	                  <div>
-                    <p className="line-clamp-1 text-[15px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>{card.name}</p>
-                    <p className="line-clamp-1 text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
+                <div className="flex min-h-[102px] flex-col justify-between gap-2">
+		                  <div>
+                    <p className="line-clamp-2 text-[14px] leading-[17px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>{card.name}</p>
+                    <p className="mt-1 line-clamp-1 text-[11px] text-white/90 drop-shadow-sm shadow-black" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
                   </div>
-	                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price ?? 'Requested'}</span>
-                </div>
-	                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.description}</p>
-                <div className="mt-3 flex items-center justify-between gap-2">
-	                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/35 bg-black/60 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>
-                    <Shield className="h-3 w-3 text-cyan-300" strokeWidth={2.6} /> Active
-                  </span>
-	                  <span className="inline-flex items-center gap-1 text-[11px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>
-                    Book <CreditCard className="h-3 w-3" strokeWidth={2.6} />
-                  </span>
+		                <p className="line-clamp-2 text-[11px] leading-4 text-white/85 drop-shadow-sm shadow-black" style={{ fontWeight: 600 }}>{card.description}</p>
+                  <div className="flex items-center justify-between gap-2">
+		                  <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white ring-1 ring-white/15 shadow-black drop-shadow-sm" style={{ fontWeight: 850 }}>{card.entryPrice ?? card.price ?? 'View'}</span>
+		                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-100 drop-shadow-sm shadow-black" style={{ fontWeight: 850 }}>
+                      Details <CreditCard className="h-3 w-3" strokeWidth={2.4} />
+                    </span>
+                  </div>
                 </div>
               </motion.button>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

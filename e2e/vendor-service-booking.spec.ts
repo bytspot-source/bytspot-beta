@@ -140,38 +140,102 @@ async function installVendorServiceMocks(page: Page, opts: { failVenues?: boolea
 }
 
 async function enterMainApp(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+    localStorage.setItem('bytspot_user_name', 'Guest');
+    localStorage.removeItem('bytspot_virtual_patch_context');
+  });
   await page.goto('/');
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-  await page.getByText("Let's Go").click();
-  await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-  await page.getByText('Continue as Guest').click();
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+}
+
+async function enterAuthenticatedMainApp(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'test-user-token');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'user-1', email: 'booker@test.com', name: 'Test Booker' }));
+    localStorage.setItem('bytspot_user_name', 'Test Booker');
+    localStorage.removeItem('bytspot_virtual_patch_context');
+  });
+  await page.goto('/');
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 }
 
 async function openVendorServiceCard(page: Page, serviceId = 'svc-vip-arrival') {
   await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
-  const serviceCard = page.getByTestId(`vendor-service-quick-card-${serviceId}`);
+  const serviceCard = page.getByTestId(`service-quick-card-${serviceId}`);
   await expect(serviceCard).toBeVisible({ timeout: 15_000 });
   await serviceCard.scrollIntoViewIfNeeded();
   await serviceCard.click({ force: true });
-  await expect(page.getByTestId('vendor-service-booking-sheet')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('service-booking-sheet')).toBeVisible({ timeout: 10_000 });
 }
 
-test('vendor service discovery cards all render as active and interactable', async ({ page }) => {
+test('authenticated Home shows Recommended near you from live service cards and routes to Discover', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await enterAuthenticatedMainApp(page);
+
+  const homeRail = page.getByTestId('home-recommended-nearby-rail');
+  await expect(homeRail).toBeVisible({ timeout: 15_000 });
+  await expect(homeRail).toContainText('Recommended near you');
+  await expect(homeRail).toContainText('VIP Arrival');
+  await expect(homeRail).not.toContainText('Chef Maria');
+  await expect(homeRail).not.toContainText('Valet Pickup');
+  await expect(homeRail).not.toContainText('Cottage Industry');
+
+  await page.getByTestId('home-recommended-nearby-card').filter({ hasText: 'VIP Arrival' }).click({ force: true });
+  await expect(page.getByRole('tab', { name: 'Discover tab' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('service-card-rail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('service-quick-card-svc-vip-arrival')).toContainText('VIP Arrival');
+});
+
+test('guest Home hides Recommended near you service recommendations', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await enterMainApp(page);
+
+  await expect(page.getByTestId('home-recommended-nearby-rail')).toHaveCount(0);
+});
+
+test('authenticated Home shows category shortcuts when no live services are available', async ({ page }) => {
+  await installVendorServiceMocks(page);
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes('/trpc/vendors.search')) {
+        return new Response(JSON.stringify({ result: { data: { services: [], count: 0 } } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return originalFetch(input as RequestInfo | URL, init);
+    };
+  });
+  await enterAuthenticatedMainApp(page);
+
+  const homeRail = page.getByTestId('home-recommended-nearby-rail');
+  await expect(homeRail).toBeVisible({ timeout: 15_000 });
+  await expect(homeRail).toContainText('Private Chef');
+  await expect(homeRail).toContainText('Valet');
+  await expect(homeRail).toContainText('Nightlife Concierge');
+  await expect(homeRail).toContainText('Wellness');
+});
+
+test('vendor service discovery cards render compact and interactable', async ({ page }) => {
   await installVendorServiceMocks(page);
   await enterMainApp(page);
   await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
 
-  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('service-card-rail')).toBeVisible({ timeout: 15_000 });
   for (const service of VENDOR_SERVICES) {
-    const quickCard = page.getByTestId(`vendor-service-quick-card-${service.id}`);
+    const quickCard = page.getByTestId(`service-quick-card-${service.id}`);
     await expect(quickCard).toBeVisible();
     await expect(quickCard).toContainText(service.title);
-    await expect(quickCard).toContainText('Active');
+    await expect(quickCard).toContainText(service.vendor.displayName);
+    await expect(quickCard).not.toContainText('Active');
+    await expect(quickCard).not.toContainText('Book');
 
     await quickCard.scrollIntoViewIfNeeded();
     await quickCard.click({ force: true });
-    const sheet = page.getByTestId('vendor-service-booking-sheet');
+    const sheet = page.getByTestId('service-booking-sheet');
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText(service.title)).toBeVisible();
     await sheet.getByRole('button', { name: 'Not now' }).click({ force: true });
@@ -184,12 +248,12 @@ test('standard API cards remain in the default Discover swipe deck', async ({ pa
   await enterMainApp(page);
   await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
 
-  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('service-card-rail')).toBeVisible({ timeout: 15_000 });
   const standardCard = page.getByTestId('discover-swipe-card-1');
   await expect(standardCard).toBeVisible({ timeout: 15_000 });
   await expect(standardCard).toContainText('Standard API Garage');
   await expect(standardCard).toContainText('18 spots');
-  await expect(page.getByTestId('vendor-service-quick-card-svc-vip-arrival')).toBeVisible();
+  await expect(page.getByTestId('service-quick-card-svc-vip-arrival')).toBeVisible();
 });
 
 test('vendor service discovery survives a venue API outage', async ({ page }) => {
@@ -197,9 +261,9 @@ test('vendor service discovery survives a venue API outage', async ({ page }) =>
   await enterMainApp(page);
   await page.getByRole('tab', { name: 'Discover tab' }).click({ force: true });
 
-  await expect(page.getByTestId('vendor-service-card-rail')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('vendor-service-quick-card-svc-vip-arrival')).toContainText('VIP Arrival');
-  await expect(page.getByTestId('vendor-service-quick-card-svc-market-table-assist')).toContainText('Night Market Table Assist');
+  await expect(page.getByTestId('service-card-rail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('service-quick-card-svc-vip-arrival')).toContainText('VIP Arrival');
+  await expect(page.getByTestId('service-quick-card-svc-market-table-assist')).toContainText('Night Market Table Assist');
 });
 
 test('vendor service discovery card starts booking checkout', async ({ page }) => {
@@ -212,7 +276,7 @@ test('vendor service discovery card starts booking checkout', async ({ page }) =
   await enterMainApp(page);
   await page.evaluate(() => localStorage.setItem('bytspot_auth_token', 'test-user-token'));
   await openVendorServiceCard(page);
-  await page.getByTestId('vendor-service-checkout-cta').click({ force: true });
+  await page.getByTestId('service-checkout-cta').click({ force: true });
 
   await expect.poll(() => bookingPayloads).toHaveLength(1);
   expect(bookingPayloads[0]).toMatchObject({ serviceId: 'svc-vip-arrival', usePoints: false, metadata: { source: 'discover.service_card', vendorId: 'vendor-midtown', patchId: 'patch-vip' } });
@@ -226,8 +290,8 @@ test('guest vendor service booking prompts sign in instead of calling checkout',
   await enterMainApp(page);
   await openVendorServiceCard(page);
 
-  await expect(page.getByTestId('vendor-service-checkout-cta')).toContainText('Sign in to book');
-  await page.getByTestId('vendor-service-checkout-cta').click({ force: true });
+  await expect(page.getByTestId('service-checkout-cta')).toContainText('Sign in to book');
+  await page.getByTestId('service-checkout-cta').click({ force: true });
 
   await expect(page.getByPlaceholder('Email address')).toBeVisible({ timeout: 10_000 });
   expect(bookingPayloads).toHaveLength(0);
@@ -237,8 +301,8 @@ test('guest vendor service booking prompts sign in instead of calling checkout',
   await page.getByPlaceholder('Password').fill('password123');
   await page.getByRole('button', { name: 'Create Account' }).click();
 
-  await expect(page.getByTestId('vendor-service-booking-sheet')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('vendor-service-checkout-cta')).toContainText('Book with Stripe');
+  await expect(page.getByTestId('service-booking-sheet')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('service-checkout-cta')).toContainText('Book with Stripe');
   expect(bookingPayloads).toHaveLength(0);
 });
 

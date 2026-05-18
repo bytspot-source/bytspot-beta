@@ -272,7 +272,7 @@ export default function App() {
 
   // Universal-link / App Clip handoff — when the user lands via bytspot.app/p/<id>?venue=...
   // we surface this to MapSection which auto-opens the scanner with the patch pre-filled.
-  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId?: string | null; venueName?: string } | null>(null);
+  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId?: string | null; venueName?: string; source?: 'app-clip' | 'wallet' } | null>(null);
   const consumePendingPatchScan = useCallback(() => setPendingPatchScan(null), []);
 
   const openVirtualPatchFromWallet = useCallback((context: VirtualPatchContext | null) => {
@@ -283,6 +283,7 @@ export default function App() {
     setPendingPatchScan({
       patchId: context?.patchId ?? null,
       venueName: context?.venueName ?? undefined,
+      source: 'wallet',
     });
   }, []);
 
@@ -308,20 +309,20 @@ export default function App() {
       localStorage.setItem('bytspot_user_name', 'Guest');
     }
     const existingPatchContext = loadVirtualPatchContext();
-    if (!existingPatchContext?.patchId || existingPatchContext.patchId !== patchId) {
-      saveVirtualPatchContext({
-        source: 'app-clip',
-        mode: 'patch-invoked',
-        initiatedAt: new Date().toISOString(),
-        patchId,
-        venueName: venueName ?? null,
-        capabilities: { nfc: true, qr: true },
-      });
-    }
+    const now = new Date().toISOString();
+    saveVirtualPatchContext({
+      ...(existingPatchContext ?? {}),
+      source: 'app-clip',
+      mode: 'patch-invoked',
+      initiatedAt: existingPatchContext?.patchId === patchId ? existingPatchContext.initiatedAt ?? now : now,
+      patchId,
+      venueName: venueName ?? existingPatchContext?.venueName ?? null,
+      capabilities: { ...(existingPatchContext?.capabilities ?? {}), nfc: true, qr: true },
+    });
     localStorage.setItem('bytspot_intro_seen', 'true');
     setCurrentScreen('main');
     setActiveTab('map');
-    setPendingPatchScan({ patchId, venueName });
+    setPendingPatchScan({ patchId, venueName, source: 'app-clip' });
     window.history.replaceState({}, '', consumerPatchPath(patchId));
   }, [openProviderPatchManager]);
 

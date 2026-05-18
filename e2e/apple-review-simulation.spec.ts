@@ -110,7 +110,12 @@ test.describe('Apple Review simulation', () => {
   test('App Clip or NFC deep link opens Parker map tap/scan flow without internal routes', async ({ page }) => {
     await page.goto('/p/review-patch-123?venue=Review%20Rooftop');
     await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
-    await expect(page.getByText(/Confirm intent to read|Tap \/ Scan needs attention|Tap \/ Scan not supported here/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('QR Backup Scanner')).toBeVisible({ timeout: 15_000 });
+    const appClipServices = page.getByTestId('app-clip-local-services-panel');
+    await expect(appClipServices).toBeVisible({ timeout: 15_000 });
+    await expect(appClipServices).toContainText('Available Local Services');
+    await expect(appClipServices).toContainText(/Private Chef|Mobile Massage|Patch Verified/i);
+    await expect(appClipServices).not.toContainText(/Valet/i);
     await expect(page.getByText(/Provider|Vendor|Admin|Dashboard|Internal Ops/i)).toHaveCount(0);
   });
 

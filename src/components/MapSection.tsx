@@ -64,7 +64,7 @@ interface MapSectionProps {
   /** Audit log sink (NIST PR.PT-1). Wired by App.tsx to the durable audit pipeline. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
   /** Universal-link / App Clip handoff — auto-opens the scanner with this patch pre-filled. */
-  pendingPatchScan?: { patchId?: string | null; venueName?: string } | null;
+  pendingPatchScan?: { patchId?: string | null; venueName?: string; source?: 'app-clip' | 'wallet' } | null;
   /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
   onPendingPatchScanConsumed?: () => void;
 }
@@ -384,6 +384,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [showAINotice, setShowAINotice] = useState(false);
   const [showQrScannerSheet, setShowQrScannerSheet] = useState(false);
   const [qrScannerVenue, setQrScannerVenue] = useState<ApiVenue | null>(null);
+  const [qrScannerEntrySource, setQrScannerEntrySource] = useState<'map' | 'app-clip' | 'wallet'>('map');
   const [showLiveUpdates, setShowLiveUpdates] = useState(true);
   // Bytspot Premium gating: drives the perks panel inside the verified peek sheet
   const [isPremium, setIsPremium] = useState(false);
@@ -474,6 +475,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const handleCloseQrScanner = useCallback(() => {
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
+    setQrScannerEntrySource('map');
   }, []);
 
   // Universal-link / App Clip / wallet handoff: when App.tsx receives a deep-link
@@ -486,6 +488,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       name: pendingPatchScan.venueName ?? 'Bytspot patch',
       hardwarePatch: { id: pendingPatchScan.patchId ?? null },
     } as unknown as ApiVenue;
+    setQrScannerEntrySource(pendingPatchScan.source ?? 'app-clip');
     setQrScannerVenue(synthetic);
     setShowQrScannerSheet(true);
     onPendingPatchScanConsumed?.();
@@ -530,6 +533,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     setShowVirtualPatchSheet(false);
 
     if (scanCapabilities.nfc || scanCapabilities.qr) {
+      setQrScannerEntrySource('map');
       setQrScannerVenue(targetVenue);
       setShowQrScannerSheet(true);
       toast.success('Tap / Scan ready', {
@@ -565,6 +569,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     }
 
     if (suggestedVenue && (scanCapabilities.nfc || scanCapabilities.qr)) {
+      setQrScannerEntrySource('map');
       setQrScannerVenue(suggestedVenue);
       setShowQrScannerSheet(true);
       toast.success('Tap / Scan ready', {
@@ -581,6 +586,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         name: 'Bytspot patch',
         hardwarePatch: { id: null },
       } as unknown as ApiVenue;
+      setQrScannerEntrySource('map');
       setQrScannerVenue(synthetic);
       setShowQrScannerSheet(true);
       toast.success('Tap / Scan ready', {
@@ -1357,6 +1363,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           onOpenAccessWallet={onOpenAccessWallet}
           onAuditEvent={onAuditEvent}
           ageGate={qrScannerVenue?.ageGate ?? null}
+          appClipEntry={qrScannerEntrySource === 'app-clip'}
         />,
         document.body,
       )}

@@ -262,7 +262,7 @@ test('guest Home hides Recommended near you service recommendations', async ({ p
   await expect(page.getByTestId('home-recommended-nearby-rail')).toHaveCount(0);
 });
 
-test('guest App Clip patch invoke unlocks local service recommendations', async ({ page }) => {
+test('guest App Clip patch invoke lands on scanner with local services visible', async ({ page }) => {
   await installVendorServiceMocks(page);
   await page.addInitScript(() => {
     localStorage.clear();
@@ -271,18 +271,24 @@ test('guest App Clip patch invoke unlocks local service recommendations', async 
 
   await page.goto('/p/review-patch-123?venue=Review%20Rooftop');
   await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toHaveAttribute('aria-selected', 'false');
   await expect(page).toHaveURL(/\/access\/review-patch-123/);
-  await expect(page.getByText(/Confirm intent to read|Tap \/ Scan needs attention|Tap \/ Scan not supported here/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('QR Backup Scanner')).toBeVisible({ timeout: 15_000 });
 
-  const closeScanner = page.getByRole('button', { name: 'Close' });
-  if (await closeScanner.count()) await closeScanner.click({ force: true });
+  const session = await page.evaluate(() => ({
+    token: localStorage.getItem('bytspot_auth_token'),
+    user: JSON.parse(localStorage.getItem('bytspot_user') || 'null'),
+    patchContext: JSON.parse(localStorage.getItem('bytspot_virtual_patch_context') || 'null'),
+  }));
+  expect(session.token).toBe('guest_session');
+  expect(session.user).toMatchObject({ id: 'guest', name: 'Guest' });
+  expect(session.patchContext).toMatchObject({ source: 'app-clip', mode: 'patch-invoked', patchId: 'review-patch-123', venueName: 'Review Rooftop' });
 
-  await page.getByRole('tab', { name: 'Home tab' }).click();
-  await expect(page.getByRole('tab', { name: 'Home tab' })).toHaveAttribute('aria-selected', 'true');
-  const homeRail = page.getByTestId('home-recommended-nearby-rail');
-  await expect(homeRail).toBeVisible({ timeout: 15_000 });
-  await expect(homeRail).toContainText('Live local services ready nearby');
-  await expect(homeRail).toContainText('Chef Maria’s Table');
+  const appClipServices = page.getByTestId('app-clip-local-services-panel');
+  await expect(appClipServices).toBeVisible({ timeout: 15_000 });
+  await expect(appClipServices).toContainText('Available Local Services');
+  await expect(appClipServices).toContainText('Chef Maria’s Table', { timeout: 15_000 });
+  await expect(appClipServices).toContainText('5-Course Italian Dinner at Home');
 });
 
 test('authenticated Home shows curated service recommendations when no live services are available', async ({ page }) => {

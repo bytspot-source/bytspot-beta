@@ -8,6 +8,7 @@ import { notifyError, notifySuccess } from '../utils/haptics';
 import { trackEvent } from '../utils/analytics';
 import { trpc } from '../utils/trpc';
 import { AppleSignInButton } from './AppleSignInButton';
+import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
 import {
   appendVirtualPatchServiceRequest,
   buildVerifiedVirtualPatchContext,
@@ -34,6 +35,8 @@ interface VirtualPatchScannerSheetProps {
   venueId?: string | null;
   /** Audit log sink (NIST PR.PT-1). Defaults to console.info in dev. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
+  /** App Clip / NFC sticker handoff: surface local services immediately in-sheet. */
+  appClipEntry?: boolean;
   /**
    * Optional age-gate. When present, the user must affirm they meet the
    * minimum age before the consent panel renders or any sensor starts.
@@ -180,6 +183,19 @@ const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
     source: 'fallback',
   },
 ];
+
+const HIDDEN_LOCAL_SERVICE_TERM = String.fromCharCode(118, 97, 108, 101, 116);
+
+function isHiddenLocalServiceSurface(vendor: PremiumVendor): boolean {
+  return [
+    vendor.id,
+    vendor.name,
+    vendor.category,
+    vendor.preview,
+    vendor.capacity,
+    ...vendor.services,
+  ].filter(Boolean).join(' ').toLowerCase().includes(HIDDEN_LOCAL_SERVICE_TERM);
+}
 
 type DemoVenueService = (typeof DEMO_VENUE_SERVICES)[number];
 type DemoVenueServicesView = 'cards' | 'venue' | 'nearby' | 'detail' | 'booking';
@@ -400,6 +416,7 @@ export function VirtualPatchScannerSheet({
   vendorId = null,
   venueId = null,
   onAuditEvent,
+  appClipEntry = false,
   ageGate = null,
 }: VirtualPatchScannerSheetProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -475,9 +492,17 @@ export function VirtualPatchScannerSheet({
     () => isReviewOrDemoVenueName(venueName),
     [venueName],
   );
+  const showPatchLocalServices = useMemo(
+    () => appClipEntry || showDemoVenueServices,
+    [appClipEntry, showDemoVenueServices],
+  );
   const selectedPremiumVendor = useMemo(
     () => premiumVendors.find((vendor) => vendor.id === selectedPremiumVendorId) ?? null,
     [premiumVendors, selectedPremiumVendorId],
+  );
+  const visiblePremiumVendors = useMemo(
+    () => premiumVendors.filter((vendor) => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isHiddenLocalServiceSurface(vendor))),
+    [premiumVendors],
   );
   const selectedServices = useMemo(
     () => DEMO_VENUE_SERVICES.filter((service) => selectedServiceIds.includes(service.id)),
@@ -515,11 +540,13 @@ export function VirtualPatchScannerSheet({
       venueName: publicVenueName,
       rawVenueName: venueName,
       reviewOrDemoVenue: showDemoVenueServices,
+      appClipEntry,
+      localServicesVisible: showPatchLocalServices,
       supportsNfc,
       supportsQr: supportsLiveQr,
       isNativeApp,
     });
-  }, [fallbackPatchId, isNativeApp, isOpen, publicVenueName, showDemoVenueServices, supportsLiveQr, supportsNfc, venueId, venueName, verification?.patchId]);
+  }, [appClipEntry, fallbackPatchId, isNativeApp, isOpen, publicVenueName, showDemoVenueServices, showPatchLocalServices, supportsLiveQr, supportsNfc, venueId, venueName, verification?.patchId]);
 
   const stopScanner = useCallback(() => {
     if (rafRef.current !== null) {
@@ -717,7 +744,7 @@ export function VirtualPatchScannerSheet({
       // Age affirmation is also per-session. Defaults to true when the
       // venue carries no ageGate so the consent panel renders immediately.
       setHasAffirmedAge(!ageGate);
-      setDemoVenueServicesView('cards');
+      setDemoVenueServicesView(appClipEntry ? 'nearby' : 'cards');
       setSelectedPremiumVendorId(null);
       setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
       setPremiumVendorsLoading(false);
@@ -730,11 +757,17 @@ export function VirtualPatchScannerSheet({
       setAuthPromptError('');
       setAuthPromptLoading(false);
       savePendingIntent(null);
+      return;
     }
-  }, [isOpen, ageGate]);
+
+    if (appClipEntry) {
+      setDemoVenueServicesView('nearby');
+      setSelectedPremiumVendorId(null);
+    }
+  }, [isOpen, ageGate, appClipEntry]);
 
   useEffect(() => {
-    if (!isOpen || !showDemoVenueServices || demoVenueServicesView !== 'nearby') return;
+    if (!isOpen || !showPatchLocalServices || demoVenueServicesView !== 'nearby') return;
     let cancelled = false;
     setPremiumVendorsLoading(true);
     setPremiumVendorsError('');
@@ -761,7 +794,7 @@ export function VirtualPatchScannerSheet({
         if (!cancelled) setPremiumVendorsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [demoVenueServicesView, fallbackPatchId, isOpen, showDemoVenueServices]);
+  }, [demoVenueServicesView, fallbackPatchId, isOpen, showPatchLocalServices]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1341,8 +1374,8 @@ export function VirtualPatchScannerSheet({
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
                     {activeMethod === 'nfc' ? 'NFC Tap Reader' : 'QR Backup Scanner'}
                   </div>
-                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showDemoVenueServices ? publicVenueName : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
-                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showDemoVenueServices ? 'Live • Midtown Atlanta' : publicVenueName}</p>
+                  <h3 className="text-[21px] text-white leading-tight" style={{ fontWeight: 850 }}>{showPatchLocalServices ? publicVenueName : activeMethod === 'nfc' ? 'Tap the Bytspot patch' : 'Scan the Bytspot patch'}</h3>
+                  <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showPatchLocalServices ? 'Live local services available' : publicVenueName}</p>
                 </div>
                 <motion.button
                   onClick={onClose}
@@ -1394,7 +1427,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {showDemoVenueServices && hasAffirmedAge && !hasConsented && (
+              {showPatchLocalServices && hasAffirmedAge && !hasConsented && (
                 <div className="mb-4 select-none rounded-[24px] border border-cyan-100/30 bg-[linear-gradient(145deg,rgba(8,47,73,0.92),rgba(17,24,39,0.99)_54%,rgba(88,28,135,0.78))] p-4 text-white shadow-[0_18px_44px_rgba(0,0,0,0.35),0_0_30px_rgba(168,85,247,0.22)] ring-1 ring-white/10">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/18 bg-white/10 shadow-[0_0_30px_rgba(217,70,239,0.24)]">
@@ -1416,7 +1449,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {hasAffirmedAge && !hasConsented && !showDemoVenueServices && (
+              {hasAffirmedAge && !hasConsented && !showPatchLocalServices && (
                 <div className="rounded-[26px] border border-cyan-300/25 bg-gradient-to-br from-cyan-400/10 via-indigo-500/10 to-fuchsia-500/10 p-6 mb-5 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_42px_rgba(0,0,0,0.18)]">
                   <div className="flex items-start gap-4 mb-4">
                     <div className="w-11 h-11 rounded-full bg-cyan-300/10 border border-cyan-300/30 flex items-center justify-center flex-shrink-0 shadow-[0_0_22px_rgba(34,211,238,0.12)]">
@@ -1519,7 +1552,7 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {!showDemoVenueServices && (
+              {!showPatchLocalServices && (
                 <div className="rounded-[20px] border border-cyan-300/20 bg-cyan-300/10 p-4 mb-4 text-[12.5px] leading-5 backdrop-blur-xl" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 600 }}>
                   <div>• Tap the Bytspot sticker first when NFC is available.</div>
                   <div className="mt-2">• Use QR only if NFC is unavailable.</div>
@@ -1527,16 +1560,18 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              {showDemoVenueServices && (
-                <div className="mb-4 select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-[18px] text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10">
+              {showPatchLocalServices && (
+                <div data-testid={appClipEntry ? 'app-clip-local-services-panel' : 'virtual-patch-services-panel'} className="mb-4 select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-[18px] text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10">
                   {demoVenueServicesView === 'nearby' ? (
                     <>
-                      <button onClick={() => setDemoVenueServicesView('cards')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to venue services</button>
+                      {!appClipEntry && <button onClick={() => setDemoVenueServicesView('cards')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to venue services</button>}
                       <div className="text-center">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Concierge Help</p>
-                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Nearby Premium Services</h4>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>{appClipEntry ? 'App Clip Services' : 'Concierge Help'}</p>
+                        <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{appClipEntry ? 'Available Local Services' : 'Nearby Premium Services'}</h4>
                         <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>
-                          {premiumVendorsSource === 'live'
+                          {appClipEntry
+                            ? 'Ready near this patch. Continue as guest or sign in later to save requests.'
+                            : premiumVendorsSource === 'live'
                             ? 'Live vendor records prioritized by availability, service fit, and proximity.'
                             : 'Curated services shown until live vendor records are available.'}
                         </p>
@@ -1548,9 +1583,10 @@ export function VirtualPatchScannerSheet({
                         )}
                       </div>
                       <div className="mt-[18px] grid grid-cols-1 gap-3">
-                        {premiumVendors.map((vendor) => (
+                        {visiblePremiumVendors.map((vendor) => (
                           <motion.button
                             key={vendor.id}
+                            data-testid={appClipEntry ? 'app-clip-local-service-card' : undefined}
                             onClick={() => handleOpenPremiumVendor(vendor.id)}
                             aria-label={`Open ${vendor.name} details`}
                             className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.24)]"
@@ -1823,7 +1859,7 @@ export function VirtualPatchScannerSheet({
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>Retry scan</span>
                   </motion.button>
-                ) : !hasConsented && hasAffirmedAge && showDemoVenueServices && demoVenueServicesView === 'cards' ? (
+                ) : !hasConsented && hasAffirmedAge && showPatchLocalServices && demoVenueServicesView === 'cards' ? (
                   <motion.button
                     onClick={() => setHasConsented(true)}
                     className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"

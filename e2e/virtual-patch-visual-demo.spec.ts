@@ -356,6 +356,10 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('Request Booking · Chef tasting board')).toBeVisible({ timeout: 10_000 });
   await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
+  await expect.poll(() => page.evaluate((contextKey) => {
+    const context = JSON.parse(localStorage.getItem(contextKey) || 'null');
+    return context?.serviceRequests?.[0]?.serviceName ?? null;
+  }, VIRTUAL_PATCH_CONTEXT_KEY)).toBe('Chef tasting board');
   await expect(page.getByText('Chef tasting board', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Check-in' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Call Vendor' })).toBeVisible({ timeout: 10_000 });

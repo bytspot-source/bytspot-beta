@@ -4,7 +4,7 @@
  * Maps API response → DiscoverCard format for existing UI components
  * Enriches each card with real GPS distance when location is available
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
@@ -12,6 +12,8 @@ import { loadVirtualPatchContext } from '../virtualPatch';
 
 const FALLBACK_VENUES: ApiVenue[] = [];
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
+const ATLANTA_HUB_COORDS = { lat: 33.7756, lng: -84.3963 };
+const NIGHTLIFE_SEARCH_TYPES = new Set(['nightlife', 'night_club', 'club', 'clubs', 'lounge', 'lounges', 'bar']);
 
 /** Haversine — returns distance in miles between two lat/lng points */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -29,6 +31,10 @@ function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number):
 function formatDistance(miles: number): string {
   if (miles < 0.1) return `${Math.round(miles * 5280)} ft`;
   return `${miles.toFixed(1)} mi`;
+}
+
+function isNightlifeSearchType(type?: string): boolean {
+  return NIGHTLIFE_SEARCH_TYPES.has((type ?? '').trim().toLowerCase());
 }
 
 /** Map API category → CardType */
@@ -224,16 +230,24 @@ export function useVenues(): UseVenuesResult {
 
   const fetchVendorServiceCards = async (): Promise<DiscoverCard[]> => {
     if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return [];
+    let savedRequestCards: DiscoverCard[] = [];
 
     try {
-      const { vendorServiceToCard } = await import('../vendorServiceCards');
+      const { savedServiceRequestToCard, vendorServiceToCard } = await import('../vendorServiceCards');
       const context = loadVirtualPatchContext();
       const patchId = context?.patchId ?? null;
       const distanceMeters = context?.distanceMeters ?? null;
+      const hasVerifiedPatchScan = Boolean(context?.scan?.verifiedAt || context?.mode === 'tap-verified' || context?.mode === 'qr-verified');
+      savedRequestCards = (context?.serviceRequests ?? [])
+        .slice()
+        .reverse()
+        .map((request, index) => savedServiceRequestToCard(request, index));
       const searchResult = await trpc.vendors.search.query({ limit: 20 });
-      const cardsByServiceId = new Map<string, DiscoverCard>();
+      const cardsByServiceId = new Map<string, DiscoverCard>(
+        savedRequestCards.map(card => [`saved:${card.vendorServiceId ?? card.id}`, card]),
+      );
 
-      if (patchId) {
+      if (patchId && hasVerifiedPatchScan) {
         try {
           const patchResult = await trpc.vendors.getByPatch.query({ patchId });
           cardsByServiceId.set(
@@ -254,7 +268,7 @@ export function useVenues(): UseVenuesResult {
       return Array.from(cardsByServiceId.values());
     } catch (err: any) {
       console.warn('[useVenues] Service discovery unavailable:', err?.message);
-      return [];
+      return savedRequestCards;
     }
   };
 
@@ -416,7 +430,7 @@ export function useVenues(): UseVenuesResult {
   }, []);
 
   // ── Google Places: text search ─────────────────────────
-  const searchPlaces = async (query: string): Promise<DiscoverCard[]> => {
+  const searchPlaces = useCallback(async (query: string): Promise<DiscoverCard[]> => {
     setPlacesLoading(true);
     try {
       const res = await trpc.places.textSearch.query({ query, maxResults: 10 });
@@ -427,22 +441,26 @@ export function useVenues(): UseVenuesResult {
     } finally {
       setPlacesLoading(false);
     }
-  };
+  }, []);
 
   // ── Google Places: nearby search ──────────────────────
-  const searchNearby = async (type?: string): Promise<DiscoverCard[]> => {
-    const coords = userCoordsRef.current ?? { lat: 33.7756, lng: -84.3963 }; // default: Atlanta
+  const searchNearby = useCallback(async (type?: string): Promise<DiscoverCard[]> => {
+    const isNightlife = isNightlifeSearchType(type);
+    // Nightlife is globally visible but Atlanta remains the operating hub; do not
+    // let a user's live GPS outside Atlanta suppress clubs/lounges from Google.
+    const coords = isNightlife ? ATLANTA_HUB_COORDS : (userCoordsRef.current ?? ATLANTA_HUB_COORDS);
+    const distanceCoords = isNightlife ? ATLANTA_HUB_COORDS : (userCoordsRef.current ?? undefined);
     setPlacesLoading(true);
     try {
       const res = await trpc.places.nearbySearch.query({ lat: coords.lat, lng: coords.lng, type, maxResults: 10 });
-      return (res?.places ?? []).map((p, i) => placeToCard(p, i, userCoordsRef.current ?? undefined));
+      return (res?.places ?? []).map((p, i) => placeToCard(p, i, distanceCoords));
     } catch (err: any) {
       console.error('[searchNearby]', err?.message);
       return [];
     } finally {
       setPlacesLoading(false);
     }
-  };
+  }, []);
 
   return { venues, cards, loading, error, refresh: fetchVenues, userCoords, searchPlaces, searchNearby, placesLoading };
 }

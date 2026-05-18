@@ -23,7 +23,7 @@ import { describeWeatherCode, getWeatherEmoji, getWeatherTip, useWeather } from 
 import { trackEvent, trackScreenView, initAnalytics } from './utils/analytics';
 import { getAuditSink, initAuditSink } from './utils/auditSink';
 import { useRevocationList } from './utils/hooks/useRevocationList';
-import { isValidTagId, type VirtualPatchAuditEvent, type VirtualPatchContext } from './utils/virtualPatch';
+import { isValidTagId, loadVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchSavedServiceRequest } from './utils/virtualPatch';
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
@@ -72,7 +72,8 @@ import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { deriveConsumerExperienceTier, getTieredHomeCards, isServiceDiscoveryHomeCard, TIERED_EXPERIENCE_PROFILES, type TieredHomeCard } from './features/tieredExperience.ts';
-import type { CardType } from './utils/mockData';
+import { savedServiceRequestToCard } from './utils/vendorServiceCards';
+import type { CardType, DiscoverCard } from './utils/mockData';
 
 // Beta MVP: Simplified screen flow
 type AppScreen = 'splash' | 'landing' | 'auth' | 'main' | 'host' | 'valet';
@@ -81,6 +82,14 @@ const HOME_CAROUSEL_CLASS = '-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-a
 const HOME_FEATURE_CARD_CLASS = 'group relative flex-shrink-0 snap-start rounded-2xl overflow-hidden bg-[#15151A]/95 text-left shadow-[0_16px_44px_rgba(0,0,0,0.34)] ring-1 ring-white/10';
 const HOME_FEATURE_CARD_STYLE = { width: 'clamp(148px, 42vw, 164px)', height: 140 };
 const HOME_TIER_CARD_STYLE = { width: 'clamp(276px, 82vw, 318px)', minHeight: 238 };
+const HOME_OVERLAY_GRADIENT_CLASS = 'bg-gradient-to-t from-black/90 via-black/40 to-transparent';
+const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
+const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
+
+function hasProviderStatusAuthToken(): boolean {
+  const token = localStorage.getItem('bytspot_auth_token');
+  return Boolean(token && token !== 'guest_session');
+}
 
 function canonicalProviderPath(pathname: string) {
   if (pathname === '/host') return '/provider';
@@ -305,6 +314,7 @@ export default function App() {
   useRevocationList();
   const [eventsFeed, setEventsFeed] = useState<AppEvent[]>(() => getCachedEvents());
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [virtualPatchFeedVersion, setVirtualPatchFeedVersion] = useState(0);
   const homeScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -315,6 +325,36 @@ export default function App() {
       setValetServiceFromRide(null);
     }
   }, [currentScreen, valetServiceFromRide]);
+
+  useEffect(() => {
+    const syncVirtualPatchFeed = () => setVirtualPatchFeedVersion(version => version + 1);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'bytspot_virtual_patch_context') syncVirtualPatchFeed();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', syncVirtualPatchFeed);
+    window.addEventListener('bytspot:virtual-patch-context-updated', syncVirtualPatchFeed);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', syncVirtualPatchFeed);
+      window.removeEventListener('bytspot:virtual-patch-context-updated', syncVirtualPatchFeed);
+    };
+  }, []);
+
+  const savedVirtualPatchServiceRequests = useMemo<VirtualPatchSavedServiceRequest[]>(() => {
+    return (loadVirtualPatchContext()?.serviceRequests ?? []).slice().reverse();
+  }, [virtualPatchFeedVersion, activeTab, currentScreen]);
+
+  const savedVirtualPatchServiceCards = useMemo<DiscoverCard[]>(() => {
+    return savedVirtualPatchServiceRequests.map((request, index) => savedServiceRequestToCard(request, index));
+  }, [savedVirtualPatchServiceRequests]);
+
+  const discoverCardsWithSavedRequests = useMemo<DiscoverCard[]>(() => {
+    const existingServiceIds = new Set(discoverApiCards.map(card => card.vendorServiceId).filter(Boolean));
+    const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
+    return [...mirroredCards, ...discoverApiCards];
+  }, [discoverApiCards, savedVirtualPatchServiceCards]);
 
   // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
   const tonightsPick = useMemo(() => {
@@ -816,7 +856,7 @@ export default function App() {
     if (authToken) {
       setCurrentScreen('main');
       // Fetch provider status to populate isHost / isValet flags only when Provider/Valet is exposed.
-      if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+      if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && authToken !== 'guest_session') {
         trpc.providers.getStatus.query().then((res) => {
           setIsHost(
             res.host?.status === 'approved' || res.host?.status === 'pending'
@@ -1071,7 +1111,7 @@ export default function App() {
             toast.success('Ready to book', { description: 'Review the service and continue to Stripe Checkout.' });
           }
           // Refresh provider status after login only when the build exposes Provider/Valet.
-          if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+          if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && hasProviderStatusAuthToken()) {
             trpc.providers.getStatus.query().then((res) => {
               setIsHost(
                 res.host?.status === 'approved' || res.host?.status === 'pending'
@@ -1241,18 +1281,18 @@ export default function App() {
                         {/* Background image */}
                         <img src={imgUrl} alt={v.name} className="absolute inset-0 w-full h-full object-cover" />
                         {/* Gradient overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+                        <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
                         {/* AI Pick badge */}
                         <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
                           <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-	                        <div className="absolute bottom-2.5 left-3 right-3 flex items-end justify-between gap-3">
+                        <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
                           <div>
 	                            <div className="text-[16px] mb-0.5">{icon}</div>
-	                            <h3 className="text-white text-[15px] leading-tight" style={{ fontWeight: 700 }}>{v.name}</h3>
-                            {v.address && <p className="text-white/60 text-[12px] mt-0.5 truncate">{v.address}</p>}
+                            <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{v.name}</h3>
+                            {v.address && <p className={`${HOME_CARD_META_CLASS} text-[12px] mt-0.5 truncate`}>{v.address}</p>}
                           </div>
                           <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>
                             {crowdEmoji} {crowdLabel}
@@ -1407,12 +1447,12 @@ export default function App() {
 	                              <div className="mb-2 flex items-center gap-2">
                                 <span className="rounded-full border border-emerald-300 bg-emerald-300 px-2 py-0.5 text-[10px] text-emerald-950 shadow-sm" style={{ fontWeight: 900 }}>{card.badge}</span>
 	                              </div>
-	                              <h3 className="text-[17px] leading-tight text-white line-clamp-2" style={{ fontWeight: 800 }}>{card.title}</h3>
-                              <p className="mt-1 text-[12px] text-slate-200 line-clamp-1" style={{ fontWeight: 650 }}>{card.subtitle}</p>
-	                              <p className="mt-3 text-[14px] text-white" style={{ fontWeight: 800 }}>{card.priceLine}</p>
-                              <p className="mt-0.5 text-[12px] text-slate-300" style={{ fontWeight: 650 }}>{card.availabilityLine}</p>
+		                              <h3 className="text-[17px] leading-tight text-white line-clamp-2 drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{card.title}</h3>
+                              <p className="mt-1 text-[12px] text-white line-clamp-1 drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.subtitle}</p>
+		                              <p className="mt-3 text-[14px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{card.priceLine}</p>
+                              <p className="mt-0.5 text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.availabilityLine}</p>
 	                              <div className="mt-4 flex items-center justify-between gap-3">
-                                <span className="text-[11px] text-slate-400" style={{ fontWeight: 650 }}>{tieredExperience.profile.heroLabel}</span>
+                                <span className="text-[11px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{tieredExperience.profile.heroLabel}</span>
                                 <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.ctaLabel}</span>
 	                              </div>
 	                            </div>
@@ -1420,6 +1460,49 @@ export default function App() {
 	                        ))}
 	                      </div>
 	                    </div>
+
+                    {savedVirtualPatchServiceCards.length > 0 && (
+                      <div className="mb-6" data-testid="home-saved-service-rail">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended for You</h2>
+                            <p className="text-[12px] text-white drop-shadow-sm" style={{ fontWeight: 650 }}>Services mirrored from your Virtual Patch requests</p>
+                          </div>
+                          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>My Access</span>
+                        </div>
+                        <div className={HOME_CAROUSEL_CLASS}>
+                          {savedVirtualPatchServiceCards.map((card, index) => (
+                            <motion.button
+                              key={`saved-service-${card.vendorServiceId ?? card.id}`}
+                              type="button"
+                              data-testid="home-saved-service-card"
+                              onClick={() => {
+                                setDiscoverFilter('service');
+                                setActiveTab('discover');
+                              }}
+                              className={`${HOME_FEATURE_CARD_CLASS} border border-cyan-300/25`}
+                              style={HOME_FEATURE_CARD_STYLE}
+                              initial={{ opacity: 0, y: 12 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ ...springConfig, delay: 0.24 + index * 0.04 }}
+                              whileTap={{ scale: 0.96 }}
+                              whileHover={{ scale: 1.02, y: -2 }}
+                            >
+                              <img src={card.image} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" aria-hidden="true" />
+                              <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
+                              <div className="absolute left-3 top-3 rounded-full border border-cyan-200/35 bg-black/65 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 850 }}>
+                                Requested service
+                              </div>
+                              <div className={`absolute inset-x-0 bottom-0 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+                                <h3 className={`${HOME_CARD_TITLE_CLASS} line-clamp-1 text-[14px] leading-tight`} style={{ fontWeight: 850 }}>{card.location ?? 'Requested vendor service'}</h3>
+                                <p className={`${HOME_CARD_META_CLASS} mt-0.5 line-clamp-1 text-[12px]`} style={{ fontWeight: 700 }}>{card.name}</p>
+                                <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px]`} style={{ fontWeight: 650 }}>{card.availability ?? 'Service requested'}</p>
+                              </div>
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
 	                    {/* ── Tonight's Events ── */}
 	                    <div className="mb-6">
@@ -1442,18 +1525,18 @@ export default function App() {
 	                          >
 	                            <div className="relative h-[70px] overflow-hidden">
 	                              <img src={evt.image} alt={evt.title} className="w-full h-full object-cover" />
-	                              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+		                              <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
 	                              <div className="absolute inset-x-0 top-0 h-px bg-white/35" />
 	                              <span className="absolute top-2 left-2 text-[18px]">{evt.emoji}</span>
 	                              <span className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/60 text-white border border-white/20">
 	                                {evt.price}
 	                              </span>
 	                            </div>
-	                            <div className="p-2.5">
-	                              <p className="text-[13px] text-white font-semibold leading-tight line-clamp-2 min-h-[32px]">{evt.title}</p>
-	                              <p className="text-[11px] text-white/50 mt-0.5 truncate">{evt.venue}</p>
+		                            <div className={`p-2.5 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+                              <p className="text-[13px] text-white font-semibold leading-tight line-clamp-2 min-h-[32px] drop-shadow-sm shadow-black">{evt.title}</p>
+                              <p className="text-[11px] text-white mt-0.5 truncate drop-shadow-sm shadow-black">{evt.venue}</p>
 	                              <div className="flex items-center gap-1.5 mt-1">
-	                                <p className="text-[11px] text-cyan-400 font-semibold">{evt.time}</p>
+		                                <p className="text-[11px] text-white font-semibold drop-shadow-sm shadow-black">{evt.time}</p>
 	                                {evt.price && evt.price !== 'Free' ? (
 	                                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-300 text-[10px]" style={{ fontWeight: 700 }}>{evt.price}</span>
 	                                ) : (
@@ -1514,9 +1597,9 @@ export default function App() {
                                 >
                                   {/* Color accent bar */}
                                   <div className="h-[3px]" style={{ background: accentColor }} />
-				                                  <div className="flex h-[137px] flex-col p-3">
+		                                  <div className={`flex h-[137px] flex-col p-3 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
 	                                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-[14px] bg-white/10 text-xl ring-1 ring-white/15">{icon}</div>
-				                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px]" style={{ fontWeight: 600 }}>{v.name}</h3>
+		                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px] drop-shadow-sm shadow-black" style={{ fontWeight: 600 }}>{v.name}</h3>
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
                                         {emoji} {label}
@@ -1529,7 +1612,7 @@ export default function App() {
                                       ) : null}
                                     </div>
                                     {wait ? (
-				                                      <p className="text-white/50 text-[11px] mt-auto pt-1">~{wait}m wait</p>
+		                                      <p className="text-white text-[11px] mt-auto pt-1 drop-shadow-sm shadow-black">~{wait}m wait</p>
                                     ) : null}
                                   </div>
                                 </motion.button>
@@ -1593,9 +1676,9 @@ export default function App() {
                                   whileHover={{ scale: 1.02, y: -2 }}
                                 >
                                   <div className="h-[3px] bg-gradient-to-r from-orange-500 to-red-500" />
-				                                  <div className="flex h-[137px] flex-col p-3">
+		                                  <div className={`flex h-[137px] flex-col p-3 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
 	                                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-[14px] bg-orange-500/15 text-xl ring-1 ring-orange-300/20">{icon}</div>
-				                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px]" style={{ fontWeight: 600 }}>{v.name}</h3>
+		                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px] drop-shadow-sm shadow-black" style={{ fontWeight: 600 }}>{v.name}</h3>
                                     <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${crowdColor}`} style={{ fontWeight: 700 }}>
                                       {byCheckins ? `🔥 ${count} check-in${count !== 1 ? 's' : ''}` : (crowdLabel ? `🔴 ${crowdLabel}` : '🔥 Trending')}
                                     </div>
@@ -1838,7 +1921,7 @@ export default function App() {
                     onShowBottomNav={() => setShowBottomNav(true)}
                     onTouch={handleDiscoverTouch}
                     initialFilter={discoverFilter}
-                    apiCards={discoverApiCards}
+	                    apiCards={discoverCardsWithSavedRequests}
                     events={eventsFeed}
                     loading={venuesLoading}
                     eventsLoading={eventsLoading}

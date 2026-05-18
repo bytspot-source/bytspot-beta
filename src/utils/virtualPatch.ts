@@ -44,6 +44,34 @@ export interface VirtualPatchScanVerification {
   vendorObservation?: VirtualPatchVendorObservation;
 }
 
+export type VirtualPatchServiceRequestKind = 'venue-service' | 'vendor-request' | 'booking' | 'check-in' | 'call';
+
+export interface VirtualPatchSavedServiceRequest {
+  id: string;
+  kind: VirtualPatchServiceRequestKind;
+  vendorId?: string | null;
+  vendorName: string;
+  vendorCategory?: string | null;
+  vendorPhoto?: string | null;
+  serviceName: string;
+  actionLabel: string;
+  status: 'requested' | 'booked' | 'check-in' | 'called';
+  requestedAt: string;
+  venueId?: string | null;
+  venueName?: string | null;
+  source?: string | null;
+  rating?: string | null;
+  distance?: string | null;
+  eta?: string | null;
+  availability?: string | null;
+  signedIn?: boolean;
+  booking?: {
+    time?: string;
+    partySize?: string;
+    contactMethod?: string;
+  };
+}
+
 export interface VirtualPatchContext {
   source?: string;
   mode?: string;
@@ -64,6 +92,7 @@ export interface VirtualPatchContext {
     vendorKeySig?: string | null;
     vendorObservation?: VirtualPatchVendorObservation;
   };
+  serviceRequests?: VirtualPatchSavedServiceRequest[];
 }
 
 export interface ParsedVirtualPatchPayload {
@@ -313,6 +342,7 @@ export function saveVirtualPatchContext(context: VirtualPatchContext): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(VIRTUAL_PATCH_CONTEXT_KEY, JSON.stringify(context));
+    window.dispatchEvent(new CustomEvent('bytspot:virtual-patch-context-updated', { detail: context }));
   } catch {
     // Quota or sandboxed storage — best-effort persistence, never crash the scanner.
   }
@@ -328,6 +358,31 @@ export function loadVirtualPatchContext(): VirtualPatchContext | null {
   } catch {
     return null;
   }
+}
+
+export function appendVirtualPatchServiceRequest(
+  request: Omit<VirtualPatchSavedServiceRequest, 'id' | 'requestedAt'> & Partial<Pick<VirtualPatchSavedServiceRequest, 'id' | 'requestedAt'>>,
+  options: Partial<VirtualPatchContext> = {},
+): VirtualPatchContext {
+  const existing = loadVirtualPatchContext();
+  const requestedAt = request.requestedAt ?? new Date().toISOString();
+  const id = request.id ?? `${request.kind}:${request.vendorId ?? 'venue'}:${request.serviceName}:${requestedAt}`;
+  const previousRequests = Array.isArray(existing?.serviceRequests) ? existing.serviceRequests : [];
+  const nextContext: VirtualPatchContext = {
+    ...(existing ?? {}),
+    ...options,
+    source: existing?.source ?? options.source ?? 'scanner',
+    mode: existing?.mode ?? options.mode ?? 'service-request',
+    initiatedAt: existing?.initiatedAt ?? options.initiatedAt ?? requestedAt,
+    venueId: existing?.venueId ?? options.venueId ?? request.venueId ?? null,
+    venueName: existing?.venueName ?? options.venueName ?? request.venueName ?? null,
+    serviceRequests: [
+      ...previousRequests,
+      { ...request, id, requestedAt },
+    ].slice(-20),
+  };
+  saveVirtualPatchContext(nextContext);
+  return nextContext;
 }
 
 export function clearVirtualPatchContext(): void {

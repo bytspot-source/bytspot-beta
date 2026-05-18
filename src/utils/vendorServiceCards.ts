@@ -1,5 +1,6 @@
 import type { DiscoverCard } from './mockData';
 import { resolveVenuePhoto } from './venuePhoto.ts';
+import type { VirtualPatchSavedServiceRequest } from './virtualPatch';
 
 export type VendorDiscoveryService = {
   id: string;
@@ -31,6 +32,48 @@ function stableNumericId(value: string, offset: number): number {
 
 function formatPrice(cents: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
+}
+
+function formatRequestStatus(status: VirtualPatchSavedServiceRequest['status']): string {
+  if (status === 'booked') return 'Booking requested';
+  if (status === 'check-in') return 'Check-in requested';
+  if (status === 'called') return 'Vendor called';
+  return 'Service requested';
+}
+
+export function savedServiceRequestToCard(
+  request: VirtualPatchSavedServiceRequest,
+  index: number,
+): DiscoverCard {
+  const rating = request.rating ? Number.parseFloat(request.rating) : undefined;
+  const image = request.vendorPhoto && /^https?:\/\//i.test(request.vendorPhoto)
+    ? request.vendorPhoto
+    : resolveVenuePhoto({ category: request.vendorCategory ?? 'service', name: `${request.vendorName} ${request.serviceName}` });
+  const statusLabel = formatRequestStatus(request.status);
+  const features = [
+    'Requested vendor service',
+    request.vendorCategory,
+    request.eta,
+    request.venueName ? `From ${request.venueName}` : null,
+    request.booking?.partySize ? `${request.booking.partySize} guests` : null,
+  ].filter((feature): feature is string => Boolean(feature));
+
+  return {
+    id: stableNumericId(request.id, 40_000 + index),
+    type: 'service',
+    name: request.serviceName,
+    image,
+    distance: request.distance ?? '—',
+    rating: typeof rating === 'number' && Number.isFinite(rating) ? rating : undefined,
+    availability: statusLabel,
+    description: [request.vendorName, request.vendorCategory, request.availability].filter(Boolean).join(' · '),
+    location: request.vendorName,
+    features,
+    verified: false,
+    vendorServiceId: request.id,
+    vendorId: request.vendorId ?? undefined,
+    vendorServiceStatus: 'active',
+  } as DiscoverCard;
 }
 
 export function vendorServiceToCard(

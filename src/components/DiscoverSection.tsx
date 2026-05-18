@@ -221,7 +221,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
         >
           <div className="relative flex-shrink-0" style={{ height: '240px' }}>
             <img src={card.image} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
-            <div className={`absolute inset-0 ${isServiceCard ? 'bg-gradient-to-b from-black/15 via-black/25 to-black/95' : 'bg-gradient-to-b from-transparent via-transparent to-black/80'}`} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
             <AnimatePresence>
               {isDragging && (Math.abs(dragX) > 30 || Math.abs(dragY) > 30) && (
                 <motion.div className="absolute inset-0 flex items-center justify-center pointer-events-none"
@@ -275,10 +275,10 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 </div>
               )}
             </div>
-            <div className="absolute bottom-0 left-0 right-0 p-5">
-              <div className={isServiceCard ? 'rounded-3xl border border-slate-700 bg-slate-950 p-3 shadow-2xl' : ''}>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5 pt-16">
+              <div className={isServiceCard ? 'rounded-3xl border border-white/20 bg-black/55 p-3 shadow-2xl shadow-black/40 backdrop-blur-md' : ''}>
               <div className="flex items-center gap-2 mb-1.5">
-                <h2 className="text-title-2 text-white drop-shadow-lg">{card.name}</h2>
+                <h2 className="text-title-2 text-white drop-shadow-sm shadow-black">{card.name}</h2>
                 {card.verified && (
                   <div className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500 border-2 border-white">
                     <Shield className="w-3 h-3 text-white" strokeWidth={3} />
@@ -293,8 +293,8 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               <div className="flex items-center gap-3 text-white/90 drop-shadow-md flex-wrap">
                 {isEventCard ? (
                   <>
-                    {card.eventTime && <span className="text-[15px] text-cyan-300" style={{ fontWeight: 700 }}>{card.eventTime}</span>}
-                    {card.location && <span className="text-[13px] text-white/75" style={{ fontWeight: 500 }}>{card.location}</span>}
+                    {card.eventTime && <span className="text-[15px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 700 }}>{card.eventTime}</span>}
+                    {card.location && <span className="text-[13px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>{card.location}</span>}
                   </>
                 ) : (
                   <>
@@ -321,24 +321,24 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
             </div>
           </div>
-          <div className={`flex-1 flex flex-col p-4 gap-2 ${isServiceCard ? 'bg-white' : 'bg-[#1C1C1E]'}`}>
-            {card.description && (<p className={`text-[13px] line-clamp-2 flex-shrink-0 ${isServiceCard ? 'text-slate-700' : 'text-white/80'}`} style={{ fontWeight: isServiceCard ? 650 : 400 }}>{card.description}</p>)}
+          <div className="flex-1 flex flex-col p-4 gap-2 bg-gradient-to-t from-black/90 via-[#14141A] to-[#1C1C1E]">
+            {card.description && (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white drop-shadow-sm shadow-black" style={{ fontWeight: isServiceCard ? 650 : 500 }}>{card.description}</p>)}
             {card.entryType === 'paid' && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                 <div className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-slate-950 border-slate-950' : 'bg-amber-500/10 border-amber-400/25'}`}>
                   <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-white' : 'text-amber-200'}`} style={{ fontWeight: 800 }}>{isServiceCard ? 'Bookable service' : 'Paid entry'}</span>
                 </div>
-                <div className={`px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${isServiceCard ? 'bg-cyan-50 border-cyan-200' : 'bg-fuchsia-500/10 border-fuchsia-400/25'}`}>
-                  <Ticket className={`w-3 h-3 ${isServiceCard ? 'text-cyan-700' : 'text-fuchsia-300'}`} strokeWidth={2.4} />
-                  <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-slate-800' : 'text-white/85'}`} style={{ fontWeight: 700 }}>My Access ready</span>
+                <div className={`px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${isServiceCard ? 'bg-cyan-300/20 border-cyan-200/40' : 'bg-fuchsia-500/10 border-fuchsia-400/25'}`}>
+                  <Ticket className={`w-3 h-3 ${isServiceCard ? 'text-cyan-200' : 'text-fuchsia-300'}`} strokeWidth={2.4} />
+                  <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 700 }}>My Access ready</span>
                 </div>
               </div>
             )}
             {card.features && card.features.length > 0 && (
               <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                 {card.features.slice(0, 4).map((feature, idx) => (
-                  <div key={idx} className={`px-2.5 py-1 rounded-full border ${isServiceCard ? 'bg-slate-100 border-slate-200' : 'bg-white/10 border-white/20'}`}>
-                    <span className={`text-[11px] whitespace-nowrap ${isServiceCard ? 'text-slate-800' : 'text-white/90'}`} style={{ fontWeight: isServiceCard ? 750 : 500 }}>{feature}</span>
+                  <div key={idx} className="px-2.5 py-1 rounded-full border bg-white/10 border-white/20">
+                    <span className="text-[11px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: isServiceCard ? 750 : 500 }}>{feature}</span>
                   </div>
                 ))}
                 {card.features.length > 4 && (
@@ -351,7 +351,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
             {card.vibe && (
               <div className="mt-auto pt-1 flex-shrink-0">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] text-white/70" style={{ fontWeight: 500 }}>Vibe Score</span>
+	                  <span className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>Vibe Score</span>
                   <span className="text-[14px] text-white" style={{ fontWeight: 700 }}>{card.vibe}/10</span>
                 </div>
                 <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -952,7 +952,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 type="button"
                 data-testid={`service-quick-card-${cardField<string>(card, serviceIdKey)}`}
                 onClick={() => handleCardClick(card)}
-                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-slate-200 bg-white p-3 text-left text-slate-950 shadow-[0_16px_34px_rgba(15,23,42,0.22)] ring-1 ring-white active:scale-[0.98]"
+                className="min-w-[220px] max-w-[240px] rounded-[22px] border border-cyan-200/25 bg-gradient-to-t from-black/90 via-slate-900 to-slate-800 p-3 text-left text-white shadow-[0_16px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/10 active:scale-[0.98]"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18, delay: index * 0.035 }}
@@ -960,18 +960,18 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
                 whileTap={{ scale: 0.98 }}
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="line-clamp-1 text-[15px] text-slate-950" style={{ fontWeight: 900 }}>{card.name}</p>
-                    <p className="line-clamp-1 text-[12px] text-slate-600" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
+	                  <div>
+                    <p className="line-clamp-1 text-[15px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>{card.name}</p>
+                    <p className="line-clamp-1 text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 750 }}>{card.location ?? 'Experienced professional'}</p>
                   </div>
-                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price}</span>
+	                  <span className="rounded-full bg-amber-300 px-2 py-1 text-[11px] text-slate-950 shadow-sm" style={{ fontWeight: 900 }}>{card.entryPrice ?? card.price ?? 'Requested'}</span>
                 </div>
-                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-slate-700" style={{ fontWeight: 650 }}>{card.description}</p>
+	                <p className="line-clamp-2 min-h-[34px] text-[12px] leading-4 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{card.description}</p>
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-950 bg-slate-950 px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>
+	                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/35 bg-black/60 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>
                     <Shield className="h-3 w-3 text-cyan-300" strokeWidth={2.6} /> Active
                   </span>
-                  <span className="inline-flex items-center gap-1 text-[11px] text-cyan-700" style={{ fontWeight: 900 }}>
+	                  <span className="inline-flex items-center gap-1 text-[11px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 900 }}>
                     Book <CreditCard className="h-3 w-3" strokeWidth={2.6} />
                   </span>
                 </div>

@@ -9,6 +9,7 @@ import { trackEvent } from '../utils/analytics';
 import { trpc } from '../utils/trpc';
 import { AppleSignInButton } from './AppleSignInButton';
 import {
+  appendVirtualPatchServiceRequest,
   buildVerifiedVirtualPatchContext,
   createAuditEvent,
   getNativeNfcRawValue,
@@ -184,7 +185,7 @@ type DemoVenueService = (typeof DEMO_VENUE_SERVICES)[number];
 type DemoVenueServicesView = 'cards' | 'venue' | 'nearby' | 'detail' | 'booking';
 type AuthPromptIntent =
   | { kind: 'venue-service'; serviceName: string; cta: string }
-  | { kind: 'vendor-action'; action: string; vendorName: string; serviceName?: string }
+  | { kind: 'vendor-action'; action: string; vendorId?: string | null; vendorName: string; serviceName?: string }
   | { kind: 'wallet'; serviceIds: string[] }
   | { kind: 'booking'; vendorId: string; vendorName: string; serviceName: string; form: BookingFormState };
 type BookingFormState = {
@@ -491,6 +492,19 @@ export function VirtualPatchScannerSheet({
     [selectedServices],
   );
   const hasWalletEligibleSelection = walletEligibleSelectedServices.length > 0;
+
+  const persistVirtualServiceRequest = useCallback((request: Parameters<typeof appendVirtualPatchServiceRequest>[0]) => {
+    appendVirtualPatchServiceRequest(request, {
+      source: 'scanner',
+      mode: 'service-request',
+      initiatedAt: new Date().toISOString(),
+      venueId: venueId ?? null,
+      venueName: publicVenueName,
+      patchId: fallbackPatchId ?? verification?.patchId ?? null,
+      distanceMeters: null,
+      capabilities: { nfc: supportsNfc, qr: supportsLiveQr },
+    });
+  }, [fallbackPatchId, publicVenueName, supportsLiveQr, supportsNfc, venueId, verification?.patchId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1063,6 +1077,20 @@ export function VirtualPatchScannerSheet({
       });
       return;
     }
+    persistVirtualServiceRequest({
+      kind: 'venue-service',
+      vendorId: venueId ?? fallbackPatchId ?? null,
+      vendorName: publicVenueName,
+      vendorCategory: 'Venue Service',
+      vendorPhoto: '✦',
+      serviceName,
+      actionLabel: cta ?? 'Request service',
+      status: 'requested',
+      venueId: venueId ?? null,
+      venueName: publicVenueName,
+      source: 'venue',
+      signedIn: mode === 'signed-in',
+    });
     if (!hasConsented && hasAffirmedAge) {
       setHasConsented(true);
       toast.success(serviceName, { description: `${cta ?? 'Request'} queued — verify the patch to continue.` });
@@ -1074,19 +1102,39 @@ export function VirtualPatchScannerSheet({
         : 'Guest request started. Sign in later to save it and earn points.',
     });
     handleContinue();
-  }, [handleContinue, hasAffirmedAge, hasConsented]);
+  }, [fallbackPatchId, handleContinue, hasAffirmedAge, hasConsented, persistVirtualServiceRequest, publicVenueName, venueId]);
 
-  const completePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName: string | undefined, mode: 'guest' | 'signed-in' = 'guest') => {
+  const completePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName: string | undefined, mode: 'guest' | 'signed-in' = 'guest', vendor?: PremiumVendor | null) => {
+    const resolvedVendorName = vendor?.name ?? vendorName;
+    const kind = action === 'Check-in' ? 'check-in' : action === 'Call Vendor' ? 'call' : 'vendor-request';
+    persistVirtualServiceRequest({
+      kind,
+      vendorId: vendor?.id ?? null,
+      vendorName: resolvedVendorName,
+      vendorCategory: vendor?.category ?? 'Premium Service',
+      vendorPhoto: vendor?.photo ?? '✦',
+      serviceName: serviceName ?? action,
+      actionLabel: action,
+      status: action === 'Check-in' ? 'check-in' : action === 'Call Vendor' ? 'called' : 'requested',
+      venueId: venueId ?? null,
+      venueName: publicVenueName,
+      source: vendor?.source ?? 'vendor',
+      rating: vendor?.rating ?? null,
+      distance: vendor?.distance ?? null,
+      eta: vendor?.eta ?? null,
+      availability: vendor?.availability ?? null,
+      signedIn: mode === 'signed-in',
+    });
     toast.success(action, {
       description: serviceName
         ? mode === 'signed-in'
-          ? `${serviceName} request sent to ${vendorName}. Saved to your wallet.`
-          : `${serviceName} request sent to ${vendorName} as guest.`
+          ? `${serviceName} request sent to ${resolvedVendorName}. Saved to your wallet.`
+          : `${serviceName} request sent to ${resolvedVendorName} as guest.`
         : mode === 'signed-in'
-          ? `${vendorName} will respond in Bytspot Passport. Points enabled.`
-          : `${vendorName} will respond to your guest request.`,
+          ? `${resolvedVendorName} will respond in Bytspot Passport. Points enabled.`
+          : `${resolvedVendorName} will respond to your guest request.`,
     });
-  }, []);
+  }, [persistVirtualServiceRequest, publicVenueName, venueId]);
 
   const completeBookingRequest = useCallback((vendor: PremiumVendor, serviceName: string, form: BookingFormState, mode: 'guest' | 'signed-in' = 'guest') => {
     logVirtualPatchEvent('booking_requested', {
@@ -1101,6 +1149,29 @@ export function VirtualPatchScannerSheet({
       source: vendor.source,
       category: vendor.category,
     });
+    persistVirtualServiceRequest({
+      kind: 'booking',
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      vendorCategory: vendor.category,
+      vendorPhoto: vendor.photo,
+      serviceName,
+      actionLabel: 'Book Now',
+      status: 'booked',
+      venueId: venueId ?? null,
+      venueName: publicVenueName,
+      source: vendor.source,
+      rating: vendor.rating,
+      distance: vendor.distance,
+      eta: vendor.eta,
+      availability: vendor.availability,
+      signedIn: mode === 'signed-in',
+      booking: {
+        time: form.time || 'asap',
+        partySize: form.partySize,
+        contactMethod: form.contactMethod,
+      },
+    });
     toast.success('Booking requested', {
       description: mode === 'signed-in'
         ? `${serviceName} request sent to ${vendor.name}. Saved to your wallet.`
@@ -1108,7 +1179,7 @@ export function VirtualPatchScannerSheet({
     });
     setDemoVenueServicesView('detail');
     setSelectedBookingService(null);
-  }, []);
+  }, [persistVirtualServiceRequest, publicVenueName, venueId]);
 
   const resumeAuthPromptIntent = useCallback((mode: 'guest' | 'signed-in') => {
     if (!authPromptIntent) return;
@@ -1130,7 +1201,8 @@ export function VirtualPatchScannerSheet({
       if (vendor) completeBookingRequest(vendor, intent.serviceName, intent.form, mode);
       return;
     }
-    completePremiumVendorAction(intent.action, intent.vendorName, intent.serviceName, mode);
+    const vendor = premiumVendors.find((item) => item.id === intent.vendorId || item.name === intent.vendorName);
+    completePremiumVendorAction(intent.action, intent.vendorName, intent.serviceName, mode, vendor);
   }, [authPromptIntent, completeBookingRequest, completePremiumVendorAction, completeVenueServiceRequest, performWalletAction, premiumVendors, selectedPremiumVendor]);
 
   const handleServiceRequest = useCallback((serviceName: string, cta: string) => {
@@ -1214,10 +1286,10 @@ export function VirtualPatchScannerSheet({
       });
     }
     if (isGuestSession()) {
-      openAuthPrompt({ kind: 'vendor-action', action, vendorName, serviceName });
+      openAuthPrompt({ kind: 'vendor-action', action, vendorId: vendor?.id ?? null, vendorName, serviceName });
       return;
     }
-    completePremiumVendorAction(action, vendorName, serviceName, 'signed-in');
+    completePremiumVendorAction(action, vendorName, serviceName, 'signed-in', vendor);
   }, [completePremiumVendorAction, openAuthPrompt, premiumVendors]);
 
   const handleAppleCredential = useCallback(async ({ identityToken, email, name }: AppleCredential) => {

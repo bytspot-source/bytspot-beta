@@ -24,7 +24,7 @@ import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, t
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
-import { type VirtualPatchContext, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { saveVirtualPatchContext, type VirtualPatchContext, type VirtualPatchSavedServiceRequest, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { getPatchIdFromContext, isLoggedInProviderPatchOwner } from '../utils/providerPatchRouting';
 import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
 
@@ -102,6 +102,29 @@ function getPublicVirtualPatchVenueName(context?: VirtualPatchContext | null): s
   const venueName = context?.venueName?.trim();
   if (!venueName || isDemoVenueVirtualPatch(context)) return 'Venue Services';
   return venueName;
+}
+
+function getSavedVirtualServiceRequests(context?: VirtualPatchContext | null): VirtualPatchSavedServiceRequest[] {
+  return Array.isArray(context?.serviceRequests) ? context.serviceRequests : [];
+}
+
+function shouldShowVirtualPatchAccessCard(context?: VirtualPatchContext | null): boolean {
+  if (!context) return false;
+  if (context.scan || context.mode === 'wallet-fallback' || context.mode === 'verified-zone') return true;
+  return Boolean(context.patchId && context.mode !== 'service-request');
+}
+
+function formatSavedServiceStatus(request: VirtualPatchSavedServiceRequest): string {
+  switch (request.status) {
+    case 'booked': return 'Booking requested';
+    case 'check-in': return 'Check-in started';
+    case 'called': return 'Call requested';
+    default: return 'Request sent';
+  }
+}
+
+function formatSavedServiceMeta(request: VirtualPatchSavedServiceRequest): string {
+  return [request.vendorCategory, request.distance, request.eta].filter(Boolean).join(' · ');
 }
 
 function formatCommerceTime(value: string | null): string {
@@ -352,6 +375,13 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
   const insiderPointsDiscountCents = useInsiderPoints ? insiderMaxPointsDiscountCents : 0;
   const insiderEstimatedCents = Math.max(50, insiderBaseCents - insiderPointsDiscountCents);
   const formatSubscriptionCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  // My Access is the customer's lightweight wallet. Verified physical/QR
+  // patches prove venue access; saved virtual vendor service requests are
+  // shown beside them but intentionally labeled as requests, not verified entry.
+  const savedVirtualServiceRequests = getSavedVirtualServiceRequests(virtualPatchContext);
+  const showVirtualPatchCard = shouldShowVirtualPatchAccessCard(virtualPatchContext);
+  const totalAccessItems = walletPasses.length + savedVirtualServiceRequests.length + (showVirtualPatchCard ? 1 : 0);
+  const isAccessEmpty = walletPasses.length === 0 && savedVirtualServiceRequests.length === 0 && !showVirtualPatchCard;
 
   const menuSections: ProfileMenuSection[] = [
     {
@@ -360,7 +390,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
         { icon: <User className="w-5 h-5" />, label: 'Personal Information', badge: null, screen: 'personal-info' as ProfileScreen },
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: vehicleCount && vehicleCount > 0 ? String(vehicleCount) : null, screen: 'vehicles' as ProfileScreen },
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
-        { icon: <Ticket className="w-5 h-5" />, label: 'My Access', badge: walletPasses.length > 0 ? walletPasses.length.toString() : null, screen: 'tickets' as ProfileScreen },
+        { icon: <Ticket className="w-5 h-5" />, label: 'My Access', badge: totalAccessItems > 0 ? totalAccessItems.toString() : null, screen: 'tickets' as ProfileScreen },
         { icon: <Receipt className="w-5 h-5" />, label: 'My Reservations', badge: parkingReservations.length > 0 ? parkingReservations.length.toString() : null, screen: 'reservations' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
@@ -690,11 +720,11 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
-                <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} saved</h3>
+                <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{totalAccessItems} saved</h3>
                 <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
                   {membership.isActive
-                    ? 'Access passes saved to this profile appear here.'
-                    : 'Venue, event, and parking passes will appear here after checkout.'}
+                    ? 'Verified patches, access passes, and saved service requests appear here.'
+                    : 'Scan a patch or request venue services to build your access list.'}
                 </p>
               </div>
               <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
@@ -703,7 +733,7 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             </div>
           </div>
 
-          {virtualPatchContext && (
+          {showVirtualPatchCard && virtualPatchContext && (
             <motion.div
               data-testid="profile-virtual-patch-card"
               className="select-none rounded-[24px] border border-cyan-200/35 bg-[linear-gradient(145deg,rgba(8,47,73,0.88),rgba(15,23,42,0.98)_46%,rgba(76,29,149,0.82))] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.42),0_0_36px_rgba(34,211,238,0.18)] ring-1 ring-white/10 backdrop-blur-xl"
@@ -727,8 +757,21 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
                 </div>
                 <button
                   onClick={() => {
-                    clearVirtualPatchContext();
-                    setVirtualPatchContext(null);
+                    if (savedVirtualServiceRequests.length > 0) {
+                      const nextContext: VirtualPatchContext = {
+                        source: virtualPatchContext.source ?? 'profile',
+                        mode: 'service-request',
+                        initiatedAt: virtualPatchContext.initiatedAt ?? new Date().toISOString(),
+                        venueId: virtualPatchContext.venueId ?? null,
+                        venueName: virtualPatchContext.venueName ?? null,
+                        serviceRequests: savedVirtualServiceRequests,
+                      };
+                      saveVirtualPatchContext(nextContext);
+                      setVirtualPatchContext(nextContext);
+                    } else {
+                      clearVirtualPatchContext();
+                      setVirtualPatchContext(null);
+                    }
                   }}
                   className="rounded-full border border-cyan-100/30 bg-cyan-300/12 px-3 py-1.5 text-[11px] text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                   style={{ fontWeight: 700 }}
@@ -850,15 +893,74 @@ export function ProfileSection({ isDarkMode, isHost, onBecomeHost, onBecomeValet
             </motion.div>
           )}
 
-          {walletPasses.length === 0 ? (
+          {savedVirtualServiceRequests.map((request, index) => (
+            <motion.div
+              key={request.id}
+              data-testid="profile-service-request-card"
+              className="rounded-[24px] border border-cyan-200/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.88)_54%,rgba(8,47,73,0.78))] p-5 text-white shadow-[0_18px_48px_rgba(0,0,0,0.34),0_0_28px_rgba(34,211,238,0.14)] ring-1 ring-white/10"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.06 + index * 0.04 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="mb-1 inline-flex rounded-full border border-cyan-200/30 bg-cyan-300/12 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Requested vendor service</p>
+                  <h4 className="text-[20px] leading-7 text-white" style={{ fontWeight: 950 }}>{request.serviceName}</h4>
+                  <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{request.vendorName}</p>
+                  {formatSavedServiceMeta(request) && (
+                    <p className="mt-0.5 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 800 }}>{formatSavedServiceMeta(request)}</p>
+                  )}
+                </div>
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[18px] bg-white/12 text-[23px] ring-1 ring-white/15">
+                  {request.vendorPhoto ?? '✦'}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-left">
+                <div className="rounded-[16px] border border-cyan-100/18 bg-cyan-300/10 p-3">
+                  <p className="mb-1 text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>STATUS</p>
+                  <p className="text-[13px] text-white" style={{ fontWeight: 850 }}>{formatSavedServiceStatus(request)}</p>
+                </div>
+                <div className="rounded-[16px] border border-purple-100/18 bg-purple-300/10 p-3">
+                  <p className="mb-1 text-[11px] text-purple-100" style={{ fontWeight: 850 }}>ACCESS</p>
+                  <p className="text-[13px] text-white" style={{ fontWeight: 850 }}>No verified access yet</p>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-[16px] border border-white/10 bg-black/20 p-3 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>
+                Requested {formatCommerceTime(request.requestedAt)}
+                {request.booking?.partySize ? ` · ${request.booking.partySize} guest${request.booking.partySize === '1' ? '' : 's'}` : ''}
+                {request.booking?.time && request.booking.time !== 'asap' ? ` · ${formatCommerceTime(request.booking.time)}` : ''}
+              </div>
+            </motion.div>
+          ))}
+
+          {isAccessEmpty ? (
             <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">
               <div className="w-14 h-14 mx-auto rounded-full bg-white/10 flex items-center justify-center mb-4">
                 <Ticket className="w-7 h-7 text-white/70" strokeWidth={2.2} />
               </div>
               <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No access yet</p>
               <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
-                Paid venue and event passes you unlock in Discover will appear here instantly.
+                Scan a Bytspot patch to unlock venue services. Requested vendor services will appear here separately from verified access.
               </p>
+              {onOpenVirtualPatch && (
+                <motion.button
+                  onClick={() => onOpenVirtualPatch(null)}
+                  className="mt-5 w-full rounded-[18px] border border-cyan-300/35 bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 px-4 py-3 text-left shadow-[0_14px_34px_rgba(6,182,212,0.24)]"
+                  whileTap={{ scale: 0.98 }}
+                  transition={springConfig}
+                  aria-label="Open Virtual Patch scanner from empty My Access"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[15px] text-white" style={{ fontWeight: 850 }}>Open Virtual Patch</p>
+                      <p className="mt-0.5 text-[12px] text-white/78" style={{ fontWeight: 600 }}>Start the Tap / Scan reader now.</p>
+                    </div>
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-white/90" strokeWidth={2.8} />
+                  </div>
+                </motion.button>
+              )}
             </div>
           ) : (
             walletPasses.map((pass, index) => (

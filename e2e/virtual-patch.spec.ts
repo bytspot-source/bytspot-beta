@@ -142,4 +142,60 @@ test.describe('Virtual Patch', () => {
     await expect(virtualPatchCard.getByText('Patch 123456')).toBeVisible();
     await expect(virtualPatchCard.getByText(/Verified/)).toBeVisible();
   });
+
+  test('requested vendor services persist in Profile → My Access without verified access', async ({ page }) => {
+    await mockVenuesApi(page);
+
+    const serviceOnlyContext = {
+      source: 'scanner',
+      mode: 'service-request',
+      initiatedAt: '2026-04-25T18:05:00.000Z',
+      venueId: 'test-venue-1',
+      venueName: 'Venue Services',
+      serviceRequests: [{
+        id: 'booking:vendor-chef:chef-board:2026-04-25T18:05:00.000Z',
+        kind: 'booking',
+        vendorId: 'vendor-chef',
+        vendorName: 'Aster Room Private Chef',
+        vendorCategory: 'Private Chef',
+        vendorPhoto: '🍽️',
+        serviceName: 'Chef tasting board',
+        actionLabel: 'Book Now',
+        status: 'booked',
+        requestedAt: '2026-04-25T18:05:00.000Z',
+        venueId: 'test-venue-1',
+        venueName: 'Venue Services',
+        source: 'live',
+        rating: '4.9',
+        distance: 'Nearby',
+        eta: 'Ready in 18 min',
+        availability: 'Open now',
+        signedIn: false,
+        booking: { time: 'asap', partySize: '4', contactMethod: 'In-app request' },
+      }],
+    };
+
+    await page.addInitScript(({ context, contextKey }) => {
+      localStorage.setItem('bytspot_intro_seen', 'true');
+      localStorage.setItem('bytspot_auth_token', 'guest_session');
+      localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+      localStorage.setItem('bytspot_user_name', 'Guest');
+      localStorage.setItem('bytspot_profile_focus', 'tickets');
+      localStorage.setItem(contextKey, JSON.stringify(context));
+    }, { context: serviceOnlyContext, contextKey: VIRTUAL_PATCH_CONTEXT_KEY });
+
+    await page.goto('/');
+    await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('open-profile-button').click();
+
+    const walletScreen = page.getByTestId('profile-access-wallet');
+    await expect(walletScreen).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('profile-virtual-patch-card')).toHaveCount(0);
+    const serviceCard = page.getByTestId('profile-service-request-card');
+    await expect(serviceCard).toContainText('Requested vendor service');
+    await expect(serviceCard).toContainText('Chef tasting board');
+    await expect(serviceCard).toContainText('Aster Room Private Chef');
+    await expect(serviceCard).toContainText('No verified access yet');
+  });
 });

@@ -110,7 +110,7 @@ const EMPTY_CONNECT: DashboardConnectStatus = {
 function readAuthToken(): string | null {
   try {
     const token = localStorage.getItem('bytspot_auth_token');
-  if (!token || token === 'guest_session') return null;
+    if (!token || token === 'guest_session' || token === 'beta_guest') return null;
     return token;
   } catch {
     return null;

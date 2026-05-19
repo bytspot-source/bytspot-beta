@@ -6,9 +6,12 @@ export type DashboardServiceSummary = {
   id: string;
   title: string;
   status: string;
+  category?: string | null;
   priceCents: number;
   currency: string;
   durationMins: number | null;
+  maxGuests?: number | null;
+  patchRequired?: boolean;
   updatedAt?: string;
   patchLabel?: string | null;
 };
@@ -79,6 +82,8 @@ export type DashboardEarningsTotals = {
   totalPlatformFeeCents: number;
   thisMonthPayoutCents: number;
   lastMonthPayoutCents: number;
+  thisMonthBookedCents: number;
+  lastMonthBookedCents: number;
   pendingPayoutCents: number;
   paidBookingCount: number;
   pendingBookingCount: number;
@@ -122,9 +127,12 @@ function mapService(raw: any): DashboardServiceSummary {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? 'Untitled service'),
     status: String(raw?.status ?? 'draft'),
+    category: raw?.category ?? 'General',
     priceCents: Number(raw?.priceCents ?? 0),
     currency: String(raw?.currency ?? 'USD'),
     durationMins: raw?.durationMins ?? null,
+    maxGuests: raw?.maxGuests ?? null,
+    patchRequired: Boolean(raw?.patchRequired),
     updatedAt: raw?.updatedAt,
     patchLabel: raw?.patch?.label ?? null,
   };
@@ -227,18 +235,24 @@ export function summarizeBookingEarnings(
     totalPlatformFeeCents: 0,
     thisMonthPayoutCents: 0,
     lastMonthPayoutCents: 0,
+    thisMonthBookedCents: 0,
+    lastMonthBookedCents: 0,
     pendingPayoutCents: 0,
     paidBookingCount: 0,
     pendingBookingCount: 0,
   };
   for (const booking of bookings) {
     const payout = booking.cashFlow.providerPayoutEstimateCents;
+    const d = safeBookingDate(booking.startsAt);
+    if ((PAID_STATUSES.has(booking.status) || PENDING_STATUSES.has(booking.status)) && d) {
+      if (d.getFullYear() === thisYear && d.getMonth() === thisMonth) totals.thisMonthBookedCents += payout;
+      else if (d.getFullYear() === lastYear && d.getMonth() === lastMonth) totals.lastMonthBookedCents += payout;
+    }
     if (PAID_STATUSES.has(booking.status)) {
       totals.totalPayoutCents += payout;
       totals.totalGrossCents += booking.cashFlow.grossCents;
       totals.totalPlatformFeeCents += booking.cashFlow.platformFeeCents;
       totals.paidBookingCount += 1;
-      const d = safeBookingDate(booking.startsAt);
       if (d) {
         if (d.getFullYear() === thisYear && d.getMonth() === thisMonth) totals.thisMonthPayoutCents += payout;
         else if (d.getFullYear() === lastYear && d.getMonth() === lastMonth) totals.lastMonthPayoutCents += payout;

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { CalendarClock, Clock, DollarSign, Inbox, ShieldCheck } from 'lucide-react';
-import { useProviderDashboardData, type DashboardBookingSummary } from '../../../utils/providerDashboardData';
+import { useProviderDashboardData, type DashboardBookingStatus, type DashboardBookingSummary } from '../../../utils/providerDashboardData';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
+import { trpc } from '../../../utils/trpc';
 
 interface DashboardBookingsProps {
   isDarkMode: boolean;
@@ -60,6 +61,9 @@ function matchesFilter(booking: DashboardBookingSummary, filter: BookingFilter):
 
 export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps) {
   const [filter, setFilter] = useState<BookingFilter>('all');
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, DashboardBookingStatus>>({});
+  const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
+  const [handoffMessage, setHandoffMessage] = useState<string | null>(null);
   const data = useProviderDashboardData();
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
@@ -72,19 +76,37 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
   };
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
+  const bookings = useMemo(() => data.bookings.map((booking) => ({ ...booking, status: statusOverrides[booking.id] ?? booking.status })), [data.bookings, statusOverrides]);
+
   const counts = useMemo(() => ({
-    all: data.bookings.length,
-    active: data.bookings.filter((booking) => matchesFilter(booking, 'active')).length,
-    upcoming: data.bookings.filter((booking) => matchesFilter(booking, 'upcoming')).length,
-    completed: data.bookings.filter((booking) => matchesFilter(booking, 'completed')).length,
-  }), [data.bookings]);
+    all: bookings.length,
+    active: bookings.filter((booking) => matchesFilter(booking, 'active')).length,
+    upcoming: bookings.filter((booking) => matchesFilter(booking, 'upcoming')).length,
+    completed: bookings.filter((booking) => matchesFilter(booking, 'completed')).length,
+  }), [bookings]);
 
   const filteredBookings = useMemo(
-    () => data.bookings.filter((booking) => matchesFilter(booking, filter)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
-    [data.bookings, filter],
+    () => bookings.filter((booking) => matchesFilter(booking, filter)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+    [bookings, filter],
   );
   const guidance = STATUS_GUIDANCE[filter];
-  const canManageHandoff = access.role === 'owner' || access.role === 'manager';
+  const canManageHandoff = data.authenticated && (access.role === 'owner' || access.role === 'manager' || access.role === 'staff');
+
+  const checkInBooking = async (booking: DashboardBookingSummary) => {
+    if (!canManageHandoff || updatingBookingId) return;
+    setUpdatingBookingId(booking.id);
+    setHandoffMessage(null);
+    try {
+      const result = await trpc.vendors.updateBookingStatus.mutate({ bookingId: booking.id, status: 'in_progress' });
+      const updatedStatus = ((result as any)?.booking?.status ?? 'in_progress') as DashboardBookingStatus;
+      setStatusOverrides((prev) => ({ ...prev, [booking.id]: updatedStatus }));
+      setHandoffMessage('Guest checked in. The booking is now marked in progress for the Provider team.');
+    } catch (err: any) {
+      setHandoffMessage(err?.message ?? 'Unable to check in this booking.');
+    } finally {
+      setUpdatingBookingId(null);
+    }
+  };
   const emptyMessage = data.loading
     ? 'Loading bookings from the provider backend…'
     : !data.authenticated
@@ -120,6 +142,8 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
         </ol>
       </motion.div>
 
+      {handoffMessage && <p className={`rounded-2xl border px-4 py-3 text-[13px] ${tone.soft}`} style={{ fontWeight: 700 }} data-testid="provider-bookings-handoff-message">{handoffMessage}</p>}
+
       <motion.div className="flex gap-2 overflow-x-auto pb-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.1 }} data-testid="provider-bookings-filters">
         {filters.map((item) => (
           <button key={item.id} data-testid={`provider-bookings-filter-${item.id}`} onClick={() => setFilter(item.id)} className={`shrink-0 rounded-xl border px-4 py-2.5 transition-colors ${filter === item.id ? (isDarkMode ? 'border-cyan-400 bg-cyan-500/15 text-cyan-100' : 'border-cyan-400 bg-cyan-50 text-cyan-900') : `${tone.soft} ${tone.muted}`}`}>
@@ -142,10 +166,17 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
                 </div>
                 <div className="grid gap-2 text-[13px] sm:grid-cols-3 lg:min-w-[440px]">
                   <div className={`rounded-2xl border p-3 ${tone.soft}`}><CalendarClock className="mb-1 h-4 w-4 text-cyan-400" /><p className={tone.muted}>Starts</p><p className={tone.strong}>{formatDateTime(booking.startsAt)}</p></div>
-                  <div className={`rounded-2xl border p-3 ${tone.soft}`}><DollarSign className="mb-1 h-4 w-4 text-emerald-400" /><p className={tone.muted}>Payout est.</p><p className={tone.strong}>{formatCents(booking.cashFlow.providerPayoutEstimateCents)}</p></div>
-                  <div className={`rounded-2xl border p-3 ${tone.soft}`}><Clock className="mb-1 h-4 w-4 text-violet-400" /><p className={tone.muted}>Handoff</p><p className={tone.strong}>{canManageHandoff ? 'Editable' : 'Read-only'}</p></div>
+                  <div className={`rounded-2xl border p-3 ${tone.soft}`}><DollarSign className="mb-1 h-4 w-4 text-emerald-400" /><p className={tone.muted}>{access.canSeeFinancials ? 'Payout est.' : 'Payout'}</p><p className={tone.strong}>{access.canSeeFinancials ? formatCents(booking.cashFlow.providerPayoutEstimateCents) : 'Owner-only'}</p></div>
+                  <div className={`rounded-2xl border p-3 ${tone.soft}`}><Clock className="mb-1 h-4 w-4 text-violet-400" /><p className={tone.muted}>Handoff</p><p className={tone.strong}>{canManageHandoff ? (booking.status === 'in_progress' ? 'Checked in' : 'Check-in ready') : 'Read-only'}</p></div>
                 </div>
               </div>
+              {booking.status !== 'completed' && booking.status !== 'cancelled' && (
+                <div className="mt-4 flex justify-end">
+                  <button type="button" onClick={() => checkInBooking(booking)} disabled={!canManageHandoff || updatingBookingId === booking.id || booking.status === 'in_progress'} className="rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 800 }} data-testid={`provider-booking-checkin-${booking.id}`}>
+                    {booking.status === 'in_progress' ? 'Checked In' : updatingBookingId === booking.id ? 'Checking In…' : 'Check In Guest'}
+                  </button>
+                </div>
+              )}
             </motion.article>
           ))}
         </div>

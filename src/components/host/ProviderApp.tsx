@@ -123,6 +123,18 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
     if (canAccessDashboardView(dashboardAccess, target)) setDashboardView(target);
   };
 
+  const openDashboardAfterOnboarding = () => {
+    setProviderReviewState(readProviderReviewState());
+    try {
+      const requestedView = localStorage.getItem('bytspot_provider_dashboard_view') as DashboardView | null;
+      localStorage.removeItem('bytspot_provider_dashboard_view');
+      if (requestedView && canAccessDashboardView(dashboardAccess, requestedView)) setDashboardView(requestedView);
+    } catch {
+      // Continue to the dashboard even if localStorage is unavailable.
+    }
+    setCurrentScreen('dashboard');
+  };
+
   // Render dashboard content based on current view
   const renderDashboardContent = () => {
     if (!canAccessDashboardView(dashboardAccess, dashboardView)) {
@@ -229,10 +241,7 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
             >
               <ProviderOnboarding
                 isDarkMode={isDarkMode}
-                onComplete={() => {
-                  setProviderReviewState(readProviderReviewState());
-                  setCurrentScreen('dashboard');
-                }}
+                onComplete={openDashboardAfterOnboarding}
               />
             </motion.div>
           )}

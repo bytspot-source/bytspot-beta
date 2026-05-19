@@ -45,6 +45,12 @@ export interface OnboardingData {
     numberOfSpots: number;
     facilityType?: string;
   };
+
+  // Optional Compliance Hub preference
+  compliance?: {
+    checklistPreference: 'review_now' | 'skip_for_now';
+    region: 'GA';
+  };
   
   // Step 4: Listing
   listing?: {
@@ -292,6 +298,7 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
           <Step3BusinessInfo
             onComplete={handleStepComplete}
             initialValue={onboardingData.businessInfo}
+            initialCompliance={onboardingData.compliance}
             providerType={providerType}
           />
         )}

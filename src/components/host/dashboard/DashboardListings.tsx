@@ -29,18 +29,41 @@ type VendorService = {
   id: string;
   title: string;
   description: string | null;
+  category?: string | null;
   priceCents: number;
   currency: string;
   durationMins: number | null;
+  maxGuests?: number | null;
+  patchRequired?: boolean;
   status: 'active' | 'draft' | 'archived' | string;
   updatedAt?: string;
   patch?: { id: string; label?: string | null; uid?: string | null } | null;
   cashFlow?: { platformFeeCents?: number; providerPayoutEstimateCents?: number; commissionBps?: number };
 };
 
-type EditForm = { title: string; description: string; priceDollars: string; durationMins: string };
+type EditForm = {
+  title: string;
+  description: string;
+  category: string;
+  priceDollars: string;
+  durationMins: string;
+  maxGuests: string;
+  status: 'active' | 'draft' | 'archived';
+  patchRequired: boolean;
+};
 
-const EMPTY_SERVICE_FORM: EditForm = { title: '', description: '', priceDollars: '10.00', durationMins: '60' };
+const EMPTY_SERVICE_FORM: EditForm = {
+  title: '',
+  description: '',
+  category: 'Catering',
+  priceDollars: '10.00',
+  durationMins: '60',
+  maxGuests: '1',
+  status: 'draft',
+  patchRequired: false,
+};
+
+const SERVICE_CATEGORIES = ['Catering', 'Wellness', 'Transportation', 'Hospitality', 'Events', 'Parking', 'General'];
 
 const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
@@ -52,8 +75,12 @@ function serviceToForm(service: VendorService): EditForm {
   return {
     title: service.title,
     description: service.description ?? '',
+    category: service.category ?? 'General',
     priceDollars: (service.priceCents / 100).toFixed(2),
     durationMins: service.durationMins ? String(service.durationMins) : '',
+    maxGuests: service.maxGuests ? String(service.maxGuests) : '',
+    status: service.status === 'archived' || service.status === 'active' ? service.status : 'draft',
+    patchRequired: Boolean(service.patchRequired),
   };
 }
 
@@ -75,12 +102,16 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const [hasVendorSession, setHasVendorSession] = useState(hasVendorAuthToken);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === 'active'), [services]);
+  const draftServices = useMemo(() => services.filter((service) => service.status === 'draft'), [services]);
+  const patchRequiredServices = useMemo(() => services.filter((service) => service.patchRequired && !service.patch), [services]);
   const totalGrossCents = useMemo(() => services.reduce((sum, service) => sum + service.priceCents, 0), [services]);
   const payoutEstimateCents = useMemo(
     () => services.reduce((sum, service) => sum + (service.cashFlow?.providerPayoutEstimateCents ?? service.priceCents), 0),
     [services],
   );
   const providerSignInRequired = !hasVendorSession || message?.startsWith('Provider sign-in required');
+  const canCreateServices = (access.role === 'owner' || access.role === 'manager') && !providerSignInRequired;
+  const canEditServices = (access.role === 'owner' || access.role === 'manager') && !providerSignInRequired;
 
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
@@ -174,6 +205,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setMessage('Provider sign-in required: sign in with the Provider business account that owns this workspace before creating a bookable service.');
       return;
     }
+    if (access.role === 'staff') {
+      setMessage('Manager or Owner access required: Staff can view bookings and check in guests, but cannot create services.');
+      return;
+    }
     setCreateForm(EMPTY_SERVICE_FORM);
     setCreatingService(true);
     setMessage(null);
@@ -182,16 +217,23 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const validateForm = (form: EditForm) => {
     const price = Number(form.priceDollars);
     const duration = form.durationMins.trim() ? Number(form.durationMins) : null;
+    const maxGuests = form.maxGuests.trim() ? Number(form.maxGuests) : null;
     if (form.title.trim().length < 2) return { error: 'Service title must be at least 2 characters.' };
-    if (!Number.isFinite(price) || price < 0.5) return { error: 'Service price must be at least $0.50.' };
-    if (duration !== null && (!Number.isFinite(duration) || duration < 5)) return { error: 'Duration must be blank or at least 5 minutes.' };
-    return { priceCents: Math.round(price * 100), durationMins: duration === null ? null : Math.round(duration) };
+    if (form.category.trim().length < 2) return { error: 'Choose a service category so customers understand what they are booking.' };
+    if (!Number.isFinite(price) || price <= 0) return { error: 'Service price must be greater than $0.' };
+    if (duration !== null && (!Number.isFinite(duration) || duration < 15)) return { error: 'Duration must be blank or at least 15 minutes.' };
+    if (maxGuests !== null && (!Number.isFinite(maxGuests) || maxGuests < 1)) return { error: 'Max guests must be blank or at least 1.' };
+    return { priceCents: Math.round(price * 100), durationMins: duration === null ? null : Math.round(duration), maxGuests: maxGuests === null ? null : Math.round(maxGuests) };
   };
 
-  const createService = async () => {
+  const createService = async (statusOverride?: 'active' | 'draft') => {
     if (saving) return;
     if (providerSignInRequired) {
       setMessage('Provider sign-in required: sign in with the Provider business account that owns this workspace before creating a bookable service.');
+      return;
+    }
+    if (access.role === 'staff') {
+      setMessage('Manager or Owner access required: Staff can view bookings and check in guests, but cannot create services.');
       return;
     }
     const validated = validateForm(createForm);
@@ -203,14 +245,18 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       const result = await trpc.vendors.createService.mutate({
         title: createForm.title.trim(),
         description: createForm.description.trim() || null,
+        category: createForm.category.trim(),
         priceCents: validated.priceCents,
         durationMins: validated.durationMins,
-        status: 'active',
+        maxGuests: validated.maxGuests,
+        patchRequired: createForm.patchRequired,
+        status: statusOverride ?? (createForm.status === 'archived' ? 'draft' : createForm.status),
       });
       const created = result.service as VendorService;
       setServices((prev) => [created, ...prev.filter((service) => service.id !== created.id)]);
       setCreatingService(false);
-      setMessage('Service created and published. It is now available to Discover and booking checkout.');
+      const createdStatus = statusOverride ?? createForm.status;
+      setMessage(createdStatus === 'active' ? 'Service published live. It is now available to Discover and booking checkout.' : 'Service saved as a draft. Publish it when pricing, duration, photos, and patch requirements are ready.');
     } catch (err: any) {
       setMessage(err?.message ?? 'Unable to create Provider service.');
     } finally {
@@ -220,6 +266,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
   const saveService = async () => {
     if (!editingService || !editForm || saving) return;
+    if (!canEditServices) {
+      setMessage('This role is view-only for Provider services. Ask an Owner or Manager to make catalog changes.');
+      return;
+    }
     const validated = validateForm(editForm);
     if ('error' in validated) return setMessage(validated.error);
 
@@ -230,8 +280,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
         serviceId: editingService.id,
         title: editForm.title.trim(),
         description: editForm.description.trim() || null,
+        category: editForm.category.trim(),
         priceCents: validated.priceCents,
         durationMins: validated.durationMins,
+        maxGuests: validated.maxGuests,
+        patchRequired: editForm.patchRequired,
+        status: editForm.status,
       });
       const updated = result.service as VendorService;
       setServices((prev) => prev.map((service) => (service.id === updated.id ? updated : service)));
@@ -245,11 +299,39 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     }
   };
 
-  const summaryCards = [
-    { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
-    { label: 'Published price total', value: formatCents(totalGrossCents), helper: 'Sum of listed service rates', Icon: DollarSign },
-    { label: 'Payout estimate', value: formatCents(payoutEstimateCents), helper: 'After platform commission', Icon: CreditCard },
-  ];
+  const archiveService = async () => {
+    if (!editingService || saving) return;
+    if (access.role !== 'owner') {
+      setMessage('Owner access required: only Owners can archive Provider services.');
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const result = await trpc.vendors.updateService.mutate({ serviceId: editingService.id, status: 'archived' });
+      const updated = result.service as VendorService;
+      setServices((prev) => prev.map((service) => (service.id === updated.id ? updated : service)));
+      setEditingService(null);
+      setEditForm(null);
+      setMessage('Service archived. It is hidden from booking while historical records remain available.');
+    } catch (err: any) {
+      setMessage(err?.message ?? 'Unable to archive Provider service.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const summaryCards = access.canSeeFinancials
+    ? [
+        { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
+        { label: 'Published price total', value: formatCents(totalGrossCents), helper: 'Sum of listed service rates', Icon: DollarSign },
+        { label: 'Payout estimate', value: formatCents(payoutEstimateCents), helper: 'After platform commission', Icon: CreditCard },
+      ]
+    : [
+        { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
+        { label: 'Draft services', value: String(draftServices.length), helper: 'Needs owner/manager review', Icon: Edit3 },
+        { label: 'Patch required', value: String(patchRequiredServices.length), helper: 'Physical verification outstanding', Icon: ShieldCheck },
+      ];
 
   return (
     <div className={`space-y-6 ${tone.page}`} data-testid="provider-services-panel">
@@ -267,16 +349,16 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               style={{ fontWeight: 700 }}
             >
               <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Marketplace service desk · {access.role}
+              Service management · {access.role}
             </div>
             <h1
               className={`text-[30px] leading-[1.1] tracking-tight lg:text-[40px] ${tone.strong}`}
               style={{ fontWeight: 800, letterSpacing: '-0.02em' }}
             >
-              Manage Provider services
+              My Services
             </h1>
             <p className={`mt-3 text-[15px] leading-6 ${tone.body}`}>
-              Live service records that power the Discover rail and the Stripe‑backed booking sheet. Keep titles, pricing, and duration precise before customers book.
+              {activeServices.length} Active • {draftServices.length} Draft. Manage the live services that power customer booking, patch verification, and staff handoffs.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -293,14 +375,14 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
             <button
               type="button"
               onClick={openCreate}
-              disabled={access.role === 'staff' || providerSignInRequired}
+              disabled={!canCreateServices}
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ fontWeight: 700 }}
-              title={access.role === 'staff' ? 'Owners and managers can create services' : providerSignInRequired ? 'Sign in with the Provider business account that owns this workspace' : 'Create a live bookable service'}
+              title={access.role === 'staff' ? 'Managers and Owners can create services' : providerSignInRequired ? 'Sign in with the Provider business account that owns this workspace' : 'Create a new service'}
               data-testid="provider-service-add"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} />
-              Add Service
+              Create New Service
             </button>
           </div>
         </div>
@@ -359,6 +441,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
             const commissionPct = service.cashFlow?.commissionBps != null
               ? (service.cashFlow.commissionBps / 100).toFixed(1) + '%'
               : null;
+            const category = service.category || 'General';
+            const maxGuests = service.maxGuests ? `${service.maxGuests} guest${service.maxGuests === 1 ? '' : 's'}` : 'Flexible';
             return (
               <motion.article
                 key={service.id}
@@ -419,26 +503,30 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                       </p>
                     </div>
                     <div className={`rounded-xl border p-3 ${tone.metric}`}>
-                      <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Payout</p>
+                      <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>{access.canSeeFinancials ? 'Payout' : 'Guests'}</p>
                       <p
-                        className={`mt-1.5 text-[17px] tracking-tight ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}
+                        className={`mt-1.5 text-[17px] tracking-tight ${access.canSeeFinancials ? (isDarkMode ? 'text-emerald-300' : 'text-emerald-700') : tone.strong}`}
                         style={{ fontWeight: 700, letterSpacing: '-0.01em' }}
                       >
-                        {formatCents(payoutCents, service.currency)}
+                        {access.canSeeFinancials ? formatCents(payoutCents, service.currency) : maxGuests}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
                     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                      <Tag className={`h-3 w-3 ${isDarkMode ? 'text-violet-300' : 'text-violet-700'}`} strokeWidth={2.25} />
+                      {category}
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                       <CalendarClock className="h-3 w-3" strokeWidth={2.25} />
                       Updated {updatedLabel}
                     </span>
                     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                       <ShieldCheck className={`h-3 w-3 ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} strokeWidth={2.25} />
-                      {service.patch?.label || service.patch?.uid || 'Patch optional'}
+                      {service.patch?.label || service.patch?.uid || (service.patchRequired ? 'Patch required' : 'Patch optional')}
                     </span>
-                    {commissionPct && (
+                    {commissionPct && access.canSeeFinancials && (
                       <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                         <ArrowUpRight className="h-3 w-3" strokeWidth={2.25} />
                         Commission {commissionPct}
@@ -452,11 +540,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                     type="button"
                     data-testid={`provider-service-edit-${service.id}`}
                     onClick={() => openEdit(service)}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400"
+                    disabled={!canEditServices}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
                     style={{ fontWeight: 700 }}
                   >
                     <Edit3 className="h-4 w-4" strokeWidth={2.5} />
-                    Edit Service
+                    {canEditServices ? 'Edit Service' : 'View-only for Staff'}
                   </button>
                 </div>
               </motion.article>
@@ -477,23 +566,30 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
             <motion.div className={`relative w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`} initial={{ y: 32, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 32, scale: 0.97 }} transition={springConfig}>
               <div className="flex items-start justify-between gap-3 border-b border-inherit p-6 pb-5">
                 <div>
-                  <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create service</p>
-                  <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Publish a bookable listing</h3>
-                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Creates a live Provider service for marketplace booking.</p>
+                  <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create New Service</p>
+                  <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Set up a bookable service</h3>
+                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Save as draft while you refine details, or publish live when customers can book.</p>
                 </div>
                 <button type="button" onClick={() => setCreatingService(false)} className={`rounded-full border p-2 transition ${tone.secondaryBtn}`} aria-label="Close create dialog"><X className="h-4 w-4" strokeWidth={2.25} /></button>
               </div>
-              <div className="space-y-4 p-6 pt-5">
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Title<input data-testid="service-create-title-input" value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6 pt-5">
+                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Service Name<input data-testid="service-create-title-input" placeholder="Private Chef Dinner" value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                 <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Description<textarea data-testid="service-create-description-input" value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} rows={3} className={`mt-1.5 w-full resize-none rounded-xl border px-3.5 py-2.5 text-[14px] normal-case leading-6 tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price (USD)<input data-testid="service-create-price-input" type="number" min="0.5" step="0.01" value={createForm.priceDollars} onChange={(e) => setCreateForm({ ...createForm, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Duration (min)<input data-testid="service-create-duration-input" type="number" min="5" step="5" value={createForm.durationMins} onChange={(e) => setCreateForm({ ...createForm, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Category<select data-testid="service-create-category-input" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{SERVICE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Status<select data-testid="service-create-status-select" value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option></select></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price per person / flat rate<input data-testid="service-create-price-input" type="number" min="0.01" step="0.01" value={createForm.priceDollars} onChange={(e) => setCreateForm({ ...createForm, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Duration (min)<input data-testid="service-create-duration-input" type="number" min="15" step="5" value={createForm.durationMins} onChange={(e) => setCreateForm({ ...createForm, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Max guests<input data-testid="service-create-max-guests-input" type="number" min="1" step="1" value={createForm.maxGuests} onChange={(e) => setCreateForm({ ...createForm, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                 </div>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid="service-create-patch-required-checkbox" type="checkbox" checked={createForm.patchRequired} onChange={(e) => setCreateForm({ ...createForm, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Patch Linking optional — Link Physical Patch</span><br /><span className={tone.subtle}>Use when guests must tap or scan a patch before arrival/check-in. Link patches from the Patches tab after saving.</span></span></label>
+                <div className={`rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload placeholder — add images after media storage is connected.</span></div>
+                {createForm.status === 'active' && createForm.patchRequired && <p className={`rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Warning: this service can go active now, but it should be linked to a patch before physical fulfillment starts.</p>}
               </div>
-              <div className={`flex items-center justify-end gap-2 border-t p-4 ${tone.footer}`}>
+              <div className={`flex flex-wrap items-center justify-end gap-2 border-t p-4 ${tone.footer}`}>
                 <button type="button" onClick={() => setCreatingService(false)} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`} style={{ fontWeight: 600 }}>Cancel</button>
-                <button type="button" data-testid="create-service-button" onClick={createService} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Create Service</button>
+                <button type="button" data-testid="save-draft-service-button" onClick={() => createService('draft')} disabled={saving} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-60 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Save as Draft</button>
+                <button type="button" data-testid="create-service-button" onClick={() => createService('active')} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Publish Live</button>
               </div>
             </motion.div>
           </motion.div>
@@ -542,7 +638,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 </button>
               </div>
 
-              <div className="space-y-4 p-6 pt-5">
+              <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6 pt-5">
                 <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
                   Title
                   <input
@@ -563,12 +659,16 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                   />
                 </label>
                 <div className="grid grid-cols-2 gap-3">
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Category<select data-testid="service-category-input" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{SERVICE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Status<select data-testid="service-status-select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    Price (USD)
+                    Price per person / flat rate
                     <input
                       data-testid="service-price-input"
                       type="number"
-                      min="0.5"
+                      min="0.01"
                       step="0.01"
                       value={editForm.priceDollars}
                       onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })}
@@ -580,17 +680,23 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                     <input
                       data-testid="service-duration-input"
                       type="number"
-                      min="5"
+                      min="15"
                       step="5"
                       value={editForm.durationMins}
                       onChange={(e) => setEditForm({ ...editForm, durationMins: e.target.value })}
                       className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
                     />
                   </label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Max guests<input data-testid="service-max-guests-input" type="number" min="1" step="1" value={editForm.maxGuests} onChange={(e) => setEditForm({ ...editForm, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                 </div>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid="service-patch-required-checkbox" type="checkbox" checked={editForm.patchRequired} onChange={(e) => setEditForm({ ...editForm, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Patch Linking optional — Link Physical Patch</span><br /><span className={tone.subtle}>Connected patch: {editingService.patch?.label || editingService.patch?.uid || 'none yet — link one from Patches.'}</span></span></label>
+                <div className={`rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload placeholder — add images after media storage is connected.</span></div>
+                {editForm.status === 'active' && editForm.patchRequired && !editingService.patch && <p className={`rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Activation warning: guests can book this active service, but staff should link at least one patch before physical check-in.</p>}
               </div>
 
-              <div className={`flex items-center justify-end gap-2 border-t p-4 ${tone.footer}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-2 border-t p-4 ${tone.footer}`}>
+                <button type="button" onClick={archiveService} disabled={saving || access.role !== 'owner'} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>Archive</button>
+                <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingService(null)}
@@ -610,6 +716,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                   {saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />}
                   Save Service
                 </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

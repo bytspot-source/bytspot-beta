@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle, Clock, FileText, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, FileText, ShieldCheck, Users } from 'lucide-react';
 import type { OnboardingData } from '../ProviderOnboarding';
 
 interface Step10CompleteProps {
@@ -51,6 +51,16 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
       color: 'from-orange-500 to-red-500',
     },
   ];
+  const vendorName = data.businessInfo?.legalName || data.businessInfo?.contactName || 'Provider';
+
+  const reviewComplianceNow = () => {
+    try {
+      localStorage.setItem('bytspot_provider_dashboard_view', 'compliance');
+    } catch {
+      // The dashboard still opens normally if local storage is unavailable.
+    }
+    onComplete();
+  };
 
   return (
     <div className="max-w-[800px] mx-auto px-4 pb-8">
@@ -150,6 +160,34 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
             );
           })}
         </div>
+      </motion.div>
+
+      <motion.div
+        className="mb-8 rounded-[24px] border-2 border-cyan-300/30 bg-cyan-400/10 p-6 text-white shadow-xl backdrop-blur-xl"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.62 }}
+        data-testid="provider-onboarding-compliance-welcome"
+      >
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 850 }}>
+          <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.5} /> Compliance Hub
+        </div>
+        <h2 className="text-[23px] leading-tight" style={{ fontWeight: 850 }}>Welcome to Bytspot, {vendorName}!</h2>
+        <p className="mt-3 text-[14px] leading-6 text-white/72">
+          We’ve created a Compliance Hub in your dashboard to help you understand key requirements for cottage businesses in Georgia. Many successful providers use it to stay informed and build trust with customers.
+        </p>
+        <p className="mt-3 text-[15px] text-white" style={{ fontWeight: 750 }}>Would you like to review your checklist now?</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={reviewComplianceNow} className="rounded-2xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-3 text-[14px] text-white shadow-xl" style={{ fontWeight: 850 }}>
+            Review Checklist Now
+          </button>
+          <button type="button" onClick={onComplete} className="rounded-2xl border border-white/20 bg-white/[0.06] px-4 py-3 text-[14px] text-white" style={{ fontWeight: 750 }}>
+            Go to Dashboard
+          </button>
+        </div>
+        <p className="mt-4 rounded-2xl border border-amber-300/35 bg-amber-400/12 p-3 text-[12px] leading-5 text-amber-50" style={{ fontWeight: 700 }}>
+          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" strokeWidth={2.5} /> This checklist is for informational purposes only and does not constitute legal advice. Requirements can change. Please consult official state resources or a professional advisor.
+        </p>
       </motion.div>
 
       {/* Resources */}

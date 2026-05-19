@@ -26,15 +26,27 @@ const PROVIDER_SERVICE = {
   id: 'svc-1',
   title: 'VIP Arrival',
   description: 'Door-to-table escort with patch verified access',
+  category: 'Transportation',
   priceCents: 15000,
   currency: 'USD',
   durationMins: 90,
+  maxGuests: 4,
+  patchRequired: true,
   status: 'active',
   updatedAt: new Date('2026-05-03T12:10:00.000Z').toISOString(),
   vendor: { id: 'vendor-1', displayName: VENDOR_NAME, onboardingStatus: 'active' },
   patch: { id: 'patch-1', uid: '04A1B2C3D4E5F6', label: 'VIP Booth' },
   cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
 };
+
+type ProviderServiceFixture = Omit<typeof PROVIDER_SERVICE, 'description' | 'durationMins' | 'maxGuests' | 'patch'> & {
+  description: string | null;
+  durationMins: number | null;
+  maxGuests: number | null;
+  patch: typeof PROVIDER_SERVICE.patch | null;
+};
+type BookingFixture = Record<string, unknown>;
+type TrpcCall = { procedure: string; input: unknown };
 
 const notConnectedSync: SyncOnboardingResponse = {
   vendor: { id: 'vendor-1', displayName: VENDOR_NAME, stripeAccountId: null, onboardingStatus: 'pending', updatedAt: new Date().toISOString() },
@@ -55,7 +67,7 @@ declare global {
   interface Window {
     __BYT_E2E_TRPC_MOCKS__?: Record<string, unknown>;
     __BYT_E2E_TRPC_CALLS__?: Array<{ procedure: string; input: unknown }>;
-    __BYT_E2E_VENDOR_SERVICES__?: Array<typeof PROVIDER_SERVICE>;
+    __BYT_E2E_VENDOR_SERVICES__?: ProviderServiceFixture[];
     __BYT_E2E_VENDOR_PATCHES__?: Array<Record<string, unknown>>;
     __recordStartOnboarding?: (payload: unknown) => void;
   }
@@ -65,7 +77,7 @@ async function installVendorOnboardingMocks(
   page: Page,
   syncResult: SyncOnboardingResponse,
   access?: { role?: 'owner' | 'manager' | 'staff'; businessMode?: 'standard' | 'cottage' },
-  options?: { services?: Array<typeof PROVIDER_SERVICE>; bookings?: unknown[]; patches?: Array<Record<string, unknown>>; authToken?: string },
+  options?: { services?: ProviderServiceFixture[]; bookings?: BookingFixture[]; patches?: Array<Record<string, unknown>>; authToken?: string },
 ) {
   await page.addInitScript(({ vendorName, sync, connectUrl, providerRole, providerBusinessMode, service, services, bookings, patches, authToken }) => {
     localStorage.setItem('bytspot_auth_token', authToken);
@@ -128,12 +140,17 @@ async function installVendorOnboardingMocks(
     };
     const firstJsonInput = (body: unknown): unknown => {
       if (!body || typeof body !== 'object') return body;
-      const record = body as Record<string, any>;
+      const record = body as Record<string, unknown>;
       if ('json' in record) return record.json;
       if (Array.isArray(body)) return firstJsonInput(body[0]);
       const firstValue = record[Object.keys(record)[0]];
-      return firstValue && typeof firstValue === 'object' && 'json' in firstValue ? firstValue.json : body;
+      const firstRecord = firstValue && typeof firstValue === 'object' ? firstValue as Record<string, unknown> : null;
+      return firstRecord && 'json' in firstRecord ? firstRecord.json : body;
     };
+    const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const asNumber = (value: unknown, fallback: number): number => typeof value === 'number' ? value : fallback;
+    const asString = (value: unknown, fallback: string): string => typeof value === 'string' ? value : fallback;
+    const asBoolean = (value: unknown, fallback: boolean): boolean => typeof value === 'boolean' ? value : fallback;
 
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, init) => {
@@ -149,16 +166,19 @@ async function installVendorOnboardingMocks(
         if (procedure.includes('vendors.listServices')) return { result: { data: { vendor: sync.vendor, services: window.__BYT_E2E_VENDOR_SERVICES__ ?? [] } } };
         if (procedure.includes('vendors.listPatches')) return { result: { data: { vendor: sync.vendor, patches: window.__BYT_E2E_VENDOR_PATCHES__ ?? [] } } };
         if (procedure.includes('vendors.createService')) {
-          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
-          const priceCents = inputRecord.priceCents ?? 1000;
+          const inputRecord = asRecord(jsonInput);
+          const priceCents = asNumber(inputRecord.priceCents, 1000);
           const created = {
             ...service,
             id: `svc-e2e-${Date.now().toString(36)}`,
-            title: inputRecord.title ?? 'New Service',
-            description: inputRecord.description ?? null,
+            title: asString(inputRecord.title, 'New Service'),
+            description: typeof inputRecord.description === 'string' ? inputRecord.description : null,
+            category: asString(inputRecord.category, 'General'),
             priceCents,
-            durationMins: inputRecord.durationMins ?? null,
-            status: inputRecord.status ?? 'active',
+            durationMins: typeof inputRecord.durationMins === 'number' ? inputRecord.durationMins : null,
+            maxGuests: typeof inputRecord.maxGuests === 'number' ? inputRecord.maxGuests : null,
+            patchRequired: asBoolean(inputRecord.patchRequired, false),
+            status: asString(inputRecord.status, 'active'),
             updatedAt: new Date().toISOString(),
             patch: null,
             cashFlow: { grossCents: priceCents, platformFeeCents: Math.round(priceCents * 0.08), providerPayoutEstimateCents: Math.round(priceCents * 0.92), commissionBps: 800 },
@@ -167,9 +187,9 @@ async function installVendorOnboardingMocks(
           return { result: { data: { vendor: sync.vendor, service: created } } };
         }
         if (procedure.includes('vendors.createPatch')) {
-          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
+          const inputRecord = asRecord(jsonInput);
           const patchId = `patch-e2e-${Date.now().toString(36)}`;
-          const serviceId = inputRecord.serviceId ?? null;
+          const serviceId = typeof inputRecord.serviceId === 'string' ? inputRecord.serviceId : null;
           const currentService = serviceId
             ? (window.__BYT_E2E_VENDOR_SERVICES__ ?? []).find((item) => item.id === serviceId)
             : null;
@@ -178,7 +198,7 @@ async function installVendorOnboardingMocks(
           const patch = {
             id: patchId,
             uid: '04A1B2C3D4E5F6',
-            label: inputRecord.label ?? 'Main Entrance',
+            label: asString(inputRecord.label, 'Main Entrance'),
             venueName: vendorName,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -192,23 +212,34 @@ async function installVendorOnboardingMocks(
           return { result: { data: { vendor: sync.vendor, patch } } };
         }
         if (procedure.includes('vendors.updateService')) {
-          const inputRecord = (jsonInput ?? {}) as Record<string, any>;
+          const inputRecord = asRecord(jsonInput);
           const current = (window.__BYT_E2E_VENDOR_SERVICES__ ?? [service])[0];
+          const nextPriceCents = asNumber(inputRecord.priceCents, current.priceCents);
           const updated = {
             ...current,
-            title: inputRecord.title ?? current.title,
-            description: inputRecord.description ?? current.description,
-            priceCents: inputRecord.priceCents ?? current.priceCents,
-            durationMins: inputRecord.durationMins ?? current.durationMins,
+            title: asString(inputRecord.title, current.title),
+            description: typeof inputRecord.description === 'string' ? inputRecord.description : current.description,
+            category: asString(inputRecord.category, current.category),
+            priceCents: nextPriceCents,
+            durationMins: typeof inputRecord.durationMins === 'number' ? inputRecord.durationMins : current.durationMins,
+            maxGuests: typeof inputRecord.maxGuests === 'number' ? inputRecord.maxGuests : current.maxGuests,
+            patchRequired: asBoolean(inputRecord.patchRequired, current.patchRequired),
+            status: asString(inputRecord.status, current.status),
             updatedAt: new Date().toISOString(),
             cashFlow: {
               ...current.cashFlow,
-              grossCents: inputRecord.priceCents ?? current.priceCents,
-              providerPayoutEstimateCents: Math.round((inputRecord.priceCents ?? current.priceCents) * 0.92),
+              grossCents: nextPriceCents,
+              providerPayoutEstimateCents: Math.round(nextPriceCents * 0.92),
             },
           };
           window.__BYT_E2E_VENDOR_SERVICES__ = [updated];
           return { result: { data: { service: updated } } };
+        }
+        if (procedure.includes('vendors.updateBookingStatus')) {
+          const inputRecord = asRecord(jsonInput);
+          const bookingRows = (bookings ?? []) as BookingFixture[];
+          const current = bookingRows.find((booking) => booking.id === inputRecord.bookingId) ?? bookingRows[0];
+          return { result: { data: { booking: { ...current, status: asString(inputRecord.status, 'in_progress') }, providerRole } } };
         }
         const key = Object.keys(window.__BYT_E2E_TRPC_MOCKS__ ?? {}).find((name) => procedure.includes(name));
         return { result: { data: key ? window.__BYT_E2E_TRPC_MOCKS__?.[key] : null } };
@@ -287,6 +318,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Background Configuration/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Your cottage business is ready for bookings.' })).toBeVisible();
+    await page.getByRole('button', { name: 'My Listings' }).click();
+    await expect(page.getByTestId('provider-service-add')).toBeEnabled();
   });
 
   test('uses backend providerRole from syncOnboarding over stale local role state', async ({ page }) => {
@@ -319,6 +352,27 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByText('$24,580')).toHaveCount(0);
   });
 
+  test('lets staff check in bookings without exposing payout details', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const startsAt = new Date();
+    startsAt.setHours(18, 30, 0, 0);
+    const bookings = [{
+      id: 'booking-staff-checkin', status: 'confirmed', startsAt: startsAt.toISOString(), endsAt: null,
+      priceCents: 15000, currency: 'USD', guestName: 'Avery Hart', patchLabel: 'VIP Booth',
+      serviceId: 'svc-1', serviceTitle: 'VIP Arrival',
+      cashFlow: { grossCents: 15000, platformFeeCents: 1200, providerPayoutEstimateCents: 13800, commissionBps: 800 },
+    }];
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, { role: 'staff', businessMode: 'standard' }, { bookings });
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Bookings', exact: true }).click();
+    await expect(page.getByTestId('provider-bookings-list')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Owner-only')).toBeVisible();
+    await page.getByTestId('provider-booking-checkin-booking-staff-checkin').click();
+    await expect(page.getByTestId('provider-bookings-handoff-message')).toContainText('Guest checked in');
+    await expect(page.getByTestId('provider-booking-checkin-booking-staff-checkin')).toHaveText('Checked In');
+  });
+
   test('lets owners edit live vendor service metadata from My Listings', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
@@ -332,15 +386,18 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-service-edit-modal')).toBeVisible();
     await page.getByTestId('service-title-input').fill('VIP Arrival Plus');
     await page.getByTestId('service-description-input').fill('Updated provider handoff');
+    await page.getByTestId('service-category-input').selectOption('Catering');
     await page.getByTestId('service-price-input').fill('175.00');
     await page.getByTestId('service-duration-input').fill('120');
+    await page.getByTestId('service-max-guests-input').fill('6');
     await page.getByTestId('save-service-button').click();
 
     await expect(page.getByTestId('provider-service-edit-modal')).toBeHidden();
     await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('VIP Arrival Plus');
+    await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('Catering');
     await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('$175.00');
-    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
-    expect(calls.some((call) => call.procedure.includes('vendors.updateService') && (call.input as any)?.priceCents === 17500)).toBeTruthy();
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
+    expect(calls.some((call) => call.procedure.includes('vendors.updateService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 17500)).toBeTruthy();
   });
 
   test('lets owners create a live vendor service from My Listings', async ({ page }) => {
@@ -354,15 +411,41 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
     await page.getByTestId('service-create-title-input').fill('Downtown Garage Parking');
     await page.getByTestId('service-create-description-input').fill('Secure covered parking near the venue');
+    await page.getByTestId('service-create-category-input').selectOption('Parking');
     await page.getByTestId('service-create-price-input').fill('25.00');
     await page.getByTestId('service-create-duration-input').fill('60');
+    await page.getByTestId('service-create-max-guests-input').fill('1');
+    await page.getByTestId('service-create-status-select').selectOption('active');
     await page.getByTestId('create-service-button').click();
 
     await expect(page.getByTestId('provider-service-create-modal')).toBeHidden();
     await expect(page.getByTestId('provider-services-panel')).toContainText('Downtown Garage Parking');
+    await expect(page.getByTestId('provider-services-panel')).toContainText('Parking');
     await expect(page.getByTestId('provider-services-panel')).toContainText('$25.00');
-    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
-    expect(calls.some((call) => call.procedure.includes('vendors.createService') && (call.input as any)?.priceCents === 2500)).toBeTruthy();
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
+    expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 2500)).toBeTruthy();
+  });
+
+  test('shows legally safe Georgia Compliance Hub guidance', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync);
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Compliance', exact: true }).click();
+    await expect(page.getByTestId('provider-compliance-legal-notice')).toContainText('This is general information only');
+    await expect(page.getByRole('heading', { name: 'Compliance Hub' })).toBeVisible();
+    await expect(page.getByText('Grow legally. Operate with confidence.')).toBeVisible();
+    await expect(page.getByTestId('provider-compliance-quick-status')).toContainText('Food Safety Training');
+    await expect(page.getByTestId('provider-compliance-quick-status')).toContainText('Overall Readiness');
+    await expect(page.getByTestId('provider-compliance-main-sections')).toContainText('Ask Compliance Assistant');
+    await expect(page.getByTestId('provider-compliance-main-sections')).toContainText('Insurance Partners');
+    await expect(page.getByTestId('provider-compliance-checklist-legal-notice')).toContainText('We do not guarantee compliance');
+    await expect(page.getByTestId('provider-compliance-georgia-checklists')).toContainText('Private Chef / Cottage Food');
+    await expect(page.getByTestId('provider-compliance-georgia-checklists')).toContainText('Mobile Massage / Wellness Therapist');
+    await expect(page.getByTestId('provider-compliance-georgia-checklists')).toContainText('Valet / Transportation Service');
+    await expect(page.getByTestId('provider-compliance-georgia-checklists')).toContainText('Made in a home kitchen');
+    await expect(page.getByTestId('provider-compliance-regulatory-context')).toContainText('HB 398');
+    await expect(page.getByTestId('provider-compliance-footer-disclaimer')).toContainText('Not legal advice');
   });
 
   test('dashboard sign-in guidance uses high-contrast provider wording', async ({ page }) => {
@@ -487,9 +570,9 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(card.getByTestId('provider-patches-card-service')).toHaveText('VIP Arrival');
     await expect(card).toContainText('&service=svc-1');
 
-    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
     expect(calls.some((call) => call.procedure.includes('vendors.listPatches'))).toBeTruthy();
-    expect(calls.some((call) => call.procedure.includes('vendors.createPatch') && (call.input as any)?.serviceId === 'svc-1')).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.createPatch') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).serviceId === 'svc-1')).toBeTruthy();
   });
 });
 
@@ -660,8 +743,8 @@ test.describe('Provider earnings empty-state ladder', () => {
 
     await expect(page.getByTestId('provider-earnings-stats')).toBeVisible();
     await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);
-    // $138 from the single completed booking.
-    await expect(page.getByTestId('provider-earnings-value-this-month')).toHaveText('$138');
+    // $276 booked this month: one confirmed booking plus one completed booking.
+    await expect(page.getByTestId('provider-earnings-value-this-month')).toHaveText('$276');
     await expect(page.getByTestId('provider-earnings-value-pending')).toHaveText('$138');
     await expect(page.getByTestId('provider-earnings-next-payout-value')).toHaveText('$138');
     await expect(page.getByTestId('provider-earnings-next-payout')).toContainText('Across 1 confirmed booking');

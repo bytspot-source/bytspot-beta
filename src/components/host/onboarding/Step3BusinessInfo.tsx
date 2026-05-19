@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Building2, User, MapPin, Hash } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Clock, Hash, MapPin, ShieldCheck, User } from 'lucide-react';
 import type { OnboardingData, ProviderType } from '../ProviderOnboarding';
 
 interface Step3BusinessInfoProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['businessInfo'];
+  initialCompliance?: OnboardingData['compliance'];
   providerType?: ProviderType;
 }
 
-export function Step3BusinessInfo({ onComplete, initialValue, providerType }: Step3BusinessInfoProps) {
+export function Step3BusinessInfo({ onComplete, initialValue, initialCompliance, providerType }: Step3BusinessInfoProps) {
   const [contactName, setContactName] = useState(initialValue?.contactName || '');
   const [contactTitle, setContactTitle] = useState(initialValue?.contactTitle || '');
   const [street, setStreet] = useState(initialValue?.address?.street || '');
@@ -19,6 +20,7 @@ export function Step3BusinessInfo({ onComplete, initialValue, providerType }: St
   const [numberOfSpots, setNumberOfSpots] = useState(initialValue?.numberOfSpots || 1);
   const [legalName, setLegalName] = useState(initialValue?.legalName || '');
   const [taxId, setTaxId] = useState(initialValue?.taxId || '');
+  const [compliancePreference, setCompliancePreference] = useState<'review_now' | 'skip_for_now'>(initialCompliance?.checklistPreference || 'skip_for_now');
 
   const springConfig = {
     type: "spring" as const,
@@ -51,6 +53,10 @@ export function Step3BusinessInfo({ onComplete, initialValue, providerType }: St
           address: { street, city, state, zipCode },
           taxId: isCommercial ? taxId : undefined,
           numberOfSpots,
+        },
+        compliance: {
+          checklistPreference: compliancePreference,
+          region: 'GA',
         },
       });
     }
@@ -255,6 +261,48 @@ export function Step3BusinessInfo({ onComplete, initialValue, providerType }: St
             </p>
           </motion.div>
         )}
+
+        <motion.section
+          className="rounded-[24px] border-2 border-cyan-300/25 bg-cyan-400/10 p-5 text-white shadow-xl"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springConfig, delay: 0.38 }}
+          data-testid="provider-onboarding-compliance-hub"
+        >
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 850 }}>
+            <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.5} /> Compliance
+          </div>
+          <h2 className="text-[24px] leading-tight text-white" style={{ fontWeight: 850 }}>Let’s set you up for long-term success</h2>
+          <p className="mt-3 text-[14px] leading-6 text-white/72">
+            Running a cottage business from home is exciting, but we want to make sure you’re protected and growing sustainably.
+            Bytspot Compliance Hub helps you understand common requirements in Georgia, including food safety training, labeling, insurance, licensing, and verification items. This is optional but highly recommended.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setCompliancePreference('review_now')}
+              className={`rounded-2xl border p-4 text-left transition ${compliancePreference === 'review_now' ? 'border-emerald-300 bg-emerald-400/16' : 'border-white/15 bg-white/[0.05]'}`}
+              data-testid="provider-compliance-start-checklist"
+            >
+              <CheckCircle2 className="mb-2 h-5 w-5 text-emerald-300" strokeWidth={2.5} />
+              <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>Start Compliance Checklist</p>
+              <p className="mt-1 text-[12px] leading-5 text-white/64">Personalized for your service type.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompliancePreference('skip_for_now')}
+              className={`rounded-2xl border p-4 text-left transition ${compliancePreference === 'skip_for_now' ? 'border-violet-300 bg-violet-400/16' : 'border-white/15 bg-white/[0.05]'}`}
+              data-testid="provider-compliance-skip"
+            >
+              <Clock className="mb-2 h-5 w-5 text-violet-300" strokeWidth={2.5} />
+              <p className="text-[14px] text-white" style={{ fontWeight: 800 }}>Skip for now</p>
+              <p className="mt-1 text-[12px] leading-5 text-white/64">You can complete this anytime in Provider Settings.</p>
+            </button>
+          </div>
+          <p className="mt-4 rounded-2xl border border-amber-300/35 bg-amber-400/12 p-3 text-[12px] leading-5 text-amber-50" style={{ fontWeight: 700 }}>
+            <AlertTriangle className="mr-1 inline h-3.5 w-3.5" strokeWidth={2.5} /> This checklist is for informational purposes only and does not constitute legal advice. Requirements can change. Please consult official state resources or a professional advisor.
+          </p>
+        </motion.section>
       </div>
 
       {/* Continue Button */}

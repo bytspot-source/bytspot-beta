@@ -8,6 +8,11 @@ import {
   Activity,
   ChevronRight,
   CheckCircle2,
+  Scale,
+  BadgeCheck,
+  Bot,
+  Library,
+  Umbrella,
 } from 'lucide-react';
 import { useState } from 'react';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
@@ -20,6 +25,7 @@ interface DashboardComplianceProps {
 
 type ComplianceStatus = 'complete' | 'partial' | 'pending';
 type ComplianceCategory = 'identity' | 'payouts' | 'catalog' | 'legal';
+type ChecklistStatus = 'Required' | 'Recommended' | 'Strongly recommended' | 'Not required';
 
 interface ComplianceItem {
   name: string;
@@ -35,6 +41,60 @@ interface ComplianceSection {
   color: string;
   items: ComplianceItem[];
 }
+
+const TOP_LEGAL_NOTICE = '⚠️ This is general information only. Bytspot is not a law firm. Compliance rules change and vary by location. Always verify with official sources or consult a qualified attorney.';
+const CHECKLIST_LEGAL_NOTICE = 'Bytspot provides this checklist for informational purposes. We do not guarantee compliance. Laws change frequently. You are responsible for meeting all local, state, and federal requirements.';
+const FOOTER_LEGAL_NOTICE = 'General guidance only. Not legal advice. Consult official sources or an attorney.';
+const AI_LEGAL_NOTICE = 'This AI assistant gives general answers based on public information. It is not a substitute for professional legal advice.';
+
+const hubSections = [
+  { title: 'My Personalized Checklist', detail: 'Recommended next steps based on service type, region, and verification state.', icon: CheckCircle2, color: 'from-cyan-400 to-blue-500' },
+  { title: 'Resource Library', detail: 'Official-source links, plain-language explainers, and platform readiness notes.', icon: Library, color: 'from-violet-400 to-fuchsia-500' },
+  { title: 'Verification Badges', detail: 'Track training, insurance, license, and review badges that can build customer trust.', icon: BadgeCheck, color: 'from-emerald-400 to-teal-500' },
+  { title: 'Insurance Partners', detail: 'Explore coverage categories and partner referrals where available.', icon: Umbrella, color: 'from-amber-400 to-orange-500' },
+  { title: 'Ask Compliance Assistant', detail: `AI-powered general guidance. ${AI_LEGAL_NOTICE}`, icon: Bot, color: 'from-slate-300 to-cyan-400' },
+];
+
+const georgiaChecklists: Array<{
+  title: string;
+  subtitle: string;
+  items: Array<{ label: string; status: ChecklistStatus; detail: string }>;
+}> = [
+  {
+    title: 'Private Chef / Cottage Food',
+    subtitle: 'Georgia-focused sample checklist · 2026',
+    items: [
+      { label: 'Complete ANSI-accredited Food Handler training', status: 'Required', detail: 'Georgia cottage food rules are vendor-friendly, but food handler training remains mandatory.' },
+      { label: 'Register business name', status: 'Recommended', detail: 'DBA or LLC registration is recommended depending on how you operate and market the service.' },
+      { label: 'Follow proper labeling', status: 'Required', detail: 'Use “Made in a home kitchen” plus allergen information where applicable.' },
+      { label: 'Liability insurance', status: 'Strongly recommended', detail: '$1M liability coverage is a common baseline for customer trust.' },
+      { label: 'Keep temperature logs if applicable', status: 'Recommended', detail: 'Maintain practical records for temperature-sensitive ingredients or prepared items.' },
+      { label: 'Understand sales channels', status: 'Recommended', detail: 'Direct, online, and retail sales are allowed under Georgia HB 398; verify current official guidance.' },
+    ],
+  },
+  {
+    title: 'Mobile Massage / Wellness Therapist',
+    subtitle: 'Georgia-focused sample checklist · 2026',
+    items: [
+      { label: 'Valid Georgia Massage Therapy License', status: 'Required', detail: 'Verify active standing with the Georgia Board of Massage Therapy.' },
+      { label: 'Professional liability insurance', status: 'Required', detail: 'Required for Bytspot platform verification before wellness services go live.' },
+      { label: 'Client intake & consent forms', status: 'Required', detail: 'Collect informed consent, health intake, and session boundaries before appointments.' },
+      { label: 'Background check', status: 'Recommended', detail: 'Recommended for customer trust and high-touch in-home or hotel services.' },
+      { label: 'Maintain private, clean treatment space', status: 'Required', detail: 'Use sanitation, privacy, and setup standards appropriate for wellness appointments.' },
+    ],
+  },
+  {
+    title: 'Valet / Transportation Service',
+    subtitle: 'Georgia-focused sample checklist · 2026',
+    items: [
+      { label: 'Valid driver’s license + clean MVR', status: 'Required', detail: 'Verify license status and motor vehicle record for every driver.' },
+      { label: 'Commercial auto insurance', status: 'Required', detail: 'Use commercial coverage appropriate for paid transportation or valet operations.' },
+      { label: 'Business registration', status: 'Required', detail: 'Register the operating business before accepting paid jobs.' },
+      { label: 'Vehicle maintenance records', status: 'Required', detail: 'Maintain regular maintenance records for vehicles used in service.' },
+      { label: 'Passenger liability coverage', status: 'Required', detail: 'Confirm coverage applies to passenger transport or valet handoffs where applicable.' },
+    ],
+  },
+];
 
 export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceProps) {
   const [selectedCategory, setSelectedCategory] = useState<ComplianceCategory | null>(null);
@@ -150,21 +210,6 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
     },
   ];
 
-  if (access.isCottage) {
-    return (
-      <div className="rounded-[28px] border border-cyan-300/20 bg-cyan-500/10 p-6 text-white">
-        <h1 className="text-[28px]" style={{ fontWeight: 850 }}>Cottage compliance checklist</h1>
-        <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/62">Cottage mode keeps compliance focused on essentials: clear customer instructions, safe patch placement, privacy-friendly data collection, and payout readiness.</p>
-        <ol className="mt-5 grid gap-3 text-[14px] text-white/70 md:grid-cols-2">
-          <li className="rounded-2xl bg-black/20 p-4">1. Publish accurate listing and access details.</li>
-          <li className="rounded-2xl bg-black/20 p-4">2. Verify every patch before printing or sharing.</li>
-          <li className="rounded-2xl bg-black/20 p-4">3. Keep guest communications inside approved channels.</li>
-          <li className="rounded-2xl bg-black/20 p-4">4. Ask the Owner to review payout and tax settings.</li>
-        </ol>
-      </div>
-    );
-  }
-
   const getStatusIcon = (status: 'complete' | 'partial' | 'pending') => {
     switch (status) {
       case 'complete':
@@ -218,11 +263,29 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
   };
 
   const overallCompliance = calculateOverallCompliance();
+  const statusTone = (status: ChecklistStatus) => {
+    switch (status) {
+      case 'Required':
+        return 'border-orange-300/30 bg-orange-400/12 text-orange-100';
+      case 'Recommended':
+        return 'border-cyan-300/30 bg-cyan-400/12 text-cyan-100';
+      case 'Strongly recommended':
+        return 'border-amber-300/30 bg-amber-400/12 text-amber-100';
+      case 'Not required':
+        return 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100';
+    }
+  };
   const sectionStatus = (section: ComplianceSection): ComplianceStatus => {
     if (section.items.every((i) => i.status === 'complete')) return 'complete';
     if (section.items.some((i) => i.status === 'pending')) return 'pending';
     return 'partial';
   };
+  const quickStatusCards = [
+    { label: 'Food Safety Training', value: data.totalServices > 0 ? 'Not Started' : 'Not Started', tone: 'border-orange-300/30 bg-orange-400/12 text-orange-100' },
+    { label: 'Business Registration', value: profileStatus === 'complete' ? 'Done' : 'Pending', tone: profileStatus === 'complete' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100' },
+    { label: 'Insurance', value: 'Recommended', tone: 'border-cyan-300/30 bg-cyan-400/12 text-cyan-100' },
+    { label: 'Overall Readiness', value: '65% Complete', tone: 'border-violet-300/30 bg-violet-400/12 text-violet-100' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -232,13 +295,112 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-400/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 850 }}>
+          <Scale className="h-3.5 w-3.5" strokeWidth={2.5} /> Compliance Hub
+        </div>
         <h2 className="text-title-2 mb-2 text-white">
-          Compliance
+          Compliance Hub
         </h2>
         <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-          Track the steps required to keep your business in good standing.
+          Grow legally. Operate with confidence.
         </p>
       </motion.div>
+
+      <motion.div
+        className="rounded-[22px] border-2 border-amber-300/35 bg-amber-400/12 p-5 text-amber-50 shadow-xl"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.05 }}
+        data-testid="provider-compliance-legal-notice"
+      >
+        <p className="text-[14px] leading-6" style={{ fontWeight: 750 }}>{TOP_LEGAL_NOTICE}</p>
+      </motion.div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4" data-testid="provider-compliance-quick-status">
+        {quickStatusCards.map((card, index) => (
+          <motion.div
+            key={card.label}
+            className={`rounded-[20px] border p-4 shadow-lg ${card.tone}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.07 + index * 0.03 }}
+          >
+            <p className="text-[11px] uppercase tracking-[0.14em] opacity-80" style={{ fontWeight: 850 }}>{card.label}</p>
+            <p className="mt-2 text-[18px]" style={{ fontWeight: 850 }}>{card.value}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5" data-testid="provider-compliance-main-sections">
+        {hubSections.map((section, index) => {
+          const Icon = section.icon;
+          return (
+            <motion.section
+              key={section.title}
+              className="rounded-[22px] border-2 border-white/20 bg-[#1C1C1E]/88 p-4 text-white shadow-xl backdrop-blur-xl"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springConfig, delay: 0.1 + index * 0.04 }}
+            >
+              <div className={`mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${section.color}`}>
+                <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
+              </div>
+              <h3 className="text-[15px] leading-5" style={{ fontWeight: 850 }}>{section.title}</h3>
+              <p className="mt-2 text-[12px] leading-5 text-white/64">{section.detail}</p>
+            </motion.section>
+          );
+        })}
+      </div>
+
+      <motion.div
+        className="rounded-[22px] border-2 border-cyan-300/25 bg-cyan-400/10 p-5 text-cyan-50 shadow-xl"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.16 }}
+        data-testid="provider-compliance-regulatory-context"
+      >
+        <h3 className="text-[18px]" style={{ fontWeight: 850 }}>Federal AI & Cottage Regulation Context · 2026</h3>
+        <div className="mt-3 grid gap-3 text-[13px] leading-6 text-white/72 md:grid-cols-2">
+          <p><span className="text-white" style={{ fontWeight: 850 }}>Cottage food:</span> Primarily state-level. Georgia’s HB 398 is vendor-friendly: no state license required, no sales cap, retail sales allowed, and food handler training remains mandatory. There is no comprehensive federal cottage food law; FDA provides general food safety guidelines.</p>
+          <p><span className="text-white" style={{ fontWeight: 850 }}>AI transparency:</span> There is no single comprehensive federal AI law yet. Key platform principles are transparency, accountability, risk-based guidance, consent for data use, data minimization, and avoiding deceptive AI claims.</p>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="rounded-[20px] border-2 border-amber-300/25 bg-amber-400/10 p-4 text-amber-50"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...springConfig, delay: 0.18 }}
+        data-testid="provider-compliance-checklist-legal-notice"
+      >
+        <p className="text-[13px] leading-6" style={{ fontWeight: 750 }}>{CHECKLIST_LEGAL_NOTICE}</p>
+      </motion.div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3" data-testid="provider-compliance-georgia-checklists">
+        {georgiaChecklists.map((checklist, index) => (
+          <motion.section
+            key={checklist.title}
+            className="rounded-[22px] border-2 border-white/20 bg-[#1C1C1E]/88 p-5 text-white shadow-xl backdrop-blur-xl"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springConfig, delay: 0.08 + index * 0.04 }}
+          >
+            <h3 className="text-[18px]" style={{ fontWeight: 850 }}>{checklist.title}</h3>
+            <p className="mt-1 text-[12px] text-white/58" style={{ fontWeight: 650 }}>{checklist.subtitle}</p>
+            <div className="mt-4 space-y-3">
+              {checklist.items.map((item) => (
+                <div key={`${checklist.title}-${item.label}`} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-[13px] text-white" style={{ fontWeight: 800 }}>{item.label}</p>
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${statusTone(item.status)}`} style={{ fontWeight: 850 }}>{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-[12px] leading-5 text-white/68">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        ))}
+      </div>
 
       {/* Overall Compliance Score */}
       <motion.div
@@ -465,6 +627,10 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
           </motion.div>
         );
       })()}
+
+      <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center text-[12px] leading-5 text-white/58" data-testid="provider-compliance-footer-disclaimer">
+        {FOOTER_LEGAL_NOTICE}
+      </p>
     </div>
   );
 }

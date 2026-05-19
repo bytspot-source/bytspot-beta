@@ -404,7 +404,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                       >
                         {badge.label}
                       </span>
-                      {price && (
+                      {price && access.canSeeFinancials && (
                         <span className="text-[13px] text-white/85" style={{ fontWeight: 600 }}>
                           {price}
                         </span>

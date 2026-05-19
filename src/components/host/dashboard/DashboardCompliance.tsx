@@ -266,13 +266,13 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
   const statusTone = (status: ChecklistStatus) => {
     switch (status) {
       case 'Required':
-        return 'border-orange-300/30 bg-orange-400/12 text-orange-100';
+        return 'border-orange-300 bg-orange-900 text-orange-50';
       case 'Recommended':
-        return 'border-cyan-300/30 bg-cyan-400/12 text-cyan-100';
+        return 'border-cyan-300 bg-cyan-900 text-cyan-50';
       case 'Strongly recommended':
-        return 'border-amber-300/30 bg-amber-400/12 text-amber-100';
+        return 'border-amber-300 bg-amber-900 text-amber-50';
       case 'Not required':
-        return 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100';
+        return 'border-emerald-300 bg-emerald-900 text-emerald-50';
     }
   };
   const sectionStatus = (section: ComplianceSection): ComplianceStatus => {
@@ -281,10 +281,10 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
     return 'partial';
   };
   const quickStatusCards = [
-    { label: 'Food Safety Training', value: data.totalServices > 0 ? 'Not Started' : 'Not Started', tone: 'border-orange-300/30 bg-orange-400/12 text-orange-100' },
-    { label: 'Business Registration', value: profileStatus === 'complete' ? 'Done' : 'Pending', tone: profileStatus === 'complete' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100' },
-    { label: 'Insurance', value: 'Recommended', tone: 'border-cyan-300/30 bg-cyan-400/12 text-cyan-100' },
-    { label: 'Overall Readiness', value: '65% Complete', tone: 'border-violet-300/30 bg-violet-400/12 text-violet-100' },
+    { label: 'Food Safety Training', value: data.totalServices > 0 ? 'Not Started' : 'Not Started', tone: 'border-orange-300 bg-orange-900 text-orange-50' },
+    { label: 'Business Registration', value: profileStatus === 'complete' ? 'Done' : 'Pending', tone: profileStatus === 'complete' ? 'border-emerald-300 bg-emerald-900 text-emerald-50' : 'border-amber-300 bg-amber-900 text-amber-50' },
+    { label: 'Insurance', value: 'Recommended', tone: 'border-cyan-300 bg-cyan-900 text-cyan-50' },
+    { label: 'Overall Readiness', value: '65% Complete', tone: 'border-violet-300 bg-violet-900 text-violet-50' },
   ];
 
   return (
@@ -295,19 +295,19 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-400/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 850 }}>
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300 bg-cyan-900 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-cyan-50" style={{ fontWeight: 850 }}>
           <Scale className="h-3.5 w-3.5" strokeWidth={2.5} /> Compliance Hub
         </div>
         <h2 className="text-title-2 mb-2 text-white">
           Compliance Hub
         </h2>
-        <p className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
+        <p className="text-[15px] text-slate-100" style={{ fontWeight: 500 }}>
           Grow legally. Operate with confidence.
         </p>
       </motion.div>
 
       <motion.div
-        className="rounded-[22px] border-2 border-amber-300/35 bg-amber-400/12 p-5 text-amber-50 shadow-xl"
+        className="rounded-[22px] border-2 border-amber-300 bg-amber-900 p-5 text-amber-50 shadow-xl shadow-black/40"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.05 }}
@@ -320,12 +320,12 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         {quickStatusCards.map((card, index) => (
           <motion.div
             key={card.label}
-            className={`rounded-[20px] border p-4 shadow-lg ${card.tone}`}
+            className={`rounded-[20px] border p-4 shadow-lg shadow-black/25 ${card.tone}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.07 + index * 0.03 }}
           >
-            <p className="text-[11px] uppercase tracking-[0.14em] opacity-80" style={{ fontWeight: 850 }}>{card.label}</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-100" style={{ fontWeight: 850 }}>{card.label}</p>
             <p className="mt-2 text-[18px]" style={{ fontWeight: 850 }}>{card.value}</p>
           </motion.div>
         ))}
@@ -337,7 +337,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
           return (
             <motion.section
               key={section.title}
-              className="rounded-[22px] border-2 border-white/20 bg-[#1C1C1E]/88 p-4 text-white shadow-xl backdrop-blur-xl"
+              className="rounded-[22px] border-2 border-slate-500 bg-slate-800 p-4 text-white shadow-xl shadow-black/45 ring-1 ring-cyan-300/20"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.1 + index * 0.04 }}
@@ -346,28 +346,28 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 <Icon className="h-5 w-5 text-white" strokeWidth={2.5} />
               </div>
               <h3 className="text-[15px] leading-5" style={{ fontWeight: 850 }}>{section.title}</h3>
-              <p className="mt-2 text-[12px] leading-5 text-white/64">{section.detail}</p>
+              <p className="mt-2 text-[12px] leading-5 text-slate-100">{section.detail}</p>
             </motion.section>
           );
         })}
       </div>
 
       <motion.div
-        className="rounded-[22px] border-2 border-cyan-300/25 bg-cyan-400/10 p-5 text-cyan-50 shadow-xl"
+        className="rounded-[22px] border-2 border-cyan-300 bg-cyan-900 p-5 text-cyan-50 shadow-xl shadow-black/40"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.16 }}
         data-testid="provider-compliance-regulatory-context"
       >
         <h3 className="text-[18px]" style={{ fontWeight: 850 }}>Federal AI & Cottage Regulation Context · 2026</h3>
-        <div className="mt-3 grid gap-3 text-[13px] leading-6 text-white/72 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 text-[13px] leading-6 text-slate-50 md:grid-cols-2">
           <p><span className="text-white" style={{ fontWeight: 850 }}>Cottage food:</span> Primarily state-level. Georgia’s HB 398 is vendor-friendly: no state license required, no sales cap, retail sales allowed, and food handler training remains mandatory. There is no comprehensive federal cottage food law; FDA provides general food safety guidelines.</p>
           <p><span className="text-white" style={{ fontWeight: 850 }}>AI transparency:</span> There is no single comprehensive federal AI law yet. Key platform principles are transparency, accountability, risk-based guidance, consent for data use, data minimization, and avoiding deceptive AI claims.</p>
         </div>
       </motion.div>
 
       <motion.div
-        className="rounded-[20px] border-2 border-amber-300/25 bg-amber-400/10 p-4 text-amber-50"
+        className="rounded-[20px] border-2 border-amber-300 bg-amber-900 p-4 text-amber-50"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.18 }}
@@ -380,21 +380,21 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         {georgiaChecklists.map((checklist, index) => (
           <motion.section
             key={checklist.title}
-            className="rounded-[22px] border-2 border-white/20 bg-[#1C1C1E]/88 p-5 text-white shadow-xl backdrop-blur-xl"
+            className="rounded-[22px] border-2 border-slate-500 bg-slate-800 p-5 text-white shadow-xl shadow-black/45 ring-1 ring-cyan-300/20"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.08 + index * 0.04 }}
           >
             <h3 className="text-[18px]" style={{ fontWeight: 850 }}>{checklist.title}</h3>
-            <p className="mt-1 text-[12px] text-white/58" style={{ fontWeight: 650 }}>{checklist.subtitle}</p>
+            <p className="mt-1 text-[12px] text-slate-100" style={{ fontWeight: 650 }}>{checklist.subtitle}</p>
             <div className="mt-4 space-y-3">
               {checklist.items.map((item) => (
-                <div key={`${checklist.title}-${item.label}`} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div key={`${checklist.title}-${item.label}`} className="rounded-2xl border border-slate-500 bg-slate-700 p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="text-[13px] text-white" style={{ fontWeight: 800 }}>{item.label}</p>
                     <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${statusTone(item.status)}`} style={{ fontWeight: 850 }}>{item.status}</span>
                   </div>
-                  <p className="mt-2 text-[12px] leading-5 text-white/68">{item.detail}</p>
+                  <p className="mt-2 text-[12px] leading-5 text-slate-100">{item.detail}</p>
                 </div>
               ))}
             </div>
@@ -404,7 +404,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
 
       {/* Overall Compliance Score */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ ...springConfig, delay: 0.1 }}
@@ -414,7 +414,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
             <h3 className="text-[20px] mb-1 text-white" style={{ fontWeight: 600 }}>
               Overall Compliance
             </h3>
-            <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+            <p className="text-[13px] text-slate-100" style={{ fontWeight: 500 }}>
               Across all risk categories
             </p>
           </div>
@@ -428,13 +428,13 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 {overallCompliance}%
               </span>
             </div>
-            <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
+            <p className="text-[11px] text-slate-100" style={{ fontWeight: 600 }}>
               Account readiness
             </p>
           </div>
         </div>
 
-        <div className="relative h-3 rounded-full bg-white/10 overflow-hidden">
+        <div className="relative h-3 overflow-hidden rounded-full bg-slate-600">
           <motion.div
             className={`absolute inset-y-0 left-0 bg-gradient-to-r ${
               overallCompliance >= 90 ? 'from-green-500 to-emerald-400' :
@@ -454,7 +454,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 sum + s.items.filter(i => i.status === 'complete').length, 0
               )}
             </div>
-            <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
+            <p className="text-[11px] text-slate-100" style={{ fontWeight: 600 }}>
               Complete
             </p>
           </div>
@@ -464,7 +464,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 sum + s.items.filter(i => i.status === 'partial').length, 0
               )}
             </div>
-            <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
+            <p className="text-[11px] text-slate-100" style={{ fontWeight: 600 }}>
               Partial
             </p>
           </div>
@@ -474,7 +474,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 sum + s.items.filter(i => i.status === 'pending').length, 0
               )}
             </div>
-            <p className="text-[11px] text-white/60" style={{ fontWeight: 500 }}>
+            <p className="text-[11px] text-slate-100" style={{ fontWeight: 600 }}>
               Pending
             </p>
           </div>
@@ -495,7 +495,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
               onClick={() => setSelectedCategory(
                 selectedCategory === section.category ? null : section.category
               )}
-              className="rounded-[20px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-left w-full"
+              className="w-full rounded-[20px] border-2 border-slate-500 bg-slate-800 p-5 text-left shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.2 + index * 0.05 }}
@@ -510,7 +510,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                     <h3 className="text-[17px] mb-0.5 text-white" style={{ fontWeight: 600 }}>
                       {section.title}
                     </h3>
-                    <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+                    <p className="text-[13px] text-slate-100" style={{ fontWeight: 500 }}>
                       {completedCount} of {totalCount} complete
                     </p>
                   </div>
@@ -518,7 +518,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 <div className="flex flex-col items-end gap-2">
                   {getStatusIcon(sectionStatus(section))}
                   <ChevronRight
-                    className={`w-4 h-4 text-white/40 transition-transform ${
+                    className={`h-4 w-4 text-slate-300 transition-transform ${
                       selectedCategory === section.category ? 'rotate-90' : ''
                     }`}
                     strokeWidth={2.5}
@@ -526,7 +526,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 </div>
               </div>
 
-              <div className="relative h-2 rounded-full bg-white/10 overflow-hidden mb-2">
+              <div className="relative mb-2 h-2 overflow-hidden rounded-full bg-slate-600">
                 <div 
                   className={`absolute inset-y-0 left-0 bg-gradient-to-r ${section.color}`}
                   style={{ width: `${percentage}%` }}
@@ -536,7 +536,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
               {/* Expanded Details */}
               {selectedCategory === section.category && (
                 <motion.div
-                  className="mt-4 pt-4 border-t border-white/20 space-y-3"
+                  className="mt-4 space-y-3 border-t border-slate-500 pt-4"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
@@ -545,7 +545,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                   {section.items.map((item, itemIndex) => (
                     <div
                       key={itemIndex}
-                      className="rounded-xl p-3 bg-white/5"
+                      className="rounded-xl border border-slate-500 bg-slate-700 p-3"
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -558,11 +558,11 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                           {getStatusText(item.status)}
                         </span>
                       </div>
-                      <p className="text-[13px] text-white/70 mb-2" style={{ fontWeight: 400 }}>
+                      <p className="mb-2 text-[13px] text-slate-100" style={{ fontWeight: 500 }}>
                         {item.details}
                       </p>
                       {item.guidance && (
-                        <p className="text-[12px] text-white/55" style={{ fontWeight: 400 }}>
+                        <p className="text-[12px] text-slate-200" style={{ fontWeight: 500 }}>
                           {item.guidance}
                         </p>
                       )}
@@ -583,7 +583,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         if (outstanding.length === 0) {
           return (
             <motion.div
-              className="rounded-[20px] p-5 border-2 border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/5 backdrop-blur-xl shadow-xl"
+              className="rounded-[20px] border-2 border-emerald-300 bg-emerald-900 p-5 shadow-xl shadow-black/40"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.5 }}
@@ -594,7 +594,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                   You're all set
                 </h3>
               </div>
-              <p className="text-[14px] text-white/70" style={{ fontWeight: 400 }}>
+              <p className="text-[14px] text-slate-50" style={{ fontWeight: 500 }}>
                 All compliance items are up to date. We'll let you know if anything changes.
               </p>
             </motion.div>
@@ -602,7 +602,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         }
         return (
           <motion.div
-            className="rounded-[20px] p-5 border-2 border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-amber-500/5 backdrop-blur-xl shadow-xl"
+            className="rounded-[20px] border-2 border-orange-300 bg-orange-900 p-5 shadow-xl shadow-black/40"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.5 }}
@@ -613,12 +613,12 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
                 Action items
               </h3>
             </div>
-            <ul className="space-y-2 text-[14px] text-white/90" style={{ fontWeight: 400 }}>
+            <ul className="space-y-2 text-[14px] text-slate-50" style={{ fontWeight: 500 }}>
               {outstanding.map((item, idx) => (
                 <li key={`${item.section}-${idx}`} className="flex items-start gap-2">
                   <span className="text-orange-400 mt-0.5">•</span>
                   <span>
-                    <span className="text-white/60">{item.section}:</span>{' '}
+                    <span className="text-orange-100">{item.section}:</span>{' '}
                     <span>{item.guidance ?? item.details}</span>
                   </span>
                 </li>
@@ -628,7 +628,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
         );
       })()}
 
-      <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center text-[12px] leading-5 text-white/58" data-testid="provider-compliance-footer-disclaimer">
+      <p className="rounded-2xl border border-slate-500 bg-slate-800 px-4 py-3 text-center text-[12px] leading-5 text-slate-100" data-testid="provider-compliance-footer-disclaimer">
         {FOOTER_LEGAL_NOTICE}
       </p>
     </div>

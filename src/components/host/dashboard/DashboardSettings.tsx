@@ -97,18 +97,18 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
     strong: isDarkMode ? 'text-white' : 'text-slate-950',
-    body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
-    muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
-    faint: isDarkMode ? 'text-slate-400' : 'text-slate-500',
-    panel: isDarkMode ? 'border-white/25 bg-[#1C1C1E]/88' : 'border-slate-200 bg-white/90',
-    detailPanel: isDarkMode ? 'border-slate-600 bg-slate-950 text-white shadow-black/40' : 'border-slate-200 bg-white text-slate-950 shadow-slate-200/70',
-    input: isDarkMode ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500' : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
-    rowBorder: isDarkMode ? 'border-white/10' : 'border-slate-200',
-    rowHover: isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50',
-    iconBubble: isDarkMode ? 'bg-[#2C2C2E]/70 border-white/20' : 'bg-slate-100 border-slate-200',
-    workspace: isDarkMode ? 'border-cyan-300/25 bg-cyan-500/10' : 'border-cyan-200 bg-cyan-50/80',
-    quick: isDarkMode ? 'border-white/25 bg-gradient-to-br from-purple-500/10 to-cyan-500/10' : 'border-slate-200 bg-gradient-to-br from-purple-50 to-cyan-50',
-    danger: isDarkMode ? 'border-red-500/50 bg-red-500/10' : 'border-red-200 bg-red-50',
+    body: isDarkMode ? 'text-slate-50' : 'text-slate-700',
+    muted: isDarkMode ? 'text-slate-100' : 'text-slate-600',
+    faint: isDarkMode ? 'text-slate-200' : 'text-slate-500',
+    panel: isDarkMode ? 'border-slate-500 bg-slate-800' : 'border-slate-200 bg-white',
+    detailPanel: isDarkMode ? 'border-slate-500 bg-slate-800 text-white shadow-black/45' : 'border-slate-200 bg-white text-slate-950 shadow-slate-200/70',
+    input: isDarkMode ? 'border-slate-500 bg-slate-700 text-white placeholder:text-slate-300' : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
+    rowBorder: isDarkMode ? 'border-slate-500' : 'border-slate-200',
+    rowHover: isDarkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50',
+    iconBubble: isDarkMode ? 'border-slate-500 bg-slate-700' : 'bg-slate-100 border-slate-200',
+    workspace: isDarkMode ? 'border-cyan-300 bg-cyan-900' : 'border-cyan-200 bg-cyan-50',
+    quick: isDarkMode ? 'border-slate-500 bg-slate-800' : 'border-slate-200 bg-white',
+    danger: isDarkMode ? 'border-red-300 bg-red-900' : 'border-red-200 bg-red-50',
   };
 
   useEffect(() => {
@@ -291,13 +291,13 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Account Information Card */}
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl shadow-black/45 ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
       >
         <div className="flex items-center gap-4 mb-4">
-          <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/30 to-cyan-500/30 border-2 flex items-center justify-center ${isDarkMode ? 'border-white/30' : 'border-slate-200'}`}>
+          <div className={`flex h-16 w-16 items-center justify-center rounded-full border-2 ${isDarkMode ? 'border-cyan-300 bg-slate-700' : 'border-slate-200 bg-slate-100'}`}>
             <User className={`w-8 h-8 ${isDarkMode ? 'text-white' : 'text-slate-800'}`} strokeWidth={2.5} />
           </div>
           
@@ -344,7 +344,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
       </motion.div>
 
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.workspace}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl shadow-black/45 ${tone.workspace}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.15 }}
@@ -356,7 +356,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Role</p>
             <div className="grid grid-cols-3 gap-2">
               {(['owner', 'manager', 'staff'] as ProviderRole[]).map((role) => (
-                <button key={role} data-testid={`provider-role-${role}`} onClick={() => updateWorkspaceAccess(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? (isDarkMode ? 'border-cyan-200/50 bg-cyan-300/20 text-white' : 'border-cyan-400 bg-cyan-100 text-cyan-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
+                <button key={role} data-testid={`provider-role-${role}`} onClick={() => updateWorkspaceAccess(role, businessMode)} className={`rounded-2xl border px-3 py-2 text-[12px] ${selectedRole === role ? (isDarkMode ? 'border-cyan-300 bg-cyan-800 text-white' : 'border-cyan-400 bg-cyan-100 text-cyan-950') : (isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-50' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {roleLabel(role)}
                 </button>
               ))}
@@ -366,7 +366,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <p className={`mb-2 text-[12px] uppercase tracking-[0.16em] ${tone.faint}`} style={{ fontWeight: 800 }}>Business mode</p>
             <div className="grid grid-cols-2 gap-2">
               {(['standard', 'cottage'] as ProviderBusinessMode[]).map((mode) => (
-                <button key={mode} data-testid={`provider-mode-${mode}`} onClick={() => updateWorkspaceAccess(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? (isDarkMode ? 'border-emerald-200/50 bg-emerald-300/20 text-white' : 'border-emerald-400 bg-emerald-100 text-emerald-950') : (isDarkMode ? 'border-white/10 bg-black/20 text-slate-300' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
+                <button key={mode} data-testid={`provider-mode-${mode}`} onClick={() => updateWorkspaceAccess(selectedRole, mode)} className={`rounded-2xl border px-3 py-2 text-[12px] capitalize ${businessMode === mode ? (isDarkMode ? 'border-emerald-300 bg-emerald-800 text-white' : 'border-emerald-400 bg-emerald-100 text-emerald-950') : (isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-50' : 'border-slate-200 bg-white text-slate-600')}`} style={{ fontWeight: 800 }}>
                   {mode}
                 </button>
               ))}
@@ -376,7 +376,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
       </motion.div>
 
       {settingsMessage && (
-        <div className={`rounded-2xl border p-4 text-[13px] ${isDarkMode ? 'border-cyan-300/25 bg-cyan-500/10 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`}>
+            <div className={`rounded-2xl border p-4 text-[13px] ${isDarkMode ? 'border-cyan-300 bg-cyan-900 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`}>
           {settingsMessage}
         </div>
       )}
@@ -401,7 +401,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
                 {activePanel === 'help' && 'Help Center'}
               </h3>
             </div>
-            <button type="button" onClick={() => setActivePanel(null)} className={`rounded-full border p-2 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900'}`} aria-label="Close settings panel">
+            <button type="button" onClick={() => setActivePanel(null)} className={`rounded-full border p-2 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`} aria-label="Close settings panel">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -422,7 +422,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Business / venue name" value={profileDraft.businessName ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, businessName: value })} placeholder="Midtown Lounge" />
               <Field label="Region / state" value={profileDraft.region ?? ''} onChange={(value) => setProfileDraft({ ...profileDraft, region: value })} placeholder="CA" />
-              <p className={`rounded-2xl border p-4 text-[13px] leading-5 md:col-span-2 ${isDarkMode ? 'border-amber-300/30 bg-amber-400/10 text-amber-50' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Tax identity and bank account changes are handled securely by Stripe Connect from Payout Methods. Bytspot does not store full bank details.</p>
+              <p className={`rounded-2xl border p-4 text-[13px] leading-5 md:col-span-2 ${isDarkMode ? 'border-amber-300 bg-amber-900 text-amber-50' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Tax identity and bank account changes are handled securely by Stripe Connect from Payout Methods. Bytspot does not store full bank details.</p>
               <button type="button" onClick={() => saveStoredProfile({ businessName: profileDraft.businessName, city: profileDraft.city, region: profileDraft.region }, 'Business information saved for Provider Dashboard display and patch venue defaults.')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white shadow-lg shadow-cyan-950/20 md:col-span-2">
                 <Save className="h-4 w-4" /> Save Business Information
               </button>
@@ -442,22 +442,22 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
             <div className="grid gap-3 md:grid-cols-2">
               {[['Booking alerts', 'bytspot_provider_notify_bookings'], ['Payout alerts', 'bytspot_provider_notify_payouts'], ['Patch scan alerts', 'bytspot_provider_notify_patches'], ['Product updates', 'bytspot_provider_notify_product']].map(([label, key]) => {
                 const enabled = localStorage.getItem(key) !== 'false';
-                return <button key={key} type="button" onClick={() => { localStorage.setItem(key, String(!enabled)); setSettingsMessage(`${label} ${enabled ? 'disabled' : 'enabled'}.`); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">{label}</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{enabled ? 'Enabled' : 'Disabled'} — tap to change</span></button>;
+                return <button key={key} type="button" onClick={() => { localStorage.setItem(key, String(!enabled)); setSettingsMessage(`${label} ${enabled ? 'disabled' : 'enabled'}.`); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">{label}</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{enabled ? 'Enabled' : 'Disabled'} — tap to change</span></button>;
               })}
             </div>
           )}
 
           {activePanel === 'privacy' && (
             <div className="grid gap-3">
-              <button type="button" onClick={() => { const next = !privacyShare; setPrivacyShare(next); localStorage.setItem('bytspot_provider_privacy_share', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketplace visibility data</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyShare ? 'Enabled' : 'Disabled'} — controls whether operational listing signals improve provider recommendations.</span></button>
-              <button type="button" onClick={() => { const next = !privacyMarketing; setPrivacyMarketing(next); localStorage.setItem('bytspot_provider_privacy_marketing', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketing contact</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyMarketing ? 'Enabled' : 'Disabled'} — controls non-critical product and growth emails.</span></button>
-              <button type="button" onClick={() => { window.location.href = '/privacy'; }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-[13px] font-black text-cyan-100"><ExternalLink className="h-4 w-4" /> Open Privacy Policy</button>
+              <button type="button" onClick={() => { const next = !privacyShare; setPrivacyShare(next); localStorage.setItem('bytspot_provider_privacy_share', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketplace visibility data</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyShare ? 'Enabled' : 'Disabled'} — controls whether operational listing signals improve provider recommendations.</span></button>
+              <button type="button" onClick={() => { const next = !privacyMarketing; setPrivacyMarketing(next); localStorage.setItem('bytspot_provider_privacy_marketing', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketing contact</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyMarketing ? 'Enabled' : 'Disabled'} — controls non-critical product and growth emails.</span></button>
+              <button type="button" onClick={() => { window.location.href = '/privacy'; }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-cyan-900 px-4 py-3 text-[13px] font-black text-cyan-50"><ExternalLink className="h-4 w-4" /> Open Privacy Policy</button>
             </div>
           )}
 
           {activePanel === 'help' && (
             <div className="grid gap-3 md:grid-cols-3">
-              {['Create a listing from My Listings.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-600 bg-slate-900 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
+              {['Create a listing from My Listings.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
               <button type="button" onClick={() => { window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white md:col-span-3"><Mail className="h-4 w-4" /> Email Provider Support</button>
             </div>
           )}
@@ -471,7 +471,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         </h2>
         
         <motion.div
-          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
+          className={`overflow-hidden rounded-[20px] border-2 shadow-xl shadow-black/45 ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.2 }}
@@ -517,7 +517,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         </h2>
         
         <motion.div
-          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
+          className={`overflow-hidden rounded-[20px] border-2 shadow-xl shadow-black/45 ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
@@ -558,7 +558,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Quick Toggles */}
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.quick}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl shadow-black/45 ${tone.quick}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.4 }}
@@ -585,7 +585,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
                 localStorage.setItem('bytspot_provider_push_notifications', String(next));
               }}
               className={`w-12 h-7 rounded-full transition-colors ${
-                notificationsEnabled ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
+                notificationsEnabled ? 'bg-green-500' : isDarkMode ? 'bg-slate-700' : 'bg-slate-300'
               }`}
             >
               <motion.div
@@ -613,7 +613,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
                 localStorage.setItem('bytspot_provider_instant_book', String(next));
               }}
               className={`w-12 h-7 rounded-full transition-colors ${
-                instantBook ? 'bg-green-500' : isDarkMode ? 'bg-white/20' : 'bg-slate-300'
+                instantBook ? 'bg-green-500' : isDarkMode ? 'bg-slate-700' : 'bg-slate-300'
               }`}
             >
               <motion.div
@@ -633,7 +633,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
         </h2>
         
         <motion.div
-          className={`rounded-[20px] border-2 backdrop-blur-xl shadow-xl overflow-hidden ${tone.panel}`}
+          className={`overflow-hidden rounded-[20px] border-2 shadow-xl shadow-black/45 ${tone.panel}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.5 }}
@@ -674,7 +674,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
       {/* Danger Zone */}
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.danger}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl shadow-black/45 ${tone.danger}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.6 }}
@@ -690,7 +690,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
               window.location.reload();
             }
           }}
-          className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-red-500/20 border-2 border-red-500/50 hover:bg-red-500/30"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-red-300 bg-red-900 px-6 py-3 hover:bg-red-800"
           whileTap={{ scale: 0.95 }}
           transition={springConfig}
         >

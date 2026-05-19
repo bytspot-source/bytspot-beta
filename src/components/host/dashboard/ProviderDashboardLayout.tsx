@@ -61,24 +61,24 @@ export function ProviderDashboardLayout({
 
   const palette = isDarkMode
     ? {
-        shell: 'bg-[#000000]',
-        chrome: 'bg-[#1C1C1E]/95 border-white/30',
-        chromeSoft: 'bg-[#1C1C1E]/80 border-white/30',
+        shell: 'bg-slate-900 text-white',
+        chrome: 'bg-slate-800 border-slate-600 shadow-2xl shadow-black/40',
+        chromeSoft: 'bg-slate-700 border-slate-500',
         title: 'text-white',
-        subtle: 'text-white/70',
-        faint: 'text-white/45',
-        pill: 'border-white/12 bg-white/8 text-white/55',
-        navInactive: 'bg-[#2C2C2E]/60 border-white/20 hover:border-white/30 text-white/70',
-        navActive: 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-white/30 text-white',
-        advLabel: 'text-white/40',
-        advInactive: 'bg-black/20 border-white/10 hover:border-white/25 text-white/70',
-        advActive: 'bg-cyan-500/15 border-cyan-300/35 text-white',
+        subtle: 'text-slate-100',
+        faint: 'text-slate-200',
+        pill: 'border-slate-500 bg-slate-700 text-slate-50',
+        navInactive: 'bg-slate-700 border-slate-500 hover:border-cyan-300 text-slate-50',
+        navActive: 'bg-gradient-to-br from-violet-700 to-cyan-700 border-cyan-300 text-white shadow-lg shadow-cyan-950/40',
+        advLabel: 'text-slate-200',
+        advInactive: 'bg-slate-700 border-slate-500 hover:border-cyan-300 text-slate-50',
+        advActive: 'bg-cyan-900 border-cyan-400 text-white',
         advIconActive: 'text-cyan-200',
-        advIconInactive: 'text-white/55',
-        advDescription: 'text-white/40',
-        divider: 'border-white/10',
-        closeBtn: 'bg-[#2C2C2E]/60 border-white/30 text-white',
-        overlay: 'bg-black/60',
+        advIconInactive: 'text-slate-200',
+        advDescription: 'text-slate-200',
+        divider: 'border-slate-600',
+        closeBtn: 'bg-slate-700 border-slate-500 text-white',
+        overlay: 'bg-slate-800/95',
       }
     : {
         shell: 'bg-slate-50',
@@ -104,13 +104,13 @@ export function ProviderDashboardLayout({
   return (
     <div className={`min-h-screen ${palette.shell}`}>
       {/* Mobile Header */}
-      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 backdrop-blur-xl border-b-2 ${palette.chrome}`}>
+      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 border-b-2 ${palette.chrome}`} style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <div className="flex items-center justify-between max-w-[393px] mx-auto">
           <button
             type="button"
             aria-label="Open provider navigation"
             onClick={() => setSidebarOpen(true)}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 tap-target"
+            className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-cyan-600 border-2 border-cyan-300 tap-target"
           >
             <Menu className="w-5 h-5 text-white" strokeWidth={2.5} />
           </button>
@@ -124,7 +124,7 @@ export function ProviderDashboardLayout({
               type="button"
               aria-label="Back to Parker"
               onClick={onBackToMain}
-              className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-xl border-2 tap-target ${palette.chromeSoft}`}
+              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 tap-target ${palette.chromeSoft}`}
             >
               <Home className={`w-5 h-5 ${palette.title}`} strokeWidth={2.5} />
             </button>
@@ -133,8 +133,9 @@ export function ProviderDashboardLayout({
       </div>
 
       {/* Desktop Sidebar */}
-      <aside className={`hidden lg:block fixed left-0 top-0 bottom-0 w-64 backdrop-blur-xl border-r-2 p-6 ${palette.chrome}`}>
-        <div className="mb-8">
+      <aside className={`hidden lg:block fixed left-0 top-0 bottom-0 w-64 border-r-2 ${palette.chrome}`}>
+        <div className="flex flex-col p-6" style={{ height: '100%' }}>
+        <div className="mb-6 shrink-0">
           <h1 className="text-[28px] text-brand-gradient mb-2" style={{ fontWeight: 700 }}>
             Bytspot
           </h1>
@@ -145,13 +146,13 @@ export function ProviderDashboardLayout({
             {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
           </div>
           {reviewState && (
-            <div data-testid="provider-dashboard-review-badge" className={`mt-2 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100'}`} style={{ fontWeight: 850 }}>
+            <div data-testid="provider-dashboard-review-badge" className={`mt-2 inline-flex rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300 bg-emerald-900 text-emerald-50' : 'border-amber-300 bg-amber-900 text-amber-50'}`} style={{ fontWeight: 850 }}>
               {reviewState.label}
             </div>
           )}
         </div>
 
-        <nav className="space-y-2">
+        <nav className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentView === item.id;
@@ -178,21 +179,23 @@ export function ProviderDashboardLayout({
         </nav>
 
         {onBackToMain && (
-          <div className="absolute bottom-6 left-6 right-6">
+          <div className={`mt-4 shrink-0 border-t pt-4 ${palette.divider}`}>
             <motion.button
-                  type="button"
+              type="button"
+              aria-label="Back to Parker"
               onClick={onBackToMain}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
               whileTap={{ scale: 0.98 }}
               transition={springConfig}
             >
-              <LogOut className="w-5 h-5" strokeWidth={2.5} />
+              <LogOut className="w-5 h-5 shrink-0" strokeWidth={2.5} />
               <span className="text-[15px]" style={{ fontWeight: 500 }}>
                 Back to Parker
               </span>
             </motion.button>
           </div>
         )}
+        </div>
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -200,7 +203,7 @@ export function ProviderDashboardLayout({
         {sidebarOpen && (
           <>
             <motion.div
-              className={`lg:hidden fixed inset-0 backdrop-blur-sm z-50 ${palette.overlay}`}
+              className={`lg:hidden fixed inset-0 z-50 ${palette.overlay}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -208,13 +211,14 @@ export function ProviderDashboardLayout({
             />
 
             <motion.aside
-              className={`lg:hidden fixed top-0 left-0 bottom-0 w-[280px] backdrop-blur-xl border-r-2 z-50 p-6 ${palette.chrome}`}
+              className={`lg:hidden fixed top-0 left-0 bottom-0 flex flex-col border-r-2 z-50 p-6 ${palette.chrome}`}
+              style={{ width: 'min(280px, calc(100vw - 2rem))', paddingTop: 'calc(1.5rem + env(safe-area-inset-top))', paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={springConfig}
             >
-              <div className="flex items-center justify-between mb-8">
+              <div className="mb-6 flex shrink-0 items-center justify-between">
                 <div>
                   <h1 className="text-[24px] text-brand-gradient mb-1" style={{ fontWeight: 700 }}>
                     Bytspot
@@ -226,7 +230,7 @@ export function ProviderDashboardLayout({
                     {roleLabel(access.role)} · {access.isCottage ? 'Cottage' : 'Standard'}
                   </div>
                   {reviewState && (
-                    <div data-testid="provider-dashboard-mobile-review-badge" className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100' : 'border-amber-300/30 bg-amber-400/12 text-amber-100'}`} style={{ fontWeight: 850 }}>
+                    <div data-testid="provider-dashboard-mobile-review-badge" className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${reviewState.status === 'approved' ? 'border-emerald-300 bg-emerald-900 text-emerald-50' : 'border-amber-300 bg-amber-900 text-amber-50'}`} style={{ fontWeight: 850 }}>
                       {reviewState.label}
                     </div>
                   )}
@@ -242,7 +246,7 @@ export function ProviderDashboardLayout({
                 </button>
               </div>
 
-              <nav className="space-y-2">
+              <nav className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-2">
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = currentView === item.id;
@@ -272,15 +276,16 @@ export function ProviderDashboardLayout({
               </nav>
 
               {onBackToMain && (
-                <div className="absolute bottom-6 left-6 right-6">
+                <div className={`mt-4 shrink-0 border-t pt-4 ${palette.divider}`}>
                   <motion.button
                     type="button"
+                    aria-label="Back to Parker"
                     onClick={onBackToMain}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
                     whileTap={{ scale: 0.98 }}
                     transition={springConfig}
                   >
-                    <LogOut className="w-5 h-5" strokeWidth={2.5} />
+                    <LogOut className="w-5 h-5 shrink-0" strokeWidth={2.5} />
                     <span className="text-[15px]" style={{ fontWeight: 500 }}>
                       Back to Parker
                     </span>
@@ -293,8 +298,8 @@ export function ProviderDashboardLayout({
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="lg:ml-64 pt-16 lg:pt-0 min-h-screen">
-        <div className="max-w-7xl mx-auto p-4 lg:p-8">
+      <main className="provider-dashboard-main lg:ml-64 min-h-screen overflow-y-visible">
+        <div className="max-w-7xl mx-auto p-4 pb-[calc(16rem+env(safe-area-inset-bottom))] lg:p-8 lg:pb-[calc(16rem+env(safe-area-inset-bottom))]">
           {children}
         </div>
       </main>

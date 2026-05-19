@@ -92,30 +92,30 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
       ? `Retry ${tier === 'valet-premium' ? 'Valet' : 'Provider'} Premium checkout`
       : `Start ${tier === 'valet-premium' ? 'Valet' : 'Provider'} Premium`;
   const shellClass = isDarkMode
-    ? `bg-[#020617] text-white shadow-black/45 ${isUnlocked ? 'border-emerald-400' : 'border-amber-400'}`
+    ? `bg-slate-800 text-white shadow-black/45 ${isUnlocked ? 'border-emerald-300' : 'border-amber-300'}`
     : `bg-white text-slate-950 shadow-slate-200/80 ${isUnlocked ? 'border-emerald-300' : 'border-amber-300'}`;
   const titleClass = isDarkMode ? 'text-white' : 'text-slate-950';
   const bodyClass = isDarkMode ? 'text-slate-100' : 'text-slate-800';
   const featureClass = isDarkMode
-    ? 'border-slate-700 bg-[#0F172A] text-slate-100'
+    ? 'border-slate-500 bg-slate-700 text-slate-100'
     : 'border-slate-200 bg-slate-50 text-slate-950';
   const noteClass = isDarkMode
-    ? 'border-violet-500 bg-violet-950 text-violet-50'
+    ? 'border-violet-300 bg-violet-900 text-violet-50'
     : 'border-violet-200 bg-violet-50 text-violet-950';
   const messageClass = checkoutMessage?.tone === 'error'
     ? isDarkMode ? 'text-rose-200' : 'text-rose-800'
     : isDarkMode ? 'text-slate-200' : 'text-slate-800';
-  const pricingClass = isDarkMode ? 'border-slate-700 bg-[#0F172A]' : 'border-slate-200 bg-slate-50';
+  const pricingClass = isDarkMode ? 'border-slate-500 bg-slate-700' : 'border-slate-200 bg-slate-50';
   const optionClass = isDarkMode
-    ? 'border-slate-600 bg-[#020617] text-white'
+    ? 'border-slate-500 bg-slate-600 text-white'
     : 'border-slate-300 bg-white text-slate-950';
   const inputClass = isDarkMode
-    ? 'border-slate-600 bg-[#020617] text-white placeholder:text-slate-400 focus:border-cyan-400 focus:ring-cyan-500/40'
+    ? 'border-slate-500 bg-slate-600 text-white placeholder:text-slate-300 focus:border-cyan-300 focus:ring-cyan-500/40'
     : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-500 focus:border-cyan-500 focus:ring-cyan-200';
   const savingsClass = isDarkMode ? 'text-emerald-200' : 'text-emerald-800';
   const checkoutClass = isDarkMode
     ? 'bg-cyan-300 text-slate-950 shadow-cyan-950/30 hover:bg-cyan-200 focus-visible:ring-cyan-300'
-    : 'bg-slate-950 text-white shadow-slate-950/20 hover:bg-slate-800 focus-visible:ring-cyan-500';
+    : 'bg-slate-800 text-white shadow-slate-800/20 hover:bg-slate-700 focus-visible:ring-cyan-500';
   const featureIconClass = isUnlocked
     ? isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
     : isDarkMode ? 'text-amber-300' : 'text-amber-700';
@@ -129,7 +129,7 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       className={`relative overflow-hidden rounded-[22px] border-2 shadow-2xl ${shellClass} ${compact ? 'p-4' : 'p-5'}`}
-      style={{ backgroundColor: isDarkMode ? '#020617' : '#ffffff' }}
+      style={{ backgroundColor: isDarkMode ? '#1e293b' : '#ffffff' }}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
@@ -152,14 +152,14 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
 
       <ul className="grid gap-2" data-testid="provider-premium-feature-list">
         {features.map((feature) => (
-          <li key={feature} className={`flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] font-extrabold ${featureClass}`} style={{ backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc' }}>
+          <li key={feature} className={`flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] font-extrabold ${featureClass}`} style={{ backgroundColor: isDarkMode ? '#334155' : '#f8fafc' }}>
             {isUnlocked ? <Zap className={`h-4 w-4 ${featureIconClass}`} aria-hidden="true" /> : <Lock className={`h-4 w-4 ${featureIconClass}`} aria-hidden="true" />}
             {feature}
           </li>
         ))}
       </ul>
 
-      <p className={`mt-3 rounded-[14px] border p-3 text-[12px] font-extrabold leading-5 ${noteClass}`} style={{ backgroundColor: isDarkMode ? '#2e1065' : '#faf5ff' }}>
+      <p className={`mt-3 rounded-[14px] border p-3 text-[12px] font-extrabold leading-5 ${noteClass}`} style={{ backgroundColor: isDarkMode ? '#581c87' : '#faf5ff' }}>
         <Sparkles className={`mr-1 inline h-3.5 w-3.5 ${sparkleClass}`} aria-hidden="true" />
         AI ranking uses internal Optimization Logic. Provider Premium unlocks recommendations, not automatic service decisions.
       </p>
@@ -176,12 +176,12 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
 
       {!isUnlocked && (
         <div className="mt-3 grid gap-3">
-          <div className={`rounded-[16px] border p-3 ${pricingClass}`} style={{ backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc' }}>
+          <div className={`rounded-[16px] border p-3 ${pricingClass}`} style={{ backgroundColor: isDarkMode ? '#334155' : '#f8fafc' }}>
             <div className={`mb-2 flex items-center justify-between gap-3 text-[12px] ${bodyClass}`}>
               <span className="font-bold">Estimated today</span>
               <span className={`font-black ${titleClass}`} data-testid="provider-premium-estimated-price">{formatCents(estimatedCents)} / mo</span>
             </div>
-            <label className={`mb-2 flex items-center justify-between gap-3 rounded-[12px] border px-3 py-2 text-[12px] font-extrabold ${optionClass}`} style={{ backgroundColor: isDarkMode ? '#020617' : '#ffffff' }}>
+            <label className={`mb-2 flex items-center justify-between gap-3 rounded-[12px] border px-3 py-2 text-[12px] font-extrabold ${optionClass}`} style={{ backgroundColor: isDarkMode ? '#475569' : '#ffffff' }}>
               <span>Use {availablePoints.toLocaleString()} points</span>
               <input
                 type="checkbox"
@@ -206,7 +206,7 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
               data-testid="provider-premium-coupon"
               aria-label="Coupon code"
               className={`w-full rounded-[12px] border px-3 py-2 text-[12px] font-bold outline-none focus:ring-2 ${inputClass}`}
-              style={{ backgroundColor: isDarkMode ? '#020617' : '#ffffff' }}
+              style={{ backgroundColor: isDarkMode ? '#475569' : '#ffffff' }}
             />
             {(insiderDiscountCents > 0 || pointsDiscountCents > 0) && (
               <p className={`mt-2 text-[11px] font-extrabold ${savingsClass}`}>

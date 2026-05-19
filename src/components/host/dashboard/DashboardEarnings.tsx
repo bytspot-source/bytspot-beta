@@ -84,10 +84,10 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
   );
   const tone = {
     strong: isDarkMode ? 'text-white' : 'text-slate-950',
-    body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
-    muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
-    panel: isDarkMode ? 'border-slate-700 bg-slate-950/72 shadow-black/30' : 'border-slate-200 bg-white shadow-slate-200/70',
-    soft: isDarkMode ? 'border-slate-700 bg-slate-900/82' : 'border-slate-200 bg-slate-50',
+    body: isDarkMode ? 'text-slate-50' : 'text-slate-700',
+    muted: isDarkMode ? 'text-slate-100' : 'text-slate-600',
+    panel: isDarkMode ? 'border-slate-500 bg-slate-800 shadow-black/45' : 'border-slate-200 bg-white shadow-slate-200/70',
+    soft: isDarkMode ? 'border-slate-500 bg-slate-700' : 'border-slate-200 bg-slate-50',
   };
 
   const springConfig = {
@@ -99,9 +99,9 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
   if (!access.canSeeFinancials) {
     return (
-      <div className="rounded-[28px] border border-amber-300/20 bg-amber-500/10 p-6 text-white">
+      <div className="rounded-[28px] border-2 border-amber-300 bg-amber-900 p-6 text-white shadow-xl shadow-black/40">
         <h1 className="text-[28px]" style={{ fontWeight: 850 }}>Owner approval required</h1>
-        <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/62">Earnings, payout timing, and transactions are visible to Owners only. Managers and Staff can continue with bookings, calendar operations, and listing setup.</p>
+        <p className="mt-2 max-w-xl text-[14px] leading-6 text-amber-50">Earnings, payout timing, and transactions are visible to Owners only. Managers and Staff can continue with bookings, calendar operations, and listing setup.</p>
       </div>
     );
   }
@@ -135,30 +135,30 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
       <motion.div
         data-testid="provider-earnings-review-state"
-        className={`rounded-[22px] border-2 p-5 ${approved ? 'border-emerald-300/25 bg-emerald-400/12' : 'border-amber-300/25 bg-amber-400/12'} text-white`}
+        className={`rounded-[22px] border-2 p-5 shadow-xl shadow-black/40 ${approved ? 'border-emerald-300 bg-emerald-900' : 'border-amber-300 bg-amber-900'} text-white`}
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.08 }}
       >
-        <p className="text-[12px] uppercase tracking-[0.18em] text-white/70" style={{ fontWeight: 850 }}>Provider review</p>
+        <p className="text-[12px] uppercase tracking-[0.18em] text-slate-100" style={{ fontWeight: 850 }}>Provider review</p>
         <h2 className="mt-2 text-[22px]" style={{ fontWeight: 850 }}>{reviewState?.label ?? 'Pending Verification'}</h2>
-        <p className="mt-2 max-w-2xl text-[14px] leading-6 text-white/72">
+        <p className="mt-2 max-w-2xl text-slate-50 text-[14px] leading-6">
           {approved ? 'Payouts and marketplace revenue tracking are cleared for normal operation.' : 'Revenue tracking remains available, but payouts stay in verification hold until required metadata and Stripe Connect are approved.'}
         </p>
       </motion.div>
 
       <motion.div
         data-testid="provider-earnings-stripe-readiness"
-        className={`rounded-[22px] border-2 p-5 ${stripeReady ? 'border-emerald-300/25 bg-emerald-400/12' : 'border-cyan-300/25 bg-cyan-400/12'} text-white`}
+        className={`rounded-[22px] border-2 p-5 shadow-xl shadow-black/40 ${stripeReady ? 'border-emerald-300 bg-emerald-900' : 'border-cyan-300 bg-cyan-900'} text-white`}
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.09 }}
       >
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-[12px] uppercase tracking-[0.18em] text-white/70" style={{ fontWeight: 850 }}>Stripe Connect</p>
+            <p className="text-[12px] uppercase tracking-[0.18em] text-slate-100" style={{ fontWeight: 850 }}>Stripe Connect</p>
             <h2 className="mt-2 text-[22px]" style={{ fontWeight: 850 }}>{stripeReady ? 'Payout setup complete' : 'Complete payout setup'}</h2>
-            <p className="mt-2 max-w-2xl text-[14px] leading-6 text-white/72">
+            <p className="mt-2 max-w-2xl text-[14px] leading-6 text-slate-50">
               {stripeReady ? `Estimated next payout: ${estimatedNextPayout}. Pending and paid amounts stay separated below.` : 'Connect Stripe to unlock payouts, settlement timing, and transaction reconciliation.'}
             </p>
           </div>
@@ -174,37 +174,37 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
       {!data.loading && !data.authenticated ? (
         <motion.div
           data-testid="provider-earnings-empty-unauth"
-          className="rounded-[20px] border border-white/15 bg-white/5 p-6 text-white"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 text-white shadow-lg shadow-black/45"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
         >
           <p className="text-[15px]" style={{ fontWeight: 700 }}>Sign in to view earnings</p>
-          <p className="mt-1 text-[13px] leading-5 text-white/70">Lifetime payouts, monthly trends, and pending settlements appear here once you sign in with your provider account.</p>
+          <p className="mt-1 text-[13px] leading-5 text-slate-100">Lifetime payouts, monthly trends, and pending settlements appear here once you sign in with your provider account.</p>
         </motion.div>
       ) : !data.loading && !hasServices ? (
         <motion.div
           data-testid="provider-earnings-empty-no-services"
-          className="rounded-[20px] border border-white/15 bg-white/5 p-6 text-white"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 text-white shadow-lg shadow-black/45"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
         >
           <p className="text-[15px]" style={{ fontWeight: 700 }}>No active services yet</p>
-          <p className="mt-1 text-[13px] leading-5 text-white/70">Earnings track payouts from confirmed marketplace bookings. Publish a service so guests can start booking.</p>
+          <p className="mt-1 text-[13px] leading-5 text-slate-100">Earnings track payouts from confirmed marketplace bookings. Publish a service so guests can start booking.</p>
         </motion.div>
       ) : (
         <>
           {!data.loading && !hasBookings && (
             <motion.div
               data-testid="provider-earnings-empty-no-bookings"
-              className="rounded-[20px] border border-white/15 bg-white/5 p-5 text-white"
+              className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-5 text-white shadow-lg shadow-black/45"
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.1 }}
             >
               <p className="text-[14px]" style={{ fontWeight: 700 }}>No bookings yet</p>
-              <p className="mt-1 text-[13px] leading-5 text-white/70">{data.activeServices} active service{data.activeServices === 1 ? ' is' : 's are'} available. Totals will populate after the first confirmed booking.</p>
+              <p className="mt-1 text-[13px] leading-5 text-slate-100">{data.activeServices} active service{data.activeServices === 1 ? ' is' : 's are'} available. Totals will populate after the first confirmed booking.</p>
             </motion.div>
           )}
 
@@ -213,38 +213,38 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
             {/* Revenue Breakdown Card */}
             <motion.div
               data-testid="provider-earnings-card-revenue-breakdown"
-              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-green-500/30 to-emerald-500/30 backdrop-blur-xl shadow-xl col-span-1 md:col-span-2 lg:col-span-1"
+              className="col-span-1 rounded-[20px] border-2 border-emerald-300 bg-slate-800 p-6 shadow-xl shadow-black/45 md:col-span-2 lg:col-span-1"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.1 }}
             >
-              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-emerald-300 bg-emerald-900">
                 <DollarSign className="w-6 h-6 text-green-400" strokeWidth={2.5} />
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+              <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                 Total Revenue Breakdown
               </div>
               <div className="mt-3 space-y-2">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[11px] text-white/60">Gross Revenue</span>
+                  <span className="text-[11px] text-slate-100">Gross Revenue</span>
                   <div data-testid="provider-earnings-value-gross" className="text-[18px] text-white" style={{ fontWeight: 700 }}>
                     {data.loading ? '—' : formatCents(totals.totalGrossCents)}
                   </div>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[11px] text-white/60">Platform Fees</span>
+                  <span className="text-[11px] text-slate-100">Platform Fees</span>
                   <div data-testid="provider-earnings-value-fees" className="text-[18px] text-amber-300" style={{ fontWeight: 700 }}>
                     {data.loading ? '—' : `-${formatCents(totals.totalPlatformFeeCents)}`}
                   </div>
                 </div>
-                <div className="border-t border-white/20 pt-2 flex items-baseline justify-between">
-                  <span className="text-[11px] text-white/70" style={{ fontWeight: 600 }}>Your Payout</span>
+                <div className="flex items-baseline justify-between border-t border-slate-500 pt-2">
+                  <span className="text-[11px] text-slate-50" style={{ fontWeight: 600 }}>Your Payout</span>
                   <div data-testid="provider-earnings-value-payout" className="text-[18px] text-green-300" style={{ fontWeight: 700 }}>
                     {data.loading ? '—' : formatCents(totals.totalPayoutCents)}
                   </div>
                 </div>
               </div>
-              <div className="mt-3 text-[10px] text-white/55" style={{ fontWeight: 500 }}>
+              <div className="mt-3 text-[10px] text-slate-200" style={{ fontWeight: 600 }}>
                 {totals.paidBookingCount} settled booking{totals.paidBookingCount === 1 ? '' : 's'}
               </div>
             </motion.div>
@@ -252,21 +252,21 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
             {/* This Month Card */}
             <motion.div
               data-testid="provider-earnings-card-this-month"
-              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-cyan-500/30 to-blue-500/30 backdrop-blur-xl shadow-xl"
+              className="rounded-[20px] border-2 border-cyan-300 bg-slate-800 p-6 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.15 }}
             >
-              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-cyan-300 bg-cyan-900">
                 <Calendar className="w-6 h-6 text-cyan-400" strokeWidth={2.5} />
               </div>
               <div data-testid="provider-earnings-value-this-month" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
                 {data.loading ? '—' : formatCents(totals.thisMonthBookedCents)}
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+              <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                 This Month
               </div>
-              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+              <div className="mt-2 text-[11px] text-slate-200" style={{ fontWeight: 600 }}>
                 Booked value · {bookedDeltaLabel}
               </div>
             </motion.div>
@@ -274,21 +274,21 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
             {/* Last Month Card */}
             <motion.div
               data-testid="provider-earnings-card-last-month"
-              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/30 to-fuchsia-500/30 backdrop-blur-xl shadow-xl"
+              className="rounded-[20px] border-2 border-violet-300 bg-slate-800 p-6 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.2 }}
             >
-              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-violet-300 bg-violet-900">
                 <CreditCard className="w-6 h-6 text-purple-400" strokeWidth={2.5} />
               </div>
               <div data-testid="provider-earnings-value-last-month" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
                 {data.loading ? '—' : formatCents(totals.lastMonthBookedCents)}
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+              <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                 Last Month
               </div>
-              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+              <div className="mt-2 text-[11px] text-slate-200" style={{ fontWeight: 600 }}>
                 Booked value last calendar month
               </div>
             </motion.div>
@@ -296,21 +296,21 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
             {/* Pending Payouts Card */}
             <motion.div
               data-testid="provider-earnings-card-pending"
-              className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-yellow-500/30 to-orange-500/30 backdrop-blur-xl shadow-xl"
+              className="rounded-[20px] border-2 border-amber-300 bg-slate-800 p-6 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.25 }}
             >
-              <div className="w-12 h-12 rounded-full bg-[#1C1C1E]/60 border-2 border-white/30 flex items-center justify-center mb-3">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-900">
                 <ArrowUpRight className="w-6 h-6 text-yellow-400" strokeWidth={2.5} />
               </div>
               <div data-testid="provider-earnings-value-pending" className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
                 {data.loading ? '—' : formatCents(totals.pendingPayoutCents)}
               </div>
-              <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+              <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                 Pending Payouts
               </div>
-              <div className="mt-2 text-[11px] text-white/55" style={{ fontWeight: 500 }}>
+              <div className="mt-2 text-[11px] text-slate-200" style={{ fontWeight: 600 }}>
                 {totals.pendingBookingCount} confirmed booking{totals.pendingBookingCount === 1 ? '' : 's'} awaiting settlement
               </div>
             </motion.div>
@@ -319,7 +319,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
       )}
 
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.28 }}
@@ -335,7 +335,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
         {serviceTypeBreakdown.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-[180px_1fr] md:items-center">
             <div
-              className="mx-auto h-40 w-40 rounded-full border border-white/15"
+              className="mx-auto h-40 w-40 rounded-full border border-slate-500"
               style={{ background: buildConicGradient(serviceTypeBreakdown, totalBreakdownCents) }}
               aria-hidden
             />
@@ -358,7 +358,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
       {/* Revenue Trend */}
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.3 }}
@@ -389,7 +389,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
       {/* Recent Transactions */}
       <motion.div
-        className={`rounded-[20px] p-6 border-2 backdrop-blur-xl shadow-xl ${tone.panel}`}
+        className={`rounded-[20px] border-2 p-6 shadow-xl ${tone.panel}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.4 }}
@@ -419,7 +419,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
 
       {/* Payout Info */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 backdrop-blur-xl shadow-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.7 }}
@@ -428,7 +428,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="text-[20px] text-white mb-2" style={{ fontWeight: 600 }}>Next Payout</h3>
-            <p className="text-[15px] text-white/70 mb-4" style={{ fontWeight: 400 }}>
+            <p className="mb-4 text-[15px] text-slate-100" style={{ fontWeight: 500 }}>
               {stripeReady
                 ? 'Confirmed bookings will be released to your Stripe account on the next payout cycle.'
                 : approved
@@ -438,7 +438,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
             <div data-testid="provider-earnings-next-payout-value" className="text-[28px] text-green-400" style={{ fontWeight: 700 }}>
               {data.loading ? '—' : formatCents(totals.pendingPayoutCents)}
             </div>
-            <div className="text-[13px] text-white/70 mt-1" style={{ fontWeight: 500 }}>
+            <div className="mt-1 text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
               {totals.pendingBookingCount > 0
                 ? `Across ${totals.pendingBookingCount} confirmed booking${totals.pendingBookingCount === 1 ? '' : 's'}`
                 : stripeReady ? 'No payout currently scheduled' : 'Scheduled once verification is complete'}

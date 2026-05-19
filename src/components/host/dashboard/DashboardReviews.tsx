@@ -74,7 +74,7 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
         <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
           Reviews
         </h1>
-        <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
+        <p className="text-[17px] text-slate-100" style={{ fontWeight: 500 }}>
           See what guests are saying
         </p>
       </motion.div>
@@ -82,55 +82,55 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="provider-reviews-stats">
         <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
           data-testid="provider-reviews-stat-rating"
         >
-          <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
-            <Star className="w-6 h-6 text-white/70" strokeWidth={2.5} />
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-slate-500 bg-slate-700">
+            <Star className="h-6 w-6 text-slate-100" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
             {averageRatingDisplay}
           </div>
-          <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+          <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
             Average Rating
           </div>
         </motion.div>
 
         <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.15 }}
           data-testid="provider-reviews-stat-total"
         >
-          <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
-            <MessageSquare className="w-6 h-6 text-white/70" strokeWidth={2.5} />
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-slate-500 bg-slate-700">
+            <MessageSquare className="h-6 w-6 text-slate-100" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
             {totalReviews}
           </div>
-          <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+          <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
             Total Reviews
           </div>
         </motion.div>
 
         <motion.div
-          className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.2 }}
           data-testid="provider-reviews-stat-needs-response"
         >
-          <div className="w-12 h-12 rounded-full bg-[#2C2C2E]/60 border-2 border-white/20 flex items-center justify-center mb-3">
-            <MessageSquare className="w-6 h-6 text-white/70" strokeWidth={2.5} />
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border-2 border-slate-500 bg-slate-700">
+            <MessageSquare className="h-6 w-6 text-slate-100" strokeWidth={2.5} />
           </div>
           <div className="text-[32px] text-white mb-1" style={{ fontWeight: 700 }}>
             {needsResponseCount}
           </div>
-          <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+          <div className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
             Needs Response
           </div>
         </motion.div>
@@ -138,7 +138,7 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
 
       {/* Moderation guidance + role-aware actions */}
       <motion.div
-        className="rounded-[22px] border border-white/12 bg-white/[0.055] p-5"
+        className="rounded-[22px] border border-slate-500 bg-slate-800 p-5 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.25 }}
@@ -146,11 +146,11 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
       >
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-cyan-200" strokeWidth={2.5} />
-          <p className="text-[13px] uppercase tracking-[0.18em] text-white/45" style={{ fontWeight: 850 }}>
+          <p className="text-[13px] uppercase tracking-[0.18em] text-slate-200" style={{ fontWeight: 850 }}>
             Moderation
           </p>
         </div>
-        <p className="mt-2 text-[14px] leading-6 text-white/70" data-testid="provider-reviews-moderation-guidance">
+        <p className="mt-2 text-[14px] leading-6 text-slate-100" data-testid="provider-reviews-moderation-guidance">
           {moderationGuidance}
         </p>
         {access.role !== 'staff' && (
@@ -159,7 +159,7 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
               type="button"
               disabled={!canReply || totalReviews === 0}
               data-testid="provider-reviews-moderation-cta-reply"
-              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-slate-500 bg-slate-700 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
             >
               <Reply className="h-4 w-4" /> Reply
             </button>
@@ -167,7 +167,7 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
               type="button"
               disabled={!canFlag || totalReviews === 0}
               data-testid="provider-reviews-moderation-cta-flag"
-              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-slate-500 bg-slate-700 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
             >
               <Flag className="h-4 w-4" /> Flag
             </button>
@@ -175,7 +175,7 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
               type="button"
               disabled={!canResolve || totalReviews === 0}
               data-testid="provider-reviews-moderation-cta-resolve"
-              className="flex items-center justify-center gap-2 rounded-[14px] border border-white/15 bg-white/10 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-[14px] border border-slate-500 bg-slate-700 px-3 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
             >
               <ShieldCheck className="h-4 w-4" /> Mark Resolved
             </button>
@@ -186,19 +186,19 @@ export function DashboardReviews({ isDarkMode, access }: DashboardReviewsProps) 
       {/* Reviews empty state */}
       {totalReviews === 0 && (
         <motion.div
-          className="rounded-[20px] p-12 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-center"
+          className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-12 text-center shadow-xl shadow-black/45"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
           data-testid="provider-reviews-empty"
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-            <Star className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
+            <Star className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
           </div>
           <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>
             {emptyStateHeading}
           </p>
-          <p className="mx-auto mt-2 max-w-md text-[14px] leading-6 text-white/70" style={{ fontWeight: 400 }}>
+          <p className="mx-auto mt-2 max-w-md text-[14px] leading-6 text-slate-100" style={{ fontWeight: 500 }}>
             {emptyStateCopy}
           </p>
         </motion.div>

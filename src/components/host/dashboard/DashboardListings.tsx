@@ -5,7 +5,6 @@ import {
   ArrowUpRight,
   BadgeCheck,
   CalendarClock,
-  Clock,
   CreditCard,
   DollarSign,
   Edit3,
@@ -116,54 +115,54 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
     hero: isDarkMode
-      ? 'border-white/10 bg-[linear-gradient(135deg,rgba(20,21,28,0.96),rgba(10,11,18,0.98))]'
+      ? 'border-slate-500 bg-slate-800'
       : 'border-slate-200/80 bg-white',
     heroAccent: isDarkMode
       ? 'bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.22),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.18),transparent_60%)]'
       : 'bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.10),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.08),transparent_60%)]',
     eyebrow: isDarkMode
-      ? 'border-cyan-300/25 bg-cyan-300/10 text-cyan-100'
+      ? 'border-cyan-300 bg-cyan-900 text-cyan-50'
       : 'border-cyan-200 bg-cyan-50 text-cyan-800',
     strong: isDarkMode ? 'text-white' : 'text-slate-950',
     body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
     muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
     subtle: isDarkMode ? 'text-slate-400' : 'text-slate-500',
     summary: isDarkMode
-      ? 'border-white/10 bg-white/[0.04]'
+      ? 'border-slate-500 bg-slate-700'
       : 'border-slate-200/80 bg-white shadow-sm shadow-slate-200/60',
     summaryIcon: isDarkMode
-      ? 'border-white/10 bg-white/[0.06] text-cyan-200'
+      ? 'border-slate-500 bg-slate-600 text-cyan-100'
       : 'border-slate-200 bg-slate-50 text-cyan-700',
     card: isDarkMode
-      ? 'border-white/10 bg-[#111114] shadow-2xl shadow-black/40'
+      ? 'border-slate-500 bg-slate-800 shadow-2xl shadow-black/45'
       : 'border-slate-200 bg-white shadow-xl shadow-slate-200/60',
     cardAvatar: isDarkMode
-      ? 'bg-gradient-to-br from-cyan-400/30 via-sky-400/20 to-violet-500/30 text-white ring-1 ring-white/10'
+      ? 'bg-gradient-to-br from-cyan-700 via-sky-700 to-violet-700 text-white ring-1 ring-cyan-300'
       : 'bg-gradient-to-br from-cyan-100 via-sky-100 to-violet-100 text-cyan-700 ring-1 ring-slate-200',
     metric: isDarkMode
-      ? 'border-white/10 bg-white/[0.04]'
+      ? 'border-slate-500 bg-slate-700'
       : 'border-slate-200 bg-slate-50',
     chip: isDarkMode
-      ? 'border-white/10 bg-white/[0.05] text-slate-200'
+      ? 'border-slate-500 bg-slate-700 text-slate-50'
       : 'border-slate-200 bg-white text-slate-700',
     footer: isDarkMode
-      ? 'border-slate-700 bg-slate-900'
+      ? 'border-slate-500 bg-slate-700'
       : 'border-slate-200 bg-slate-50/80',
-    modalBackdrop: isDarkMode ? 'bg-slate-950/95' : 'bg-slate-950/65',
+    modalBackdrop: isDarkMode ? 'bg-slate-800' : 'bg-slate-800/65',
     modal: isDarkMode
-      ? 'border-slate-600 bg-slate-950 text-white shadow-2xl shadow-black/80'
+      ? 'border-slate-500 bg-slate-800 text-white shadow-2xl shadow-black/80'
       : 'border-slate-200 bg-white shadow-2xl shadow-slate-300/60',
     input: isDarkMode
-      ? 'border-slate-600 bg-slate-900 text-white placeholder:text-slate-500'
+      ? 'border-slate-500 bg-slate-700 text-white placeholder:text-slate-300'
       : 'border-slate-300 bg-white text-slate-950 placeholder:text-slate-400',
     secondaryBtn: isDarkMode
-      ? 'border-slate-600 bg-slate-900 text-white hover:bg-slate-800'
+      ? 'border-slate-500 bg-slate-700 text-white hover:bg-slate-600'
       : 'border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
     statusActive: isDarkMode
       ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/30'
       : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
     statusInactive: isDarkMode
-      ? 'bg-white/[0.06] text-slate-300 ring-1 ring-white/10'
+      ? 'bg-slate-700 text-slate-100 ring-1 ring-slate-500'
       : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
   };
 
@@ -184,9 +183,9 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       if (!result?.services?.length) {
         setMessage('No Provider services are live yet. Create services in the Provider portal, then return here to manage pricing and booking details.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setServices([]);
-      setMessage(err?.message ?? 'Unable to load Provider services.');
+      setMessage(err instanceof Error ? err.message : 'Unable to load Provider services.');
     } finally {
       setLoading(false);
     }
@@ -257,8 +256,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setCreatingService(false);
       const createdStatus = statusOverride ?? createForm.status;
       setMessage(createdStatus === 'active' ? 'Service published live. It is now available to Discover and booking checkout.' : 'Service saved as a draft. Publish it when pricing, duration, photos, and patch requirements are ready.');
-    } catch (err: any) {
-      setMessage(err?.message ?? 'Unable to create Provider service.');
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : 'Unable to create Provider service.');
     } finally {
       setSaving(false);
     }
@@ -292,8 +291,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setEditingService(null);
       setEditForm(null);
       setMessage('Service updated. Discover cards will use the latest Provider service metadata.');
-    } catch (err: any) {
-      setMessage(err?.message ?? 'Unable to update Provider service.');
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : 'Unable to update Provider service.');
     } finally {
       setSaving(false);
     }
@@ -314,8 +313,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       setEditingService(null);
       setEditForm(null);
       setMessage('Service archived. It is hidden from booking while historical records remain available.');
-    } catch (err: any) {
-      setMessage(err?.message ?? 'Unable to archive Provider service.');
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : 'Unable to archive Provider service.');
     } finally {
       setSaving(false);
     }
@@ -557,7 +556,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       <AnimatePresence>
         {creatingService && (
           <motion.div
-            className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 backdrop-blur-sm sm:items-center ${tone.modalBackdrop}`}
+              className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 sm:items-center ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -597,7 +596,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
         {editingService && editForm && (
           <motion.div
-            className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 backdrop-blur-sm sm:items-center ${tone.modalBackdrop}`}
+          className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 sm:items-center ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

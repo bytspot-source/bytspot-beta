@@ -168,12 +168,12 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
   // Show loading state
   if (isLoading) {
     return (
-      <div className={`relative min-h-screen overflow-hidden flex items-center justify-center ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`}>
+      <div className={`relative min-h-screen overflow-x-hidden flex items-center justify-center ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-slate-50'}`}>
         <div className="text-center">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-2 border-white/30 flex items-center justify-center mx-auto mb-4 animate-pulse">
             <div className={`w-8 h-8 rounded-full border-4 ${isDarkMode ? 'border-white/30 border-t-white' : 'border-slate-300 border-t-slate-700'} animate-spin`} />
           </div>
-          <p className={`text-[15px] ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`} style={{ fontWeight: 500 }}>
+          <p className={`text-[15px] ${isDarkMode ? 'text-slate-100' : 'text-slate-600'}`} style={{ fontWeight: 500 }}>
             Loading Provider Dashboard...
           </p>
         </div>
@@ -182,11 +182,11 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
   }
 
   return (
-    <div className={`relative min-h-screen overflow-hidden ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`}>
+    <div className={`relative min-h-screen overflow-x-hidden ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-slate-50'}`}>
       {/* Background gradients - Only show on landing and onboarding */}
       {currentScreen !== 'dashboard' && (
         <div className="absolute inset-0">
-          <div className={`absolute inset-0 ${isDarkMode ? 'bg-[#000000]' : 'bg-slate-50'}`} />
+          <div className={`absolute inset-0 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-50'}`} />
           <div className="absolute inset-0 opacity-30 pointer-events-none">
             <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[500px] h-[500px]" 
                  style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.18) 0%, transparent 70%)' }} />

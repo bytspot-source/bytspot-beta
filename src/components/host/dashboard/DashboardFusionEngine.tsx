@@ -5,16 +5,13 @@ import {
   Wifi, 
   Bluetooth, 
   Navigation,
-  TrendingUp,
   AlertCircle,
   CheckCircle2,
-  Clock,
   Users,
   Zap,
   Play,
   Pause,
   RotateCcw,
-  Download,
   Search,
   Filter,
   ExternalLink,
@@ -84,10 +81,10 @@ function getPayoutStatusLabel(vendor: VendorOnboardingStatus | null, account: St
   return 'Not Connected';
 }
 
-export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEngineProps) {
+export function DashboardFusionEngine({ access }: DashboardFusionEngineProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [systemHealth] = useState<SystemHealth>(EMPTY_SYSTEM_HEALTH);
-  const [selectedTrip, setSelectedTrip] = useState<TripData | null>(null);
+  const [selectedTrip] = useState<TripData | null>(null);
   const [recentEvents, setRecentEvents] = useState<GeofenceEvent[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState(0);
@@ -134,8 +131,8 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       } else {
         setConnectMessage(null);
       }
-    } catch (err: any) {
-      const message = String(err?.message ?? 'Unable to sync Stripe onboarding status.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to sync Stripe onboarding status.';
       setConnectMessage(
         message.includes('No vendor profile')
           ? 'No Provider business profile is connected yet. Start Stripe onboarding to create one.'
@@ -213,8 +210,8 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
         return;
       }
       setConnectMessage(result?.message ?? 'Stripe onboarding is not available yet.');
-    } catch (err: any) {
-      setConnectMessage(err?.message ?? 'Unable to start Stripe onboarding.');
+    } catch (err: unknown) {
+      setConnectMessage(err instanceof Error ? err.message : 'Unable to start Stripe onboarding.');
     } finally {
       setConnectStarting(false);
     }
@@ -231,9 +228,9 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
   }, [viewMode, viewModes]);
 
   return (
-    <div className="min-h-screen bg-[#000000] pb-24">
+    <div className="min-h-screen bg-slate-900 pb-24">
       {/* Header */}
-      <div className="px-4 pt-6 pb-4 border-b border-white/10">
+      <div className="border-b border-slate-600 px-4 pb-4 pt-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <p className="mb-2 text-[12px] uppercase tracking-[0.22em] text-cyan-200/70" style={{ fontWeight: 850 }}>
@@ -242,7 +239,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             <h1 className="text-title-1 text-white mb-1">
               Review & payout readiness
             </h1>
-            <p className="text-[15px] text-white/70">
+            <p className="text-[15px] text-slate-100">
               {guidanceForRole(access)}
             </p>
           </div>
@@ -272,8 +269,8 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
               onClick={() => setViewMode(mode.id as ViewMode)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 whitespace-nowrap ${
                 viewMode === mode.id
-                  ? 'bg-purple-500/30 border-purple-400/50'
-                  : 'bg-white/5 border-white/20'
+                  ? 'bg-purple-800 border-purple-300'
+                  : 'bg-slate-700 border-slate-500'
               }`}
               whileTap={{ scale: 0.95 }}
               transition={springConfig}
@@ -291,13 +288,13 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       {viewMode === 'overview' && (
         <div className="px-4 py-6 space-y-6">
           {!access.isCottage && (
-            <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4 text-[13px] leading-6 text-white/62">
+            <div className="rounded-[22px] border border-slate-500 bg-slate-800 p-4 text-[13px] leading-6 text-slate-100 shadow-xl shadow-black/45">
               This page is limited to deterministic provider readiness, Stripe payout status, and operational metadata. Backend-only analytics are not exposed in dashboard navigation.
             </div>
           )}
 
           <motion.div
-            className="overflow-hidden rounded-[30px] border border-white/14 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.18),transparent_34%),linear-gradient(135deg,rgba(17,17,20,0.98),rgba(7,8,13,0.98))] shadow-2xl backdrop-blur-xl"
+            className="overflow-hidden rounded-[30px] border-2 border-slate-500 bg-slate-800 shadow-2xl shadow-black/45"
             data-testid="stripe-connect-payout-panel"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -307,32 +304,32 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
               <div className="p-5 lg:p-6">
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-[12px] uppercase tracking-[0.2em] text-white/45" style={{ fontWeight: 850 }}>Financial setup</p>
+                    <p className="text-[12px] uppercase tracking-[0.2em] text-slate-200" style={{ fontWeight: 850 }}>Financial setup</p>
                     <h2 className="mt-2 text-[28px] leading-tight text-white" style={{ fontWeight: 850 }}>Stripe Connect Payouts</h2>
-                    <p className="mt-2 max-w-xl text-[14px] leading-6 text-white/58">
+                    <p className="mt-2 max-w-xl text-[14px] leading-6 text-slate-100">
                       Connect a Stripe Express account so paid marketplace bookings can settle cleanly to the provider bank account.
                     </p>
                   </div>
-                  <span data-testid="stripe-connect-status-badge" className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${payoutReady ? 'bg-emerald-400/18 text-emerald-100 ring-1 ring-emerald-200/20' : 'bg-amber-400/18 text-amber-100 ring-1 ring-amber-200/20'}`} style={{ fontWeight: 900 }}>
+                  <span data-testid="stripe-connect-status-badge" className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] ${payoutReady ? 'bg-emerald-900 text-emerald-50 ring-1 ring-emerald-300' : 'bg-amber-900 text-amber-50 ring-1 ring-amber-300'}`} style={{ fontWeight: 900 }}>
                     {connectLoading ? 'Syncing' : payoutStatusLabel}
                   </span>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Account</p>
+                  <div className="rounded-[20px] border border-slate-500 bg-slate-700 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-200" style={{ fontWeight: 850 }}>Account</p>
                     <p className="mt-2 truncate text-[14px] text-white" style={{ fontWeight: 800 }}>
                       {vendorOnboarding?.stripeAccountId ?? connectAccount?.id ?? 'Not connected'}
                     </p>
                   </div>
-                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Charges</p>
+                  <div className="rounded-[20px] border border-slate-500 bg-slate-700 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-200" style={{ fontWeight: 850 }}>Charges</p>
                     <p className="mt-2 text-[14px] text-white" style={{ fontWeight: 800 }}>
                       {connectAccount?.chargesEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Pending'}
                     </p>
                   </div>
-                  <div className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-white/38" style={{ fontWeight: 850 }}>Payouts</p>
+                  <div className="rounded-[20px] border border-slate-500 bg-slate-700 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-200" style={{ fontWeight: 850 }}>Payouts</p>
                     <p className="mt-2 text-[14px] text-white" style={{ fontWeight: 800 }}>
                       {connectAccount?.payoutsEnabled || vendorOnboarding?.onboardingStatus === 'active' ? 'Enabled' : 'Action needed'}
                     </p>
@@ -340,17 +337,17 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 </div>
 
                 {connectMessage && (
-                  <p className="mt-4 rounded-[18px] border border-white/10 bg-white/[0.055] px-4 py-3 text-[13px] leading-5 text-white/66">
+                  <p className="mt-4 rounded-[18px] border border-slate-500 bg-slate-700 px-4 py-3 text-[13px] leading-5 text-slate-100">
                     {connectMessage}
                   </p>
                 )}
               </div>
 
-              <div className="border-t border-white/10 bg-black/22 p-5 lg:border-l lg:border-t-0 lg:p-6">
-                <div className={`mb-5 flex h-14 w-14 items-center justify-center rounded-[22px] ${payoutReady ? 'bg-emerald-400/16' : 'bg-cyan-400/14'}`}>
+              <div className="border-t border-slate-500 bg-slate-700 p-5 lg:border-l lg:border-t-0 lg:p-6">
+                <div className={`mb-5 flex h-14 w-14 items-center justify-center rounded-[22px] ${payoutReady ? 'bg-emerald-900' : 'bg-cyan-900'}`}>
                   {payoutReady ? <ShieldCheck className="h-7 w-7 text-emerald-100" /> : <Wallet className="h-7 w-7 text-cyan-100" />}
                 </div>
-                <p className="text-[13px] leading-6 text-white/58">
+                <p className="text-[13px] leading-6 text-slate-100">
                   Provider portal access stays at <span className="text-cyan-100">{VENDOR_PORTAL_URL}</span>. Stripe securely collects identity, tax, and bank-account details.
                 </p>
                 <div className="mt-5 grid gap-2">
@@ -369,7 +366,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                     type="button"
                     onClick={() => void syncStripeConnect('manual')}
                     disabled={connectLoading}
-                    className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/12 bg-white/[0.055] px-4 py-3 text-[13px] text-white disabled:opacity-60"
+                    className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-slate-500 bg-slate-800 px-4 py-3 text-[13px] text-white disabled:opacity-60"
                     style={{ fontWeight: 850 }}
                   >
                     <RefreshCw className={`h-4 w-4 ${connectLoading ? 'animate-spin' : ''}`} />
@@ -381,7 +378,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
           </motion.div>
 
           {access.isCottage && (
-            <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4 text-[13px] leading-6 text-white/62">
+            <div className="rounded-[22px] border border-slate-500 bg-slate-800 p-4 text-[13px] leading-6 text-slate-100 shadow-xl shadow-black/45">
               Cottage mode hides enterprise telemetry by default. Use this page for payout setup and readiness only; booking and listing work stays in the main dashboard.
             </div>
           )}
@@ -389,14 +386,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
           {/* Key Metrics */}
           <div className="grid grid-cols-2 gap-3">
             <motion.div
-              className="rounded-[20px] p-4 border-2 border-white/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/5"
+              className="rounded-[20px] border-2 border-cyan-300 bg-slate-800 p-4 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={springConfig}
             >
               <div className="flex items-center gap-2 mb-2">
                 <Users className="w-4 h-4 text-cyan-400" strokeWidth={2.5} />
-                <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                <span className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                   Active Users
                 </span>
               </div>
@@ -406,14 +403,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             </motion.div>
 
             <motion.div
-              className="rounded-[20px] p-4 border-2 border-white/20 bg-gradient-to-br from-purple-500/10 to-fuchsia-500/5"
+              className="rounded-[20px] border-2 border-purple-300 bg-slate-800 p-4 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.05 }}
             >
               <div className="flex items-center gap-2 mb-2">
                 <Navigation className="w-4 h-4 text-purple-400" strokeWidth={2.5} />
-                <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                <span className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                   Active Trips
                 </span>
               </div>
@@ -423,14 +420,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             </motion.div>
 
             <motion.div
-              className="rounded-[20px] p-4 border-2 border-white/20 bg-gradient-to-br from-green-500/10 to-emerald-500/5"
+              className="rounded-[20px] border-2 border-emerald-300 bg-slate-800 p-4 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.1 }}
             >
               <div className="flex items-center gap-2 mb-2">
                 <MapPin className="w-4 h-4 text-green-400" strokeWidth={2.5} />
-                <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                <span className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                   Avg Accuracy
                 </span>
               </div>
@@ -440,14 +437,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             </motion.div>
 
             <motion.div
-              className="rounded-[20px] p-4 border-2 border-white/20 bg-gradient-to-br from-orange-500/10 to-red-500/5"
+              className="rounded-[20px] border-2 border-orange-300 bg-slate-800 p-4 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.15 }}
             >
               <div className="flex items-center gap-2 mb-2">
                 <Zap className="w-4 h-4 text-orange-400" strokeWidth={2.5} />
-                <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                <span className="text-[13px] text-slate-100" style={{ fontWeight: 600 }}>
                   Latency
                 </span>
               </div>
@@ -459,7 +456,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
 
           {/* Sensor Availability */}
           <motion.div
-            className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl"
+            className="rounded-[24px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.2 }}
@@ -484,7 +481,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                   <div key={sensor}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-white/60" strokeWidth={2.5} />
+                        <Icon className="h-4 w-4 text-slate-100" strokeWidth={2.5} />
                         <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>
                           {sensor.toUpperCase()}
                         </span>
@@ -493,7 +490,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                         {percentage.toFixed(1)}%
                       </span>
                     </div>
-                    <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                       <motion.div
                         className={`h-full rounded-full ${tone.bar}`}
                         initial={{ width: 0 }}
@@ -509,7 +506,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
 
           {/* Active Trips Preview */}
           <motion.div
-            className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl"
+            className="rounded-[24px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.25 }}
@@ -534,7 +531,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 <motion.button
                   key={trip.id}
                   onClick={handleLoadTrip}
-                  className="w-full rounded-[16px] p-4 border border-white/20 bg-white/5 text-left"
+                  className="w-full rounded-[16px] border border-slate-500 bg-slate-700 p-4 text-left"
                   whileTap={{ scale: 0.98 }}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -548,7 +545,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                       {trip.averageConfidence?.toUpperCase()}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-[13px] text-white/60">
+                  <div className="flex items-center gap-3 text-[13px] text-slate-100">
                     <span>{formatDuration(Date.now() - (trip.startTime || 0))}</span>
                     <span>•</span>
                     <span>{trip.totalDistance} mi</span>
@@ -569,7 +566,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
         <div className="px-4 py-6 space-y-6">
           {/* Playback Controls */}
           <motion.div
-            className="rounded-[24px] p-6 border-2 border-purple-400/30 bg-gradient-to-br from-purple-500/20 to-fuchsia-500/10 backdrop-blur-xl"
+            className="rounded-[24px] border-2 border-purple-300 bg-purple-900 p-6 shadow-xl shadow-black/45"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={springConfig}
@@ -579,7 +576,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 <h3 className="text-[17px] text-white mb-1" style={{ fontWeight: 600 }}>
                   Trip Replay
                 </h3>
-                <p className="text-[13px] text-white/70">
+                <p className="text-[13px] text-slate-100">
                   {selectedTrip.id} • {selectedTrip.userRole}
                 </p>
               </div>
@@ -597,7 +594,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                 </motion.button>
                 <motion.button
                   onClick={() => { setPlaybackIndex(0); setIsPlaying(false); }}
-                  className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-700"
                   whileTap={{ scale: 0.9 }}
                 >
                   <RotateCcw className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -607,14 +604,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
 
             {/* Progress Bar */}
             <div className="mb-4">
-              <div className="w-full h-2 rounded-full bg-white/20 overflow-hidden">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                 <motion.div
                   className="h-full rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500"
                   animate={{ width: `${(playbackIndex / (selectedTrip.waypoints.length - 1)) * 100}%` }}
                   transition={{ duration: 0.3 }}
                 />
               </div>
-              <div className="flex justify-between mt-2 text-[11px] text-white/60">
+              <div className="mt-2 flex justify-between text-[11px] text-slate-100">
                 <span>{formatTimestamp(selectedTrip.waypoints[playbackIndex]?.timestamp || 0)}</span>
                 <span>{playbackIndex + 1} / {selectedTrip.waypoints.length}</span>
               </div>
@@ -623,16 +620,16 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
             {/* Current Waypoint Stats */}
             {selectedTrip.waypoints[playbackIndex] && (
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-[12px] p-3 bg-white/10">
-                  <div className="text-[11px] text-white/60 mb-1" style={{ fontWeight: 500 }}>
+                <div className="rounded-[12px] bg-slate-700 p-3">
+                  <div className="mb-1 text-[11px] text-slate-100" style={{ fontWeight: 500 }}>
                     Fused Accuracy
                   </div>
                   <div className={`text-[20px] ${getAccuracyColor(selectedTrip.waypoints[playbackIndex].fusedAccuracy)}`} style={{ fontWeight: 700 }}>
                     ±{selectedTrip.waypoints[playbackIndex].fusedAccuracy.toFixed(1)}m
                   </div>
                 </div>
-                <div className="rounded-[12px] p-3 bg-white/10">
-                  <div className="text-[11px] text-white/60 mb-1" style={{ fontWeight: 500 }}>
+                <div className="rounded-[12px] bg-slate-700 p-3">
+                  <div className="mb-1 text-[11px] text-slate-100" style={{ fontWeight: 500 }}>
                     Confidence
                   </div>
                   <div className={`text-[15px] ${getConfidenceColor(selectedTrip.waypoints[playbackIndex].confidence)}`} style={{ fontWeight: 700 }}>
@@ -646,7 +643,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
           {/* Sensor Fusion Breakdown */}
           {selectedTrip.waypoints[playbackIndex] && (
             <motion.div
-              className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl"
+              className="rounded-[24px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.1 }}
@@ -667,7 +664,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                       ±{selectedTrip.waypoints[playbackIndex].sources.gps.accuracy.toFixed(1)}m
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                     <div 
                       className="h-full rounded-full bg-blue-500"
                       style={{ width: `${selectedTrip.waypoints[playbackIndex].sources.gps.weight * 100}%` }}
@@ -681,7 +678,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                     <div className="flex items-center gap-2">
                       <Wifi className="w-4 h-4 text-purple-400" strokeWidth={2.5} />
                       <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>WiFi</span>
-                      <span className="text-[11px] text-white/60">
+                      <span className="text-[11px] text-slate-100">
                         ({selectedTrip.waypoints[playbackIndex].sources.wifi.networks} networks)
                       </span>
                     </div>
@@ -689,7 +686,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                       ±{selectedTrip.waypoints[playbackIndex].sources.wifi.accuracy.toFixed(1)}m
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                     <div 
                       className="h-full rounded-full bg-purple-500"
                       style={{ width: `${selectedTrip.waypoints[playbackIndex].sources.wifi.weight * 100}%` }}
@@ -703,7 +700,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                     <div className="flex items-center gap-2">
                       <Bluetooth className="w-4 h-4 text-cyan-400" strokeWidth={2.5} />
                       <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>BLE</span>
-                      <span className="text-[11px] text-white/60">
+                      <span className="text-[11px] text-slate-100">
                         ({selectedTrip.waypoints[playbackIndex].sources.ble.beacons} beacons)
                       </span>
                     </div>
@@ -711,7 +708,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                       ±{selectedTrip.waypoints[playbackIndex].sources.ble.accuracy.toFixed(1)}m
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                     <div 
                       className="h-full rounded-full bg-cyan-500"
                       style={{ width: `${selectedTrip.waypoints[playbackIndex].sources.ble.weight * 100}%` }}
@@ -730,7 +727,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                       {(selectedTrip.waypoints[playbackIndex].sources.imu.confidence * 100).toFixed(0)}%
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-600">
                     <div 
                       className="h-full rounded-full bg-orange-500"
                       style={{ width: `${selectedTrip.waypoints[playbackIndex].sources.imu.weight * 100}%` }}
@@ -744,7 +741,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
           {/* Geofence Events in Trip */}
           {selectedTrip.geofenceEvents.length > 0 && (
             <motion.div
-              className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl"
+              className="rounded-[24px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: 0.15 }}
@@ -755,7 +752,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
               
               <div className="space-y-3">
                 {selectedTrip.geofenceEvents.map((event) => (
-                  <div key={event.id} className="rounded-[12px] p-3 bg-white/5 border border-white/10">
+                  <div key={event.id} className="rounded-[12px] border border-slate-500 bg-slate-700 p-3">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         {event.type === 'enter' ? (
@@ -767,14 +764,14 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                           {event.type === 'enter' ? 'Entered' : 'Exited'}
                         </span>
                       </div>
-                      <span className="text-[11px] text-white/60">
+                      <span className="text-[11px] text-slate-100">
                         {formatTimestamp(event.timestamp)}
                       </span>
                     </div>
-                    <div className="text-[13px] text-white/80 mb-1">
+                    <div className="mb-1 text-[13px] text-slate-50">
                       {event.zoneName}
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-white/60">
+                    <div className="flex items-center gap-3 text-[11px] text-slate-100">
                       <span>{event.method.toUpperCase()}</span>
                       <span>•</span>
                       <span>±{event.accuracy.toFixed(1)}m</span>
@@ -793,26 +790,26 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       {viewMode === 'events' && (
         <div className="px-4 py-6 space-y-4">
           <motion.div
-            className="rounded-[16px] p-4 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl"
+            className="rounded-[16px] border-2 border-slate-500 bg-slate-800 p-4 shadow-xl shadow-black/45"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={springConfig}
           >
             <div className="flex items-center gap-2 mb-3">
-              <Search className="w-4 h-4 text-white/40" strokeWidth={2.5} />
+              <Search className="h-4 w-4 text-slate-200" strokeWidth={2.5} />
               <input
                 type="text"
                 placeholder="Search events..."
                 className="flex-1 bg-transparent text-[15px] text-white outline-none"
               />
-              <Filter className="w-4 h-4 text-white/40" strokeWidth={2.5} />
+              <Filter className="h-4 w-4 text-slate-200" strokeWidth={2.5} />
             </div>
           </motion.div>
 
           {recentEvents.map((event, index) => (
             <motion.div
               key={event.id}
-              className="rounded-[16px] p-4 border border-white/20 bg-white/5"
+              className="rounded-[16px] border border-slate-500 bg-slate-800 p-4"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...springConfig, delay: index * 0.03 }}
@@ -832,13 +829,13 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                     <div className="text-[15px] text-white" style={{ fontWeight: 600 }}>
                       {event.type === 'enter' ? 'Zone Entry' : 'Zone Exit'}
                     </div>
-                    <div className="text-[13px] text-white/60">
+                    <div className="text-[13px] text-slate-100">
                       {event.zoneName}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] text-white/60 mb-1">
+                  <div className="mb-1 text-[11px] text-slate-100">
                     {formatTimestamp(event.timestamp)}
                   </div>
                   <div className={`text-[11px] ${getAccuracyColor(event.accuracy)}`} style={{ fontWeight: 600 }}>
@@ -846,7 +843,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 text-[11px] text-white/60">
+              <div className="flex items-center gap-3 text-[11px] text-slate-100">
                 <span>User: {event.userId}</span>
                 <span>•</span>
                 <span>{event.method.toUpperCase()}</span>
@@ -861,7 +858,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
       {/* Info Notice */}
       <div className="px-4 pb-6">
         <motion.div
-          className="rounded-[20px] p-5 border-2 border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-cyan-500/5"
+          className="rounded-[20px] border-2 border-blue-300 bg-slate-800 p-5 shadow-xl shadow-black/45"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
@@ -874,7 +871,7 @@ export function DashboardFusionEngine({ isDarkMode, access }: DashboardFusionEng
               <h4 className="text-[15px] text-white mb-1" style={{ fontWeight: 600 }}>
                 Backend services ready
               </h4>
-              <p className="text-[13px] text-white/80 leading-relaxed">
+              <p className="text-[13px] leading-relaxed text-slate-50">
                 Dashboard approval and payout readiness are based on explicit provider metadata and Stripe state. Backend-only intelligence should remain server-side and should not expose protected implementation details in the provider dashboard.
               </p>
             </div>

@@ -68,11 +68,11 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
   const tone = {
     page: isDarkMode ? 'text-white' : 'text-slate-950',
     strong: isDarkMode ? 'text-white' : 'text-slate-950',
-    body: isDarkMode ? 'text-slate-200' : 'text-slate-700',
-    muted: isDarkMode ? 'text-slate-300' : 'text-slate-600',
-    panel: isDarkMode ? 'border-slate-700 bg-slate-950/72 shadow-black/30' : 'border-slate-200 bg-white shadow-slate-200/70',
-    soft: isDarkMode ? 'border-slate-700 bg-slate-900/82' : 'border-slate-200 bg-slate-50',
-    empty: isDarkMode ? 'border-slate-700 bg-slate-950/55' : 'border-slate-200 bg-white',
+    body: isDarkMode ? 'text-slate-50' : 'text-slate-700',
+    muted: isDarkMode ? 'text-slate-100' : 'text-slate-600',
+    panel: isDarkMode ? 'border-slate-500 bg-slate-800 shadow-black/45' : 'border-slate-200 bg-white shadow-slate-200/70',
+    soft: isDarkMode ? 'border-slate-500 bg-slate-700' : 'border-slate-200 bg-slate-50',
+    empty: isDarkMode ? 'border-slate-500 bg-slate-800' : 'border-slate-200 bg-white',
   };
   const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 
@@ -146,7 +146,7 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
 
       <motion.div className="flex gap-2 overflow-x-auto pb-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.1 }} data-testid="provider-bookings-filters">
         {filters.map((item) => (
-          <button key={item.id} data-testid={`provider-bookings-filter-${item.id}`} onClick={() => setFilter(item.id)} className={`shrink-0 rounded-xl border px-4 py-2.5 transition-colors ${filter === item.id ? (isDarkMode ? 'border-cyan-400 bg-cyan-500/15 text-cyan-100' : 'border-cyan-400 bg-cyan-50 text-cyan-900') : `${tone.soft} ${tone.muted}`}`}>
+          <button key={item.id} data-testid={`provider-bookings-filter-${item.id}`} onClick={() => setFilter(item.id)} className={`shrink-0 rounded-xl border px-4 py-2.5 transition-colors ${filter === item.id ? (isDarkMode ? 'border-cyan-300 bg-cyan-900 text-cyan-50' : 'border-cyan-400 bg-cyan-50 text-cyan-900') : `${tone.soft} ${tone.muted}`}`}>
             <span className="text-[15px]" style={{ fontWeight: 700 }}>{item.label} ({item.count})</span>
           </button>
         ))}
@@ -160,7 +160,7 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className={`text-[20px] ${tone.strong}`} style={{ fontWeight: 800 }}>{booking.serviceTitle}</h2>
-                    <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${isDarkMode ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100' : 'border-cyan-200 bg-cyan-50 text-cyan-800'}`} style={{ fontWeight: 900 }}>{booking.status.replace('_', ' ')}</span>
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${isDarkMode ? 'border-cyan-300 bg-cyan-900 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-800'}`} style={{ fontWeight: 900 }}>{booking.status.replace('_', ' ')}</span>
                   </div>
                   <p className={`mt-1 text-[13px] leading-5 ${tone.muted}`}>{booking.guestName ?? 'Guest'} · {booking.patchLabel ?? 'Patch pending'}</p>
                 </div>

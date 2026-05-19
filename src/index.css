@@ -7418,3 +7418,84 @@ html {
     opacity: .5;
   }
 }
+
+/* Provider dashboard contrast utilities.
+   This CSS bundle is checked in as generated Tailwind output and does not
+   currently include the newer slate/semantic utility steps used by the
+   Provider dashboard. Define them explicitly so the rendered app gets real
+   solid surfaces instead of transparent cards. */
+.bg-slate-950 { background-color: #020617; }
+.bg-slate-900 { background-color: #0f172a; }
+.bg-slate-800 { background-color: #1e293b; }
+.bg-slate-800\/95 { background-color: rgb(30 41 59 / .95); }
+.bg-slate-800\/65 { background-color: rgb(30 41 59 / .65); }
+.bg-slate-700 { background-color: #334155; }
+.bg-slate-600 { background-color: #475569; }
+.bg-slate-500 { background-color: #64748b; }
+.bg-cyan-950 { background-color: #083344; }
+.bg-cyan-900 { background-color: #164e63; }
+.bg-cyan-800 { background-color: #155e75; }
+.bg-cyan-700 { background-color: #0e7490; }
+.bg-amber-950 { background-color: #451a03; }
+.bg-amber-900 { background-color: #78350f; }
+.bg-emerald-950 { background-color: #022c22; }
+.bg-emerald-900 { background-color: #064e3b; }
+.bg-emerald-800 { background-color: #065f46; }
+.bg-violet-950 { background-color: #2e1065; }
+.bg-violet-900 { background-color: #4c1d95; }
+.bg-violet-800 { background-color: #5b21b6; }
+.bg-purple-900 { background-color: #581c87; }
+.bg-purple-800 { background-color: #6b21a8; }
+.bg-purple-700 { background-color: #7e22ce; }
+.bg-red-950 { background-color: #450a0a; }
+.bg-red-900 { background-color: #7f1d1d; }
+.bg-red-800 { background-color: #991b1b; }
+.bg-blue-900 { background-color: #1e3a8a; }
+
+.border-slate-800 { border-color: #1e293b; }
+.border-slate-700 { border-color: #334155; }
+.border-slate-600 { border-color: #475569; }
+.border-slate-500 { border-color: #64748b; }
+.border-cyan-300 { border-color: #67e8f9; }
+.border-cyan-400 { border-color: #22d3ee; }
+.border-amber-300 { border-color: #fcd34d; }
+.border-emerald-300 { border-color: #6ee7b7; }
+.border-violet-300 { border-color: #c4b5fd; }
+.border-purple-300 { border-color: #d8b4fe; }
+.border-red-300 { border-color: #fca5a5; }
+.border-blue-300 { border-color: #93c5fd; }
+.border-orange-300 { border-color: #fdba74; }
+
+.text-slate-50 { color: #f8fafc; }
+.text-slate-100 { color: #f1f5f9; }
+.text-slate-200 { color: #e2e8f0; }
+.text-slate-300 { color: #cbd5e1; }
+.text-cyan-50 { color: #ecfeff; }
+.text-cyan-100 { color: #cffafe; }
+.text-amber-50 { color: #fffbeb; }
+.text-emerald-50 { color: #ecfdf5; }
+.text-violet-50 { color: #f5f3ff; }
+.text-red-50 { color: #fef2f2; }
+.text-orange-50 { color: #fff7ed; }
+
+.from-violet-700 { --tw-gradient-from: #6d28d9; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.from-purple-700 { --tw-gradient-from: #7e22ce; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.from-purple-600 { --tw-gradient-from: #9333ea; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.from-cyan-700 { --tw-gradient-from: #0e7490; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.via-sky-700 { --tw-gradient-via: #0369a1; --tw-gradient-via-stops: var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-via) var(--tw-gradient-via-position), var(--tw-gradient-to) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-via-stops); }
+.to-cyan-700 { --tw-gradient-to: #0e7490; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.to-cyan-600 { --tw-gradient-to: #0891b2; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+.to-violet-700 { --tw-gradient-to: #6d28d9; --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
+
+.hover\:bg-slate-600:hover { background-color: #475569; }
+.hover\:bg-slate-700:hover { background-color: #334155; }
+.hover\:bg-cyan-800:hover { background-color: #155e75; }
+.hover\:bg-cyan-900:hover { background-color: #164e63; }
+.hover\:bg-red-800:hover { background-color: #991b1b; }
+.hover\:border-cyan-300:hover { border-color: #67e8f9; }
+
+.provider-dashboard-main { padding-top: calc(4rem + env(safe-area-inset-top)); }
+
+@media (min-width: 1024px) {
+  .provider-dashboard-main { padding-top: 0; }
+}

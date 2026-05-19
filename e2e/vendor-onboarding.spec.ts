@@ -294,7 +294,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     const badge = page.getByTestId('stripe-connect-status-badge');
     await expect(badge).toHaveText('Payouts Enabled');
-    await expect(badge).toHaveClass(/text-emerald-100/);
+    await expect(badge).toHaveClass(/text-emerald-50/);
   });
 
   test('shows action required when Stripe payouts are disabled', async ({ page }) => {
@@ -303,7 +303,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     const badge = page.getByTestId('stripe-connect-status-badge');
     await expect(badge).toHaveText('Action Required');
-    await expect(badge).toHaveClass(/text-amber-100/);
+    await expect(badge).toHaveClass(/text-amber-50/);
   });
 
   test('curates dashboard navigation for manager cottage businesses', async ({ page }) => {
@@ -550,8 +550,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-patches-form')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Premium Patch Toolkit');
     await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toContainText('Provider Premium unlocks recommendations');
-    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toHaveCSS('background-color', 'rgb(2, 6, 23)');
-    await expect(page.getByTestId('provider-patches-form')).toHaveCSS('background-color', 'rgb(2, 6, 23)');
+    await expect(page.getByTestId('provider-premium-gate-vendor-premium')).toHaveCSS('background-color', 'rgb(30, 41, 59)');
+    await expect(page.getByTestId('provider-patches-form')).toHaveCSS('background-color', 'rgb(30, 41, 59)');
 
     const select = page.getByTestId('provider-patches-service-select');
     await expect(select).toBeEnabled();

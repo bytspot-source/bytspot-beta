@@ -38,7 +38,7 @@ const STATUS_BADGE: Record<DashboardBookingSummary['status'], { label: string; c
   confirmed: { label: 'Confirmed', classes: 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100' },
   in_progress: { label: 'In progress', classes: 'border-purple-300/30 bg-purple-400/15 text-purple-100' },
   completed: { label: 'Completed', classes: 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100' },
-  cancelled: { label: 'Cancelled', classes: 'border-white/15 bg-white/5 text-white/60' },
+  cancelled: { label: 'Cancelled', classes: 'border-slate-500 bg-slate-700 text-slate-100' },
 };
 
 export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps) {
@@ -183,7 +183,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
         <h1 className="text-[34px] text-white mb-2" style={{ fontWeight: 700 }}>
           Calendar
         </h1>
-        <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
+        <p className="text-[17px] text-slate-100" style={{ fontWeight: 500 }}>
           {subtitle}
         </p>
       </motion.div>
@@ -191,7 +191,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
       {/* Operational guidance */}
       <motion.div
         data-testid="provider-calendar-guidance"
-        className="rounded-[20px] p-5 border-2 border-white/20 bg-[#1C1C1E]/60 backdrop-blur-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-5 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.05 }}
@@ -199,12 +199,12 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
         <h2 className="text-[17px] text-white mb-2" style={{ fontWeight: 600 }}>
           {guidanceHeadline}
         </h2>
-        <p className="text-[13px] leading-5 text-white/70 mb-3" style={{ fontWeight: 400 }} data-testid="provider-calendar-guidance-body">
+        <p className="mb-3 text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }} data-testid="provider-calendar-guidance-body">
           {guidanceBody}
         </p>
         <ul className="space-y-1.5" data-testid="provider-calendar-guidance-checklist">
           {guidanceChecklist.map((item, idx) => (
-            <li key={idx} className="text-[12px] leading-5 text-white/65 pl-3 relative" style={{ fontWeight: 400 }}>
+            <li key={idx} className="relative pl-3 text-[12px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               <span className="absolute left-0 top-2 h-1 w-1 rounded-full bg-cyan-400/70" />
               {item}
             </li>
@@ -214,7 +214,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
 
       {/* Calendar Card */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.1 }}
@@ -225,7 +225,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             data-testid="provider-calendar-month-prev"
             aria-label="Previous month"
             onClick={goToPreviousMonth}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-[#2C2C2E]/60 border-2 border-white/20"
+            className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-500 bg-slate-700"
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
           >
@@ -240,7 +240,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             data-testid="provider-calendar-month-next"
             aria-label="Next month"
             onClick={goToNextMonth}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-[#2C2C2E]/60 border-2 border-white/20"
+            className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-500 bg-slate-700"
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
           >
@@ -253,7 +253,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
             <div
               key={day}
-              className="text-center text-[11px] text-white/50 py-2"
+              className="py-2 text-center text-[11px] text-slate-200"
               style={{ fontWeight: 600 }}
             >
               {day}
@@ -281,16 +281,16 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                 onClick={() => setSelectedDate(dateStr)}
                 className={`aspect-square rounded-xl flex flex-col items-center justify-center relative border-2 transition-colors ${
                   isSelected
-                    ? 'bg-gradient-to-br from-purple-500/40 to-cyan-500/40 border-white/30'
+                    ? 'bg-gradient-to-br from-purple-700 to-cyan-700 border-cyan-300'
                     : isToday
-                    ? 'border-cyan-400/50 bg-cyan-500/10'
-                    : 'border-white/10 bg-[#2C2C2E]/40 hover:border-white/20'
+                    ? 'border-cyan-300 bg-cyan-900'
+                    : 'border-slate-500 bg-slate-700 hover:border-cyan-300'
                 }`}
                 whileTap={{ scale: 0.9 }}
                 transition={springConfig}
               >
                 <span className={`text-[15px] ${
-                  isSelected ? 'text-white' : isToday ? 'text-cyan-300' : 'text-white/90'
+                  isSelected ? 'text-white' : isToday ? 'text-cyan-100' : 'text-slate-50'
                 }`} style={{ fontWeight: isSelected || isToday ? 600 : 400 }}>
                   {day}
                 </span>
@@ -310,7 +310,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
       {/* Selected Date Bookings */}
       <motion.div
         data-testid="provider-calendar-selected-card"
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.2 }}
@@ -320,13 +320,13 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             <h2 data-testid="provider-calendar-selected-date" className="text-[20px] text-white mb-1" style={{ fontWeight: 600 }}>
               {formatSelectedDate()}
             </h2>
-            <p data-testid="provider-calendar-selected-summary" className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+            <p data-testid="provider-calendar-selected-summary" className="text-[13px] text-slate-100" style={{ fontWeight: 500 }}>
               {selectedDayBookings.length} {selectedDayBookings.length === 1 ? 'booking' : 'bookings'}
               {data.authenticated && !data.loading ? ` · ${activeServiceCount} active ${activeServiceCount === 1 ? 'service' : 'services'} available` : ''}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 border-2 border-white/20">
+          <div className="flex items-center gap-2 rounded-full border-2 border-cyan-300 bg-cyan-900 px-3 py-1.5">
             <CalendarIcon className="w-4 h-4 text-purple-400" strokeWidth={2.5} />
             <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
               {selectedDayBookings.length}
@@ -336,31 +336,31 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
 
         {data.loading ? (
           <div className="text-center py-10" data-testid="provider-calendar-empty-loading">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-              <CalendarIcon className="h-7 w-7 text-white/60" strokeWidth={2.5} />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
+              <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
             <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Loading schedule…</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               Pulling your services and operating windows so this view reflects what guests can actually book.
             </p>
           </div>
         ) : !data.authenticated ? (
           <div className="text-center py-10" data-testid="provider-calendar-empty-unauth">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
+              <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
             <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Sign in to view the live schedule</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               Calendar entries follow your published services and confirmed bookings. Sign in to see real availability for this date.
             </p>
           </div>
         ) : activeServiceCount === 0 ? (
           <div className="text-center py-10" data-testid="provider-calendar-empty-no-services">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
+              <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
             <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No active services yet</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               Publish at least one service from the Listings tab so the calendar can surface real availability and bookings on this date.
             </p>
           </div>
@@ -373,13 +373,13 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                 <li
                   key={booking.id}
                   data-testid={`provider-calendar-booking-${booking.id}`}
-                  className="rounded-2xl border-2 border-white/15 bg-[#2C2C2E]/40 p-4"
+                  className="rounded-2xl border-2 border-slate-500 bg-slate-700 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p
                         data-testid={`provider-calendar-booking-time-${booking.id}`}
-                        className="text-[12px] uppercase tracking-[0.12em] text-white/55"
+                        className="text-[12px] uppercase tracking-[0.12em] text-slate-200"
                         style={{ fontWeight: 700 }}
                       >
                         {formatBookingTime(booking.startsAt)}
@@ -391,7 +391,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                       >
                         {booking.serviceTitle}
                       </p>
-                      <p className="text-[12px] text-white/65 truncate" style={{ fontWeight: 400 }}>
+                      <p className="truncate text-[12px] text-slate-100" style={{ fontWeight: 500 }}>
                         {booking.guestName ?? 'Guest pending confirmation'}
                         {booking.patchLabel ? ` · ${booking.patchLabel}` : ''}
                       </p>
@@ -405,7 +405,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
                         {badge.label}
                       </span>
                       {price && access.canSeeFinancials && (
-                        <span className="text-[13px] text-white/85" style={{ fontWeight: 600 }}>
+                        <span className="text-[13px] text-slate-50" style={{ fontWeight: 700 }}>
                           {price}
                         </span>
                       )}
@@ -417,11 +417,11 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
           </ul>
         ) : (
           <div className="text-center py-10" data-testid="provider-calendar-empty-no-bookings">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5">
-              <CalendarIcon className="h-7 w-7 text-white/80" strokeWidth={2.5} />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
+              <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
             <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No bookings scheduled</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-white/70" style={{ fontWeight: 400 }}>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               {data.bookings.length > 0
                 ? `Confirmed bookings on this date will appear here. Pick a date with markers to see the ${data.bookings.length} ${data.bookings.length === 1 ? 'booking' : 'bookings'} already on your schedule.`
                 : `Confirmed bookings on this date will appear here with arrival times and listing details once guests confirm. Your ${activeServiceCount} active ${activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.`}
@@ -432,7 +432,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
 
       {/* Legend */}
       <motion.div
-        className="rounded-[20px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/10 to-cyan-500/10 backdrop-blur-xl"
+        className="rounded-[20px] border-2 border-slate-500 bg-slate-800 p-6 shadow-xl shadow-black/45"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...springConfig, delay: 0.4 }}
@@ -444,26 +444,26 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg border-2 border-cyan-400/50 bg-cyan-500/10" />
-            <span className="text-[15px] text-white/90" style={{ fontWeight: 400 }}>
+            <span className="text-[15px] text-slate-50" style={{ fontWeight: 500 }}>
               Today
             </span>
           </div>
           
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg border-2 border-white/30 bg-gradient-to-br from-purple-500/40 to-cyan-500/40" />
-            <span className="text-[15px] text-white/90" style={{ fontWeight: 400 }}>
+            <div className="h-8 w-8 rounded-lg border-2 border-cyan-300 bg-gradient-to-br from-purple-700 to-cyan-700" />
+            <span className="text-[15px] text-slate-50" style={{ fontWeight: 500 }}>
               Selected Date
             </span>
           </div>
           
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg border-2 border-white/10 bg-[#2C2C2E]/40 flex items-center justify-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-slate-500 bg-slate-700">
               <div className="flex gap-0.5">
                 <div className="w-1 h-1 rounded-full bg-purple-400" />
                 <div className="w-1 h-1 rounded-full bg-purple-400" />
               </div>
             </div>
-            <span className="text-[15px] text-white/90" style={{ fontWeight: 400 }}>
+            <span className="text-[15px] text-slate-50" style={{ fontWeight: 500 }}>
               Has Bookings
             </span>
           </div>

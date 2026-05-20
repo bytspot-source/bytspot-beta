@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { ReactNode, memo } from 'react';
+import { impactLight } from '../utils/haptics';
 
 interface QuickActionCardProps {
   delay: number;
@@ -67,10 +68,14 @@ export const QuickActionCard = memo(function QuickActionCard({
   onClick 
 }: QuickActionCardProps) {
   const colors = colorMap[color];
+  const handleClick = () => {
+    void impactLight();
+    onClick?.();
+  };
 
   return (
     <motion.button
-      onClick={onClick}
+      onClick={handleClick}
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{

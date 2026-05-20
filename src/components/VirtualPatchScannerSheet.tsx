@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Camera, LoaderCircle, QrCode, ShieldCheck, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
-import { notifyError, notifySuccess } from '../utils/haptics';
+import { impactLight, notifyError, notifySuccess } from '../utils/haptics';
 import { trackEvent } from '../utils/analytics';
 import { trpc } from '../utils/trpc';
 import { AppleSignInButton } from './AppleSignInButton';
@@ -744,7 +744,7 @@ export function VirtualPatchScannerSheet({
       // Age affirmation is also per-session. Defaults to true when the
       // venue carries no ageGate so the consent panel renders immediately.
       setHasAffirmedAge(!ageGate);
-      setDemoVenueServicesView(appClipEntry ? 'nearby' : 'cards');
+      setDemoVenueServicesView('cards');
       setSelectedPremiumVendorId(null);
       setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
       setPremiumVendorsLoading(false);
@@ -761,7 +761,7 @@ export function VirtualPatchScannerSheet({
     }
 
     if (appClipEntry) {
-      setDemoVenueServicesView('nearby');
+      setDemoVenueServicesView('cards');
       setSelectedPremiumVendorId(null);
     }
   }, [isOpen, ageGate, appClipEntry]);
@@ -904,9 +904,12 @@ export function VirtualPatchScannerSheet({
           setActiveMethod('nfc');
 
           await CapacitorNfc.startScanning({
-            alertMessage: 'Hold your iPhone near the Bytspot patch.',
-            invalidateAfterFirstRead: false,
-            iosSessionType: 'tag',
+            alertMessage: 'Hold your phone near the Bytspot patch.',
+            invalidateAfterFirstRead: true,
+            // Use the standard NDEF reader session first. The raw `tag` session
+            // requires extra iOS entitlements and was causing native NFC startup
+            // failures for normal Bytspot sticker reads.
+            iosSessionType: 'ndef',
           });
           nativeNfcActiveRef.current = true;
 
@@ -985,6 +988,7 @@ export function VirtualPatchScannerSheet({
   }, [hasAffirmedAge, hasConsented, isIosWebFallback, isNativeApp, isOpen, preferredMethod, scheduleScan, sessionKey, stopScanner, supportsLiveQr, supportsNfc, verifyRawValue]);
 
   const handleRetry = useCallback(() => {
+    void impactLight();
     stopScanner();
     setVerification(null);
     setStatus('idle');
@@ -993,6 +997,7 @@ export function VirtualPatchScannerSheet({
   }, [stopScanner]);
 
   const handleSwitchMethod = useCallback((method: ScanMethod) => {
+    void impactLight();
     stopScanner();
     setVerification(null);
     setPreferredMethod(method);
@@ -1002,6 +1007,7 @@ export function VirtualPatchScannerSheet({
   }, [stopScanner]);
 
   const handleContinue = useCallback(() => {
+    void impactLight();
     // B5: persist a verified context snapshot so the access wallet can render
     // what was just verified even when the host did not wire onVerified.
     if (verification) {
@@ -1026,6 +1032,11 @@ export function VirtualPatchScannerSheet({
     onClose();
     onOpenAccessWallet?.();
   }, [fallbackPatchId, onClose, onOpenAccessWallet, supportsLiveQr, supportsNfc, verification, venueId, venueName]);
+
+  const handleClose = useCallback(() => {
+    void impactLight();
+    onClose();
+  }, [onClose]);
 
   const openAuthPrompt = useCallback((intent: AuthPromptIntent) => {
     setAuthPromptIntent(intent);
@@ -1077,6 +1088,7 @@ export function VirtualPatchScannerSheet({
         ? `${eligibleServices.length} service${eligibleServices.length === 1 ? '' : 's'} saved. ${skippedServices.length} unavailable item${skippedServices.length === 1 ? '' : 's'} skipped.`
         : `${eligibleServices.length} selected service${eligibleServices.length === 1 ? '' : 's'} ${mode === 'signed-in' ? 'saved to your wallet.' : 'ready for wallet fallback.'}`,
     });
+    void notifySuccess();
     handleContinue();
   }, [handleContinue]);
 
@@ -1108,6 +1120,7 @@ export function VirtualPatchScannerSheet({
           ? 'Showing Patch Verified vendors. Your activity can be saved to your wallet.'
           : 'Showing Patch Verified vendors. Continue as guest or sign in later to save requests.',
       });
+      void impactLight();
       return;
     }
     persistVirtualServiceRequest({
@@ -1125,8 +1138,14 @@ export function VirtualPatchScannerSheet({
       signedIn: mode === 'signed-in',
     });
     if (!hasConsented && hasAffirmedAge) {
+      if (appClipEntry) {
+        toast.success(serviceName, { description: `${cta ?? 'Request'} started as guest. Tap verification stays optional until the venue asks for it.` });
+        void notifySuccess();
+        return;
+      }
       setHasConsented(true);
       toast.success(serviceName, { description: `${cta ?? 'Request'} queued — verify the patch to continue.` });
+      void notifySuccess();
       return;
     }
     toast.success(serviceName, {
@@ -1134,8 +1153,9 @@ export function VirtualPatchScannerSheet({
         ? 'Request confirmed and ready to save to your wallet.'
         : 'Guest request started. Sign in later to save it and earn points.',
     });
+    void notifySuccess();
     handleContinue();
-  }, [fallbackPatchId, handleContinue, hasAffirmedAge, hasConsented, persistVirtualServiceRequest, publicVenueName, venueId]);
+  }, [appClipEntry, fallbackPatchId, handleContinue, hasAffirmedAge, hasConsented, persistVirtualServiceRequest, publicVenueName, venueId]);
 
   const completePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName: string | undefined, mode: 'guest' | 'signed-in' = 'guest', vendor?: PremiumVendor | null) => {
     const resolvedVendorName = vendor?.name ?? vendorName;
@@ -1167,6 +1187,7 @@ export function VirtualPatchScannerSheet({
           ? `${resolvedVendorName} will respond in Bytspot Passport. Points enabled.`
           : `${resolvedVendorName} will respond to your guest request.`,
     });
+    void notifySuccess();
   }, [persistVirtualServiceRequest, publicVenueName, venueId]);
 
   const completeBookingRequest = useCallback((vendor: PremiumVendor, serviceName: string, form: BookingFormState, mode: 'guest' | 'signed-in' = 'guest') => {
@@ -1210,6 +1231,7 @@ export function VirtualPatchScannerSheet({
         ? `${serviceName} request sent to ${vendor.name}. Saved to your wallet.`
         : `${serviceName} request sent to ${vendor.name} as guest.`,
     });
+    void notifySuccess();
     setDemoVenueServicesView('detail');
     setSelectedBookingService(null);
   }, [persistVirtualServiceRequest, publicVenueName, venueId]);
@@ -1239,6 +1261,7 @@ export function VirtualPatchScannerSheet({
   }, [authPromptIntent, completeBookingRequest, completePremiumVendorAction, completeVenueServiceRequest, performWalletAction, premiumVendors, selectedPremiumVendor]);
 
   const handleServiceRequest = useCallback((serviceName: string, cta: string) => {
+    void impactLight();
     const service = DEMO_VENUE_SERVICES.find((item) => item.name === serviceName);
     logVirtualPatchEvent('service_tapped', {
       surface: 'virtual_patch',
@@ -1257,6 +1280,7 @@ export function VirtualPatchScannerSheet({
   }, [completeVenueServiceRequest, openAuthPrompt, publicVenueName]);
 
   const handleOpenPremiumVendor = useCallback((vendorId: string) => {
+    void impactLight();
     const vendor = premiumVendors.find((item) => item.id === vendorId);
     setSelectedPremiumVendorId(vendorId);
     logVirtualPatchEvent('vendor_viewed', {
@@ -1272,6 +1296,7 @@ export function VirtualPatchScannerSheet({
   }, [premiumVendors]);
 
   const handleStartBooking = useCallback((vendor: PremiumVendor, serviceName: string) => {
+    void impactLight();
     if (!vendor.bookingCapability || !vendor.isOpen) {
       toast.info('Booking unavailable', { description: `${vendor.name} is not accepting bookings right now.` });
       return;
@@ -1283,6 +1308,7 @@ export function VirtualPatchScannerSheet({
   }, []);
 
   const handleSubmitBooking = useCallback((mode?: 'guest') => {
+    void impactLight();
     if (!selectedPremiumVendor || !selectedBookingService) return;
     const form = bookingForm;
     if (!form.partySize || Number(form.partySize) < 1) {
@@ -1378,7 +1404,7 @@ export function VirtualPatchScannerSheet({
                   <p className="text-[13.5px] text-white/70 mt-1" style={{ fontWeight: 650 }}>{showPatchLocalServices ? 'Live local services available' : publicVenueName}</p>
                 </div>
                 <motion.button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 border border-white/20 backdrop-blur-md"
                   whileTap={{ scale: 0.92 }}
                 >
@@ -1434,18 +1460,38 @@ export function VirtualPatchScannerSheet({
                       <ShieldCheck className="h-6 w-6 text-cyan-100" strokeWidth={2.6} />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[12px] uppercase tracking-[0.15em] text-cyan-100" style={{ fontWeight: 950 }}>Patch reader</p>
-                      <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Start the reader once, then tap any service below to request instantly.</p>
+                      <p className="text-[12px] uppercase tracking-[0.15em] text-cyan-100" style={{ fontWeight: 950 }}>{appClipEntry ? 'Instant access' : 'Patch reader'}</p>
+                      <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>
+                        {appClipEntry ? 'Services are ready now. Start the reader only when the venue asks for verified access.' : 'Start the reader once, then tap any service below to request instantly.'}
+                      </p>
                     </div>
                   </div>
                   <motion.button
-                    onClick={() => setHasConsented(true)}
+                    onClick={() => {
+                      void impactLight();
+                      if (appClipEntry) {
+                        setDemoVenueServicesView('nearby');
+                        setSelectedPremiumVendorId(null);
+                        return;
+                      }
+                      setHasConsented(true);
+                    }}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-4 text-white shadow-[0_18px_42px_rgba(168,85,247,0.35)]"
                     whileTap={{ scale: 0.97 }}
                   >
-                    <Zap className="h-4 w-4" strokeWidth={2.8} />
-                    <span className="text-[15px]" style={{ fontWeight: 900 }}>Start Reader</span>
+                    {appClipEntry ? <ShieldCheck className="h-4 w-4" strokeWidth={2.8} /> : <Zap className="h-4 w-4" strokeWidth={2.8} />}
+                    <span className="text-[15px]" style={{ fontWeight: 900 }}>{appClipEntry ? 'Browse Services' : 'Start Reader'}</span>
                   </motion.button>
+                  {appClipEntry && (
+                    <button
+                      type="button"
+                      onClick={() => { void impactLight(); setHasConsented(true); }}
+                      className="mt-3 w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-3 text-[12.5px] text-cyan-100"
+                      style={{ fontWeight: 850 }}
+                    >
+                      Tap Patch to Verify
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1486,7 +1532,7 @@ export function VirtualPatchScannerSheet({
                       <span className="whitespace-nowrap text-[13.5px]" style={{ color: 'rgba(255,255,255,0.86)', fontWeight: 720 }}>Not now</span>
                     </motion.button>
                     <motion.button
-                      onClick={() => setHasConsented(true)}
+                      onClick={() => { void impactLight(); setHasConsented(true); }}
                       className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
                       style={{ flex: '1.55 1 0', minWidth: 0 }}
                       whileTap={{ scale: 0.97 }}
@@ -1828,7 +1874,7 @@ export function VirtualPatchScannerSheet({
 
               <div className="flex gap-3">
                 <motion.button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 text-white/80 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                   style={{ flex: '0.9 1 0', minWidth: 0 }}
                   whileTap={{ scale: 0.97 }}
@@ -1863,14 +1909,32 @@ export function VirtualPatchScannerSheet({
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>Retry scan</span>
                   </motion.button>
+                ) : !hasConsented && hasAffirmedAge && appClipEntry && showPatchLocalServices && demoVenueServicesView === 'cards' ? (
+                  <motion.button
+                    onClick={() => { void impactLight(); setDemoVenueServicesView('nearby'); setSelectedPremiumVendorId(null); }}
+                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 900 }}>Browse Services</span>
+                  </motion.button>
                 ) : !hasConsented && hasAffirmedAge && showPatchLocalServices && demoVenueServicesView === 'cards' ? (
                   <motion.button
-                    onClick={() => setHasConsented(true)}
+                    onClick={() => { void impactLight(); setHasConsented(true); }}
                     className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
                     style={{ flex: '1.55 1 0', minWidth: 0 }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 900 }}>Start Reader</span>
+                  </motion.button>
+                ) : !hasConsented && hasAffirmedAge && appClipEntry && showPatchLocalServices ? (
+                  <motion.button
+                    onClick={() => { void impactLight(); setHasConsented(true); }}
+                    className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 text-cyan-100 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                    style={{ flex: '1.25 1 0', minWidth: 0 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <span className="whitespace-nowrap" style={{ fontSize: '14px', fontWeight: 875 }}>Tap Patch to Verify</span>
                   </motion.button>
                 ) : (
                   <div className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 flex items-center justify-center gap-2 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ flex: '1.1 1 0', minWidth: 0, color: 'rgba(255,255,255,0.78)' }}>

@@ -92,11 +92,6 @@ const SERVICE_RECOMMENDATION_SHORTCUTS = [
 ];
 const HIDDEN_SERVICE_SURFACE_TERM = String.fromCharCode(118, 97, 108, 101, 116);
 
-function hasProviderStatusAuthToken(): boolean {
-  const token = localStorage.getItem('bytspot_auth_token');
-  return Boolean(token && token !== 'guest_session');
-}
-
 function hasAuthenticatedConsumerSession(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
   const user = localStorage.getItem('bytspot_user');
@@ -105,6 +100,29 @@ function hasAuthenticatedConsumerSession(): boolean {
 
 function getHomeServiceFocusId(card: DiscoverCard): string {
   return card.vendorServiceId ?? String(card.id);
+}
+
+function extractPatchDeepLink(url: string): { patchId: string; venueName?: string } | null {
+  try {
+    const parsed = new URL(url);
+    const pathFromName = parsed.protocol === 'bytspot:' && parsed.hostname
+      ? `${parsed.hostname}${parsed.pathname}`
+      : parsed.pathname;
+    const path = pathFromName.replace(/^\/+/, '');
+    const pathParts = path.split('/').filter(Boolean);
+    const patchFromPath = path.startsWith('p/') || path.startsWith('patch/') || path.startsWith('access/')
+      ? pathParts[1] ?? null
+      : path.startsWith('t/') && isValidTagId(pathParts[1])
+        ? pathParts[1]
+        : pathParts.length === 1 && isValidTagId(pathParts[0])
+          ? pathParts[0]
+          : null;
+    const patchId = patchFromPath || parsed.searchParams.get('patch');
+    if (!patchId) return null;
+    return { patchId, venueName: parsed.searchParams.get('venue') || undefined };
+  } catch {
+    return null;
+  }
 }
 
 function isLiveVendorServiceCard(card: DiscoverCard): boolean {
@@ -191,11 +209,10 @@ function MarketplaceBookingReturnScreen({ status, onContinue }: { status: 'succe
 
 export default function App() {
   // Determine initial screen: skip splash/landing/auth if user already has a token
+  const initialPatchDeepLink = typeof window !== 'undefined' ? extractPatchDeepLink(window.location.href) : null;
   const hasAuthToken = !!localStorage.getItem('bytspot_auth_token');
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken ? 'main' : 'splash');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken || initialPatchDeepLink ? 'main' : 'splash');
   const [activeTab, setActiveTab] = useState('home');
-  const [isHost, setIsHost] = useState(false);
-  const [isValet, setIsValet] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const themeParam = new URLSearchParams(window.location.search).get('theme');
     if (themeParam === 'light') return false;
@@ -294,7 +311,10 @@ export default function App() {
   }, []);
 
   const routePatchTap = useCallback(async (patchId: string, venueName?: string) => {
-    if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
+    const authToken = localStorage.getItem('bytspot_auth_token');
+    const isLoggedInConsumerOrVendor = Boolean(authToken && authToken !== 'guest_session');
+
+    if (isLoggedInConsumerOrVendor && !APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET) {
       const isProviderOwner = await isLoggedInProviderPatchOwner(patchId);
       if (isProviderOwner) {
         openProviderPatchManager(patchId);
@@ -303,7 +323,7 @@ export default function App() {
       }
     }
 
-    if (!localStorage.getItem('bytspot_auth_token')) {
+    if (!authToken) {
       localStorage.setItem('bytspot_auth_token', 'guest_session');
       localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
       localStorage.setItem('bytspot_user_name', 'Guest');
@@ -499,19 +519,9 @@ export default function App() {
         // Production NFC tag URL: bytspot.app/<uniqueid>?c=<customerId>
         // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
-        const pathParts = path.split('/').filter(Boolean);
-        const patchFromPath = path.startsWith('p/') || path.startsWith('patch/') || path.startsWith('access/')
-          ? pathParts[1] ?? null
-          : path.startsWith('t/') && isValidTagId(pathParts[1])
-            ? pathParts[1]
-            : pathParts.length === 1 && isValidTagId(pathParts[0])
-              ? pathParts[0]
-              : null;
-        const patchFromQuery = parsed.searchParams.get('patch');
-        const patchId = patchFromPath || patchFromQuery;
-        if (patchId) {
-          const venueName = parsed.searchParams.get('venue') || undefined;
-          void routePatchTap(patchId, venueName);
+        const patchDeepLink = extractPatchDeepLink(url);
+        if (patchDeepLink) {
+          void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName);
           return;
         }
 
@@ -554,7 +564,9 @@ export default function App() {
 
         const { StatusBar, Style } = await import('@capacitor/status-bar');
 
-        // App is fixed to dark mode → light text on dark background
+        // Keep native chrome aligned with the black app shell so the layout does
+        // not look like a browser window embedded inside a webview.
+        await StatusBar.setOverlaysWebView?.({ overlay: false });
         await StatusBar.setStyle({ style: Style.Dark });
         await StatusBar.setBackgroundColor({ color: '#000000' });
 
@@ -900,15 +912,6 @@ export default function App() {
     const authToken = localStorage.getItem('bytspot_auth_token');
     if (authToken) {
       setCurrentScreen('main');
-      // Fetch provider status to populate isHost / isValet flags only when Provider/Valet is exposed.
-      if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && authToken !== 'guest_session') {
-        trpc.providers.getStatus.query().then((res) => {
-          setIsHost(
-            res.host?.status === 'approved' || res.host?.status === 'pending'
-          );
-          setIsValet(res.valet?.status === 'active');
-        }).catch(() => { /* silently ignore — user may not be a provider */ });
-      }
     }
 
     // Handle Stripe return URLs (/premium/success, /parking/success, /profile/payment, /premium/cancelled)
@@ -1154,15 +1157,6 @@ export default function App() {
           if (localStorage.getItem('bytspot_pending_booking_service')) {
             setActiveTab('discover');
             toast.success('Ready to book', { description: 'Review the service and continue to Stripe Checkout.' });
-          }
-          // Refresh provider status after login only when the build exposes Provider/Valet.
-          if (!APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && hasProviderStatusAuthToken()) {
-            trpc.providers.getStatus.query().then((res) => {
-              setIsHost(
-                res.host?.status === 'approved' || res.host?.status === 'pending'
-              );
-              setIsValet(res.valet?.status === 'active');
-            }).catch(() => { /* ignore */ });
           }
           if (!localStorage.getItem('bytspot_intro_seen')) {
             setOnboardingSlide(0);
@@ -2046,18 +2040,11 @@ export default function App() {
                   <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
                     <ProfileSection
                       isDarkMode={isDarkMode}
-                      isHost={isHost}
-                      isValet={isValet}
-                      onBecomeHost={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('host')}
-                      onBecomeValet={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : () => setCurrentScreen('valet')}
                       onOpenVirtualPatch={openVirtualPatchFromWallet}
-                      onManageVirtualPatch={APPLE_REVIEW_HIDE_PROVIDER_AND_VALET ? undefined : openProviderPatchManager}
                       onLogout={() => {
                         localStorage.removeItem('bytspot_auth_token');
                         localStorage.removeItem('bytspot_user');
                         localStorage.removeItem('bytspot_user_name');
-                        setIsHost(false);
-                        setIsValet(false);
                         setCurrentScreen('auth');
                         setActiveTab('home');
                       }}

@@ -107,6 +107,19 @@ test.describe('Apple Review simulation', () => {
     expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
   });
 
+  test('Profile does not expose Provider or Valet entry points', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/');
+
+    await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Open profile' }).click();
+
+    await expect(page.getByRole('button', { name: 'Privacy Policy' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Become a Provider')).toHaveCount(0);
+    await expect(page.getByText('Provider Dashboard')).toHaveCount(0);
+    await expect(page.getByText('Valet Driver App')).toHaveCount(0);
+  });
+
   test('App Clip or NFC deep link opens Parker map tap/scan flow without internal routes', async ({ page }) => {
     await page.goto('/p/review-patch-123?venue=Review%20Rooftop');
     await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });

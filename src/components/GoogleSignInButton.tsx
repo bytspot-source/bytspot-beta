@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 type GoogleCredentialResponse = { credential?: string };
 type GooglePromptMoment = {
@@ -80,6 +81,9 @@ export function GoogleSignInButton({
   const fallbackId = useId();
   const [loading, setLoading] = useState(false);
   const clientId = getGoogleClientId();
+  const isNativeApp = Capacitor.isNativePlatform();
+
+  if (isNativeApp) return null;
 
   const handleClick = async () => {
     if (disabled || loading) return;
@@ -130,7 +134,7 @@ export function GoogleSignInButton({
         style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
       >
         <GoogleLogoMark />
-        <span>{loading ? 'Connecting…' : 'Continue with Google'}</span>
+        <span>{loading ? 'Connecting…' : label}</span>
       </button>
       <span id={fallbackId} style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}>
         Continue with Google creates or signs in to your Bytspot account without filling out the email form.

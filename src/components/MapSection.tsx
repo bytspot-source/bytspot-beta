@@ -31,6 +31,7 @@ import {
   venueToParkingSpot,
   type MapParkingSpot,
 } from '../utils/mapParking';
+import { impactLight } from '../utils/haptics';
 
 type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
@@ -431,6 +432,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   }, []);
 
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
+  const triggerLightHaptic = useCallback(() => { void impactLight(); }, []);
   const { venues: apiVenues } = useVenues();
 
   // Venues that have high check-in velocity in the last hour
@@ -517,6 +519,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
   const handleLaunchVirtualPatchSession = useCallback(() => {
     if (!nearbyVerifiedVenue) return;
+    void impactLight();
 
     const targetVenue = nearbyVerifiedVenue.venue;
     saveVirtualPatchContext({
@@ -555,6 +558,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   }, [nearbyVerifiedVenue, onOpenAccessWallet, scanCapabilities]);
 
   const handleOpenVirtualPatch = useCallback(() => {
+    void impactLight();
     setShowReportForm(false);
     setPeekVenue(null);
     setVenueDetailsVenue(null);
@@ -889,7 +893,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       {/* Right Controls — Zoom + Recenter */}
       <div className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-2 z-[1000]">
         <motion.button
-          onClick={() => setZoomDirection(1)}
+          onClick={() => { triggerLightHaptic(); setZoomDirection(1); }}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
@@ -897,7 +901,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           <Plus className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
         <motion.button
-          onClick={() => setZoomDirection(-1)}
+          onClick={() => { triggerLightHaptic(); setZoomDirection(-1); }}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
@@ -905,7 +909,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           <Minus className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
         <motion.button
-          onClick={() => setShouldRecenter(true)}
+          onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
@@ -914,7 +918,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
         {/* Traffic Intelligence toggle */}
         <motion.button
-          onClick={() => setShowTrafficIntel(!showTrafficIntel)}
+          onClick={() => { triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
           className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500/90 border-amber-300/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
@@ -925,7 +929,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
         {/* ── Bytspot Verified Only — hexagonal FAB toggle ── */}
         <motion.button
-          onClick={() => setShowVerifiedOnly(v => !v)}
+          onClick={() => { triggerLightHaptic(); setShowVerifiedOnly(v => !v); }}
           className="relative w-11 h-11 flex items-center justify-center"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
@@ -952,8 +956,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               borderColor: showVerifiedOnly ? 'rgba(165,243,252,0.7)' : 'rgba(255,255,255,0.3)',
             }}
             animate={showVerifiedOnly
-              ? { boxShadow: ['0 0 14px rgba(34,211,238,0.45)', '0 0 22px rgba(124,58,237,0.55)', '0 0 14px rgba(236,72,153,0.45)'] }
-              : { boxShadow: '0 6px 16px rgba(0,0,0,0.35)' }}
+              ? { scale: [1, 1.04, 1] }
+              : { scale: 1 }}
             transition={{ duration: 2.4, repeat: showVerifiedOnly ? Infinity : 0, ease: 'easeInOut' }}
           >
             <Zap
@@ -1005,7 +1009,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
           {(verifiedVenues.length > 0 || showVerifiedOnly) && (
             <motion.button
-              onClick={() => setShowVerifiedOnly(v => !v)}
+              onClick={() => { triggerLightHaptic(); setShowVerifiedOnly(v => !v); }}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg transition-colors ${
                 showVerifiedOnly
                   ? 'bg-cyan-400/30 border-cyan-200/70 text-white'
@@ -1164,11 +1168,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       {/* Report FAB — bottom-right, clear of filter bar */}
       <div className="fixed bottom-28 right-4 z-[1001]">
         <motion.button
-          onClick={() => setShowReportForm(!showReportForm)}
+          onClick={() => { triggerLightHaptic(); setShowReportForm(!showReportForm); }}
           className="w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br from-red-500 to-orange-500 border-2 border-white/40 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
-          animate={{ boxShadow: showReportForm ? '0 0 20px rgba(239,68,68,0.5)' : '0 4px 12px rgba(0,0,0,0.4)' }}
+          animate={{ scale: showReportForm ? 1.03 : 1 }}
           title="Community Report"
         >
           <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -1181,7 +1185,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           className="relative min-w-[210px] px-3 py-3 rounded-full border border-white/25 shadow-2xl overflow-hidden"
           style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))' }}
           whileTap={{ scale: 0.96 }}
-          animate={{ y: [0, -2, 0], boxShadow: ['0 12px 36px rgba(6,182,212,0.26)', '0 16px 42px rgba(124,58,237,0.36)', '0 12px 36px rgba(236,72,153,0.24)'] }}
+          animate={{ y: [0, -2, 0] }}
           transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
           aria-label="Open Tap and Scan virtual patch flow"
         >

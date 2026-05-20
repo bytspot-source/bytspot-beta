@@ -51,7 +51,7 @@ test('Parker consumer can continue with Google Sign-In', async ({ page }) => {
 
   await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 20_000 });
   await page.getByText("Let's Go").click();
-  await expect(page.getByRole('button', { name: 'Continue as Guest' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Welcome to Bytspot' })).toBeVisible({ timeout: 15_000 });
 
   await page.getByTestId('google-signin-button').click();
 

@@ -129,6 +129,7 @@ function isLiveVendorServiceCard(card: DiscoverCard): boolean {
   const features = card.features ?? [];
   return card.type === 'service'
     && Boolean(card.vendorServiceId)
+    && !(card as unknown as { curatedFallback?: boolean }).curatedFallback
     && !features.includes('Requested local service');
 }
 

@@ -9,6 +9,7 @@ import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
 import { trpc } from '../utils/trpc';
+import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 function AppStoreUnavailableFlow() { return null; }
@@ -18,6 +19,7 @@ const serviceIdKey = decodeKey('dmVuZG9yU2VydmljZUlk');
 const serviceStatusKey = decodeKey('dmVuZG9yU2VydmljZVN0YXR1cw==');
 const serviceOwnerIdKey = decodeKey('dmVuZG9ySWQ=');
 const servicePayoutKey = decodeKey('cHJvdmlkZXJQYXlvdXRFc3RpbWF0ZUNlbnRz');
+const curatedFallbackKey = 'curatedFallback';
 const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
 function cardField<T = unknown>(card: DiscoverCard, key: string): T | undefined {
   return (card as unknown as Record<string, unknown>)[key] as T | undefined;
@@ -99,6 +101,10 @@ function isVendorServiceCard(card: DiscoverCard): boolean {
   return Boolean(cardField<string>(card, serviceIdKey) && status !== 'draft' && status !== 'archived');
 }
 
+function isCheckoutBackedServiceCard(card: DiscoverCard): boolean {
+  return isVendorServiceCard(card) && cardField<boolean>(card, curatedFallbackKey) !== true;
+}
+
 function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
   if (isVendorServiceCard(card)) return false;
   const type = normalizeCardType(card.type);
@@ -109,14 +115,6 @@ function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
     .join(' ')
     .toLowerCase();
   return ['chef', 'massage', 'wellness', 'service', 'private', 'cottage'].some((term) => searchable.includes(term));
-}
-
-function getServiceMetricLine(card: DiscoverCard): string {
-  return [
-    card.rating ? `${card.rating.toFixed(2)} ★${card.bookingCount ? ` (${card.bookingCount} bookings)` : ''}` : null,
-    card.price ?? card.entryPrice,
-    card.availability,
-  ].filter(Boolean).join(' • ');
 }
 
 function calculateSimplexScore(card: DiscoverCard, preferredCategory = 'service'): number {
@@ -180,8 +178,6 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
     const isEventCard = card.type === 'entertainment' && (!!card.eventDate || !!card.eventTime);
     const isServiceCard = isVendorServiceCard(card);
     const serviceFocusId = isServiceCard ? getServiceFocusId(card) : undefined;
-    const serviceMetricLine = isServiceCard ? getServiceMetricLine(card) : '';
-
     const handlePan = (_event: any, info: PanInfo) => {
       if (exitX !== null) return;
       setDragX(info.offset.x);
@@ -284,7 +280,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               {/* Entry type badge — Free (green) or Paid entry (amber with price) */}
               {card.entryType === 'paid' ? (
                 <div className={`px-2.5 py-1 rounded-full border shadow-lg ${isServiceCard ? 'border-cyan-200/50 bg-gradient-to-r from-cyan-500 to-blue-600 shadow-cyan-950/30' : 'bg-amber-500/90 border-amber-300/50'}`}>
-                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{card.entryPrice || 'Paid entry'}</span>
+                  <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{isServiceCard ? 'Paid checkout' : card.entryPrice || 'Paid entry'}</span>
                 </div>
               ) : card.entryType === 'free' ? (
                 <div className="px-2.5 py-1 rounded-full bg-emerald-500/90 border border-emerald-300/50 shadow-lg">
@@ -356,36 +352,15 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </div>
             </div>
           </div>
-          <div className={`flex-1 min-h-0 flex flex-col bg-gradient-to-t from-black/90 via-[#14141A] to-[#1C1C1E] text-white ${isServiceCard ? 'gap-2 overflow-hidden p-3' : 'gap-2 p-4'}`}>
+          <div className={`flex-1 min-h-0 flex flex-col bg-gradient-to-t from-black/90 via-[#14141A] to-[#1C1C1E] text-white ${isServiceCard ? 'gap-3 overflow-hidden p-4' : 'gap-2 p-4'}`}>
             {isServiceCard ? (
               <>
-                {card.description && (
-                  <p className="line-clamp-2 flex-shrink-0 text-[12px] leading-4 text-white/90 drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>
-                    {card.description}
+                <div className="flex-shrink-0 rounded-[22px] border border-cyan-200/25 bg-black/70 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.28)]">
+                  <p className="text-[12px] leading-5 text-slate-100" style={{ fontWeight: 720 }}>
+                    Continue to hosted checkout for this service. Availability and price are verified again before payment.
                   </p>
-                )}
-                <div className="grid grid-cols-2 gap-1.5 flex-shrink-0">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-2.5 py-1.5">
-                    <p className="text-[10px] uppercase tracking-[0.1em] text-white/70" style={{ fontWeight: 850 }}>Rating</p>
-                    <p className="text-[12px] text-white" style={{ fontWeight: 900 }}>{card.rating ? `${card.rating.toFixed(2)} ★` : 'Verified'}</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-2.5 py-1.5">
-                    <p className="text-[10px] uppercase tracking-[0.1em] text-white/70" style={{ fontWeight: 850 }}>Demand</p>
-                    <p className="line-clamp-1 text-[12px] text-white" style={{ fontWeight: 900 }}>{card.bookingCount ? `${card.bookingCount} bookings` : card.availability ?? 'Available'}</p>
-                  </div>
-                </div>
-                <div className="flex max-h-[34px] flex-wrap gap-1.5 overflow-hidden flex-shrink-0">
-                  {[card.serviceCategory, card.availableSpots ? `${card.availableSpots} spots left` : null, card.etaMinutes ? `${card.etaMinutes} min` : null, card.price ?? card.entryPrice]
-                    .filter(Boolean)
-                    .slice(0, 4)
-                    .map((feature, idx) => (
-                      <div key={`${feature}-${idx}`} className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-2.5 py-1">
-                        <span className="text-[10px] whitespace-nowrap text-white drop-shadow-sm shadow-black" style={{ fontWeight: 800 }}>{feature}</span>
-                      </div>
-                    ))}
                 </div>
                 <div className="mt-auto flex-shrink-0 rounded-[22px] border border-cyan-200/25 bg-cyan-300/10 p-2.5 shadow-[0_16px_32px_rgba(0,0,0,0.28)]">
-                  <p className="mb-2 line-clamp-1 text-[11px] text-white/90" style={{ fontWeight: 780 }}>{serviceMetricLine}</p>
                   <button
                     type="button"
                     data-testid="service-card-cta"
@@ -744,8 +719,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     if (!hasCheckoutAuth() || selectedVendorService) return;
     const pendingCard = consumePendingBookingCard();
     if (!pendingCard) return;
-    setBookingServiceMessage('You are signed in. Confirm this service to continue to Stripe Checkout.');
-    setSelectedVendorService(pendingCard);
+    setBookingServiceMessage(null);
+    void handleVendorServiceCheckout(pendingCard);
   }, [selectedVendorService]);
 
   // Pull to refresh
@@ -775,7 +750,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const handleCardClick = (card: DiscoverCard) => {
     if (isVendorServiceCard(card)) {
       setBookingServiceMessage(null);
-      setSelectedVendorService(card);
+      handleServiceCardCta(card);
     } else if (card.type === 'parking') {
       // Convert DiscoverCard to ParkingSpot format
       const parkingSpot = {
@@ -825,6 +800,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
     if (!serviceCard) return;
     const serviceId = cardField<string>(serviceCard, serviceIdKey);
     if (!serviceId || isBookingService) return;
+    if (!isCheckoutBackedServiceCard(serviceCard)) {
+      const message = 'This preview service is waiting on live provider checkout. Refresh Discover for bookable services.';
+      setBookingServiceMessage(message);
+      toast.info('Checkout not started', { description: message });
+      return;
+    }
     if (!hasCheckoutAuth()) {
       const message = 'Create an account or sign in before booking a paid service.';
       setBookingServiceMessage(message);
@@ -848,8 +829,9 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         },
       });
 
-      if (result?.url) {
-        window.location.assign(result.url);
+      const checkoutUrl = getCheckoutRedirectUrl(result);
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
         return;
       }
 

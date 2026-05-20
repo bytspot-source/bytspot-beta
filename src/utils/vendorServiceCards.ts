@@ -75,6 +75,7 @@ export const curatedServiceRecommendationCards: DiscoverCard[] = [
   vendorServiceId: String(id),
   vendorId: `vendor-${String(id)}`,
   vendorServiceStatus: 'active',
+    curatedFallback: true,
 }) as DiscoverCard);
 
 function formatRequestStatus(status: VirtualPatchSavedServiceRequest['status']): string {

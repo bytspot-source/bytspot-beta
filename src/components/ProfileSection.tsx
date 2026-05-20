@@ -26,12 +26,13 @@ import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReserva
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
 import { saveVirtualPatchContext, type VirtualPatchContext, type VirtualPatchSavedServiceRequest, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
+import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
 
 const DEMO_VENUE_SERVICES = [
-  { name: 'Verified Entry', title: 'Instant Access', detail: 'Skip the line and walk straight in.', cta: 'Get Verified Entry Now' },
-  { name: 'VIP Access Demo', title: 'Premium seating + priority arrival', detail: 'Dedicated lounge service for reviewed guests.', cta: 'Request VIP Access' },
-  { name: 'Smart Parking', title: 'Real-time spots & arrival support', detail: 'Find parking and book venue pickup.', cta: 'Find Parking' },
-  { name: 'Concierge Help', title: 'Private chef, massage, ride, etc.', detail: 'Message the venue team for anything you need.', cta: 'Message Concierge Now' },
+  { name: 'Verified Entry', detail: 'Skip the line and walk straight in.' },
+  { name: 'VIP Access', detail: 'Premium seating, priority arrival, and lounge-ready support.' },
+  { name: 'Smart Parking', detail: 'Find parking and book venue pickup.' },
+  { name: 'Concierge Help', detail: 'Request private chef, massage, rides, and venue help.' },
 ];
 
 interface ProfileSectionProps {
@@ -54,13 +55,7 @@ type ProfileMenuSection = {
 };
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
-type SubscriptionStatus = {
-  isPremium?: boolean;
-  message?: string;
-  availablePoints?: number;
-  loyalty?: { availablePoints?: number };
-  subscriptionOffers?: Record<string, { baseUnitAmountCents?: number; maxPointsDiscountCents?: number }>;
-} | null;
+type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
 
 function getToastErrorMessage(error: unknown, fallback: string): string {
@@ -174,20 +169,17 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
   const [insiderLoading, setInsiderLoading] = useState(false);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(null);
-  const [useInsiderPoints, setUseInsiderPoints] = useState(false);
-  const [insiderCouponCode, setInsiderCouponCode] = useState('');
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
-  return !!token && token !== 'guest_session';
+    return !!token && token !== 'guest_session';
   })();
   const subscriptionStateLabel = membership.isActive
     ? membership.source === 'premium'
-      ? 'SYNCED'
-      : 'PREVIEW ACTIVE'
+      ? 'ACTIVE'
+      : 'ACTIVE'
     : 'AVAILABLE';
   const consumerBookingCount = walletPasses.length + parkingReservations.length;
   const consumerExperienceTier = deriveConsumerExperienceTier({
@@ -203,12 +195,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     checkinCount: checkinHistory.length,
     hasInsiderMembership: membership.isActive,
   });
-  const communityTierPerks = [
-    'Live vibe + crowd discovery',
-    `${userTier.name} rewards tier`,
-    'Saved spots and check-ins',
-  ];
-
   useEffect(() => {
     const syncCommerce = () => {
       setMembership(getInsiderMembership());
@@ -225,7 +211,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
     trpc.subscription.status.query().then((data: SubscriptionStatus) => {
-      setSubscriptionStatus(data);
       if (data?.isPremium) {
         setMembership(syncInsiderMembershipFromPremium(true));
       } else {
@@ -283,6 +268,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   };
 
   const handleInsiderAction = async () => {
+    if (insiderLoading) return;
+
     if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
       if (membership.isActive) {
         setCurrentScreen('tickets');
@@ -297,17 +284,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
     impactLight();
     setInsiderLoading(true);
+    let redirectingToCheckout = false;
 
     try {
       if (hasRealInsiderCheckout) {
         const result = await trpc.subscription.createCheckout.mutate({
           plan: 'insider-premium',
-          usePoints: useInsiderPoints,
-          couponCode: insiderCouponCode.trim() || undefined,
         });
 
-        if (result?.url) {
-          window.location.href = result.url;
+        const checkoutUrl = getCheckoutRedirectUrl(result);
+        if (checkoutUrl) {
+          redirectingToCheckout = true;
+          window.location.href = checkoutUrl;
           return;
         }
 
@@ -327,7 +315,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     } catch (error: unknown) {
       toast.error('Unable to start Insider checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
     } finally {
-      setInsiderLoading(false);
+      if (!redirectingToCheckout) setInsiderLoading(false);
     }
   };
 
@@ -354,13 +342,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }
   };
 
-  const insiderOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
-  const availableSubscriptionPoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
-  const insiderBaseCents = Number(insiderOffer?.baseUnitAmountCents ?? 999);
-  const insiderMaxPointsDiscountCents = Number(insiderOffer?.maxPointsDiscountCents ?? 0);
-  const insiderPointsDiscountCents = useInsiderPoints ? insiderMaxPointsDiscountCents : 0;
-  const insiderEstimatedCents = Math.max(50, insiderBaseCents - insiderPointsDiscountCents);
-  const formatSubscriptionCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   // My Access is the customer's lightweight wallet. Verified physical/QR
 // patches prove venue access; saved virtual service requests are
   // shown beside them but intentionally labeled as requests, not verified entry.
@@ -798,39 +779,33 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
 
               {isDemoVenueVirtualPatch(virtualPatchContext) && (
-                <div data-testid="demo-venue-services-card" className="mt-4 select-none rounded-[24px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_18px_48px_rgba(0,0,0,0.38),0_0_34px_rgba(168,85,247,0.20)] ring-1 ring-cyan-100/10">
-                  <div className="text-center">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
-                    <h5 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{getPublicVirtualPatchVenueName(virtualPatchContext)}</h5>
-                    <p className="mx-auto mt-1 max-w-[270px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
-                    <div className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/40 bg-emerald-300/18 px-3 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 900 }}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live • Midtown Atlanta
+                <div data-testid="demo-venue-services-card" className="mt-4 select-none rounded-[22px] border border-cyan-100/25 bg-slate-950/95 p-4 text-white shadow-[0_18px_48px_rgba(0,0,0,0.34)] ring-1 ring-cyan-100/10">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
+                      <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 750 }}>Choose a service to continue in the patch flow.</p>
                     </div>
+                    <span className="rounded-full border border-emerald-200/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Live</span>
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-2.5">
+                  <div className="grid grid-cols-1 gap-2">
                     {DEMO_VENUE_SERVICES.map((service) => (
                       <motion.button
                         key={service.name}
-                        onClick={() => toast.success(service.name, { description: 'Vendor request demo opened from Bytspot Passport.' })}
-                        className="w-full rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(2,6,23,0.84))] p-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_10px_24px_rgba(0,0,0,0.22)]"
+                        onClick={() => { impactLight(); onOpenVirtualPatch?.(virtualPatchContext); }}
+                        className="w-full rounded-[16px] border border-white/12 bg-slate-900 px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                         whileTap={{ scale: 0.98 }}
+                        aria-label={`Open ${service.name}`}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{service.name}</p>
-                            <p className="mt-0.5 text-[13px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{service.title}</p>
-                            <p className="mt-0.5 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{service.detail}</p>
+                            <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 900 }}>{service.name}</p>
+                            <p className="mt-0.5 text-[12px] leading-5 text-slate-300" style={{ fontWeight: 650 }}>{service.detail}</p>
                           </div>
                           <ChevronRight className="h-5 w-5 flex-shrink-0 text-cyan-100" strokeWidth={2.8} />
-                        </div>
-                        <div className="mt-2.5 rounded-[14px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-3 py-2 text-center text-[13px] text-white shadow-[0_12px_26px_rgba(168,85,247,0.24)]" style={{ fontWeight: 950 }}>
-                          → {service.cta}
                         </div>
                       </motion.button>
                     ))}
                   </div>
-                  <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap a service above to send request to the vendor.</p>
-                  <p className="text-center text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Powered by Bytspot Passport</p>
                 </div>
               )}
 
@@ -1205,7 +1180,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   }
 
   return (
-    <div className="h-full overflow-y-auto pb-24">
+    <div className="h-[100dvh] max-h-[100dvh] overflow-y-auto overscroll-contain pb-[calc(7rem+env(safe-area-inset-bottom))]">
       {/* Profile Header */}
       <motion.div
         className="px-4 pt-4 pb-6"
@@ -1324,130 +1299,51 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.08 }}
         >
-          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden" data-testid="profile-subscription-card">
+          <div className="rounded-[24px] border-2 border-white/25 bg-slate-950/95 p-5 shadow-xl relative overflow-hidden" data-testid="profile-subscription-card">
             <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="relative flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>SUBSCRIPTION STATUS</p>
-                <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>{membership.label}</p>
-                <p className="text-[13px] text-white/65 mt-2" style={{ fontWeight: 400 }}>
+              <div className="min-w-0">
+                <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Insider</p>
+                <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{membership.isActive ? 'Insider active' : '$9.99/month'}</p>
+                <p className="mt-2 text-[13px] leading-5 text-slate-300" style={{ fontWeight: 600 }}>
                   {membership.isActive
-                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your wallet-ready access stays tied to this profile.`
-                    : 'Community keeps discovery and rewards active. Insider adds quicker paid-entry flow and wallet-first access.'}
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your access wallet is ready.`
+                    : 'Faster paid-entry checkout and wallet-first access for Parker consumers.'}
                 </p>
               </div>
-              <div className={`px-3 py-1.5 rounded-full border text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/70'}`} style={{ fontWeight: 700 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/75'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
 
-            <div className="relative flex flex-wrap gap-2 mt-4 mb-4">
-              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+            <div className="relative mt-4 grid gap-2">
+              {INSIDER_PERKS.slice(0, 3).map((perk) => (
+                <div key={perk} className="flex items-center gap-2 text-[12px] text-slate-200" style={{ fontWeight: 650 }}>
+                  <Sparkles className="h-4 w-4 text-cyan-300" strokeWidth={2.3} />
+                  <span>{perk}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="relative mt-4 flex flex-wrap gap-2">
+              <div className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-[12px] text-white/75" style={{ fontWeight: 650 }}>
                 {walletPasses.length} in My Access
               </div>
-              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
+              <div className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-[12px] text-white/75" style={{ fontWeight: 650 }}>
                 {userTier.icon} {userTier.name} rewards
               </div>
-              <div className="px-3 py-1.5 rounded-full bg-black/20 border border-white/15 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                {hasRealInsiderCheckout ? '$9.99/mo live checkout' : 'Preview checkout'}
-              </div>
             </div>
-
-            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              <div className={`rounded-[20px] p-4 border ${!membership.isActive ? 'bg-white/10 border-white/20' : 'bg-black/15 border-white/10'}`}>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div>
-                    <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>Community</p>
-                    <p className="text-[12px] text-white/55" style={{ fontWeight: 600 }}>Included</p>
-                  </div>
-                  {!membership.isActive && (
-                    <div className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-[10px] text-white/80" style={{ fontWeight: 700 }}>
-                      CURRENT
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {communityTierPerks.map((perk) => (
-                    <div key={perk} className="flex items-center gap-2 text-[12px] text-white/75" style={{ fontWeight: 500 }}>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.3} />
-                      <span>{perk}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className={`rounded-[20px] p-4 border ${membership.isActive ? 'bg-gradient-to-br from-cyan-500/18 via-purple-500/16 to-fuchsia-500/18 border-fuchsia-400/30' : 'bg-black/15 border-white/10'}`}>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[17px] text-white" style={{ fontWeight: 700 }}>Insider</p>
-                      <Crown className="w-4 h-4 text-fuchsia-200" strokeWidth={2.3} />
-                    </div>
-                    <p className="text-[12px] text-white/55" style={{ fontWeight: 600 }}>$9.99/month</p>
-                  </div>
-                  {membership.isActive && (
-                    <div className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[10px] text-emerald-200" style={{ fontWeight: 700 }}>
-                      CURRENT
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {INSIDER_PERKS.map((perk) => (
-                    <div key={perk} className="flex items-center gap-2 text-[12px] text-white/80" style={{ fontWeight: 500 }}>
-                      <Sparkles className="w-4 h-4 text-cyan-300" strokeWidth={2.3} />
-                      <span>{perk}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {!membership.isActive && hasRealInsiderCheckout && (
-              <div className="relative mb-4 rounded-[18px] border border-white/15 bg-black/20 p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] text-white/70" style={{ fontWeight: 700 }}>Loyalty checkout</p>
-                    <p className="text-[11px] text-white/45" style={{ fontWeight: 600 }}>Points reduce the Stripe unit amount before redirect.</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[16px] text-white" style={{ fontWeight: 800 }}>{formatSubscriptionCents(insiderEstimatedCents)}</p>
-                    <p className="text-[10px] text-white/45" style={{ fontWeight: 700 }}>/ month</p>
-                  </div>
-                </div>
-                <label className="mb-2 flex items-center justify-between gap-3 rounded-[14px] bg-white/5 px-3 py-2 text-[12px] text-white/75" style={{ fontWeight: 700 }}>
-                  <span>Use {availableSubscriptionPoints.toLocaleString()} points</span>
-                  <input
-                    type="checkbox"
-                    checked={useInsiderPoints}
-                    disabled={availableSubscriptionPoints <= 0 || insiderMaxPointsDiscountCents <= 0}
-                    onChange={(event) => setUseInsiderPoints(event.target.checked)}
-                    className="h-4 w-4 accent-cyan-400"
-                  />
-                </label>
-                <input
-                  value={insiderCouponCode}
-                  onChange={(event) => setInsiderCouponCode(event.target.value)}
-                  placeholder="Coupon code"
-                  className="w-full rounded-[14px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
-                  style={{ fontWeight: 700 }}
-                />
-                {insiderPointsDiscountCents > 0 && (
-                  <p className="mt-2 text-[11px] text-emerald-200/80" style={{ fontWeight: 700 }}>
-                    Points save {formatSubscriptionCents(insiderPointsDiscountCents)} before any Stripe coupon is applied.
-                  </p>
-                )}
-              </div>
-            )}
 
             <motion.button
               onClick={handleInsiderAction}
-              className="relative w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 flex items-center justify-center gap-2 shadow-lg"
+              disabled={insiderLoading}
+              className="relative mt-5 flex w-full items-center justify-center gap-2 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 py-3 text-white shadow-lg transition disabled:cursor-wait disabled:opacity-75"
               whileTap={{ scale: 0.97 }}
               transition={springConfig}
             >
               <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
               <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
-                {membership.isActive ? 'Open My Access' : insiderLoading ? 'Starting Insider…' : hasRealInsiderCheckout ? 'Start Insider' : 'Preview Insider'}
+                {membership.isActive ? 'Open My Access' : insiderLoading ? 'Opening Stripe…' : hasRealInsiderCheckout ? 'Continue to Stripe' : 'Sign in for Insider'}
               </span>
             </motion.button>
           </div>

@@ -1,15 +1,8 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 
 type GoogleCredentialResponse = { credential?: string };
-type GooglePromptMoment = {
-  isNotDisplayed?: () => boolean;
-  isSkippedMoment?: () => boolean;
-  isDismissedMoment?: () => boolean;
-  getNotDisplayedReason?: () => string;
-  getSkippedReason?: () => string;
-  getDismissedReason?: () => string;
-};
+type GoogleButtonState = 'loading' | 'ready' | 'unavailable';
 
 declare global {
   interface Window {
@@ -19,7 +12,6 @@ declare global {
         id?: {
           initialize: (config: { client_id: string; callback: (response: GoogleCredentialResponse) => void; ux_mode?: 'popup' | 'redirect' }) => void;
           renderButton: (element: HTMLElement, options: Record<string, unknown>) => void;
-          prompt?: (callback?: (notification: GooglePromptMoment) => void) => void;
           cancel?: () => void;
         };
       };
@@ -51,8 +43,16 @@ function loadGoogleScript(): Promise<void> {
   googleScriptPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById(GOOGLE_SCRIPT_ID) as HTMLScriptElement | null;
     if (existing) {
+      if (existing.dataset.loaded === 'true') {
+        resolve();
+        return;
+      }
+      if (existing.dataset.failed === 'true') {
+        reject(new Error('Google Sign-In is unavailable. Continue with email or try again later.'));
+        return;
+      }
       existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error('Google Sign-In script failed to load.')), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Google Sign-In is unavailable. Continue with email or try again later.')), { once: true });
       return;
     }
     const script = document.createElement('script');
@@ -60,8 +60,15 @@ function loadGoogleScript(): Promise<void> {
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Google Sign-In script failed to load.'));
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = () => {
+      script.dataset.failed = 'true';
+      googleScriptPromise = null;
+      reject(new Error('Google Sign-In is unavailable. Continue with email or try again later.'));
+    };
     document.head.appendChild(script);
   });
   return googleScriptPromise;
@@ -79,63 +86,119 @@ export function GoogleSignInButton({
   onError?: (message: string) => void;
 }) {
   const fallbackId = useId();
-  const [loading, setLoading] = useState(false);
+  const buttonHostRef = useRef<HTMLDivElement | null>(null);
+  const onCredentialRef = useRef(onCredential);
+  const onErrorRef = useRef(onError);
+  const [buttonState, setButtonState] = useState<GoogleButtonState>('loading');
+  const [unavailableMessage, setUnavailableMessage] = useState('');
   const clientId = getGoogleClientId();
   const isNativeApp = Capacitor.isNativePlatform();
 
-  if (isNativeApp) return null;
+  useEffect(() => { onCredentialRef.current = onCredential; }, [onCredential]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-  const handleClick = async () => {
-    if (disabled || loading) return;
+  useEffect(() => {
+    if (isNativeApp) return;
+
     if (!clientId) {
-      onError?.('Google Sign-In is not configured. Set VITE_GOOGLE_CLIENT_ID to your Google OAuth Web Client ID.');
+      setButtonState('unavailable');
+      setUnavailableMessage('Google Sign-In is not configured. Continue with email or try again later.');
       return;
     }
 
-    setLoading(true);
-    try {
-      await loadGoogleScript();
-      const googleId = window.google?.accounts?.id;
-      if (!googleId) throw new Error('Google Sign-In failed to initialize. Please try again.');
-      googleId.initialize({
-        client_id: clientId,
-        ux_mode: 'popup',
-        callback: (response) => {
-          setLoading(false);
-          if (response.credential) void onCredential(response.credential);
-          else onError?.('Google did not return a sign-in credential. Please try again.');
-        },
+    let cancelled = false;
+    setButtonState('loading');
+    setUnavailableMessage('');
+
+    loadGoogleScript()
+      .then(() => {
+        if (cancelled) return;
+        const googleId = window.google?.accounts?.id;
+        const host = buttonHostRef.current;
+        if (!googleId || !host) throw new Error('Google Sign-In is unavailable. Continue with email or try again later.');
+
+        googleId.initialize({
+          client_id: clientId,
+          ux_mode: 'popup',
+          callback: (response) => {
+            if (!response.credential) {
+              onErrorRef.current?.('Google did not return a sign-in credential. Please try again.');
+              return;
+            }
+            void Promise.resolve(onCredentialRef.current(response.credential)).catch((error: unknown) => {
+              onErrorRef.current?.(error instanceof Error ? error.message : 'Google sign-in failed. Please try again.');
+            });
+          },
+        });
+
+        host.innerHTML = '';
+        googleId.renderButton(host, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'continue_with',
+          shape: 'pill',
+          logo_alignment: 'left',
+          width: Math.max(280, Math.min(host.getBoundingClientRect().width || 345, 400)),
+        });
+        setButtonState('ready');
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Google Sign-In is unavailable. Continue with email or try again later.';
+        setUnavailableMessage(message);
+        setButtonState('unavailable');
       });
-      if (!googleId.prompt) throw new Error('Google Sign-In is unavailable in this browser. Please try email sign-in.');
-      googleId.prompt((notification) => {
-        if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.() || notification.isDismissedMoment?.()) {
-          setLoading(false);
-          const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || notification.getDismissedReason?.();
-          onError?.(reason ? `Google Sign-In is unavailable right now: ${reason}.` : 'Google Sign-In is unavailable right now. Please try again.');
-        }
-      });
-    } catch (error) {
-      setLoading(false);
-      onError?.((error as Error).message || 'Google Sign-In failed. Please try again.');
-    }
+
+    return () => {
+      cancelled = true;
+      window.google?.accounts?.id?.cancel?.();
+    };
+  }, [clientId, isNativeApp]);
+
+  if (isNativeApp) return null;
+
+  const handleUnavailableClick = () => {
+    onError?.(unavailableMessage || 'Google Sign-In is unavailable. Continue with email or try again later.');
   };
 
   return (
     <div className="relative w-full">
-      <button
-        type="button"
-        aria-label={label}
-        aria-describedby={fallbackId}
-        aria-busy={loading}
-        disabled={disabled || loading}
-        onClick={handleClick}
-        data-testid="google-signin-button"
-        className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-black/10 bg-white px-4 text-[17px] text-black shadow-lg transition-colors hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
-      >
-        <GoogleLogoMark />
-        <span>{loading ? 'Connecting…' : label}</span>
-      </button>
+      {buttonState === 'unavailable' ? (
+        <button
+          type="button"
+          aria-label={label}
+          aria-describedby={fallbackId}
+          onClick={handleUnavailableClick}
+          data-testid="google-signin-button"
+          className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-black/10 bg-white px-4 text-[17px] text-black shadow-lg transition-colors hover:bg-white/95"
+          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
+        >
+          <GoogleLogoMark />
+          <span>{label}</span>
+        </button>
+      ) : (
+        <div className="relative min-h-[48px] w-full rounded-[10px]">
+          <div
+            ref={buttonHostRef}
+            aria-describedby={fallbackId}
+            aria-disabled={disabled}
+            aria-busy={buttonState === 'loading'}
+            data-testid="google-signin-button"
+            className="flex min-h-[48px] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white shadow-lg"
+            style={{ opacity: disabled || buttonState === 'loading' ? 0.6 : 1, pointerEvents: disabled || buttonState === 'loading' ? 'none' : 'auto' }}
+          />
+          {buttonState === 'loading' && (
+            <div
+              className="pointer-events-none absolute inset-0 flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-black/10 bg-white px-4 text-[17px] text-black shadow-lg"
+              style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
+            >
+              <GoogleLogoMark />
+              <span>Preparing Google…</span>
+            </div>
+          )}
+        </div>
+      )}
       <span id={fallbackId} style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}>
         Continue with Google creates or signs in to your Bytspot account without filling out the email form.
       </span>

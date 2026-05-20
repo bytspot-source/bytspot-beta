@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, User, Loader2, AlertCircle, KeyRound } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -48,7 +48,7 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
   const nameIsValid = !isSignup || name.trim().length >= 2;
   const canSubmit = emailIsValid && passwordIsValid && nameIsValid && !loading;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     if (!canSubmit) {
@@ -177,17 +177,17 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
           ))}
         </motion.div>
 
-		        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
-		          <AppleSignInButton
-                appearance="white"
-                label="continue"
-		            disabled={loading}
-		            onCredential={handleAppleCredential}
-		            onError={(message) => setError(message)}
-		          />
-		        </motion.div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.12 }}>
+          <AppleSignInButton
+            appearance="white"
+            label="continue"
+            disabled={loading}
+            onCredential={handleAppleCredential}
+            onError={(message) => setError(message)}
+          />
+        </motion.div>
 
-	        <motion.div className="mt-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.14 }}>
+        <motion.div className="mt-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...springConfig, delay: 0.14 }}>
           <GoogleSignInButton
             disabled={loading}
             onCredential={handleGoogleCredential}

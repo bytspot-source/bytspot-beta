@@ -2,14 +2,26 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function installGoogleAuthMocks(page: Page) {
   await page.addInitScript(() => {
+    type GoogleMockWindow = Window & {
+      __BYT_GOOGLE_CLIENT_ID__?: string;
+      google?: {
+        accounts: {
+          id: {
+            initialize: (config: { callback: (response: { credential?: string }) => void }) => void;
+            renderButton: (element: HTMLElement) => void;
+            cancel: () => void;
+          };
+        };
+      };
+    };
+    const googleWindow = window as GoogleMockWindow;
     localStorage.setItem('bytspot_intro_seen', 'true');
-    (window as any).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
+    googleWindow.__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
     let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
-    (window as any).google = {
+    googleWindow.google = {
       accounts: {
         id: {
           initialize: (config: { callback: (response: { credential?: string }) => void }) => { googleCredentialCallback = config.callback; },
-          prompt: () => googleCredentialCallback?.({ credential: 'mock-google-id-token' }),
           renderButton: (element: HTMLElement) => {
             const button = document.createElement('button');
             button.type = 'button';
@@ -49,11 +61,12 @@ test('Parker consumer can continue with Google Sign-In', async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.goto('/');
 
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 20_000 });
-  await page.getByText("Let's Go").click();
+  const landingCta = page.getByRole('button', { name: /Let's Go/i }).first();
+  await expect(landingCta).toBeVisible({ timeout: 20_000 });
+  await landingCta.evaluate((button) => (button as HTMLButtonElement).click());
   await expect(page.getByRole('heading', { name: 'Welcome to Bytspot' })).toBeVisible({ timeout: 15_000 });
 
-  await page.getByTestId('google-signin-button').click();
+  await page.getByTestId('google-signin-button').getByRole('button', { name: 'Continue with Google' }).click();
 
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('parker-google-token');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').email)).toBe('google.consumer@bytspot.test');

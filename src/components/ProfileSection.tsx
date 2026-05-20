@@ -18,7 +18,7 @@ import { TermsOfService } from './TermsOfService';
 import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
-import { getUserPoints, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
+import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
@@ -29,8 +29,8 @@ import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENC
 
 const DEMO_VENUE_SERVICES = [
   { name: 'Verified Entry', title: 'Instant Access', detail: 'Skip the line and walk straight in.', cta: 'Get Verified Entry Now' },
-  { name: 'VIP Access Demo', title: 'Premium seating + priority valet', detail: 'Dedicated lounge service for reviewed guests.', cta: 'Request VIP Access' },
-  { name: 'Smart Parking', title: 'Real-time spots & valet', detail: 'Find parking and book venue pickup.', cta: 'Find Parking / Valet' },
+  { name: 'VIP Access Demo', title: 'Premium seating + priority arrival', detail: 'Dedicated lounge service for reviewed guests.', cta: 'Request VIP Access' },
+  { name: 'Smart Parking', title: 'Real-time spots & arrival support', detail: 'Find parking and book venue pickup.', cta: 'Find Parking' },
   { name: 'Concierge Help', title: 'Private chef, massage, ride, etc.', detail: 'Message the venue team for anything you need.', cta: 'Message Concierge Now' },
 ];
 
@@ -54,6 +54,18 @@ type ProfileMenuSection = {
 };
 
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type SubscriptionStatus = {
+  isPremium?: boolean;
+  message?: string;
+  availablePoints?: number;
+  loyalty?: { availablePoints?: number };
+  subscriptionOffers?: Record<string, { baseUnitAmountCents?: number; maxPointsDiscountCents?: number }>;
+} | null;
+type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
+
+function getToastErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 function readVirtualPatchContext(): VirtualPatchContext | null {
   try {
@@ -149,7 +161,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   })();
 
   // Async state: points, checkins, achievements — start with sync localStorage values, upgrade via API
-  const [userPoints, setUserPoints] = useState(getUserPoints());
+  const [userPoints, setUserPoints] = useState(getUserPointsLocal());
   const [checkinHistory, setCheckinHistory] = useState<CheckInRecord[]>(getCheckinHistory());
   const userTier = getUserTier(userPoints.total);
   const achievementStats = getAchievementStats();
@@ -162,7 +174,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
   const [insiderLoading, setInsiderLoading] = useState(false);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(null);
   const [useInsiderPoints, setUseInsiderPoints] = useState(false);
   const [insiderCouponCode, setInsiderCouponCode] = useState('');
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
@@ -209,10 +221,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     getUserPointsAsync().then(setUserPoints).catch(() => {});
     getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
     getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
-    trpc.auth.me.query().then((data) => {
+    trpc.auth.me.query().then((data: { referralCount?: number | null } | null | undefined) => {
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
-    trpc.subscription.status.query().then((data) => {
+    trpc.subscription.status.query().then((data: SubscriptionStatus) => {
       setSubscriptionStatus(data);
       if (data?.isPremium) {
         setMembership(syncInsiderMembershipFromPremium(true));
@@ -222,7 +234,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }).catch(() => {});
 
     if (hasRealInsiderCheckout) {
-      trpc.user.accessPasses.list.query().then((passes: any[]) => {
+      trpc.user.accessPasses.list.query().then((passes: AccessPassList) => {
         replaceAccessPassesFromServer(passes || []);
       }).catch(() => {});
     }
@@ -240,7 +252,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
-  }, []);
+  }, [hasRealInsiderCheckout]);
 
   useEffect(() => {
     if (currentScreen !== 'main') return;
@@ -312,8 +324,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         toast('Sign in to start Insider checkout', { description: 'Insider activation requires a signed-in account and Stripe checkout.' });
         return;
       }
-    } catch (error: any) {
-      toast.error('Unable to start Insider checkout', { description: error?.message || 'Please try again in a moment.' });
+    } catch (error: unknown) {
+      toast.error('Unable to start Insider checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
     } finally {
       setInsiderLoading(false);
     }
@@ -335,8 +347,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       });
       toast.success('Account deleted', { description: 'Your Bytspot account has been permanently deleted.' });
       setTimeout(() => onLogout?.(), 700);
-    } catch (err: any) {
-      toast.error('Unable to delete account', { description: err?.message || 'Please try again.' });
+    } catch (err: unknown) {
+      toast.error('Unable to delete account', { description: getToastErrorMessage(err, 'Please try again.') });
     } finally {
       setIsDeletingAccount(false);
     }

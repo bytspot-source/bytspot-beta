@@ -430,68 +430,68 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>General</h2>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
-          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] space-y-4 mt-2">
+          <div className="rounded-[24px] p-5 border-2 border-slate-700 bg-slate-950 shadow-xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center">
                 <Settings className="w-6 h-6 text-white" strokeWidth={2.5} />
               </div>
               <div>
                 <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>App Preferences</p>
-                <p className="text-[13px] text-white/60" style={{ fontWeight: 500 }}>Manage core Bytspot settings.</p>
+                <p className="text-[13px] text-slate-300" style={{ fontWeight: 600 }}>Manage core Bytspot settings.</p>
               </div>
             </div>
 
             <div className="space-y-3">
               <button
                 onClick={() => toast.success('Appearance is optimized', { description: 'Bytspot uses its premium dark interface by default.' })}
-                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-slate-900 border border-slate-700 text-left"
               >
                 <div>
                   <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Appearance</p>
-                  <p className="text-[12px] text-white/55 mt-0.5">Premium dark mode</p>
+                  <p className="text-[12px] text-slate-300 mt-0.5">Premium dark mode</p>
                 </div>
                 <span className="text-[12px] text-cyan-200" style={{ fontWeight: 700 }}>Active</span>
               </button>
 
               <button
                 onClick={() => setCurrentScreen('notifications')}
-                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-slate-900 border border-slate-700 text-left"
               >
                 <div>
                   <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Notifications</p>
-                  <p className="text-[12px] text-white/55 mt-0.5">Crowd, parking, and saved-spot alerts</p>
+                  <p className="text-[12px] text-slate-300 mt-0.5">Crowd, parking, and saved-spot alerts</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
+                <ChevronRight className="w-5 h-5 text-slate-200" strokeWidth={2} />
               </button>
 
               <button
                 onClick={() => setCurrentScreen('location-settings')}
-                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-white/10 border border-white/15 text-left"
+                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-slate-900 border border-slate-700 text-left"
               >
                 <div>
                   <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Location & Privacy</p>
-                  <p className="text-[12px] text-white/55 mt-0.5">Control location and data preferences</p>
+                  <p className="text-[12px] text-slate-300 mt-0.5">Control location and data preferences</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2} />
+                <ChevronRight className="w-5 h-5 text-slate-200" strokeWidth={2} />
               </button>
 
               <button
 	                onClick={() => { setDeleteReturnScreen('general-settings'); setDeleteConfirmation(''); setShowDeleteFinalConfirm(false); setCurrentScreen('delete-account'); }}
-                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-red-600/15 border border-red-500/35 text-left"
+	                className="w-full flex items-center justify-between rounded-[18px] p-4 bg-red-600 border-2 border-red-300 text-left shadow-lg shadow-red-950/30"
                 data-testid="profile-delete-account-entry"
               >
                 <div>
                   <p className="text-[15px] text-red-100" style={{ fontWeight: 700 }}>Delete Account</p>
-                  <p className="text-[12px] text-red-100/65 mt-0.5">Permanently remove your account and data</p>
+                  <p className="text-[12px] text-red-50 mt-0.5">Permanently remove your account and data</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-red-100/70" strokeWidth={2} />
+                <ChevronRight className="w-5 h-5 text-white" strokeWidth={2} />
               </button>
             </div>
           </div>
 
-          <div className="rounded-[20px] p-4 border border-white/15 bg-white/5">
-            <p className="text-[13px] text-white/50 mb-1" style={{ fontWeight: 700 }}>VERSION</p>
+          <div className="rounded-[20px] p-4 border border-slate-700 bg-slate-950">
+            <p className="text-[13px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>VERSION</p>
 	            <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>Bytspot 1.1.1</p>
           </div>
         </div>
@@ -506,7 +506,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       ? 'border-red-400/55 bg-red-950 text-white shadow-[0_22px_60px_rgba(127,29,29,0.30)]'
       : 'border-red-300 bg-white text-slate-950 shadow-[0_20px_48px_rgba(127,29,29,0.14)]';
     const deleteNoticeClass = isDarkMode
-      ? 'border-red-300/35 bg-slate-950 text-red-100'
+      ? 'border-red-300 bg-black text-red-50'
       : 'border-red-200 bg-red-50 text-red-950';
     const deleteInputClass = isDarkMode
       ? 'border-slate-600 bg-slate-950 text-white placeholder:text-slate-500 focus:border-red-300 focus:ring-red-400/25'
@@ -515,7 +515,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       ? 'border-red-300/55 bg-slate-950 text-white'
       : 'border-red-300 bg-white text-slate-950';
     return (
-      <div className={`h-full flex flex-col ${deleteShellClass}`}>
+      <div className={`h-[100dvh] max-h-[100dvh] flex flex-col ${deleteShellClass}`}>
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
           <motion.button onClick={() => { setShowDeleteFinalConfirm(false); setCurrentScreen(deleteReturnScreen); }} className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-950'}`} whileTap={{ scale: 0.95 }}>
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
@@ -524,7 +524,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           <h2 className={isDarkMode ? 'ml-1 text-[20px] text-white' : 'ml-1 text-[20px] text-slate-950'} style={{ fontWeight: 850 }}>Delete Account</h2>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] space-y-4 mt-2">
           <div className={`rounded-[24px] p-5 border-2 ${deletePanelClass}`}>
             <div className="flex items-start gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-red-600 border border-red-300 flex items-center justify-center shadow-lg shadow-red-950/30">
@@ -532,14 +532,14 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
               <div className="flex-1">
                 <p className={isDarkMode ? 'text-[20px] text-white' : 'text-[20px] text-slate-950'} style={{ fontWeight: 900 }}>Permanently delete your account?</p>
-                <p className={isDarkMode ? 'text-[13px] text-red-100 mt-1 leading-5' : 'text-[13px] text-slate-700 mt-1 leading-5'} style={{ fontWeight: 650 }}>
+                <p className={isDarkMode ? 'text-[13px] text-red-50 mt-1 leading-5' : 'text-[13px] text-slate-700 mt-1 leading-5'} style={{ fontWeight: 700 }}>
                   This removes your Bytspot profile, saved spots, preferences, check-ins, access passes, reservations, and sign-in session.
                 </p>
               </div>
             </div>
 
             <div className={`rounded-[18px] border p-4 space-y-2 ${deleteNoticeClass}`}>
-              <p className={isDarkMode ? 'text-[13px] text-red-100' : 'text-[13px] text-red-950'} style={{ fontWeight: 850 }}>To confirm, type DELETE below.</p>
+              <p className={isDarkMode ? 'text-[13px] text-red-50' : 'text-[13px] text-red-950'} style={{ fontWeight: 850 }}>To confirm, type DELETE below.</p>
               <p className={isDarkMode ? 'text-[12px] leading-5 text-slate-200' : 'text-[12px] leading-5 text-slate-700'} style={{ fontWeight: 650 }}>
                 This action is immediate and permanent. You will be signed out after deletion succeeds.
               </p>
@@ -566,7 +566,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         </div>
 
 	        {showDeleteFinalConfirm && (
-	          <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 px-4 pb-6 backdrop-blur-sm sm:items-center sm:pb-0">
+		          <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:items-center sm:pb-0">
 	            <motion.div
 	              initial={{ opacity: 0, y: 24, scale: 0.98 }}
 	              animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -578,7 +578,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 	                </div>
 	                <div>
                   <p className={isDarkMode ? 'text-[19px] text-white' : 'text-[19px] text-slate-950'} style={{ fontWeight: 900 }}>Final confirmation</p>
-                  <p className={isDarkMode ? 'mt-1 text-[13px] leading-5 text-red-100' : 'mt-1 text-[13px] leading-5 text-slate-700'} style={{ fontWeight: 650 }}>
+                  <p className={isDarkMode ? 'mt-1 text-[13px] leading-5 text-red-50' : 'mt-1 text-[13px] leading-5 text-slate-700'} style={{ fontWeight: 700 }}>
 	                    This permanently deletes your Bytspot account and removes your profile data. This action cannot be undone.
 	                  </p>
 	                </div>
@@ -614,7 +614,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   if (currentScreen === 'privacy-policy') {
     return (
       <div className="relative">
-        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full border border-slate-600 bg-slate-950 text-slate-100 text-sm hover:bg-slate-900 transition-colors">
           <ChevronRight className="w-4 h-4 rotate-180" /> Back
         </button>
         <PrivacyPolicy />
@@ -625,7 +625,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   if (currentScreen === 'terms-of-service') {
     return (
       <div className="relative">
-        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full border border-slate-600 bg-slate-950 text-slate-100 text-sm hover:bg-slate-900 transition-colors">
           <ChevronRight className="w-4 h-4 rotate-180" /> Back
         </button>
         <TermsOfService />
@@ -636,7 +636,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   if (currentScreen === 'disclaimer') {
     return (
       <div className="relative">
-        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/80 text-sm hover:bg-white/20 transition-colors">
+        <button onClick={() => setCurrentScreen('main')} className="fixed top-4 left-4 z-50 flex items-center gap-1 px-3 py-2 rounded-full border border-slate-600 bg-slate-950 text-slate-100 text-sm hover:bg-slate-900 transition-colors">
           <ChevronRight className="w-4 h-4 rotate-180" /> Back
         </button>
         <Disclaimer />
@@ -682,19 +682,19 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </motion.button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-4">
-          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/15 via-purple-500/15 to-fuchsia-500/15 backdrop-blur-xl shadow-xl">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] space-y-4">
+          <div className="rounded-[24px] p-5 border-2 border-cyan-500 bg-slate-950 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
                 <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{totalAccessItems} saved</h3>
-                <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
+                <p className="text-[13px] text-slate-200 mt-2" style={{ fontWeight: 650 }}>
                   {membership.isActive
                     ? 'Verified patches, access passes, and saved service requests appear here.'
                     : 'Scan a patch or request venue services to build your access list.'}
                 </p>
               </div>
-              <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
+              <div className="px-3 py-1.5 rounded-full border border-cyan-300 bg-black text-[11px] text-white" style={{ fontWeight: 800 }}>
                 {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'ACCESS' : membership.label}
               </div>
             </div>
@@ -757,17 +757,17 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   </div>
                 )}
                 {formatVirtualPatchDistance(virtualPatchContext.distanceMeters) && (
-                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
+                  <div className="rounded-full border border-slate-600 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 760 }}>
                     {formatVirtualPatchDistance(virtualPatchContext.distanceMeters)}
                   </div>
                 )}
                 {virtualPatchContext.capabilities?.nfc && (
-                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
+                  <div className="rounded-full border border-slate-600 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 760 }}>
                     NFC ready
                   </div>
                 )}
                 {virtualPatchContext.capabilities?.qr && (
-                  <div className="rounded-full border border-white/18 bg-white/10 px-3 py-1.5 text-[12px] text-slate-200" style={{ fontWeight: 760 }}>
+                  <div className="rounded-full border border-slate-600 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 760 }}>
                     QR ready
                   </div>
                 )}
@@ -792,7 +792,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       <motion.button
                         key={service.name}
                         onClick={() => { impactLight(); onOpenVirtualPatch?.(virtualPatchContext); }}
-                        className="w-full rounded-[16px] border border-white/12 bg-slate-900 px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                        className="w-full rounded-[16px] border border-slate-700 bg-slate-900 px-3.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                         whileTap={{ scale: 0.98 }}
                         aria-label={`Open ${service.name}`}
                       >
@@ -810,7 +810,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               )}
 
               {virtualPatchContext.scan?.verifiedAt && (
-                <div className="mt-4 rounded-[16px] p-3 bg-black/20 border border-white/10 text-[12px] text-white/72" style={{ fontWeight: 500 }}>
+                <div className="mt-4 rounded-[16px] p-3 bg-black border border-slate-700 text-[12px] text-slate-200" style={{ fontWeight: 700 }}>
                   Verified {formatCommerceTime(virtualPatchContext.scan.verifiedAt)}
                   {virtualPatchContext.scan.binding ? ` · bound to ${virtualPatchContext.scan.binding.type}` : ''}
                 </div>
@@ -827,9 +827,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[15px] text-white" style={{ fontWeight: 850 }}>Open Virtual Patch</p>
-                      <p className="mt-0.5 text-[12px] text-white/78" style={{ fontWeight: 600 }}>Start the Tap / Scan reader now.</p>
+                      <p className="mt-0.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>Start the Tap / Scan reader now.</p>
                     </div>
-                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-white/90" strokeWidth={2.8} />
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-100" strokeWidth={2.8} />
                   </div>
                 </motion.button>
               )}
@@ -854,7 +854,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                     <p className="mt-0.5 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 800 }}>{formatSavedServiceMeta(request)}</p>
                   )}
                 </div>
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[18px] bg-white/12 text-[23px] ring-1 ring-white/15">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[18px] bg-slate-900 text-[23px] ring-1 ring-slate-600">
                   {request.vendorPhoto ?? '✦'}
                 </div>
               </div>
@@ -870,7 +870,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 </div>
               </div>
 
-              <div className="mt-3 rounded-[16px] border border-white/10 bg-black/20 p-3 text-[12px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>
+              <div className="mt-3 rounded-[16px] border border-slate-700 bg-black p-3 text-[12px] leading-5 text-slate-100" style={{ fontWeight: 750 }}>
                 Requested {formatCommerceTime(request.requestedAt)}
                 {request.booking?.partySize ? ` · ${request.booking.partySize} guest${request.booking.partySize === '1' ? '' : 's'}` : ''}
                 {request.booking?.time && request.booking.time !== 'asap' ? ` · ${formatCommerceTime(request.booking.time)}` : ''}
@@ -879,12 +879,12 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           ))}
 
           {isAccessEmpty ? (
-            <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">
-              <div className="w-14 h-14 mx-auto rounded-full bg-white/10 flex items-center justify-center mb-4">
-                <Ticket className="w-7 h-7 text-white/70" strokeWidth={2.2} />
+            <div className="rounded-[24px] p-6 border-2 border-slate-700 bg-slate-950 text-center shadow-xl">
+              <div className="w-14 h-14 mx-auto rounded-full bg-slate-900 flex items-center justify-center mb-4">
+                <Ticket className="w-7 h-7 text-slate-100" strokeWidth={2.2} />
               </div>
               <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No access yet</p>
-              <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
+              <p className="text-[14px] text-slate-300" style={{ fontWeight: 600 }}>
                     Scan a Bytspot patch to unlock venue services. Requested local services will appear here separately from verified access.
               </p>
               {onOpenVirtualPatch && (
@@ -898,9 +898,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[15px] text-white" style={{ fontWeight: 850 }}>Open Virtual Patch</p>
-                      <p className="mt-0.5 text-[12px] text-white/78" style={{ fontWeight: 600 }}>Start the Tap / Scan reader now.</p>
+                      <p className="mt-0.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>Start the Tap / Scan reader now.</p>
                     </div>
-                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-white/90" strokeWidth={2.8} />
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-slate-100" strokeWidth={2.8} />
                   </div>
                 </motion.button>
               )}
@@ -909,7 +909,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             walletPasses.map((pass, index) => (
               <motion.div
                 key={pass.id}
-                className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden relative"
+                className="rounded-[24px] p-5 border-2 border-slate-700 bg-slate-950 shadow-xl overflow-hidden relative"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ ...springConfig, delay: 0.05 + index * 0.05 }}
@@ -918,7 +918,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <div className="relative flex items-start justify-between gap-3 mb-4">
                   <div>
                     <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{pass.title}</p>
-                    <p className="text-[13px] text-white/60 mt-1" style={{ fontWeight: 400 }}>
+                    <p className="text-[13px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>
                       {pass.subtitle ? `${pass.subtitle} · ${pass.location}` : pass.location}
                     </p>
                   </div>
@@ -929,22 +929,22 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-left">
-                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ACCESS</p>
+                  <div className="rounded-[16px] p-3 bg-black border border-slate-700">
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>ACCESS</p>
                     <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>{pass.priceLabel}</p>
                   </div>
-                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ORDER</p>
+                  <div className="rounded-[16px] p-3 bg-black border border-slate-700">
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>ORDER</p>
                     <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>{pass.orderNumber}</p>
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-[16px] p-3 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-fuchsia-500/10 border border-white/10 flex items-center justify-between gap-3">
+                <div className="mt-3 rounded-[16px] p-3 bg-black border border-slate-700 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>ADDED</p>
-                    <p className="text-[13px] text-white/80" style={{ fontWeight: 500 }}>{formatCommerceTime(pass.purchasedAt)}</p>
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>ADDED</p>
+                    <p className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>{formatCommerceTime(pass.purchasedAt)}</p>
                   </div>
-                  <div className="px-3 py-2 rounded-[14px] bg-black/25 border border-white/10">
+                  <div className="px-3 py-2 rounded-[14px] bg-slate-900 border border-slate-700">
                     <span className="text-[12px] text-white tracking-[0.25em]" style={{ fontWeight: 700 }}>QR READY</span>
                   </div>
                 </div>
@@ -970,29 +970,29 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </motion.button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-4">
-          <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/12 via-blue-500/12 to-emerald-500/12 backdrop-blur-xl shadow-xl">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] space-y-4">
+          <div className="rounded-[24px] p-5 border-2 border-cyan-500 bg-slate-950 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY RESERVATIONS</p>
                 <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{parkingReservations.length} active</h3>
-                <p className="text-[13px] text-white/70 mt-2" style={{ fontWeight: 500 }}>
+                <p className="text-[13px] text-slate-200 mt-2" style={{ fontWeight: 650 }}>
                   Parking stays separate from venue and event access, so your arrivals stay easy to manage.
                 </p>
               </div>
-              <div className="px-3 py-1.5 rounded-full border border-white/20 bg-black/20 text-[11px] text-white/80" style={{ fontWeight: 700 }}>
+              <div className="px-3 py-1.5 rounded-full border border-cyan-300 bg-black text-[11px] text-white" style={{ fontWeight: 800 }}>
                 Parking passes
               </div>
             </div>
           </div>
 
           {parkingReservations.length === 0 ? (
-            <div className="rounded-[24px] p-6 border-2 border-white/20 bg-[#1C1C1E]/80 backdrop-blur-xl text-center shadow-xl">
-              <div className="w-14 h-14 mx-auto rounded-full bg-white/10 flex items-center justify-center mb-4">
-                <Car className="w-7 h-7 text-white/70" strokeWidth={2.2} />
+            <div className="rounded-[24px] p-6 border-2 border-slate-700 bg-slate-950 text-center shadow-xl">
+              <div className="w-14 h-14 mx-auto rounded-full bg-slate-900 flex items-center justify-center mb-4">
+                <Car className="w-7 h-7 text-slate-100" strokeWidth={2.2} />
               </div>
               <p className="text-[18px] text-white mb-2" style={{ fontWeight: 700 }}>No parking reservations yet</p>
-              <p className="text-[14px] text-white/60" style={{ fontWeight: 400 }}>
+              <p className="text-[14px] text-slate-300" style={{ fontWeight: 600 }}>
                 Parking checkouts and demo reservations will appear here as dedicated parking passes.
               </p>
             </div>
@@ -1001,7 +1001,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <motion.div
                 key={reservation.id}
                 data-testid={`reservation-card-${reservation.id}`}
-                className="rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl overflow-hidden relative"
+                className="rounded-[24px] p-5 border-2 border-slate-700 bg-slate-950 shadow-xl overflow-hidden relative"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ ...springConfig, delay: 0.05 + index * 0.05 }}
@@ -1010,7 +1010,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <div className="relative flex items-start justify-between gap-3 mb-4">
                   <div>
                     <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{reservation.spotName}</p>
-                    <p className="text-[13px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{reservation.address}</p>
+                    <p className="text-[13px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{reservation.address}</p>
                   </div>
                   <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.4} />
@@ -1019,23 +1019,23 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-left">
-                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>WINDOW</p>
+                  <div className="rounded-[16px] p-3 bg-black border border-slate-700">
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>WINDOW</p>
                     <p className="text-[14px] text-white" style={{ fontWeight: 700 }}>{formatReservationWindow(reservation.startTime, reservation.endTime)}</p>
                   </div>
-                  <div className="rounded-[16px] p-3 bg-black/20 border border-white/10">
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>PRICE</p>
+                  <div className="rounded-[16px] p-3 bg-black border border-slate-700">
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>PRICE</p>
                     <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>${reservation.totalCost.toFixed(2)}</p>
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-[16px] p-3 bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-emerald-500/10 border border-white/10 flex items-center justify-between gap-3">
+                <div className="mt-3 rounded-[16px] p-3 bg-black border border-slate-700 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>PASS CODE</p>
-                    <p className="text-[13px] text-white/80 tracking-[0.2em]" style={{ fontWeight: 700 }}>{reservation.reservationCode}</p>
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>PASS CODE</p>
+                    <p className="text-[13px] text-slate-100 tracking-[0.2em]" style={{ fontWeight: 750 }}>{reservation.reservationCode}</p>
                   </div>
-                  <div className="px-3 py-2 rounded-[14px] bg-black/25 border border-white/10 text-right">
-                    <p className="text-[11px] text-white/45 mb-1" style={{ fontWeight: 700 }}>SOURCE</p>
+                  <div className="px-3 py-2 rounded-[14px] bg-slate-900 border border-slate-700 text-right">
+                    <p className="text-[11px] text-slate-300 mb-1" style={{ fontWeight: 800 }}>SOURCE</p>
                     <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{reservation.source === 'stripe' ? 'Checkout' : 'Demo'}</span>
                   </div>
                 </div>
@@ -1080,13 +1080,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           {/* Following list */}
           {followed.length > 0 && (
             <div>
-              <p className="text-[12px] text-white/40 mb-2" style={{ fontWeight: 700 }}>FOLLOWING ({followed.length})</p>
+              <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FOLLOWING ({followed.length})</p>
               <div className="flex flex-wrap gap-2">
                 {followed.map((u: FollowedUser) => (
-                  <div key={u.userId} className="flex items-center gap-2 px-3 py-2 rounded-full bg-[#1C1C1E]/80 border border-white/20">
+                  <div key={u.userId} className="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-950 border border-slate-700">
                     <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>{u.userName}</span>
                     <motion.button onClick={() => { unfollowUser(u.userId); setCurrentScreen('main'); setTimeout(() => setCurrentScreen('friends'), 10); }}
-                      className="text-white/40 hover:text-red-400 text-[11px]" whileTap={{ scale: 0.88 }}>✕</motion.button>
+                      className="text-slate-300 hover:text-red-300 text-[11px]" whileTap={{ scale: 0.88 }}>✕</motion.button>
                   </div>
                 ))}
               </div>
@@ -1094,19 +1094,19 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           )}
           {/* Activity feed */}
           <div>
-            <p className="text-[12px] text-white/40 mb-2" style={{ fontWeight: 700 }}>FRIEND ACTIVITY</p>
+            <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FRIEND ACTIVITY</p>
             {visibleFeed.length === 0 ? (
-              <div className="text-center py-12 text-white/40">
+              <div className="text-center py-12 text-slate-300">
                 <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-[15px]" style={{ fontWeight: 600 }}>No activity yet</p>
                 <p className="text-[13px] mt-1">Follow people on the Leaderboard to see where they're going</p>
               </div>
             ) : visibleFeed.map((event: SocialFeedEvent) => (
-              <motion.div key={event.id} className="rounded-[16px] p-4 bg-[#1C1C1E]/80 border border-white/10 mb-3"
+              <motion.div key={event.id} className="rounded-[16px] p-4 bg-slate-950 border border-slate-700 mb-3"
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <p className="text-[14px] text-white/80" style={{ fontWeight: 600 }}>
+                    <p className="text-[14px] text-slate-200" style={{ fontWeight: 650 }}>
                       <span className="text-white">{event.userId === myId ? 'You' : event.userName}</span>
                       {' '}checked in at{' '}
                       <span className="text-purple-300">{event.venueName}</span>
@@ -1115,7 +1115,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       {crowdEmoji(event.crowdLevel)} {event.crowdLabel}
                     </p>
                   </div>
-                  <span className="text-[12px] text-white/30 ml-3 shrink-0">{formatTime(event.timestamp)}</span>
+                  <span className="text-[12px] text-slate-400 ml-3 shrink-0">{formatTime(event.timestamp)}</span>
                 </div>
               </motion.div>
             ))}
@@ -1142,18 +1142,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-3 mt-2">
           {checkinHistory.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
-              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-                <Clock className="w-8 h-8 text-white/40" strokeWidth={1.5} />
+              <div className="w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center">
+                <Clock className="w-8 h-8 text-slate-200" strokeWidth={1.5} />
               </div>
-              <p className="text-white/50 text-[15px]" style={{ fontWeight: 500 }}>No check-ins yet</p>
-              <p className="text-white/30 text-[13px] text-center">Check in at venues to track where you've been</p>
+              <p className="text-slate-200 text-[15px]" style={{ fontWeight: 650 }}>No check-ins yet</p>
+              <p className="text-slate-400 text-[13px] text-center">Check in at venues to track where you've been</p>
             </div>
           ) : checkinHistory.map((record: CheckInRecord) => {
             const d = new Date(record.timestamp);
             const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             return (
-              <motion.div key={record.id} className="rounded-[16px] p-4 bg-[#1C1C1E]/80 border border-white/15 backdrop-blur-xl" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <motion.div key={record.id} className="rounded-[16px] p-4 bg-slate-950 border border-slate-700" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shrink-0">
@@ -1161,7 +1161,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                     </div>
                     <div className="min-w-0">
                       <p className="text-white text-[15px] truncate" style={{ fontWeight: 600 }}>{record.venueName}</p>
-                      <p className="text-white/50 text-[12px] mt-0.5">{dateStr} · {timeStr}</p>
+                      <p className="text-slate-300 text-[12px] mt-0.5">{dateStr} · {timeStr}</p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -1180,7 +1180,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   }
 
   return (
-    <div className="h-[100dvh] max-h-[100dvh] overflow-y-auto overscroll-contain pb-[calc(7rem+env(safe-area-inset-bottom))]">
+    <div className="h-[100dvh] max-h-[100dvh] overflow-y-auto overscroll-contain scroll-pb-[calc(8rem+env(safe-area-inset-bottom))] bg-black pb-[calc(7rem+env(safe-area-inset-bottom))]">
       {/* Profile Header */}
       <motion.div
         className="px-4 pt-4 pb-6"
@@ -1188,7 +1188,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
-        <div className="rounded-[24px] p-6 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
+        <div className="rounded-[24px] p-6 border-2 border-slate-700 bg-slate-950 shadow-xl">
           <div className="flex items-center gap-4">
             {/* Avatar */}
             <div className="relative">
@@ -1214,7 +1214,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-gradient-to-br ${userTier.gradient}/30 border-2 border-white/30`} style={{ fontWeight: 600 }}>
+                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-slate-900 border-2 border-slate-600`} style={{ fontWeight: 700 }}>
                   <span className="text-white">{userTier.icon} {userTier.name} Member</span>
                 </div>
               </div>
@@ -1222,12 +1222,12 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/20">
+          <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-700">
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
                 {followingCount}
               </p>
-              <p className="text-[12px] text-white/80" style={{ fontWeight: 400 }}>
+              <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                 Following
               </p>
             </div>
@@ -1235,7 +1235,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
                 {userPoints.total >= 1000 ? `${(userPoints.total / 1000).toFixed(1)}K` : userPoints.total.toLocaleString()}
               </p>
-              <p className="text-[12px] text-white/80" style={{ fontWeight: 400 }}>
+              <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                 Points
               </p>
             </div>
@@ -1243,7 +1243,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
                 {achievementStats.unlocked}
               </p>
-              <p className="text-[12px] text-white/80" style={{ fontWeight: 400 }}>
+              <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                 Badges
               </p>
             </div>
@@ -1258,31 +1258,31 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.06 }}
         data-testid="profile-tier-benefits-summary"
       >
-        <div className={`rounded-[24px] border-2 bg-gradient-to-br ${consumerExperienceProfile.accentClass} p-5 shadow-xl backdrop-blur-xl`}>
+        <div className={`rounded-[24px] border-2 border-slate-700 bg-slate-950 p-5 shadow-xl`}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker benefits</h3>
-              <p className="mt-2 text-[13px] leading-5 text-white/70" style={{ fontWeight: 600 }}>{consumerExperienceProfile.accessLevel}</p>
+              <p className="mt-2 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{consumerExperienceProfile.accessLevel}</p>
             </div>
-            <div className="rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-right">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/45" style={{ fontWeight: 800 }}>Bookings</p>
+            <div className="rounded-2xl border border-slate-700 bg-black px-3 py-2 text-right">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-slate-300" style={{ fontWeight: 800 }}>Bookings</p>
               <p className="text-[20px] leading-6 text-white" style={{ fontWeight: 850 }}>{consumerBookingCount}</p>
             </div>
           </div>
 
-          <div className="mt-4 rounded-[18px] border border-white/12 bg-black/20 p-3">
+          <div className="mt-4 rounded-[18px] border border-slate-700 bg-black p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[12px] text-white/70" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
-              <span className="text-[11px] text-white/45" style={{ fontWeight: 700 }}>{consumerExperienceProgress.progressPercent}%</span>
+              <p className="text-[12px] text-slate-200" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
+              <span className="text-[11px] text-slate-300" style={{ fontWeight: 750 }}>{consumerExperienceProgress.progressPercent}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
               <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-fuchsia-300 to-amber-200" style={{ width: `${consumerExperienceProgress.progressPercent}%` }} />
             </div>
           </div>
 
           <div className="mt-4 grid gap-2">
             {consumerExperienceProfile.benefits.map((benefit) => (
-              <div key={benefit} className="flex items-center gap-2 text-[12px] text-white/78" style={{ fontWeight: 650 }}>
+              <div key={benefit} className="flex items-center gap-2 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
                 <CheckCircle2 className="h-4 w-4 text-emerald-200" strokeWidth={2.4} />
                 <span>{benefit}</span>
               </div>
@@ -1299,7 +1299,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.08 }}
         >
-          <div className="rounded-[24px] border-2 border-white/25 bg-slate-950/95 p-5 shadow-xl relative overflow-hidden" data-testid="profile-subscription-card">
+          <div className="rounded-[24px] border-2 border-cyan-500 bg-slate-950 p-5 shadow-xl relative overflow-hidden" data-testid="profile-subscription-card">
             <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -1311,7 +1311,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                     : 'Faster paid-entry checkout and wallet-first access for Parker consumers.'}
                 </p>
               </div>
-              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-white/10 border-white/20 text-white/75'}`} style={{ fontWeight: 800 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-700 border-emerald-200 text-white' : 'bg-black border-slate-600 text-white'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
@@ -1326,10 +1326,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
 
             <div className="relative mt-4 flex flex-wrap gap-2">
-              <div className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-[12px] text-white/75" style={{ fontWeight: 650 }}>
+              <div className="rounded-full border border-slate-700 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
                 {walletPasses.length} in My Access
               </div>
-              <div className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-[12px] text-white/75" style={{ fontWeight: 650 }}>
+              <div className="rounded-full border border-slate-700 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
                 {userTier.icon} {userTier.name} rewards
               </div>
             </div>
@@ -1359,7 +1359,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         <motion.button
           onClick={() => setCurrentScreen('reservations')}
           data-testid="profile-reservations-summary"
-          className="w-full rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-cyan-500/12 via-blue-500/12 to-emerald-500/12 backdrop-blur-xl shadow-xl text-left relative overflow-hidden"
+          className="w-full rounded-[24px] p-5 border-2 border-cyan-500 bg-slate-950 shadow-xl text-left relative overflow-hidden"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
         >
@@ -1369,18 +1369,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <Car className="w-6 h-6 text-white" strokeWidth={2.4} />
             </div>
             <div className="flex-1">
-              <p className="text-[13px] text-white/60 mb-0.5" style={{ fontWeight: 700 }}>MY RESERVATIONS</p>
+              <p className="text-[13px] text-slate-300 mb-0.5" style={{ fontWeight: 800 }}>MY RESERVATIONS</p>
               <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{parkingReservations.length} parking pass{parkingReservations.length === 1 ? '' : 'es'}</p>
             </div>
-            <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.4} />
+            <ChevronRight className="w-5 h-5 text-slate-100" strokeWidth={2.4} />
           </div>
 
           {parkingReservations.length > 0 ? (
-            <div className="relative rounded-[18px] p-4 bg-black/25 border border-white/10">
+            <div className="relative rounded-[18px] p-4 bg-black border border-slate-700">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{parkingReservations[0].spotName}</p>
-                  <p className="text-[12px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{formatReservationWindow(parkingReservations[0].startTime, parkingReservations[0].endTime)} · {parkingReservations[0].reservationCode}</p>
+                  <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{formatReservationWindow(parkingReservations[0].startTime, parkingReservations[0].endTime)} · {parkingReservations[0].reservationCode}</p>
                 </div>
                 <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
                   Active
@@ -1388,7 +1388,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
             </div>
           ) : (
-            <p className="relative text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+            <p className="relative text-[13px] text-slate-300" style={{ fontWeight: 600 }}>
               Parking checkouts stay separate from event and venue access, so your arrival details are easy to find.
             </p>
           )}
@@ -1403,7 +1403,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       >
         <motion.button
           onClick={() => setCurrentScreen('tickets')}
-          className="w-full rounded-[24px] p-5 border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl text-left relative overflow-hidden"
+          className="w-full rounded-[24px] p-5 border-2 border-slate-700 bg-slate-950 shadow-xl text-left relative overflow-hidden"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
         >
@@ -1413,18 +1413,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <Ticket className="w-6 h-6 text-white" strokeWidth={2.4} />
             </div>
             <div className="flex-1">
-              <p className="text-[13px] text-white/60 mb-0.5" style={{ fontWeight: 700 }}>MY ACCESS</p>
+              <p className="text-[13px] text-slate-300 mb-0.5" style={{ fontWeight: 800 }}>MY ACCESS</p>
               <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} in wallet</p>
             </div>
-            <ChevronRight className="w-5 h-5 text-white/60" strokeWidth={2.4} />
+            <ChevronRight className="w-5 h-5 text-slate-100" strokeWidth={2.4} />
           </div>
 
           {walletPasses.length > 0 ? (
-            <div className="relative rounded-[18px] p-4 bg-black/25 border border-white/10">
+            <div className="relative rounded-[18px] p-4 bg-black border border-slate-700">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{walletPasses[0].title}</p>
-                  <p className="text-[12px] text-white/60 mt-1" style={{ fontWeight: 400 }}>{walletPasses[0].priceLabel} · {walletPasses[0].orderNumber}</p>
+                  <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{walletPasses[0].priceLabel} · {walletPasses[0].orderNumber}</p>
                 </div>
                 <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
                   Confirmed
@@ -1432,7 +1432,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
             </div>
           ) : (
-            <p className="relative text-[13px] text-white/60" style={{ fontWeight: 400 }}>
+            <p className="relative text-[13px] text-slate-300" style={{ fontWeight: 600 }}>
               Unlock paid venue and event access in Discover and it’ll appear here as clean, ready-to-use passes.
             </p>
           )}
@@ -1447,11 +1447,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       >
         <motion.button
           onClick={() => setCurrentScreen('points')}
-          className="w-full rounded-[24px] p-6 border-2 border-white/30 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 backdrop-blur-xl shadow-xl relative overflow-hidden tap-target"
+          className="w-full rounded-[24px] p-6 border-2 border-purple-400 bg-slate-950 shadow-xl relative overflow-hidden tap-target"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl" />
+          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl" />
           
           <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1468,21 +1468,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
             </div>
             <div>
-              <ChevronRight className="w-6 h-6 text-white/60" strokeWidth={2.5} />
+              <ChevronRight className="w-6 h-6 text-slate-100" strokeWidth={2.5} />
             </div>
           </div>
 
           <div className="relative mt-4 flex items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <Crown className="w-4 h-4 text-white/80" strokeWidth={2.5} />
-              <span className="text-[13px] text-white/80" style={{ fontWeight: 500 }}>
+              <Crown className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
+              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
                 {userTier.name} ({userTier.discount}% off)
               </span>
             </div>
-            <div className="w-px h-4 bg-white/30" />
+            <div className="w-px h-4 bg-slate-500" />
             <div className="flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-white/80" strokeWidth={2.5} />
-              <span className="text-[13px] text-white/80" style={{ fontWeight: 500 }}>
+              <Award className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
+              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
                 {achievementStats.unlocked}/{achievementStats.total} badges
               </span>
             </div>
@@ -1511,7 +1511,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           };
 
           return (
-            <div className="rounded-[24px] p-5 border-2 border-white/30 bg-gradient-to-br from-fuchsia-500/15 to-cyan-500/15 backdrop-blur-xl shadow-xl relative overflow-hidden">
+            <div className="rounded-[24px] p-5 border-2 border-fuchsia-400 bg-slate-950 shadow-xl relative overflow-hidden">
               <div className="absolute top-0 right-0 w-28 h-28 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-11 h-11 rounded-full bg-gradient-to-br from-fuchsia-500 to-cyan-500 flex items-center justify-center shrink-0">
@@ -1519,7 +1519,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 </div>
                 <div className="flex-1">
                   <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Invite a Friend</p>
-                  <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Share your personal Bytspot link</p>
+                  <p className="text-[12px] text-slate-300" style={{ fontWeight: 600 }}>Share your personal Bytspot link</p>
                 </div>
                 {/* Live referral count badge */}
                 {referralCount !== null && (
@@ -1533,8 +1533,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
 
               {/* Referral URL pill */}
-              <div className="flex items-center gap-2 mb-4 px-3 py-2.5 rounded-[14px] bg-black/30 border border-white/20">
-                <p className="flex-1 text-[12px] text-white/70 truncate" style={{ fontFamily: 'monospace' }}>
+              <div className="flex items-center gap-2 mb-4 px-3 py-2.5 rounded-[14px] bg-black border border-slate-700">
+                <p className="flex-1 text-[12px] text-slate-200 truncate" style={{ fontFamily: 'monospace', fontWeight: 650 }}>
                   {referralUrl}
                 </p>
                 <button
@@ -1572,10 +1572,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springConfig, delay: 0.1 + sectionIndex * 0.05 }}
           >
-            <h3 className="text-[13px] mb-3 px-2 text-white/80" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <h3 className="text-[13px] mb-3 px-2 text-slate-200" style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               {section.title}
             </h3>
-            <div className="rounded-[20px] overflow-hidden border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl shadow-xl">
+            <div className="rounded-[20px] overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
               {section.items.map((item, index) => (
                 <motion.button
                   type="button"
@@ -1594,17 +1594,17 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   }}
 	                  className={`w-full flex items-center gap-3 px-4 py-4 ${
                     index !== section.items.length - 1 
-                      ? 'border-b border-white/20'
+                      ? 'border-b border-slate-700'
                       : ''
-	                  } ${item.danger ? 'bg-red-600/10 hover:bg-red-600/15' : 'hover:bg-white/5'}`}
+		                  } ${item.danger ? 'bg-red-600 hover:bg-red-500' : 'hover:bg-slate-900'}`}
                   whileTap={{ scale: 0.98 }}
                   style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                   transition={springConfig}
                 >
-	                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${item.danger ? 'bg-red-500/20 text-red-100' : 'bg-white/15 text-white'}`}>
+		                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${item.danger ? 'bg-red-700 text-white' : 'bg-slate-800 text-white'}`}>
                     {item.icon}
                   </div>
-	                  <span className={`flex-1 text-left text-[15px] ${item.danger ? 'text-red-100' : 'text-white'}`} style={{ fontWeight: item.danger ? 750 : 500 }}>
+		                  <span className={`flex-1 text-left text-[15px] ${item.danger ? 'text-white' : 'text-white'}`} style={{ fontWeight: item.danger ? 850 : 650 }}>
                     {item.label}
                   </span>
                   {item.badge && (
@@ -1612,7 +1612,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       {item.badge}
                     </div>
                   )}
-	                  <ChevronRight className={`w-5 h-5 ${item.danger ? 'text-red-100/70' : 'text-white/60'}`} strokeWidth={2} />
+		                  <ChevronRight className={`w-5 h-5 ${item.danger ? 'text-white' : 'text-slate-200'}`} strokeWidth={2} />
                 </motion.button>
               ))}
             </div>
@@ -1621,12 +1621,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
         {/* Logout Button */}
         <motion.div
+          className="pb-[calc(1rem+env(safe-area-inset-bottom))]"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
         >
           <motion.button
-            className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 bg-red-600/30 border-red-500/50 text-red-200 hover:bg-red-600/40 shadow-xl"
+            className="w-full rounded-[20px] p-4 flex items-center justify-center gap-2 border-2 border-red-300 bg-red-600 text-white hover:bg-red-500 shadow-[0_16px_40px_rgba(220,38,38,0.35)]"
             whileTap={{ scale: 0.98 }}
             transition={springConfig}
             onClick={() => {
@@ -1645,7 +1646,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
         {/* App Version */}
         <div className="text-center pb-4">
-          <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>
+          <p className="text-[12px] text-slate-300" style={{ fontWeight: 600 }}>
             Bytspot v1.0.0
           </p>
         </div>

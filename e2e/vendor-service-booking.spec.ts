@@ -161,7 +161,7 @@ async function installVendorServiceMocks(page: Page, opts: { failVenues?: boolea
           const jsonInput = firstJsonInput(body) as Record<string, unknown> | null;
           // @ts-expect-error Playwright exposed binding
           window.__recordBookingPayload?.(jsonInput);
-          return { result: { data: { url: 'https://checkout.stripe.com/c/pay/cs_test_vendor_service', booking: { id: 'booking-1' } } } };
+          return { result: { data: { session: { id: 'cs_test_vendor_service' }, booking: { id: 'booking-1' } } } };
         }
         if (procedure.includes('auth.signup') || procedure.includes('auth.login')) return { result: { data: { token: 'test-user-token', user: { id: 'user-1', email: 'booker@test.com', name: 'Test Booker' } } } };
         if (procedure.includes('auth.me')) return { result: { data: { referralCount: 0 } } };

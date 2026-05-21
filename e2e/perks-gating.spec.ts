@@ -46,7 +46,8 @@ const NON_VERIFIED_VENUE = {
 
 // Stable mocked Stripe Checkout URL — the upgrade-flow spec stubs requests to
 // checkout.stripe.com via page.route so the test never actually hits live Stripe.
-const MOCK_STRIPE_CHECKOUT_URL = 'https://checkout.stripe.com/c/pay/cs_test_e2e_mock_session_abc123';
+const MOCK_STRIPE_CHECKOUT_SESSION_ID = 'cs_test_e2e_mock_session_abc123';
+const MOCK_STRIPE_CHECKOUT_URL = `https://checkout.stripe.com/c/pay/${MOCK_STRIPE_CHECKOUT_SESSION_ID}`;
 
 // localStorage key used by the mock fetch to read the current premium state on
 // every tRPC call. Persisted across page.reload() so tests can simulate
@@ -60,7 +61,11 @@ test.use({
 
 async function installMocks(
   page: Page,
-  opts: { isPremium: boolean; venues?: Array<typeof VERIFIED_VENUE | typeof NON_VERIFIED_VENUE> },
+  opts: {
+    isPremium: boolean;
+    venues?: Array<typeof VERIFIED_VENUE | typeof NON_VERIFIED_VENUE>;
+    checkoutShape?: 'url' | 'nested-session-id';
+  },
 ) {
   // Disable the PWA service worker — its cache-first fetch handler in
   // public/sw.js intercepts JS module requests once registered, which can
@@ -85,7 +90,7 @@ async function installMocks(
     }
   });
   const venuesPayload = opts.venues ?? [VERIFIED_VENUE];
-  await page.addInitScript(({ venues, coords, initialIsPremium, premiumKey, mockCheckoutUrl }) => {
+  await page.addInitScript(({ venues, coords, initialIsPremium, premiumKey, mockCheckoutUrl, mockCheckoutSessionId, checkoutShape }) => {
     // Seed the persisted premium flag from the test-supplied initial value, but only if
     // the test hasn't already mutated it. This keeps page.reload() round-trips honest:
     // a test that flipped the flag mid-session will see its mutation survive the reload.
@@ -132,7 +137,10 @@ async function installMocks(
       const results = procedures.map((p) => {
         if (p.includes('venues.list')) return { result: { data: { venues } } };
         if (p.includes('subscription.status')) return { result: { data: { isPremium: isPremiumNow } } };
-        if (p.includes('subscription.createCheckout')) return { result: { data: { url: mockCheckoutUrl } } };
+        if (p.includes('subscription.createCheckout')) {
+          if (checkoutShape === 'nested-session-id') return { result: { data: { session: { id: mockCheckoutSessionId } } } };
+          return { result: { data: { url: mockCheckoutUrl } } };
+        }
         if (p.includes('auth.me')) return { result: { data: { referralCount: 0 } } };
         if (p.includes('social.venueCheckins')) return { result: { data: { items: [] } } };
         if (p.includes('venues.getBySlug')) return { result: { data: { crowd: { history: [] } } } };
@@ -165,6 +173,8 @@ async function installMocks(
     initialIsPremium: opts.isPremium,
     premiumKey: PREMIUM_FLAG_KEY,
     mockCheckoutUrl: MOCK_STRIPE_CHECKOUT_URL,
+    mockCheckoutSessionId: MOCK_STRIPE_CHECKOUT_SESSION_ID,
+    checkoutShape: opts.checkoutShape ?? 'url',
   });
 }
 
@@ -177,9 +187,26 @@ async function seedGuestSession(page: Page) {
   });
 }
 
+async function seedAuthenticatedSession(page: Page) {
+  await page.evaluate(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'test-user-token');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'user-1', email: 'booker@test.com', name: 'Test Booker' }));
+    localStorage.setItem('bytspot_user_name', 'Test Booker');
+  });
+}
+
 async function enterMainApp(page: Page) {
   await page.goto('/');
   await seedGuestSession(page);
+  await page.goto('/');
+  await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(800);
+}
+
+async function enterAuthenticatedMainApp(page: Page) {
+  await page.goto('/');
+  await seedAuthenticatedSession(page);
   await page.goto('/');
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(800);
@@ -367,6 +394,36 @@ test.describe('Member Perks gating on Verified venues', () => {
     await page.waitForURL(/checkout\.stripe\.com/, { timeout: 15_000 });
     expect(capturedCheckoutNavigation).not.toBeNull();
     expect(capturedCheckoutNavigation!).toBe(MOCK_STRIPE_CHECKOUT_URL);
+  });
+
+  test('Profile Insider CTA redirects when checkout returns a nested cs_test session id', async ({ page }) => {
+    test.skip(process.env.VITE_HIDE_INSIDER_PREMIUM !== 'false', 'Profile Insider checkout is hidden unless VITE_HIDE_INSIDER_PREMIUM=false.');
+
+    let capturedCheckoutNavigation: string | null = null;
+    await page.route('https://checkout.stripe.com/**', async (route) => {
+      capturedCheckoutNavigation = route.request().url();
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>Stripe (mocked)</title><h1>checkout</h1>',
+      });
+    });
+
+    await installMocks(page, { isPremium: false, checkoutShape: 'nested-session-id' });
+    await enterAuthenticatedMainApp(page);
+
+    await page.getByTestId('open-profile-button').click();
+    const subscriptionCard = page.getByTestId('profile-subscription-card');
+    await expect(subscriptionCard).toBeVisible({ timeout: 15_000 });
+
+    const profileCheckoutCta = subscriptionCard.getByRole('button', { name: /Continue to Stripe/i });
+    await profileCheckoutCta.scrollIntoViewIfNeeded();
+    await expect(profileCheckoutCta).toBeVisible({ timeout: 5_000 });
+    await profileCheckoutCta.focus();
+    await profileCheckoutCta.press('Enter');
+
+    await page.waitForURL(/checkout\.stripe\.com\/c\/pay\/cs_test_e2e_mock_session_abc123/, { timeout: 15_000 });
+    expect(capturedCheckoutNavigation).toBe(MOCK_STRIPE_CHECKOUT_URL);
   });
 
   test('Mid-session downgrade: perks block flips to locked teaser after subscription lapses', async ({ page }) => {

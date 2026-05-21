@@ -295,7 +295,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         const checkoutUrl = getCheckoutRedirectUrl(result);
         if (checkoutUrl) {
           redirectingToCheckout = true;
-          window.location.href = checkoutUrl;
+          window.location.assign(checkoutUrl);
           return;
         }
 
@@ -1208,13 +1208,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   {userName}
                 </h2>
                 {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && membership.isActive && (
-                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/30 via-purple-500/30 to-fuchsia-500/30 border border-fuchsia-400/40">
+                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-600 via-purple-600 to-fuchsia-600 border border-fuchsia-100 shadow-sm shadow-fuchsia-950/30">
                     <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>Insider ✨</span>
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-slate-900 border-2 border-slate-600`} style={{ fontWeight: 700 }}>
+                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-slate-950 border-2 border-cyan-300/60`} style={{ fontWeight: 700 }}>
                   <span className="text-white">{userTier.icon} {userTier.name} Member</span>
                 </div>
               </div>
@@ -1264,13 +1264,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker benefits</h3>
               <p className="mt-2 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{consumerExperienceProfile.accessLevel}</p>
             </div>
-            <div className="rounded-2xl border border-slate-700 bg-black px-3 py-2 text-right">
+            <div className="rounded-2xl border border-slate-500 bg-slate-950 px-3 py-2 text-right">
               <p className="text-[10px] uppercase tracking-[0.14em] text-slate-300" style={{ fontWeight: 800 }}>Bookings</p>
               <p className="text-[20px] leading-6 text-white" style={{ fontWeight: 850 }}>{consumerBookingCount}</p>
             </div>
           </div>
 
-          <div className="mt-4 rounded-[18px] border border-slate-700 bg-black p-3">
+          <div className="mt-4 rounded-[18px] border border-slate-500 bg-slate-950 p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
               <span className="text-[11px] text-slate-300" style={{ fontWeight: 750 }}>{consumerExperienceProgress.progressPercent}%</span>
@@ -1311,7 +1311,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                     : 'Faster paid-entry checkout and wallet-first access for Parker consumers.'}
                 </p>
               </div>
-              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-700 border-emerald-200 text-white' : 'bg-black border-slate-600 text-white'}`} style={{ fontWeight: 800 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-600 border-emerald-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
@@ -1326,10 +1326,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
 
             <div className="relative mt-4 flex flex-wrap gap-2">
-              <div className="rounded-full border border-slate-700 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
+              <div className="rounded-full border border-slate-500 bg-slate-950 px-3 py-1.5 text-[12px] text-white" style={{ fontWeight: 700 }}>
                 {walletPasses.length} in My Access
               </div>
-              <div className="rounded-full border border-slate-700 bg-black px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
+              <div className="rounded-full border border-slate-500 bg-slate-950 px-3 py-1.5 text-[12px] text-white" style={{ fontWeight: 700 }}>
                 {userTier.icon} {userTier.name} rewards
               </div>
             </div>
@@ -1376,13 +1376,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </div>
 
           {parkingReservations.length > 0 ? (
-            <div className="relative rounded-[18px] p-4 bg-black border border-slate-700">
+            <div className="relative rounded-[18px] p-4 bg-slate-950 border border-slate-500">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{parkingReservations[0].spotName}</p>
                   <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{formatReservationWindow(parkingReservations[0].startTime, parkingReservations[0].endTime)} · {parkingReservations[0].reservationCode}</p>
                 </div>
-                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
+                <div className="px-3 py-1 rounded-full bg-emerald-700 border border-emerald-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
                   Active
                 </div>
               </div>
@@ -1420,13 +1420,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </div>
 
           {walletPasses.length > 0 ? (
-            <div className="relative rounded-[18px] p-4 bg-black border border-slate-700">
+            <div className="relative rounded-[18px] p-4 bg-slate-950 border border-slate-500">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{walletPasses[0].title}</p>
                   <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{walletPasses[0].priceLabel} · {walletPasses[0].orderNumber}</p>
                 </div>
-                <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>
+                <div className="px-3 py-1 rounded-full bg-emerald-700 border border-emerald-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
                   Confirmed
                 </div>
               </div>

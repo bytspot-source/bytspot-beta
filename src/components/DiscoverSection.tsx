@@ -253,7 +253,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                 <motion.div className="absolute inset-0 flex items-center justify-center pointer-events-none"
                   initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                   {dragY < -30 && Math.abs(dragX) < Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-pink-500/80 border-pink-400/50">
+                    <div className="px-6 py-3 rounded-full border-2 shadow-2xl bg-pink-600 border-pink-200">
                       <div className="flex items-center gap-2">
                         <Heart className="w-5 h-5 text-white fill-white" strokeWidth={2.5} />
                         <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>Save</span>
@@ -261,12 +261,12 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                     </div>
                   )}
                   {dragX > 30 && Math.abs(dragX) > Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-green-500/80 border-green-400/50">
+                    <div className="px-6 py-3 rounded-full border-2 shadow-2xl bg-emerald-600 border-emerald-200">
                       <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>→ Open</span>
                     </div>
                   )}
                   {dragX < -30 && Math.abs(dragX) > Math.abs(dragY) && (
-                    <div className="px-6 py-3 rounded-full backdrop-blur-xl border-2 shadow-2xl bg-red-500/80 border-red-400/50">
+                    <div className="px-6 py-3 rounded-full border-2 shadow-2xl bg-red-600 border-red-200">
                       <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>← Skip</span>
                     </div>
                   )}
@@ -290,19 +290,19 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
             </div>
             <div className="absolute top-4 left-4">
               {isEventCard ? (
-                <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
+                <div className="px-3 py-1.5 rounded-full bg-slate-950 border-2 border-slate-200 shadow-lg flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-violet-300" strokeWidth={2.5} />
                   <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.eventDate || 'Tonight'}</span>
                 </div>
               ) : (
-                <div className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-xl border-2 border-white/30 shadow-lg flex items-center gap-1.5">
+                <div className="px-3 py-1.5 rounded-full bg-slate-950 border-2 border-slate-200 shadow-lg flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-cyan-400" strokeWidth={2.5} />
                   <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>{card.distance}</span>
                 </div>
               )}
             </div>
             <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent ${isServiceCard ? 'p-4 pt-12 text-white' : 'p-5 pt-16'}`}>
-              <div className={isServiceCard ? 'select-none rounded-3xl border border-white/20 bg-black/55 p-2.5 text-white shadow-2xl shadow-black/40 backdrop-blur-md' : ''}>
+              <div className={isServiceCard ? 'select-none rounded-3xl border border-cyan-200/45 bg-slate-950 p-2.5 text-white shadow-2xl shadow-black/40' : ''}>
 		              <div className="flex items-center gap-2 mb-1.5">
 		                <h2 className={`${isServiceCard ? 'line-clamp-1 text-[16px] leading-5' : 'text-title-2'} text-white drop-shadow-sm shadow-black`}>{isServiceCard ? card.location ?? card.name : card.name}</h2>
                 {card.verified && (
@@ -831,7 +831,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
       const checkoutUrl = getCheckoutRedirectUrl(result);
       if (checkoutUrl) {
-        window.location.href = checkoutUrl;
+        window.location.assign(checkoutUrl);
         return;
       }
 
@@ -1146,7 +1146,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
               exit={{ opacity: 0, y: 20 }}
               transition={{ delay: 0.5 }}
             >
-              <div className="px-3 py-1.5 rounded-full bg-black/80 backdrop-blur-xl border-2 border-white/30 shadow-2xl">
+              <div className="px-3 py-1.5 rounded-full bg-slate-950 border-2 border-cyan-200 shadow-2xl">
                 <span className="text-[12px] text-white text-center" style={{ fontWeight: 600 }}>
                   Swipe → to open • ↑ to save • Tap for menu
                 </span>
@@ -1160,7 +1160,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       <AnimatePresence>
         {!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && selectedVendorService && (
           <motion.div
-            className="fixed inset-0 z-[90] flex items-end justify-center bg-black/75 backdrop-blur-md px-4 pb-4"
+            className="fixed inset-0 z-[90] flex items-end justify-center bg-black/95 px-4 pb-4"
             role="dialog"
             aria-label="Book service"
             data-testid="service-booking-sheet"
@@ -1170,7 +1170,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
             onClick={() => !isBookingService && setSelectedVendorService(null)}
           >
             <motion.div
-              className="w-full max-w-md rounded-[28px] border border-cyan-200/20 bg-[linear-gradient(145deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
+              className="w-full max-w-md rounded-[28px] border-2 border-cyan-200/45 bg-slate-950 p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.65)] ring-1 ring-white/10"
               initial={{ y: 36, scale: 0.96 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 36, scale: 0.96 }}
@@ -1195,24 +1195,24 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {(selectedVendorService.features ?? []).slice(0, 5).map((feature) => (
-                  <span key={feature} className="rounded-full border border-cyan-100/20 bg-white/10 px-3 py-1 text-[11px] text-slate-100 shadow-inner shadow-black/20" style={{ fontWeight: 750 }}>{feature}</span>
+                  <span key={feature} className="rounded-full border border-slate-500 bg-slate-900 px-3 py-1 text-[11px] text-slate-100 shadow-inner shadow-black/20" style={{ fontWeight: 750 }}>{feature}</span>
                 ))}
               </div>
 
               {typeof selectedVendorService.platformFeeCents === 'number' && (
-                <div className="mt-4 rounded-2xl border border-cyan-200/20 bg-cyan-300/10 p-3 text-[12px] leading-5 text-slate-100/90 shadow-inner shadow-cyan-950/20" style={{ fontWeight: 650 }}>
+                <div className="mt-4 rounded-2xl border border-cyan-300/45 bg-slate-900 p-3 text-[12px] leading-5 text-slate-100 shadow-inner shadow-cyan-950/20" style={{ fontWeight: 650 }}>
                   Transaction metadata is recalculated server-side before checkout. Estimated professional payout: ${((cardField<number>(selectedVendorService, servicePayoutKey) ?? 0) / 100).toFixed(2)}.
                 </div>
               )}
 
               {bookingServiceMessage && (
-                <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-3 text-[12px] text-amber-50" style={{ fontWeight: 700 }}>{bookingServiceMessage}</p>
+                <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-950 p-3 text-[12px] text-amber-50" style={{ fontWeight: 700 }}>{bookingServiceMessage}</p>
               )}
 
               <div className="mt-5 flex gap-3">
                 <button
                   type="button"
-                  className="flex-1 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-[14px] text-white shadow-lg shadow-black/20"
+                  className="flex-1 rounded-2xl border border-slate-500 bg-slate-900 px-4 py-3 text-[14px] text-white shadow-lg shadow-black/20"
                   style={{ fontWeight: 850 }}
                   disabled={isBookingService}
                   onClick={() => setSelectedVendorService(null)}

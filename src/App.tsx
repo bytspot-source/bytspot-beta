@@ -2120,10 +2120,11 @@ export default function App() {
           position="top-center"
           toastOptions={{
             style: {
-              background: 'rgba(28, 28, 30, 0.95)',
-              backdropFilter: 'blur(20px)',
-              border: '2px solid rgba(255, 255, 255, 0.3)',
-              color: '#fff',
+              background: '#020617',
+              backdropFilter: 'none',
+              border: '2px solid #38bdf8',
+              boxShadow: '0 22px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+              color: '#f8fafc',
             },
             // ACCESSIBILITY: Ensure toasts are announced to screen readers
 

@@ -60,7 +60,7 @@ const DEMO_VENUE_SERVICES = [
   {
     id: 'vip-access',
     name: 'VIP Access Demo',
-    title: 'Premium seating + priority valet',
+    title: 'Premium seating + priority arrival',
     detail: 'Dedicated lounge service for reviewed guests.',
     cta: 'Request VIP Access',
     accent: 'from-purple-500 to-indigo-600',
@@ -70,9 +70,9 @@ const DEMO_VENUE_SERVICES = [
   {
     id: 'smart-parking',
     name: 'Smart Parking',
-    title: 'Real-time spots & valet',
+    title: 'Real-time nearby spots',
     detail: 'Find parking and book venue pickup.',
-    cta: 'Find Parking / Valet',
+    cta: 'Find Parking',
     accent: 'from-cyan-500 to-blue-600',
     icon: 'P',
     walletEnabled: true,
@@ -124,7 +124,7 @@ const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
     availabilityWindow: 'Tonight · 6–11 PM',
     preview: 'Chef tasting menu • dessert boards • mocktail pairings',
     services: ['Chef tasting board', 'Dessert table', 'Private dinner setup'],
-    contactOptions: ['In-app request', 'Call vendor'],
+    contactOptions: ['In-app request', 'Call now'],
     bookingCapability: true,
     source: 'fallback',
   },
@@ -142,7 +142,7 @@ const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
     availabilityWindow: 'Today · 4–10 PM',
     preview: 'Chair massage • recovery session • aromatherapy',
     services: ['15-min chair massage', 'Recovery stretch', 'Aromatherapy reset'],
-    contactOptions: ['In-app request', 'Call vendor'],
+    contactOptions: ['In-app request', 'Call now'],
     bookingCapability: true,
     source: 'fallback',
   },
@@ -160,7 +160,7 @@ const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
     availabilityWindow: 'Today · 5–9 PM',
     preview: 'Quick glam • touch-ups • wardrobe assist',
     services: ['Quick glam touch-up', 'Wardrobe assist', 'Photo-ready styling'],
-    contactOptions: ['In-app request', 'Call vendor'],
+    contactOptions: ['In-app request', 'Call now'],
     bookingCapability: true,
     source: 'fallback',
   },
@@ -178,7 +178,7 @@ const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
     availabilityWindow: 'Now · until 2 AM',
     preview: 'Priority valet • late-night ride • curbside pickup',
     services: ['Priority valet', 'Late-night ride', 'Curbside pickup'],
-    contactOptions: ['In-app request', 'Call vendor'],
+    contactOptions: ['In-app request', 'Call now'],
     bookingCapability: true,
     source: 'fallback',
   },
@@ -359,7 +359,7 @@ function normalizeVendorServices(rows: any[]): PremiumVendor[] {
       availabilityWindow: String(first?.availabilityWindow ?? first?.vendor?.availabilityWindow ?? 'Availability window updates live'),
       preview: serviceNames.length > 0 ? serviceNames.slice(0, 3).join(' • ') : descriptions.slice(0, 2).join(' • ') || category,
       services: serviceNames.length > 0 ? serviceNames : ['Request service'],
-      contactOptions: first?.vendor?.phone || first?.phone ? ['In-app request', 'Call vendor'] : ['In-app request'],
+      contactOptions: first?.vendor?.phone || first?.phone ? ['In-app request', 'Call now'] : ['In-app request'],
       bookingCapability: canBook,
       source: 'live' as const,
     };
@@ -788,7 +788,7 @@ export function VirtualPatchScannerSheet({
         if (cancelled) return;
         setPremiumVendors(FALLBACK_PREMIUM_VENDORS);
         setPremiumVendorsSource('fallback');
-        setPremiumVendorsError('Live vendor records unavailable. Showing curated venue services.');
+        setPremiumVendorsError('Live service records unavailable. Showing curated venue services.');
       })
       .finally(() => {
         if (!cancelled) setPremiumVendorsLoading(false);
@@ -1117,8 +1117,8 @@ export function VirtualPatchScannerSheet({
       setSelectedPremiumVendorId(null);
       toast.success('Nearby Premium Services', {
         description: mode === 'signed-in'
-          ? 'Showing Patch Verified vendors. Your activity can be saved to your wallet.'
-          : 'Showing Patch Verified vendors. Continue as guest or sign in later to save requests.',
+          ? 'Showing Patch Verified services. Your activity can be saved to your wallet.'
+          : 'Showing Patch Verified services. Continue as guest or sign in later to save requests.',
       });
       void impactLight();
       return;
@@ -1618,11 +1618,11 @@ export function VirtualPatchScannerSheet({
                           {appClipEntry
                             ? 'Ready near this patch. Continue as guest or sign in later to save requests.'
                             : premiumVendorsSource === 'live'
-                            ? 'Live vendor records prioritized by availability, service fit, and proximity.'
-                            : 'Curated services shown until live vendor records are available.'}
+                            ? 'Live service records prioritized by availability, service fit, and proximity.'
+                            : 'Curated services shown until live service records are available.'}
                         </p>
                         {premiumVendorsLoading && (
-                          <p className="mt-2 text-[12px] text-cyan-100" style={{ fontWeight: 850 }}>Loading live vendor records…</p>
+                          <p className="mt-2 text-[12px] text-cyan-100" style={{ fontWeight: 850 }}>Loading live service records…</p>
                         )}
                         {premiumVendorsError && (
                           <p className="mx-auto mt-2 max-w-[280px] rounded-[14px] border border-amber-200/25 bg-amber-300/10 px-3 py-2 text-[12px] text-amber-100" style={{ fontWeight: 760 }}>{premiumVendorsError}</p>
@@ -1647,7 +1647,7 @@ export function VirtualPatchScannerSheet({
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-2">
                                   <p className="text-[15px] leading-5 text-white" style={{ fontWeight: 950 }}>{vendor.name}</p>
-                                  <span className="rounded-full bg-emerald-300/18 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 900 }}>{vendor.source === 'live' ? 'Live Vendor' : 'Patch Verified'}</span>
+                                  <span className="rounded-full bg-emerald-300/18 px-2 py-0.5 text-[10px] text-emerald-100" style={{ fontWeight: 900 }}>{vendor.source === 'live' ? 'Live Service' : 'Patch Verified'}</span>
                                 </div>
                                 <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{vendor.category} • {vendor.availability}</p>
                                 <p className="text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {vendor.rating} • {vendor.distance} • {vendor.eta}</p>
@@ -1662,7 +1662,7 @@ export function VirtualPatchScannerSheet({
                     </>
                   ) : demoVenueServicesView === 'booking' && selectedPremiumVendor && selectedBookingService ? (
                     <>
-                      <button onClick={() => setDemoVenueServicesView('detail')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to vendor</button>
+                      <button onClick={() => setDemoVenueServicesView('detail')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to service</button>
                       <div className="text-center">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Booking Request</p>
                         <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>Request Booking</h4>
@@ -1704,7 +1704,7 @@ export function VirtualPatchScannerSheet({
                           <textarea
                             value={bookingForm.specialRequests}
                             onChange={(event) => setBookingForm((current) => ({ ...current, specialRequests: event.target.value }))}
-                            placeholder="Anything the vendor should know?"
+                            placeholder="Anything the service team should know?"
                             rows={3}
                             className="mt-2 w-full resize-none rounded-[14px] border border-white/14 bg-slate-950/70 px-3 py-2 text-[13px] text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/50"
                           />
@@ -1725,7 +1725,7 @@ export function VirtualPatchScannerSheet({
                         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[22px] bg-white/12 text-[28px] ring-1 ring-white/15">{selectedPremiumVendor.photo}</div>
                         <h4 className="mt-2 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{selectedPremiumVendor.name}</h4>
                         <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>{selectedPremiumVendor.category} • {selectedPremiumVendor.availability} • {selectedPremiumVendor.distance}</p>
-                        <p className="text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {selectedPremiumVendor.rating} • {selectedPremiumVendor.source === 'live' ? 'Live Vendor' : 'Patch Verified'} • {selectedPremiumVendor.eta}</p>
+                        <p className="text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>★ {selectedPremiumVendor.rating} • {selectedPremiumVendor.source === 'live' ? 'Live Service' : 'Patch Verified'} • {selectedPremiumVendor.eta}</p>
                         <p className="text-[12px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>{selectedPremiumVendor.capacity} • {selectedPremiumVendor.availabilityWindow}</p>
                         <p className="mx-auto mt-1 max-w-[280px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{selectedPremiumVendor.preview}</p>
                         <p className="mx-auto mt-2 max-w-[280px] text-[12px] leading-5 text-slate-300" style={{ fontWeight: 720 }}>
@@ -1751,13 +1751,13 @@ export function VirtualPatchScannerSheet({
                       </div>
                       <div className="mt-[18px] grid grid-cols-2 gap-3">
                         <button onClick={() => handlePremiumVendorAction('Check-in', selectedPremiumVendor.name)} className="rounded-[16px] border border-emerald-200/30 bg-emerald-300/18 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 950 }}>Check-in</button>
-                        <button onClick={() => handlePremiumVendorAction('Call Vendor', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Vendor</button>
+                        <button onClick={() => handlePremiumVendorAction('Call Vendor', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Now</button>
                       </div>
                     </>
                   ) : (
                     <>
                       <div className="text-center">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>{appClipEntry ? 'Available Local Services' : 'Venue Services'}</p>
                         <h4 className="mt-1 text-[22px] leading-7 text-white" style={{ fontWeight: 950 }}>{publicVenueName}</h4>
                         <p className="mt-1 text-[12px] leading-5 text-cyan-100" style={{ fontWeight: 850 }}>Live • Midtown Atlanta</p>
                         <p className="mx-auto mt-1 max-w-[260px] text-[13px] leading-5 text-slate-200" style={{ fontWeight: 800 }}>Tap any service below to request instantly.</p>
@@ -1786,7 +1786,7 @@ export function VirtualPatchScannerSheet({
                           </motion.button>
                         ))}
                       </div>
-                      <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap Concierge Help to choose from nearby premium vendors.</p>
+                      <p className="mt-4 text-center text-[12px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Tap Concierge Help to choose from nearby local services.</p>
                       <p className="text-center text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Powered by Bytspot Passport</p>
                     </>
                   )}

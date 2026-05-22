@@ -4,7 +4,7 @@ import StoreKit
 import UIKit
 import PassKit
 import Contacts
-import StripeApplePay
+@_spi(STP) import StripeApplePay
 @_spi(STP) import StripeCore
 
 enum ClipVerifyState: Equatable {

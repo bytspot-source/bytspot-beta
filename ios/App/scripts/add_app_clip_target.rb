@@ -20,6 +20,7 @@ CLIP_SOURCES      = ["ClipApp.swift", "ClipContentView.swift", "ClipPatchVerifie
 CLIP_INFO_PLIST   = "Clip/Info.plist"
 CLIP_ENTITLEMENTS = "Clip/Clip.entitlements"
 DEPLOYMENT_TARGET = "15.0"
+STRIPE_APPLE_PAY_PRODUCT = "StripeApplePay"
 
 def find_project_object(project, display_name)
   project.objects.find do |object|
@@ -60,6 +61,22 @@ CLIP_SOURCES.each do |filename|
   ref = clip_group.files.find { |f| f.path == filename } ||
         clip_group.new_reference(filename)
   clip_target.source_build_phase.add_file_reference(ref, true)
+end
+
+stripe_product = project.objects.find do |object|
+  object.isa == "XCSwiftPackageProductDependency" && object.respond_to?(:product_name) && object.product_name == STRIPE_APPLE_PAY_PRODUCT
+end
+if stripe_product
+  unless clip_target.package_product_dependencies.include?(stripe_product)
+    clip_target.package_product_dependencies << stripe_product
+  end
+  unless clip_target.frameworks_build_phase.files.any? { |file| file.respond_to?(:product_ref) && file.product_ref == stripe_product }
+    build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+    build_file.product_ref = stripe_product
+    clip_target.frameworks_build_phase.files << build_file
+  end
+else
+  warn "[clip-scaffold] #{STRIPE_APPLE_PAY_PRODUCT} Swift package product not found; Apple Pay token conversion will be unavailable in Clip until packages resolve."
 end
 
 [

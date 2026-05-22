@@ -10,6 +10,10 @@
 	<array>
 		<string>TAG</string>
 	</array>
+		<key>com.apple.developer.in-app-payments</key>
+		<array>
+			<string>merchant.com.bytspot.app</string>
+		</array>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:bytspot.app</string>

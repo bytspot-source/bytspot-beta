@@ -1,3 +1,5 @@
+require "shellwords"
+
 default_platform(:ios)
 
 platform :ios do
@@ -68,6 +70,11 @@ platform :ios do
       code_sign_identity:    "Apple Distribution"
     )
 
+    stripe_publishable_key = ENV["STRIPE_PUBLISHABLE_KEY"].to_s.strip
+    if stripe_publishable_key.empty?
+      UI.important("STRIPE_PUBLISHABLE_KEY is not set; native Apple Pay will fall back to card checkout.")
+    end
+
     # Build the signed .ipa with embedded App Clip
     build_app(
       project:       "App.xcodeproj",
@@ -84,6 +91,7 @@ platform :ios do
       },
       output_directory: "./build",
       output_name:      "Bytspot.ipa",
+      xcargs:           "STRIPE_PUBLISHABLE_KEY=#{Shellwords.escape(stripe_publishable_key)}",
       clean:            true
     )
 

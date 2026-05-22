@@ -18,7 +18,7 @@
 
       <!-- Smart App Banner — surfaces the full Bytspot app from Mobile Safari and
            the App Clip card when iOS opens an NFC tag in Safari first. -->
-      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/" />
+      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/patch" />
     </head>
 
     <body>
@@ -30,6 +30,12 @@
           if (redirect) {
             sessionStorage.removeItem('spa_redirect');
             window.history.replaceState(null, '', redirect);
+          }
+          var banner = document.querySelector('meta[name="apple-itunes-app"]');
+          if (banner) {
+            var currentUrl = window.location.href;
+            var preservedArgument = currentUrl.indexOf('http') === 0 ? currentUrl : 'https://bytspot.app' + window.location.pathname + window.location.search + window.location.hash;
+            banner.setAttribute('content', 'app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + preservedArgument);
           }
         })();
       </script>

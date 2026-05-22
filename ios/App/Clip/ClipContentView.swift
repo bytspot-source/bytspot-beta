@@ -5,6 +5,7 @@ import UIKit
 import PassKit
 import Contacts
 import StripeApplePay
+@_spi(STP) import StripeCore
 
 enum ClipVerifyState: Equatable {
     case idle
@@ -473,11 +474,16 @@ private final class ClipPaymentHoldController: NSObject, ObservableObject, PKPay
 
     private func createStripePaymentMethod(from payment: PKPayment) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
-            STPAPIClient.shared.createPaymentMethod(with: payment) { paymentMethod, error in
-                if let paymentMethod {
-                    continuation.resume(returning: paymentMethod.stripeId)
-                } else {
-                    continuation.resume(throwing: error ?? NSError(domain: "BytspotStripeApplePay", code: 1))
+            StripeAPI.PaymentMethod.create(
+                apiClient: STPAPIClient.shared,
+                payment: payment,
+                clientAttributionMetadata: nil
+            ) { result in
+                switch result {
+                case .success(let paymentMethod):
+                    continuation.resume(returning: paymentMethod.id)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
                 }
             }
         }

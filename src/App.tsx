@@ -246,6 +246,7 @@ export default function App() {
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discoverFilter, setDiscoverFilter] = useState<CardType | undefined>(undefined);
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
+  const [conciergePrefill, setConciergePrefill] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
   const [rideDestination, setRideDestination] = useState<{ name: string; lat?: number; lng?: number } | undefined>(undefined);
   const [valetServiceFromRide, setValetServiceFromRide] = useState<any>(null);
@@ -537,6 +538,22 @@ export default function App() {
       } catch { /* ignore malformed URLs */ }
     };
 
+    const applyNativeTabRoute = (tab?: string | null, focus?: string | null) => {
+      const normalized = tab === 'access' ? 'profile' : tab;
+      if (!normalized || !['home', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
+      if (focus) localStorage.setItem('bytspot_profile_focus', focus);
+      setCurrentScreen('main');
+      setActiveTab(normalized);
+    };
+
+    const handleNativeTab = (event: Event) => {
+      const detail = (event as CustomEvent<{ tab?: string; focus?: string }>).detail ?? {};
+      applyNativeTabRoute(detail.tab, detail.focus);
+    };
+
+    window.addEventListener('bytspot:native-tab', handleNativeTab as EventListener);
+    applyNativeTabRoute(localStorage.getItem('bytspot_native_tab'), localStorage.getItem('bytspot_native_focus'));
+
     // Pick up patch deep-links present at first paint (web universal link
     // landing or App Clip → full-app handoff via SKOverlay).
     if (typeof window !== 'undefined') {
@@ -581,6 +598,10 @@ export default function App() {
         // @capacitor/status-bar not available → running in browser, skip
       }
     })();
+
+    return () => {
+      window.removeEventListener('bytspot:native-tab', handleNativeTab as EventListener);
+    };
   }, [routePatchTap]);
 
   // ─── "Near me now" push alerts ───────────────────────────────────────────
@@ -1992,6 +2013,10 @@ export default function App() {
                     onAuditEvent={emitAuditEvent}
                     pendingPatchScan={pendingPatchScan}
                     onPendingPatchScanConsumed={consumePendingPatchScan}
+                    onOpenConciergeRequest={(prefill) => {
+                      setConciergePrefill(prefill);
+                      setActiveTab('concierge');
+                    }}
                     onBackToHome={() => {
                       setActiveTab('home');
                       setSelectedDestination(undefined);
@@ -2024,6 +2049,10 @@ export default function App() {
                     setSelectedSearchVenue(v);
                     setActiveTab('home');
                   }}
+                  onOpenDiscover={() => setActiveTab('discover')}
+                  onShowMap={() => setActiveTab('map')}
+                  onStartBooking={() => setActiveTab('discover')}
+                  initialPrompt={conciergePrefill}
                 />
               </motion.div>
             )}

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, Sparkles, MapPin, RotateCcw, Calendar, Star, Mic, MicOff } from 'lucide-react';
+import { X, Send, Sparkles, MapPin, RotateCcw, Calendar, Star, Mic, MicOff, Menu, History, Headphones, ArrowUpRight } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SpeechRecognition } from '@capgo/capacitor-speech-recognition';
@@ -41,9 +41,15 @@ interface HomeConciergeProps {
   onClose?: () => void;
   venues: Venue[];
   onVenueSelect: (venue: Venue) => void;
+  onOpenDiscover?: (query?: string) => void;
+  onShowMap?: (query?: string) => void;
+  onStartBooking?: (query?: string) => void;
+  initialPrompt?: string;
   tabMode?: boolean;
   cityName?: string;
 }
+
+type HandoffAction = 'discover' | 'map' | 'booking';
 
 interface Message {
   id: number;
@@ -52,6 +58,16 @@ interface Message {
   venues?: Venue[];
   events?: LiveEvent[];
   places?: LivePlace[];
+  handoffs?: HandoffAction[];
+  escalated?: boolean;
+  sourceQuery?: string;
+}
+
+interface ConciergeConversation {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: Message[];
 }
 
 const springConfig = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
@@ -64,7 +80,7 @@ const wordVariants = {
 const buildWelcomeMessage = (cityName: string): Message => ({
   id: 1,
   sender: 'ai',
-  text: `Hey! I'm your Bytspot Concierge 👋 Ask me anything about ${cityName} — I know what's open, what's poppin', and what's happening tonight.`,
+  text: `Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around ${cityName}.`,
 });
 
 function PremiumAIText({ text, animate }: { text: string; animate: boolean }) {
@@ -97,19 +113,45 @@ function PremiumAIText({ text, animate }: { text: string; animate: boolean }) {
 }
 
 const SUGGESTIONS = [
-  '🌙 Plan my night',
-  "What's happening tonight?",
-  "What's chill right now?",
-  'Best spot for drinks',
-  'Good food nearby',
-  'Date night ideas',
+  'Find parking nearby',
+  'Book a private chef',
+  'Access my booking',
+  "What’s open now?",
 ];
 
-export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode = false, cityName = 'Midtown' }: HomeConciergeProps) {
+const CONCIERGE_HISTORY_KEY = 'bytspot_concierge_history_v1';
+
+function loadConciergeHistory(): ConciergeConversation[] {
+  try {
+    const raw = localStorage.getItem(CONCIERGE_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 12) : [];
+  } catch { return []; }
+}
+
+function isComplexConciergeRequest(query: string): boolean {
+  const q = query.toLowerCase();
+  return ['private chef', 'book', 'booking', 'reservation', 'access my booking', 'refund', 'vip', 'event', 'catering', 'specialist', 'human'].some(term => q.includes(term));
+}
+
+function inferHandoffs(query: string): HandoffAction[] {
+  const q = query.toLowerCase();
+  const handoffs = new Set<HandoffAction>();
+  if (q.includes('parking') || q.includes('nearby') || q.includes('map')) handoffs.add('map');
+  if (q.includes('open') || q.includes('discover') || q.includes('chef') || q.includes('food') || q.includes('service')) handoffs.add('discover');
+  if (q.includes('book') || q.includes('reservation') || q.includes('chef') || q.includes('access')) handoffs.add('booking');
+  return Array.from(handoffs.size ? handoffs : new Set<HandoffAction>(['discover', 'map']));
+}
+
+export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDiscover, onShowMap, onStartBooking, initialPrompt, tabMode = false, cityName = 'Midtown' }: HomeConciergeProps) {
   const [messages, setMessages] = useState<Message[]>(() => [buildWelcomeMessage(cityName)]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [conversationId, setConversationId] = useState(() => `concierge-${Date.now()}`);
+  const [history, setHistory] = useState<ConciergeConversation[]>(() => loadConciergeHistory());
   const [connectionState, setConnectionState] = useState<'ready' | 'thinking' | 'offline' | 'fallback'>('ready');
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +160,43 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
 
   const createMessageId = () => nextMessageIdRef.current++;
   const focusInputSoon = () => window.setTimeout(() => inputRef.current?.focus(), 0);
+  const saveHistory = (next: ConciergeConversation[]) => {
+    const limited = next.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12);
+    setHistory(limited);
+    localStorage.setItem(CONCIERGE_HISTORY_KEY, JSON.stringify(limited));
+  };
+  const resetConversation = () => {
+    nextMessageIdRef.current = 2;
+    setConversationId(`concierge-${Date.now()}`);
+    setMessages([buildWelcomeMessage(cityName)]);
+    setConnectionState('ready');
+    setShowHistory(false);
+  };
+  const openConversation = (conversation: ConciergeConversation) => {
+    setConversationId(conversation.id);
+    setMessages(conversation.messages);
+    nextMessageIdRef.current = Math.max(...conversation.messages.map(m => m.id), 1) + 1;
+    setShowHistory(false);
+    setConnectionState('ready');
+  };
+  const handleHandoff = (action: HandoffAction, query?: string) => {
+    if (action === 'discover') onOpenDiscover?.(query);
+    if (action === 'map') onShowMap?.(query);
+    if (action === 'booking') onStartBooking?.(query);
+    if (!tabMode) onClose?.();
+  };
+  const buildInstantResponse = (query: string): Message => {
+    const complex = isComplexConciergeRequest(query);
+    const handoffs = inferHandoffs(query);
+    const q = query.toLowerCase();
+    let text = `I’m on it — I’ll use ${cityName} context and narrow this down for you.`;
+    if (q.includes('parking')) text = 'I can help find nearby parking and route you to the best option.';
+    if (q.includes('open')) text = `I’ll look for what’s open now around ${cityName}.`;
+    if (q.includes('access')) text = 'I can help pull up booking and access options.';
+    if (q.includes('chef')) text = 'A private chef request needs white-glove handling. I’ll start the request and route you to booking options.';
+    if (complex) text += '\n\nConnecting you to a Concierge specialist for the details.';
+    return { id: createMessageId(), sender: 'ai', text, handoffs, escalated: complex, sourceQuery: query };
+  };
   const addVoiceFallbackMessage = (text: string) => {
     setConnectionState('fallback');
     setMessages(prev => [...prev, { id: createMessageId(), sender: 'ai', text }]);
@@ -125,6 +204,25 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
   };
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    if (initialPrompt) {
+      setInput(initialPrompt);
+      focusInputSoon();
+    }
+  }, [initialPrompt]);
+  useEffect(() => {
+    const firstUser = messages.find(m => m.sender === 'user');
+    if (!firstUser) return;
+    const record: ConciergeConversation = {
+      id: conversationId,
+      title: firstUser.text.slice(0, 54),
+      updatedAt: Date.now(),
+      messages,
+    };
+    const next = [record, ...history.filter(item => item.id !== conversationId)];
+    saveHistory(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, conversationId]);
 
   // Voice recognition setup: prefer native Capacitor on iOS/iPad, fall back to
   // Web Speech when available, otherwise keep the button responsive and focus
@@ -139,7 +237,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       setIsListening(true);
       const result = await SpeechRecognition.start({ language: 'en-US', maxResults: 1, partialResults: false, popup: false });
       const transcript = result.matches?.[0]?.trim();
-      if (transcript) setInput(transcript);
+      if (transcript) void handleSend(transcript);
       setIsListening(false);
       focusInputSoon();
       return true;
@@ -175,7 +273,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       recognition.maxAlternatives = 1;
       recognition.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
-        setInput(transcript);
+        void handleSend(transcript);
         setIsListening(false);
         focusInputSoon();
       };
@@ -243,8 +341,14 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
     if (!query || isTyping) return;
 
     const userMsg: Message = { id: createMessageId(), sender: 'user', text: query };
-    setMessages(prev => [...prev, userMsg]);
+    const instantMsg = buildInstantResponse(query);
+    setMessages(prev => [...prev, userMsg, instantMsg]);
     setInput('');
+    if (instantMsg.escalated) {
+      setIsTyping(false);
+      setConnectionState('ready');
+      return;
+    }
     setIsTyping(true);
     setConnectionState(navigator.onLine ? 'thinking' : 'offline');
 
@@ -354,19 +458,32 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         <div className="absolute -right-16 -top-20 h-36 w-36 rounded-full bg-purple-500/25 blur-3xl" />
         <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/25 ring-1 ring-white/25">
+          <div className="relative w-11 h-11 rounded-[16px] bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/25 ring-1 ring-white/25">
             <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
+            <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-green-400 border-2 border-[#0B0B0F] flex items-center justify-center">
+              <Headphones className="w-2.5 h-2.5 text-black" strokeWidth={3} />
+            </span>
           </div>
           <div>
-            <p className="text-white text-[15px] leading-5" style={{ fontWeight: 700 }}>Bytspot Concierge</p>
-            <p className="text-[11px] leading-4 text-green-300" style={{ fontWeight: 600 }}>
-              ● {connectionState === 'thinking' ? 'Thinking' : connectionState === 'offline' ? 'Offline mode' : connectionState === 'fallback' ? 'Local fallback' : 'Live'} · {cityName}
-            </p>
+            <p className="text-white text-[16px] leading-5" style={{ fontWeight: 800 }}>Bytspot Concierge</p>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 800 }}>Human + AI</span>
+              <span className="text-[11px] leading-4 text-green-300" style={{ fontWeight: 600 }}>
+                ● {connectionState === 'thinking' ? 'Thinking' : connectionState === 'offline' ? 'Offline mode' : connectionState === 'fallback' ? 'Local fallback' : 'Live'} · {cityName}
+              </span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { nextMessageIdRef.current = 2; setMessages([buildWelcomeMessage(cityName)]); setConnectionState('ready'); }}
+            onClick={() => setShowHistory(prev => !prev)}
+            className="w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-xl"
+            title="Concierge request history"
+          >
+            <Menu className="w-3.5 h-3.5 text-white/70" strokeWidth={2.5} />
+          </button>
+          <button
+            onClick={resetConversation}
             className="w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-xl"
             title="Clear chat"
           >
@@ -380,6 +497,35 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
         </div>
         </div>
       </div>
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            className="border-b border-white/10 bg-[#0B0B0F]/95 px-4 py-3 backdrop-blur-xl"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <div className="mb-2 flex items-center gap-2 text-white/80">
+              <History className="h-3.5 w-3.5" />
+              <span className="text-[12px]" style={{ fontWeight: 800 }}>Concierge Request History</span>
+            </div>
+            <div className="max-h-40 space-y-2 overflow-y-auto pr-1 scrollbar-hide">
+              {history.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3 text-[12px] text-white/50">No past conversations yet.</p>
+              ) : history.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => openConversation(item)}
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-left transition-colors hover:bg-white/[0.08]"
+                >
+                  <p className="truncate text-[13px] text-white" style={{ fontWeight: 700 }}>{item.title}</p>
+                  <p className="mt-0.5 text-[11px] text-white/45">{new Date(item.updatedAt).toLocaleString()}</p>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Messages */}
       <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide bg-[radial-gradient(circle_at_top_right,rgba(168,85,247,0.12),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(0,191,255,0.09),transparent_34%)]">
         <AnimatePresence initial={false}>
@@ -399,6 +545,29 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
               <p className="text-[14px] leading-[20px] whitespace-pre-wrap" style={{ fontWeight: 400 }}>
                 <PremiumAIText text={m.text} animate={m.sender === 'ai'} />
               </p>
+              {m.escalated && (
+                <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>
+                  Connecting you to a Concierge specialist
+                </div>
+              )}
+              {m.handoffs && m.handoffs.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {m.handoffs.map(action => {
+                    const label = action === 'discover' ? 'Open in Discover' : action === 'map' ? 'Show on Map' : 'Start Booking';
+                    return (
+                      <button
+                        key={`${m.id}-${action}`}
+                        onClick={() => handleHandoff(action, m.sourceQuery ?? m.text)}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] text-white/85 transition-colors hover:bg-white/15"
+                        style={{ fontWeight: 800 }}
+                      >
+                        {label}
+                        <ArrowUpRight className="h-3 w-3" strokeWidth={2.5} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {/* Venue Cards */}
               {m.venues && m.venues.length > 0 && (
                 <div className="mt-3 space-y-2">
@@ -493,28 +662,28 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, tabMode 
       </div>
       {/* Input */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0B0B0F]/92 backdrop-blur-xl flex-shrink-0" style={{ paddingBottom: tabMode ? 'calc(12px + env(safe-area-inset-bottom))' : 'calc(12px + env(safe-area-inset-bottom))' }}>
-        <input
-          ref={inputRef}
-          type="text"
-          aria-label="Find me somewhere chill…"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSend()}
-          placeholder="Find me somewhere chill…"
-          className="flex-1 px-4 py-3 rounded-full bg-[#1C1C1E]/80 border border-white/20 text-white text-[15px] leading-5 placeholder:text-white/40 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 transition-colors backdrop-blur-xl"
-        />
         {/* Voice Input */}
         <motion.button
           type="button"
           aria-label={isListening ? 'Stop voice input' : 'Voice input'}
           data-testid="home-concierge-voice-input"
           onClick={toggleVoice}
-          className={`w-11 h-11 rounded-full flex items-center justify-center border border-white/15 ${isListening ? 'bg-red-500/80 animate-pulse' : 'bg-white/10'}`}
-          whileTap={{ scale: 0.9 }}
+          className={`h-14 w-14 flex-shrink-0 rounded-full flex items-center justify-center border shadow-xl ${isListening ? 'border-red-200/40 bg-red-500/90 shadow-red-500/25 animate-pulse' : 'border-cyan-200/30 bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-500 shadow-cyan-500/20'}`}
+          whileTap={{ scale: 0.92 }}
           style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
           title="Voice input">
-          {isListening ? <MicOff className="w-4 h-4 text-white" strokeWidth={2.5} /> : <Mic className="w-4 h-4 text-white/50" strokeWidth={2.5} />}
+          {isListening ? <MicOff className="w-5 h-5 text-white" strokeWidth={2.8} /> : <Mic className="w-5 h-5 text-white" strokeWidth={2.8} />}
         </motion.button>
+        <input
+          ref={inputRef}
+          type="text"
+          aria-label="Message Bytspot Concierge"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSend()}
+          placeholder="Message Concierge…"
+          className="flex-1 px-4 py-3 rounded-full bg-[#1C1C1E]/80 border border-white/20 text-white text-[15px] leading-5 placeholder:text-white/40 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 transition-colors backdrop-blur-xl"
+        />
         {/* Send */}
         <motion.button
           type="button"

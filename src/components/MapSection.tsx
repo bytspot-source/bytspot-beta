@@ -1,13 +1,13 @@
 import 'leaflet/dist/leaflet.css';
 import { Capacitor } from '@capacitor/core';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
   Zap, Umbrella, Filter, X,
   MapPin, ChevronRight, Send, QrCode,
-  Lock, Sparkles, Wifi,
+  Lock, Sparkles, Wifi, Layers, Search, Car, Route, Crosshair,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -68,7 +68,11 @@ interface MapSectionProps {
   pendingPatchScan?: { patchId?: string | null; venueName?: string; source?: 'app-clip' | 'wallet' } | null;
   /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
   onPendingPatchScanConsumed?: () => void;
+  /** Route a map-created request into the established Concierge tab without adding nav layers. */
+  onOpenConciergeRequest?: (prefill: string) => void;
 }
+
+type DroppedRequestPin = { lat: number; lng: number; label: string };
 
 type AvailabilityStatus = 'available' | 'limited' | 'full';
 
@@ -120,6 +124,15 @@ function MapInteractionController({
   return null;
 }
 
+function LongPressDropController({ onDrop }: { onDrop: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    contextmenu(event) {
+      onDrop(event.latlng.lat, event.latlng.lng);
+    },
+  });
+  return null;
+}
+
 // Shared CSS keyframes injected once
 const PULSE_STYLE_ID = 'bytspot-pulse-css';
 if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID)) {
@@ -132,12 +145,16 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
     @keyframes bytspot-verified-glow { 0%,100%{transform:scale(1);opacity:.45} 50%{transform:scale(1.24);opacity:.12} }
     @keyframes bytspot-verified-ring { 0%{transform:scale(.98);opacity:.8} 70%{transform:scale(1.75);opacity:0} 100%{transform:scale(1.75);opacity:0} }
     @keyframes bytspot-marker-in { 0%{opacity:0;transform:scale(.55) translateY(4px)} 60%{opacity:1;transform:scale(1.06) translateY(0)} 100%{opacity:1;transform:scale(1) translateY(0)} }
+    @keyframes bytspot-station-orbit { 0%{transform:scale(.9);opacity:.7} 70%{transform:scale(2.15);opacity:0} 100%{transform:scale(2.15);opacity:0} }
+    @keyframes bytspot-tapzone-scan { 0%,100%{transform:translateY(-2px);opacity:.35} 50%{transform:translateY(22px);opacity:.95} }
     .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
     .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
     .byt-trend-pulse{position:absolute;inset:-9px;border-radius:50%;animation:bytspot-trend 1.1s ease-out infinite;}
     .byt-verified-glow{position:absolute;inset:-12px;border-radius:50%;background:radial-gradient(circle, rgba(34,211,238,.45) 0%, rgba(124,58,237,.24) 44%, rgba(236,72,153,0) 74%);animation:bytspot-verified-glow 2.6s ease-in-out infinite;}
     .byt-verified-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.85);box-shadow:0 0 20px rgba(34,211,238,.45),0 0 28px rgba(124,58,237,.22);animation:bytspot-verified-ring 1.85s ease-out infinite;}
     .byt-marker-in{animation:bytspot-marker-in 320ms cubic-bezier(.2,.8,.25,1.05) both;transform-origin:center bottom;}
+    .byt-station-orbit{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.72);animation:bytspot-station-orbit 1.9s ease-out infinite;}
+    .byt-tapzone-scan{position:absolute;left:6px;right:6px;height:2px;border-radius:999px;background:rgba(103,232,249,.95);box-shadow:0 0 12px rgba(34,211,238,.8);animation:bytspot-tapzone-scan 1.6s ease-in-out infinite;}
   `;
   document.head.appendChild(style);
 }
@@ -151,6 +168,36 @@ function createParkingIcon(color: string): L.DivIcon {
     iconSize: [32, 32],
     iconAnchor: [16, 16],
     popupAnchor: [0, -18],
+    className: '',
+  });
+}
+
+function createDroppedPinIcon(): L.DivIcon {
+  return L.divIcon({
+    html: `<div class="byt-marker-in" style="position:relative;width:34px;height:42px;">
+      <div style="position:absolute;left:50%;top:2px;transform:translateX(-50%);width:30px;height:30px;border-radius:50% 50% 50% 4px;background:linear-gradient(135deg,#22d3ee,#8b5cf6);border:2px solid rgba(255,255,255,.94);box-shadow:0 12px 26px rgba(0,0,0,.52),0 0 22px rgba(34,211,238,.5);transform-origin:center;rotate:-45deg;"></div>
+      <div style="position:absolute;left:50%;top:11px;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:white;"></div>
+    </div>`,
+    iconSize: [34, 42],
+    iconAnchor: [17, 36],
+    popupAnchor: [0, -34],
+    className: '',
+  });
+}
+
+function createTapZoneIcon(): L.DivIcon {
+  return L.divIcon({
+    html: `<div class="byt-marker-in" style="position:relative;width:40px;height:40px;">
+      <div class="byt-verified-glow"></div>
+      <div style="position:absolute;inset:1px;clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(135deg,#06b6d4,#7c3aed 58%,#ec4899);border:2px solid rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(0,0,0,.55),0 0 24px rgba(34,211,238,.45);overflow:hidden;">
+        <div class="byt-tapzone-scan"></div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:white;font-size:15px;font-weight:900;line-height:1;">⌁</div>
+      </div>
+      <div style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.94);border:1px solid rgba(103,232,249,.65);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;white-space:nowrap;">TAP</div>
+    </div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -22],
     className: '',
   });
 }
@@ -209,6 +256,7 @@ function createVibeMarkerIcon(
   return L.divIcon({
     html: `<div class="byt-marker-in" style="position:relative;width:${size}px;height:${size}px;">
       ${verifiedGlowHtml}
+      <div class="byt-station-orbit" style="border-color:${color};"></div>
       <div class="${pulseClass}" style="border:2px solid ${color};"></div>
       <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid rgba(255,255,255,0.92);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;cursor:pointer;">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
@@ -352,16 +400,32 @@ function openNativeNavigation(lat: number, lng: number, label?: string) {
   }
 }
 
-export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed }: MapSectionProps) {
+function estimateEtaMinutes(from: [number, number], to: [number, number]): number {
+  const meters = haversineMeters(from[0], from[1], to[0], to[1]);
+  return Math.max(2, Math.round(meters / 70));
+}
+
+function formatVenueAvailability(venue: ApiVenue): string {
+  if (venue.crowd?.waitMins) return `~${venue.crowd.waitMins}m wait`;
+  if (venue.availability) return String(venue.availability);
+  return (venue.crowd?.level ?? 1) >= 4 ? 'High activity' : 'Live availability';
+}
+
+export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed, onOpenConciergeRequest }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_ATLANTA_PARKING);
-  const [showParkingSpots] = useState(true);
-  const [showVenues] = useState(true);
+  const [showParkingSpots, setShowParkingSpots] = useState(true);
+  const [showVenues, setShowVenues] = useState(true);
+  const [showTapZones, setShowTapZones] = useState(true);
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null);
   const [showSpotDetails, setShowSpotDetails] = useState(false);
   const [routeDestination, setRouteDestination] = useState<string>(destination || '');
   const [showTrafficIntel, setShowTrafficIntel] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showLayerMenu, setShowLayerMenu] = useState(false);
+  const [mapQuery, setMapQuery] = useState(destination || '');
+  const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
+  const [droppedRequestPin, setDroppedRequestPin] = useState<DroppedRequestPin | null>(null);
   const [shouldRecenter, setShouldRecenter] = useState(false);
   const [zoomDirection, setZoomDirection] = useState(0);
   const [reservationSpot, setReservationSpot] = useState<ReservationSpot | null>(null);
@@ -439,9 +503,14 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const trendingIds = useMemo(() => getTrendingVenueIds(), []);
 
   // Apply Verified-only / vibe / entry / category filters to the full ApiVenue list
+  const normalizedMapQuery = mapQuery.trim().toLowerCase();
   const allFilteredVenues = useMemo<ApiVenue[]>(
-    () => filterMapVenues(apiVenues, { showVerifiedOnly, vibeFilter, entryFilter, categoryFilter }),
-    [apiVenues, vibeFilter, entryFilter, categoryFilter, showVerifiedOnly],
+    () => filterMapVenues(apiVenues, { showVerifiedOnly, vibeFilter, entryFilter, categoryFilter }).filter((venue) => {
+      if (!normalizedMapQuery) return true;
+      const haystack = [venue.name, venue.category, venue.address, venue.description].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(normalizedMapQuery);
+    }),
+    [apiVenues, vibeFilter, entryFilter, categoryFilter, showVerifiedOnly, normalizedMapQuery],
   );
   // eBike stations render as their own marker type; everything else uses the vibe tile.
   const bikeStations = useMemo<ApiVenue[]>(
@@ -449,7 +518,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     [allFilteredVenues],
   );
   const filteredMapVenues = useMemo<ApiVenue[]>(
-    () => allFilteredVenues.filter((v) => !isBikeStation(v)),
+    () => allFilteredVenues.filter((v) => !isBikeStation(v) && (!showTapZones || !hasHardwarePatchInstalled(v))),
+    [allFilteredVenues, showTapZones],
+  );
+  const tapZoneVenues = useMemo<ApiVenue[]>(
+    () => allFilteredVenues.filter((venue) => hasHardwarePatchInstalled(venue)),
     [allFilteredVenues],
   );
   const verifiedVenues = useMemo(() => apiVenues.filter((venue) => hasHardwarePatchInstalled(venue)), [apiVenues]);
@@ -664,6 +737,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   useEffect(() => {
     if (destination) {
       setRouteDestination(destination);
+      setMapQuery(destination);
       toast.success('Route Planning', { description: `Navigating to ${destination}`, duration: 2000 });
     }
   }, [destination]);
@@ -738,6 +812,28 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     }
   }, []);
 
+  const handleVerifyVenueAccess = useCallback((venue: ApiVenue) => {
+    setPeekVenue(venue);
+    setVenueDetailsVenue(null);
+    if (hasHardwarePatchInstalled(venue) && (scanCapabilities.nfc || scanCapabilities.qr)) {
+      setQrScannerEntrySource('map');
+      setQrScannerVenue(venue);
+      setShowQrScannerSheet(true);
+      toast.success('Tap Zone ready', { description: `Verify access at ${venue.name}.` });
+      return;
+    }
+    handleOpenVirtualPatch();
+  }, [handleOpenVirtualPatch, scanCapabilities]);
+
+  const handleDroppedPin = useCallback((lat: number, lng: number) => {
+    triggerLightHaptic();
+    const pin = { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
+    setDroppedRequestPin(pin);
+    setPeekVenue(null);
+    setBottomSheetExpanded(true);
+    toast('Request pin dropped', { description: 'Create a Concierge request from this location.' });
+  }, [triggerLightHaptic]);
+
   const getAvailabilityStatus = (spot: ParkingSpot): AvailabilityStatus => {
     const pct = (spot.available / spot.total) * 100;
     if (pct === 0) return 'full';
@@ -752,6 +848,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   };
 
   const filteredParkingSpots = parkingData.filter((spot: ParkingSpot) => {
+    if (normalizedMapQuery && !`${spot.name} ${spot.securityLevel} parking`.toLowerCase().includes(normalizedMapQuery)) return false;
     if (spot.price < filters.priceRange[0] || spot.price > filters.priceRange[1]) return false;
     if (!filters.securityLevel.includes(spot.securityLevel)) return false;
     if (filters.evChargingOnly && !spot.hasEVCharging) return false;
@@ -759,6 +856,37 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     if (filters.showPremiumOnly && !spot.isPremium) return false;
     return true;
   });
+
+  const selectedDestinationCoords = peekVenue
+    ? [peekVenue.lat, peekVenue.lng] as [number, number]
+    : droppedRequestPin
+      ? [droppedRequestPin.lat, droppedRequestPin.lng] as [number, number]
+      : null;
+  const routeEtaMinutes = selectedDestinationCoords ? estimateEtaMinutes(mapCenter, selectedDestinationCoords) : null;
+  const smartParkingSuggestions = useMemo(() => {
+    const target = selectedDestinationCoords ?? mapCenter;
+    return filteredParkingSpots
+      .map(spot => ({ spot, distanceMeters: haversineMeters(target[0], target[1], spot.lat, spot.lng) }))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, 3);
+  }, [filteredParkingSpots, selectedDestinationCoords, mapCenter]);
+  const nearbyResults = useMemo(() => {
+    const providerResults = [...tapZoneVenues, ...filteredMapVenues].slice(0, 8).map((venue) => ({
+      id: `venue-${venue.id ?? venue.name}`,
+      name: venue.name,
+      detail: `${venue.category ?? 'Service'} · ${formatVenueAvailability(venue)}`,
+      type: hasHardwarePatchInstalled(venue) ? 'Tap Zone' : 'Provider',
+      onClick: () => { setPeekVenue(venue); setBottomSheetExpanded(true); },
+    }));
+    const parkingResults = smartParkingSuggestions.map(({ spot, distanceMeters }) => ({
+      id: `parking-${spot.id}`,
+      name: spot.name,
+      detail: `${formatMeters(distanceMeters)} · ${spot.available}/${spot.total} spots · $${spot.price}/hr`,
+      type: 'Parking',
+      onClick: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); },
+    }));
+    return [...providerResults, ...parkingResults].slice(0, 8);
+  }, [filteredMapVenues, smartParkingSuggestions, tapZoneVenues]);
 
   return (
     <div className="relative w-full h-full" style={{ zIndex: 0 }}>
@@ -781,8 +909,24 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           zoomDirection={zoomDirection} onZoomed={() => setZoomDirection(0)}
           center={mapCenter}
         />
+        <LongPressDropController onDrop={handleDroppedPin} />
+
+        {selectedDestinationCoords && (
+          <Polyline
+            positions={[mapCenter, selectedDestinationCoords]}
+            pathOptions={{ color: '#22d3ee', weight: 4, opacity: 0.78, dashArray: '10 12' }}
+          />
+        )}
 
         {/* Parking Markers */}
+        {droppedRequestPin && (
+          <Marker
+            position={[droppedRequestPin.lat, droppedRequestPin.lng]}
+            icon={createDroppedPinIcon()}
+            eventHandlers={{ click: () => setBottomSheetExpanded(true) }}
+          />
+        )}
+
         {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
           const status = getAvailabilityStatus(spot);
           const color = getColor(status);
@@ -791,7 +935,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               key={spot.id}
               position={[spot.lat, spot.lng]}
               icon={createParkingIcon(color)}
-              eventHandlers={{ click: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); } }}
+	              eventHandlers={{ click: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); setBottomSheetExpanded(true); } }}
             >
               <Popup>
                 <div style={{ minWidth: 160 }}>
@@ -837,11 +981,28 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                 click: () => {
                   setPeekVenue(v);
                   setVenueDetailsVenue(null);
+	                  setBottomSheetExpanded(true);
                 },
               }}
             />
           );
         })}
+
+        {/* ── NFC Tap Zone Markers — distinct hex/scanner icon ── */}
+        {showTapZones && tapZoneVenues.map((v) => (
+          <Marker
+            key={`tap-zone-${v.id ?? v.name}`}
+            position={[v.lat, v.lng]}
+            icon={createTapZoneIcon()}
+            eventHandlers={{
+              click: () => {
+                setPeekVenue(v);
+                setVenueDetailsVenue(null);
+                setBottomSheetExpanded(true);
+              },
+            }}
+          />
+        ))}
 
         {/* ── eBike Station Markers — distinct teal squared icon ── */}
         {showVenues && bikeStations.map((b) => (
@@ -853,6 +1014,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               click: () => {
                 setPeekVenue(b);
                 setVenueDetailsVenue(null);
+	                setBottomSheetExpanded(true);
               },
             }}
           />
@@ -889,9 +1051,93 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
       </MapContainer>
 
+      {/* Spatial Intelligence Search */}
+      <div className="absolute left-3 right-3 top-4 z-[1000]">
+        <div className="rounded-[24px] border border-white/18 bg-[#080A10]/92 px-3 py-3 shadow-2xl backdrop-blur-2xl">
+          <div className="flex items-center gap-3">
+            <Search className="h-5 w-5 flex-shrink-0 text-cyan-200" strokeWidth={2.5} />
+            <input
+              value={mapQuery}
+              onChange={(event) => setMapQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && mapQuery.trim()) {
+                  setRouteDestination(mapQuery.trim());
+                  setBottomSheetExpanded(true);
+                  toast.success('Spatial search', { description: `Scanning for ${mapQuery.trim()}` });
+                }
+              }}
+              placeholder="Search destination or service type"
+              className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/45"
+              style={{ fontWeight: 700 }}
+            />
+            <div className="hidden rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 sm:block" style={{ fontWeight: 900 }}>
+              Station Mode
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {/* Right Controls — Zoom + Recenter */}
-      <div className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-2 z-[1000]">
+      {/* Floating Spatial Intelligence Actions */}
+      <div className="absolute top-28 right-4 flex flex-col gap-2 z-[1000]">
+        <div className="relative">
+          <motion.button
+            onClick={() => { triggerLightHaptic(); setShowLayerMenu(prev => !prev); }}
+            className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showLayerMenu ? 'bg-cyan-500/90 border-cyan-200/70' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+            whileTap={{ scale: 0.9 }}
+            transition={springConfig}
+            aria-label="Map layers"
+          >
+            <Layers className="w-5 h-5 text-white" strokeWidth={2.5} />
+          </motion.button>
+          <AnimatePresence>
+            {showLayerMenu && (
+              <motion.div
+                className="absolute right-14 top-0 w-52 rounded-[20px] border border-white/15 bg-[#0B0B0F]/95 p-3 shadow-2xl backdrop-blur-2xl"
+                initial={{ opacity: 0, x: 12, scale: 0.96 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 12, scale: 0.96 }}
+                transition={springConfig}
+              >
+                <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Layers</p>
+                {[
+                  { label: 'Parking', checked: showParkingSpots, set: setShowParkingSpots, icon: 'P' },
+                  { label: 'Providers', checked: showVenues, set: setShowVenues, icon: '•' },
+                  { label: 'Tap Zones', checked: showTapZones, set: setShowTapZones, icon: '⌁' },
+                ].map(layer => (
+                  <button
+                    key={layer.label}
+                    onClick={() => layer.set(!layer.checked)}
+                    className="flex w-full items-center justify-between rounded-2xl px-2.5 py-2 text-left text-[13px] text-white transition-colors hover:bg-white/8"
+                    style={{ fontWeight: 800 }}
+                  >
+                    <span className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] text-cyan-100">{layer.icon}</span>{layer.label}</span>
+                    <span className={`h-5 w-9 rounded-full border p-0.5 ${layer.checked ? 'border-cyan-200/70 bg-cyan-400/35' : 'border-white/20 bg-white/8'}`}>
+                      <span className={`block h-3.5 w-3.5 rounded-full bg-white transition-transform ${layer.checked ? 'translate-x-4' : ''}`} />
+                    </span>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <motion.button
+          onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
+          className="w-12 h-12 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+          aria-label="Current location"
+        >
+          <Crosshair className="w-5 h-5 text-white" strokeWidth={2.5} />
+        </motion.button>
+        <motion.button
+          onClick={() => { triggerLightHaptic(); setShowFilters(!showFilters); }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showFilters ? 'bg-purple-500/90 border-purple-200/70' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          whileTap={{ scale: 0.9 }}
+          transition={springConfig}
+          aria-label="Filter map results"
+        >
+          <Filter className="w-5 h-5 text-white" strokeWidth={2.5} />
+        </motion.button>
         <motion.button
           onClick={() => { triggerLightHaptic(); setZoomDirection(1); }}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
@@ -907,14 +1153,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           transition={springConfig}
         >
           <Minus className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-        >
-          <Target className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
         {/* Traffic Intelligence toggle */}
         <motion.button
@@ -968,8 +1206,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
       </div>
 
-      {/* ── Vibe Filter Bar — horizontal scroll, full width ── */}
-      <div className="absolute top-4 left-3 right-3 z-[1000]">
+      {/* ── Compact Vibe Filter Bar — secondary filters under search ── */}
+      <div className="absolute top-[92px] left-3 right-20 z-[1000]">
         <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
 
           {/* ─ Vibe chips ─ */}
@@ -1687,135 +1925,124 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         document.body
       )}
 
-      {/* ── Venue Peek Sheet — slides up when a vibe marker is tapped ── */}
+      {/* Spatial Intelligence Bottom Sheet */}
       <AnimatePresence>
-        {peekVenue && !venueDetailsVenue && (
+        {!venueDetailsVenue && (peekVenue || droppedRequestPin || nearbyResults.length > 0) && (
           <motion.div
-            className="absolute bottom-24 left-3 right-3 z-[1002]"
-            initial={{ y: 140, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 140, opacity: 0 }}
+            className="absolute bottom-20 left-3 right-3 z-[1002]"
+            initial={{ y: 180, opacity: 0 }}
+            animate={{ y: bottomSheetExpanded ? 0 : 118, opacity: 1 }}
+            exit={{ y: 180, opacity: 0 }}
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 130 }}
+            dragElastic={0.12}
+            onDragEnd={(_, info) => setBottomSheetExpanded(info.offset.y < -24)}
             transition={{ type: 'spring', stiffness: 340, damping: 30 }}
           >
             <div
-              className={`rounded-[22px] bg-[#1C1C1E]/96 backdrop-blur-2xl border shadow-2xl overflow-hidden ${peekVenueIsVerified ? 'border-cyan-300/35' : 'border-white/18'}`}
+              className={`max-h-[72vh] overflow-hidden rounded-[28px] border bg-[#0B0B0F]/96 shadow-2xl backdrop-blur-2xl ${peekVenueIsVerified ? 'border-cyan-300/35' : 'border-white/16'}`}
               style={peekVenueIsVerified ? { boxShadow: '0 0 34px rgba(34,211,238,0.16), 0 18px 42px rgba(0,0,0,0.48)' } : undefined}
             >
-              {/* Header */}
-              <div className="flex items-start justify-between p-4 pb-3">
-                <div className="flex-1 min-w-0">
-                  {/* Vibe + Entry badges */}
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    {(() => {
-                      const lvl = peekVenue.crowd?.level ?? 1;
-                      const badgeClass =
-                        lvl === 4 ? 'bg-red-500/30 text-red-300' :
-                        lvl === 3 ? 'bg-orange-500/30 text-orange-300' :
-                        lvl === 2 ? 'bg-yellow-500/30 text-yellow-300' :
-                                    'bg-green-500/30 text-green-300';
-                      const emoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
-                      return (
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${badgeClass}`}>
-                          {emoji} {peekVenue.crowd?.label ?? 'Chill'}
-                        </span>
-                      );
-                    })()}
-                    {peekVenueIsVerified && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-400/15 text-cyan-200 border border-cyan-300/30 font-bold">
-                        ⬢ Bytspot Verified
-                      </span>
-                    )}
-                    {peekVenue.entryType === 'paid' ? (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-300 font-bold">
-                        {peekVenue.entryPrice ?? 'Paid'}
-                      </span>
-                    ) : (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-bold">
-                        FREE
-                      </span>
-                    )}
-                  </div>
-                  {/* Name */}
-                  <h3 className="text-[17px] text-white font-semibold leading-tight truncate">
-                    {peekVenue.name}
-                  </h3>
-                  {/* Subtitle */}
-                  <p className="text-[12px] text-white/50 mt-0.5 capitalize">
-                    {peekVenue.category}
-                    {peekVenue.crowd?.waitMins ? ` · ~${peekVenue.crowd.waitMins}m wait` : ' · No wait'}
-                    {peekVenueIsVerified ? ' · Tap-ready' : ''}
-                  </p>
-                </div>
-                {/* Dismiss */}
-                <motion.button
-                  onClick={() => setPeekVenue(null)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 border border-white/20 ml-3 flex-shrink-0 mt-0.5"
-                  whileTap={{ scale: 0.88 }}
-                >
-                  <X className="w-3.5 h-3.5 text-white/70" />
-                </motion.button>
-              </div>
+              <button
+                className="mx-auto mt-3 block h-1.5 w-12 rounded-full bg-white/25"
+                onClick={() => setBottomSheetExpanded(prev => !prev)}
+                aria-label="Toggle map results sheet"
+              />
 
-              {/* ── Member Perks — only on Verified venues; gated by Bytspot Premium ── */}
-              {peekVenueIsVerified && (
-                isPremium ? (
-                  <div
-                    className="mx-4 mb-3 px-3 py-2.5 rounded-[14px] border border-cyan-300/45"
-                    style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.18), rgba(124,58,237,0.18) 60%, rgba(236,72,153,0.16))' }}
-                  >
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-200" strokeWidth={2.5} />
-                      <span className="text-[11px] text-cyan-100 tracking-[0.08em]" style={{ fontWeight: 800 }}>
-                        MEMBER PERKS · ACTIVE
-                      </span>
+              <div className="max-h-[68vh] overflow-y-auto px-4 pb-4 pt-3 scrollbar-hide">
+                {peekVenue ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 900 }}>Station Mode</span>
+                          {peekVenueIsVerified && <span className="rounded-full border border-cyan-300/30 bg-cyan-400/12 px-2.5 py-1 text-[10px] text-cyan-100" style={{ fontWeight: 900 }}>Tap Zone</span>}
+                          <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] text-white/70" style={{ fontWeight: 800 }}>{formatVenueAvailability(peekVenue)}</span>
+                        </div>
+                        <h3 className="truncate text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>{peekVenue.name}</h3>
+                        <p className="mt-1 text-[12px] capitalize text-white/55">{peekVenue.category} · {peekVenue.address || 'Nearby'}{routeEtaMinutes ? ` · ${routeEtaMinutes} min ETA` : ''}</p>
+                      </div>
+                      <motion.button
+                        onClick={() => setPeekVenue(null)}
+                        className="h-8 w-8 flex-shrink-0 rounded-full border border-white/20 bg-white/10 flex items-center justify-center"
+                        whileTap={{ scale: 0.88 }}
+                      >
+                        <X className="h-3.5 w-3.5 text-white/70" />
+                      </motion.button>
                     </div>
-                    <ul className="text-[12px] text-white/85 space-y-0.5" style={{ fontWeight: 600 }}>
-                      <li>· 10% off your tab</li>
-                      <li>· Skip the line at entry</li>
-                      <li>· Member-only Tap / Scan rewards</li>
-                    </ul>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Crowd</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.label ?? 'Live'}</p></div>
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Access</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenueIsVerified ? 'Patch ready' : 'Standard'}</p></div>
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Reports</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.level ?? 1}/4 activity</p></div>
+                    </div>
+
+                    {selectedDestinationCoords && (
+                      <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3">
+                        <div className="flex items-center gap-2 text-cyan-100"><Route className="h-4 w-4" /><span className="text-[12px]" style={{ fontWeight: 900 }}>Route preview · {routeEtaMinutes} min ETA</span></div>
+                        <p className="mt-1 text-[11px] text-white/58">Preview shown on map. Start Navigation hands off to Apple Maps / Google Maps.</p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <motion.button onClick={() => handleVerifyVenueAccess(peekVenue)} className="rounded-2xl bg-cyan-400 px-3 py-3 text-[13px] text-black flex items-center justify-center gap-1.5" style={{ fontWeight: 900 }} whileTap={{ scale: 0.96 }}>
+                        <QrCode className="h-4 w-4" /> Verify Access
+                      </motion.button>
+                      <motion.button onClick={() => openNativeNavigation(peekVenue.lat, peekVenue.lng, peekVenue.name)} className="rounded-2xl border border-white/18 bg-white/10 px-3 py-3 text-[13px] text-white flex items-center justify-center gap-1.5" style={{ fontWeight: 900 }} whileTap={{ scale: 0.96 }}>
+                        <Navigation className="h-4 w-4" /> Start Navigation
+                      </motion.button>
+                    </div>
+                    <button onClick={() => setVenueDetailsVenue(peekVenue)} className="w-full rounded-2xl border border-purple-300/25 bg-purple-500/16 px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 900 }}>View full venue details</button>
+                  </div>
+                ) : droppedRequestPin ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Dropped request pin</p>
+                        <h3 className="mt-1 text-[18px] text-white" style={{ fontWeight: 900 }}>{droppedRequestPin.label}</h3>
+                        <p className="mt-1 text-[12px] text-white/55">Create a white-glove Concierge request with coordinate context.</p>
+                      </div>
+                      <button onClick={() => setDroppedRequestPin(null)} className="h-8 w-8 rounded-full border border-white/20 bg-white/10 flex items-center justify-center"><X className="h-3.5 w-3.5 text-white/70" /></button>
+                    </div>
+                    <motion.button
+                      onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for this map location: ${droppedRequestPin.label}. Help me find parking, access, and nearby services.`)}
+                      className="w-full rounded-2xl bg-white px-3 py-3 text-[13px] text-black flex items-center justify-center gap-1.5"
+                      style={{ fontWeight: 900 }}
+                      whileTap={{ scale: 0.96 }}
+                    >
+                      <Sparkles className="h-4 w-4" /> Create Request
+                    </motion.button>
                   </div>
                 ) : (
-                  <motion.button
-                    onClick={() => setShowPremiumTeaser(true)}
-                    className="mx-4 mb-3 px-3 py-2.5 rounded-[14px] border border-white/15 bg-white/5 flex items-center gap-2 w-[calc(100%-32px)] text-left"
-                    whileTap={{ scale: 0.98 }}
-                    aria-label="Unlock Bytspot Premium perks for this venue"
-                  >
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.85), rgba(124,58,237,0.85))' }}>
-                      <Lock className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Nearby intelligence</p>
+                        <h3 className="text-[18px] text-white" style={{ fontWeight: 900 }}>Live results around you</h3>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-white/65" style={{ fontWeight: 800 }}>{nearbyResults.length} results</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] text-white/95 leading-tight" style={{ fontWeight: 700 }}>
-                        Unlock perks at this Verified venue
-                      </p>
-                      <p className="text-[10.5px] text-white/55 leading-tight mt-0.5" style={{ fontWeight: 500 }}>
-                        Discounts · Skip the line · Tap / Scan rewards
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-white/55 flex-shrink-0" strokeWidth={2.5} />
-                  </motion.button>
-                )
-              )}
+                    {nearbyResults.map(result => (
+                      <button key={result.id} onClick={result.onClick} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-left">
+                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-cyan-400/15 text-cyan-100"><MapPin className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-[14px] text-white" style={{ fontWeight: 850 }}>{result.name}</span><span className="block truncate text-[11px] text-white/55">{result.type} · {result.detail}</span></span>
+                        <ChevronRight className="h-4 w-4 text-white/35" />
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-              {/* Actions */}
-              <div className="flex gap-2 px-4 pb-4">
-                <motion.button
-                  onClick={() => openNativeNavigation(peekVenue.lat, peekVenue.lng, peekVenue.name)}
-                  className="flex-1 py-2.5 rounded-[14px] bg-white/10 border border-white/20 text-[13px] text-white/80 font-semibold flex items-center justify-center gap-1.5"
-                  whileTap={{ scale: 0.96 }}
-                >
-                  <Navigation className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  Navigate
-                </motion.button>
-                <motion.button
-                  onClick={() => setVenueDetailsVenue(peekVenue)}
-                  className="flex-1 py-2.5 rounded-[14px] bg-purple-600/70 border border-purple-400/50 text-[13px] text-white font-bold flex items-center justify-center gap-1.5"
-                  whileTap={{ scale: 0.96 }}
-                >
-                  View Details
-                  <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
-                </motion.button>
+                {smartParkingSuggestions.length > 0 && (peekVenue || droppedRequestPin) && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center gap-2 text-white"><Car className="h-4 w-4 text-cyan-200" /><span className="text-[13px]" style={{ fontWeight: 900 }}>Smart Parking</span></div>
+                    {smartParkingSuggestions.map(({ spot, distanceMeters }) => (
+                      <button key={spot.id} onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2.5 text-left">
+                        <span><span className="block text-[13px] text-white" style={{ fontWeight: 800 }}>{spot.name}</span><span className="text-[11px] text-white/50">{formatMeters(distanceMeters)} · {spot.available}/{spot.total} available</span></span>
+                        <span className="text-[12px] text-emerald-300" style={{ fontWeight: 900 }}>${spot.price}/hr</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

@@ -6,9 +6,15 @@ import SwiftUI
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
+    private lazy var nativeBridgeStore = NativeBridgeStore()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        let appWindow = UIWindow(frame: UIScreen.main.bounds)
+        let root = UIHostingController(rootView: BytspotNativeShellView(bridgeStore: nativeBridgeStore))
+        root.view.backgroundColor = .black
+        appWindow.rootViewController = root
+        appWindow.makeKeyAndVisible()
+        window = appWindow
         return true
     }
 
@@ -38,7 +44,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
         if presentNativePatchExperience(for: url) { return true }
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        let handledByBridge = ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        return nativeBridgeStore.handleExternalURL(url) || handledByBridge
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
@@ -46,7 +53,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Feel free to add additional processing here, but if you want the App API to support
         // tracking app url opens, make sure to keep this call
         if let url = userActivity.webpageURL, presentNativePatchExperience(for: url) { return true }
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        let handledByBridge = ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        if let url = userActivity.webpageURL, nativeBridgeStore.handleExternalURL(url) { return true }
+        return handledByBridge
     }
 
     private func presentNativePatchExperience(for url: URL) -> Bool {

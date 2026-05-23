@@ -74,6 +74,10 @@ interface MapSectionProps {
 
 type DroppedRequestPin = { lat: number; lng: number; label: string };
 
+const SPATIAL_SHEET_PEEK_Y = 128;
+const SPATIAL_SHEET_SNAP_OFFSET = 44;
+const SPATIAL_SHEET_SNAP_VELOCITY = 420;
+
 type AvailabilityStatus = 'available' | 'limited' | 'full';
 
 // ParkingSpot definition lives in src/utils/mapParking.ts. Local alias keeps
@@ -1053,7 +1057,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
       {/* Spatial Intelligence Search */}
       <div className="absolute left-3 right-3 top-4 z-[1000]">
-        <div className="rounded-[24px] border border-white/18 bg-[#080A10]/92 px-3 py-3 shadow-2xl backdrop-blur-2xl">
+        <div className="rounded-[24px] border border-white/35 bg-[#080A10] px-3 py-3 shadow-2xl">
           <div className="flex items-center gap-3">
             <Search className="h-5 w-5 flex-shrink-0 text-cyan-200" strokeWidth={2.5} />
             <input
@@ -1070,7 +1074,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/45"
               style={{ fontWeight: 700 }}
             />
-            <div className="hidden rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 sm:block" style={{ fontWeight: 900 }}>
+            <div className="hidden rounded-full border border-cyan-400/50 bg-[#06242B] px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 sm:block" style={{ fontWeight: 900 }}>
               Station Mode
             </div>
           </div>
@@ -1082,7 +1086,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         <div className="relative">
           <motion.button
             onClick={() => { triggerLightHaptic(); setShowLayerMenu(prev => !prev); }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showLayerMenu ? 'bg-cyan-500/90 border-cyan-200/70' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+            className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showLayerMenu ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
             aria-label="Map layers"
@@ -1092,7 +1096,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           <AnimatePresence>
             {showLayerMenu && (
               <motion.div
-                className="absolute right-14 top-0 w-52 rounded-[20px] border border-white/15 bg-[#0B0B0F]/95 p-3 shadow-2xl backdrop-blur-2xl"
+                className="absolute right-14 top-0 w-52 rounded-[20px] border border-white/35 bg-[#050505] p-3 shadow-2xl"
                 initial={{ opacity: 0, x: 12, scale: 0.96 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: 12, scale: 0.96 }}
@@ -1107,11 +1111,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   <button
                     key={layer.label}
                     onClick={() => layer.set(!layer.checked)}
-                    className="flex w-full items-center justify-between rounded-2xl px-2.5 py-2 text-left text-[13px] text-white transition-colors hover:bg-white/8"
+                    className="flex w-full items-center justify-between rounded-2xl border border-white/20 bg-[#0B0B0F] px-2.5 py-2 text-left text-[13px] text-white transition-colors hover:border-cyan-400/50 hover:bg-[#101827]"
                     style={{ fontWeight: 800 }}
                   >
-                    <span className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] text-cyan-100">{layer.icon}</span>{layer.label}</span>
-                    <span className={`h-5 w-9 rounded-full border p-0.5 ${layer.checked ? 'border-cyan-200/70 bg-cyan-400/35' : 'border-white/20 bg-white/8'}`}>
+                    <span className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full border border-cyan-400/35 bg-[#061B22] text-[11px] text-cyan-100">{layer.icon}</span>{layer.label}</span>
+                    <span className={`h-5 w-9 rounded-full border p-0.5 ${layer.checked ? 'border-cyan-200 bg-cyan-500' : 'border-white/35 bg-[#050505]'}`}>
                       <span className={`block h-3.5 w-3.5 rounded-full bg-white transition-transform ${layer.checked ? 'translate-x-4' : ''}`} />
                     </span>
                   </button>
@@ -1122,7 +1126,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </div>
         <motion.button
           onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
-          className="w-12 h-12 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          className="w-12 h-12 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
           aria-label="Current location"
@@ -1131,7 +1135,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
         <motion.button
           onClick={() => { triggerLightHaptic(); setShowFilters(!showFilters); }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showFilters ? 'bg-purple-500/90 border-purple-200/70' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showFilters ? 'bg-purple-600 border-purple-200' : 'bg-[#050505] border-white/40'}`}
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
           aria-label="Filter map results"
@@ -1140,7 +1144,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
         <motion.button
           onClick={() => { triggerLightHaptic(); setZoomDirection(1); }}
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
         >
@@ -1148,7 +1152,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
         <motion.button
           onClick={() => { triggerLightHaptic(); setZoomDirection(-1); }}
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl"
+          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
         >
@@ -1157,7 +1161,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         {/* Traffic Intelligence toggle */}
         <motion.button
           onClick={() => { triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
-          className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500/90 border-amber-300/60' : 'bg-[#1C1C1E]/95 border-white/30'}`}
+          className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500 border-amber-200' : 'bg-[#050505] border-white/40'}`}
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
           title="Traffic Intelligence"
@@ -1185,13 +1189,13 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             />
           )}
           <motion.span
-            className="absolute inset-0 flex items-center justify-center border-2 shadow-xl backdrop-blur-xl"
+            className="absolute inset-0 flex items-center justify-center border-2 shadow-xl"
             style={{
               clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)',
               background: showVerifiedOnly
                 ? 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))'
-                : 'rgba(28,28,30,0.95)',
-              borderColor: showVerifiedOnly ? 'rgba(165,243,252,0.7)' : 'rgba(255,255,255,0.3)',
+                : '#050505',
+              borderColor: showVerifiedOnly ? 'rgba(165,243,252,1)' : 'rgba(255,255,255,0.42)',
             }}
             animate={showVerifiedOnly
               ? { scale: [1, 1.04, 1] }
@@ -1221,10 +1225,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             <div key={chip.label} className="flex-shrink-0 inline-flex items-stretch gap-1">
               <motion.button
                 onClick={() => setVibeFilter(vibeFilter === chip.value ? null : chip.value)}
-                className={`px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+                className={`px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
                   vibeFilter === chip.value
-                    ? 'bg-white/20 border-white/70 text-white'
-                    : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+                    ? 'bg-[#182033] border-white/80 text-white'
+                    : 'bg-[#050505] border-white/35 text-white'
                 }`}
                 style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
                 whileTap={{ scale: 0.93 }}
@@ -1234,7 +1238,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               {idx === 0 && (
                 <motion.button
                   onClick={() => setShowAINotice(true)}
-                  className="px-2 py-1.5 rounded-full bg-cyan-400/14 border border-cyan-300/35 text-cyan-100 backdrop-blur-xl shadow-lg"
+                  className="px-2 py-1.5 rounded-full bg-[#06242B] border border-cyan-400/55 text-cyan-100 shadow-lg"
                   whileTap={{ scale: 0.9 }}
                   aria-label="How Bytspot AI works"
                   title="How Bytspot AI works"
@@ -1248,10 +1252,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           {(verifiedVenues.length > 0 || showVerifiedOnly) && (
             <motion.button
               onClick={() => { triggerLightHaptic(); setShowVerifiedOnly(v => !v); }}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg transition-colors ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg transition-colors ${
                 showVerifiedOnly
-                  ? 'bg-cyan-400/30 border-cyan-200/70 text-white'
-                  : 'bg-cyan-500/18 border-cyan-300/35 text-cyan-100'
+                  ? 'bg-[#064E5A] border-cyan-200 text-white'
+                  : 'bg-[#06242B] border-cyan-400/55 text-cyan-100'
               }`}
               style={{ fontWeight: 800, whiteSpace: 'nowrap' }}
               whileTap={{ scale: 0.93 }}
@@ -1272,10 +1276,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             <motion.button
               key={chip.label}
               onClick={() => setEntryFilter(entryFilter === chip.value ? null : chip.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
                 entryFilter === chip.value
-                  ? 'bg-amber-500/30 border-amber-400/70 text-amber-200'
-                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+                  ? 'bg-[#5A3400] border-amber-300 text-amber-100'
+                  : 'bg-[#050505] border-white/35 text-white'
               }`}
               style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
               whileTap={{ scale: 0.93 }}
@@ -1296,10 +1300,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             <motion.button
               key={chip.label}
               onClick={() => setCategoryFilter(categoryFilter === chip.value ? null : chip.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
                 categoryFilter === chip.value
-                  ? 'bg-purple-500/30 border-purple-400/70 text-purple-200'
-                  : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+                  ? 'bg-[#32164E] border-purple-300 text-purple-100'
+                  : 'bg-[#050505] border-white/35 text-white'
               }`}
               style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
               whileTap={{ scale: 0.93 }}
@@ -1313,8 +1317,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           {/* ─ Layer toggles ─ */}
           <motion.button
             onClick={() => setShowHeatmap(!showHeatmap)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
-              showHeatmap ? 'bg-red-500/25 border-red-400/60 text-red-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
+              showHeatmap ? 'bg-[#4A0B0B] border-red-300 text-red-100' : 'bg-[#050505] border-white/35 text-white'
             }`}
             style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
             whileTap={{ scale: 0.93 }}
@@ -1323,8 +1327,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           </motion.button>
           <motion.button
             onClick={() => setShowReports(!showReports)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
-              showReports ? 'bg-red-500/25 border-red-400/60 text-red-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
+              showReports ? 'bg-[#4A0B0B] border-red-300 text-red-100' : 'bg-[#050505] border-white/35 text-white'
             }`}
             style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
             whileTap={{ scale: 0.93 }}
@@ -1333,8 +1337,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           </motion.button>
           <motion.button
             onClick={() => setShowEvents(!showEvents)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
-              showEvents ? 'bg-purple-500/25 border-purple-400/60 text-purple-300' : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
+              showEvents ? 'bg-[#32164E] border-purple-300 text-purple-100' : 'bg-[#050505] border-white/35 text-white'
             }`}
             style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
             whileTap={{ scale: 0.93 }}
@@ -1343,10 +1347,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           </motion.button>
           <motion.button
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border backdrop-blur-xl shadow-lg ${
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
               (filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly)
-                ? 'bg-blue-500/25 border-blue-400/60 text-blue-300'
-                : 'bg-[#1C1C1E]/92 border-white/22 text-white/80'
+                ? 'bg-[#0A2B55] border-blue-300 text-blue-100'
+                : 'bg-[#050505] border-white/35 text-white'
             }`}
             style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
             whileTap={{ scale: 0.93 }}
@@ -1451,7 +1455,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               onClick={() => setShowVirtualPatchSheet(false)}
             >
             <motion.div
-              className="w-full max-w-sm rounded-[28px] border border-cyan-300/30 bg-[#11131A]/96 backdrop-blur-2xl shadow-2xl overflow-hidden"
+              className="w-full max-w-sm rounded-[28px] border border-cyan-400/55 bg-[#050505] shadow-2xl overflow-hidden"
               style={{ boxShadow: '0 0 46px rgba(34,211,238,0.18), 0 18px 48px rgba(0,0,0,0.52)' }}
               initial={{ y: 140, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -1471,7 +1475,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                           <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />
                           Virtual Patch
                         </div>
-                        <div className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/6 border border-white/10 text-[10px] text-white/55 uppercase tracking-[0.18em]" style={{ fontWeight: 700 }}>
+                        <div className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#080A10] border border-white/30 text-[10px] text-white uppercase tracking-[0.18em]" style={{ fontWeight: 700 }}>
                           {formatMeters(nearbyVerifiedVenue.distanceMeters)} away
                         </div>
                       </div>
@@ -1482,7 +1486,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     </div>
                     <motion.button
                       onClick={() => setShowVirtualPatchSheet(false)}
-                      className="mt-0.5 w-9 h-9 rounded-full flex items-center justify-center bg-white/7 border border-white/12 text-white/70"
+                      className="mt-0.5 w-9 h-9 rounded-full flex items-center justify-center bg-[#080A10] border border-white/35 text-white"
                       whileTap={{ scale: 0.92 }}
                       transition={springConfig}
                     >
@@ -1506,7 +1510,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                               Bytspot Verified access point
                             </div>
                           </div>
-                          <div className="shrink-0 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] text-white/55 uppercase tracking-[0.16em]" style={{ fontWeight: 700 }}>
+                          <div className="shrink-0 px-2.5 py-1 rounded-full bg-[#080A10] border border-white/30 text-[10px] text-white uppercase tracking-[0.16em]" style={{ fontWeight: 700 }}>
                             Live now
                           </div>
                         </div>
@@ -1622,11 +1626,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             exit={{ opacity: 0, y: 30, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
           >
-            <div className="p-4 rounded-[20px] bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl">
+            <div className="p-4 rounded-[20px] bg-[#050505] border-2 border-white/40 shadow-xl">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-[15px] text-white" style={{ fontWeight: 700 }}>📋 Community Report</h3>
                 <motion.button onClick={() => setShowReportForm(false)} whileTap={{ scale: 0.9 }}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-white/10 border border-white/30">
+                  className="w-7 h-7 rounded-full flex items-center justify-center bg-[#080A10] border border-white/40">
                   <X className="w-3.5 h-3.5 text-white" />
                 </motion.button>
               </div>
@@ -1644,7 +1648,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               </div>
               <input
                 type="text" value={newReportDesc} onChange={(e) => setNewReportDesc(e.target.value)}
-                placeholder="What's happening?" className="w-full p-2.5 rounded-[12px] bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 outline-none mb-3"
+                placeholder="What's happening?" className="w-full p-2.5 rounded-[12px] bg-[#080A10] border border-white/40 text-[13px] text-white placeholder:text-white/55 outline-none mb-3"
               />
               <motion.button
                 onClick={() => {
@@ -1689,7 +1693,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               exit={{ y: '100%' }}
               transition={springConfig}
             >
-              <div className="bg-[#1C1C1E]/95 backdrop-blur-2xl border-t-2 border-white/30 rounded-t-[28px] overflow-hidden shadow-2xl p-6">
+              <div className="bg-[#050505] border-t-2 border-white/40 rounded-t-[28px] overflow-hidden shadow-2xl p-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-[20px] text-white" style={{ fontWeight: 700 }}>
@@ -1697,7 +1701,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   </h3>
                   <motion.button
                     onClick={() => setShowFilters(false)}
-                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 border border-white/30"
+                    className="w-8 h-8 rounded-full flex items-center justify-center bg-[#080A10] border border-white/40"
                     whileTap={{ scale: 0.9 }}
                   >
                     <X className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -1717,7 +1721,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       type="checkbox"
                       checked={filters.evChargingOnly}
                       onChange={(e) => setFilters({ ...filters, evChargingOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-white/10 border-2 border-white/30"
+                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
                     />
                   </label>
 
@@ -1732,7 +1736,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       type="checkbox"
                       checked={filters.coveredOnly}
                       onChange={(e) => setFilters({ ...filters, coveredOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-white/10 border-2 border-white/30"
+                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
                     />
                   </label>
 
@@ -1747,7 +1751,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       type="checkbox"
                       checked={filters.showPremiumOnly}
                       onChange={(e) => setFilters({ ...filters, showPremiumOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-white/10 border-2 border-white/30"
+                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
                     />
                   </label>
                 </div>
@@ -1758,7 +1762,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
                       Price Range
                     </span>
-                    <span className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                    <span className="text-[13px] text-white" style={{ fontWeight: 700 }}>
                       ${filters.priceRange[0]} - ${filters.priceRange[1]}/hr
                     </span>
                   </div>
@@ -1797,7 +1801,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       <AnimatePresence>
         {showLiveUpdates && (
           <motion.div
-            className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-full bg-[#1C1C1E]/95 backdrop-blur-xl border border-white/30 shadow-xl flex items-center gap-2 pointer-events-none"
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-full bg-[#050505] border border-white/40 shadow-xl flex items-center gap-2 pointer-events-none"
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
@@ -1824,7 +1828,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           exit={{ y: 100, opacity: 0 }}
           transition={springConfig}
         >
-          <div className="p-4 rounded-[20px] bg-[#1C1C1E]/95 backdrop-blur-xl border-2 border-white/30 shadow-xl">
+          <div className="p-4 rounded-[20px] bg-[#050505] border-2 border-white/40 shadow-xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500/40 to-emerald-500/40 border-2 border-white/30 flex items-center justify-center">
                 <Navigation className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -1834,7 +1838,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
               </h3>
               <motion.button
                 onClick={() => setRouteDestination('')}
-                className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 border border-white/30"
+                className="w-8 h-8 rounded-full flex items-center justify-center bg-[#080A10] border border-white/40"
                 whileTap={{ scale: 0.9 }}
               >
                 <X className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -1843,7 +1847,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             
             {/* Destination Input */}
             <div className="space-y-2">
-              <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/10 border border-white/20">
+              <div className="flex items-center gap-2 p-3 rounded-[14px] bg-[#080A10] border border-white/40">
                 <MapPin className="w-4 h-4 text-cyan-400 flex-shrink-0" strokeWidth={2.5} />
                 <input
                   type="text"
@@ -1930,21 +1934,26 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         {!venueDetailsVenue && (peekVenue || droppedRequestPin || nearbyResults.length > 0) && (
           <motion.div
             className="absolute bottom-20 left-3 right-3 z-[1002]"
-            initial={{ y: 180, opacity: 0 }}
-            animate={{ y: bottomSheetExpanded ? 0 : 118, opacity: 1 }}
+            initial={{ y: SPATIAL_SHEET_PEEK_Y, opacity: 0 }}
+            animate={{ y: bottomSheetExpanded ? 0 : SPATIAL_SHEET_PEEK_Y, opacity: 1 }}
             exit={{ y: 180, opacity: 0 }}
             drag="y"
-            dragConstraints={{ top: 0, bottom: 130 }}
-            dragElastic={0.12}
-            onDragEnd={(_, info) => setBottomSheetExpanded(info.offset.y < -24)}
-            transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+            dragConstraints={{ top: 0, bottom: SPATIAL_SHEET_PEEK_Y }}
+            dragElastic={0.06}
+            dragMomentum={false}
+            onDragEnd={(_, info) => {
+              const shouldExpand = info.velocity.y < -SPATIAL_SHEET_SNAP_VELOCITY || info.offset.y < -SPATIAL_SHEET_SNAP_OFFSET;
+              const shouldCollapse = info.velocity.y > SPATIAL_SHEET_SNAP_VELOCITY || info.offset.y > SPATIAL_SHEET_SNAP_OFFSET;
+              setBottomSheetExpanded(current => shouldExpand ? true : shouldCollapse ? false : current);
+            }}
+            transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.82 }}
           >
             <div
-              className={`max-h-[72vh] overflow-hidden rounded-[28px] border bg-[#0B0B0F]/96 shadow-2xl backdrop-blur-2xl ${peekVenueIsVerified ? 'border-cyan-300/35' : 'border-white/16'}`}
+              className={`max-h-[72vh] overflow-hidden rounded-[28px] border bg-[#050505] shadow-2xl ${peekVenueIsVerified ? 'border-cyan-400/55' : 'border-white/35'}`}
               style={peekVenueIsVerified ? { boxShadow: '0 0 34px rgba(34,211,238,0.16), 0 18px 42px rgba(0,0,0,0.48)' } : undefined}
             >
               <button
-                className="mx-auto mt-3 block h-1.5 w-12 rounded-full bg-white/25"
+                className="mx-auto mt-3 block h-1.5 w-12 rounded-full bg-white/70"
                 onClick={() => setBottomSheetExpanded(prev => !prev)}
                 aria-label="Toggle map results sheet"
               />
@@ -1955,32 +1964,32 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="mb-2 flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 900 }}>Station Mode</span>
-                          {peekVenueIsVerified && <span className="rounded-full border border-cyan-300/30 bg-cyan-400/12 px-2.5 py-1 text-[10px] text-cyan-100" style={{ fontWeight: 900 }}>Tap Zone</span>}
-                          <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] text-white/70" style={{ fontWeight: 800 }}>{formatVenueAvailability(peekVenue)}</span>
+                          <span className="rounded-full border border-cyan-400/50 bg-[#06242B] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 900 }}>Station Mode</span>
+                          {peekVenueIsVerified && <span className="rounded-full border border-cyan-300/60 bg-[#06242B] px-2.5 py-1 text-[10px] text-cyan-100" style={{ fontWeight: 900 }}>Tap Zone</span>}
+                          <span className="rounded-full border border-white/35 bg-[#0B0B0F] px-2.5 py-1 text-[10px] text-white" style={{ fontWeight: 800 }}>{formatVenueAvailability(peekVenue)}</span>
                         </div>
                         <h3 className="truncate text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>{peekVenue.name}</h3>
-                        <p className="mt-1 text-[12px] capitalize text-white/55">{peekVenue.category} · {peekVenue.address || 'Nearby'}{routeEtaMinutes ? ` · ${routeEtaMinutes} min ETA` : ''}</p>
+                        <p className="mt-1 text-[12px] capitalize text-white">{peekVenue.category} · {peekVenue.address || 'Nearby'}{routeEtaMinutes ? ` · ${routeEtaMinutes} min ETA` : ''}</p>
                       </div>
                       <motion.button
                         onClick={() => setPeekVenue(null)}
-                        className="h-8 w-8 flex-shrink-0 rounded-full border border-white/20 bg-white/10 flex items-center justify-center"
+                        className="h-8 w-8 flex-shrink-0 rounded-full border border-white/40 bg-[#080A10] flex items-center justify-center"
                         whileTap={{ scale: 0.88 }}
                       >
-                        <X className="h-3.5 w-3.5 text-white/70" />
+                        <X className="h-3.5 w-3.5 text-white" />
                       </motion.button>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Crowd</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.label ?? 'Live'}</p></div>
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Access</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenueIsVerified ? 'Patch ready' : 'Standard'}</p></div>
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><p className="text-[10px] text-white/45">Reports</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.level ?? 1}/4 activity</p></div>
+                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Crowd</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.label ?? 'Live'}</p></div>
+                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Access</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenueIsVerified ? 'Patch ready' : 'Standard'}</p></div>
+                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Reports</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.level ?? 1}/4 activity</p></div>
                     </div>
 
                     {selectedDestinationCoords && (
-                      <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3">
+                      <div className="rounded-2xl border border-cyan-400/50 bg-[#06242B] p-3">
                         <div className="flex items-center gap-2 text-cyan-100"><Route className="h-4 w-4" /><span className="text-[12px]" style={{ fontWeight: 900 }}>Route preview · {routeEtaMinutes} min ETA</span></div>
-                        <p className="mt-1 text-[11px] text-white/58">Preview shown on map. Start Navigation hands off to Apple Maps / Google Maps.</p>
+                        <p className="mt-1 text-[11px] text-white">Preview shown on map. Start Navigation hands off to Apple Maps / Google Maps.</p>
                       </div>
                     )}
 
@@ -1988,11 +1997,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       <motion.button onClick={() => handleVerifyVenueAccess(peekVenue)} className="rounded-2xl bg-cyan-400 px-3 py-3 text-[13px] text-black flex items-center justify-center gap-1.5" style={{ fontWeight: 900 }} whileTap={{ scale: 0.96 }}>
                         <QrCode className="h-4 w-4" /> Verify Access
                       </motion.button>
-                      <motion.button onClick={() => openNativeNavigation(peekVenue.lat, peekVenue.lng, peekVenue.name)} className="rounded-2xl border border-white/18 bg-white/10 px-3 py-3 text-[13px] text-white flex items-center justify-center gap-1.5" style={{ fontWeight: 900 }} whileTap={{ scale: 0.96 }}>
+                      <motion.button onClick={() => openNativeNavigation(peekVenue.lat, peekVenue.lng, peekVenue.name)} className="rounded-2xl border border-white/40 bg-[#080A10] px-3 py-3 text-[13px] text-white flex items-center justify-center gap-1.5" style={{ fontWeight: 900 }} whileTap={{ scale: 0.96 }}>
                         <Navigation className="h-4 w-4" /> Start Navigation
                       </motion.button>
                     </div>
-                    <button onClick={() => setVenueDetailsVenue(peekVenue)} className="w-full rounded-2xl border border-purple-300/25 bg-purple-500/16 px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 900 }}>View full venue details</button>
+                    <button onClick={() => setVenueDetailsVenue(peekVenue)} className="w-full rounded-2xl border border-purple-300/55 bg-[#21102F] px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 900 }}>View full venue details</button>
                   </div>
                 ) : droppedRequestPin ? (
                   <div className="space-y-3">
@@ -2000,9 +2009,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       <div>
                         <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Dropped request pin</p>
                         <h3 className="mt-1 text-[18px] text-white" style={{ fontWeight: 900 }}>{droppedRequestPin.label}</h3>
-                        <p className="mt-1 text-[12px] text-white/55">Create a white-glove Concierge request with coordinate context.</p>
+                        <p className="mt-1 text-[12px] text-white">Create a white-glove Concierge request with coordinate context.</p>
                       </div>
-                      <button onClick={() => setDroppedRequestPin(null)} className="h-8 w-8 rounded-full border border-white/20 bg-white/10 flex items-center justify-center"><X className="h-3.5 w-3.5 text-white/70" /></button>
+                      <button onClick={() => setDroppedRequestPin(null)} className="h-8 w-8 rounded-full border border-white/40 bg-[#080A10] flex items-center justify-center"><X className="h-3.5 w-3.5 text-white" /></button>
                     </div>
                     <motion.button
                       onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for this map location: ${droppedRequestPin.label}. Help me find parking, access, and nearby services.`)}
@@ -2020,13 +2029,13 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                         <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Nearby intelligence</p>
                         <h3 className="text-[18px] text-white" style={{ fontWeight: 900 }}>Live results around you</h3>
                       </div>
-                      <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-white/65" style={{ fontWeight: 800 }}>{nearbyResults.length} results</span>
+                      <span className="rounded-full border border-white/35 bg-[#080A10] px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>{nearbyResults.length} results</span>
                     </div>
                     {nearbyResults.map(result => (
-                      <button key={result.id} onClick={result.onClick} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-left">
-                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-cyan-400/15 text-cyan-100"><MapPin className="h-4 w-4" /></span>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-[14px] text-white" style={{ fontWeight: 850 }}>{result.name}</span><span className="block truncate text-[11px] text-white/55">{result.type} · {result.detail}</span></span>
-                        <ChevronRight className="h-4 w-4 text-white/35" />
+                      <button key={result.id} onClick={result.onClick} className="flex w-full items-center gap-3 rounded-2xl border border-white/30 bg-[#080A10] p-3 text-left">
+                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-cyan-400/40 bg-[#06242B] text-cyan-100"><MapPin className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-[14px] text-white" style={{ fontWeight: 850 }}>{result.name}</span><span className="block truncate text-[11px] text-white">{result.type} · {result.detail}</span></span>
+                        <ChevronRight className="h-4 w-4 text-white" />
                       </button>
                     ))}
                   </div>
@@ -2036,8 +2045,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center gap-2 text-white"><Car className="h-4 w-4 text-cyan-200" /><span className="text-[13px]" style={{ fontWeight: 900 }}>Smart Parking</span></div>
                     {smartParkingSuggestions.map(({ spot, distanceMeters }) => (
-                      <button key={spot.id} onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2.5 text-left">
-                        <span><span className="block text-[13px] text-white" style={{ fontWeight: 800 }}>{spot.name}</span><span className="text-[11px] text-white/50">{formatMeters(distanceMeters)} · {spot.available}/{spot.total} available</span></span>
+                      <button key={spot.id} onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }} className="flex w-full items-center justify-between rounded-2xl border border-white/30 bg-[#080A10] px-3 py-2.5 text-left">
+                        <span><span className="block text-[13px] text-white" style={{ fontWeight: 800 }}>{spot.name}</span><span className="text-[11px] text-white">{formatMeters(distanceMeters)} · {spot.available}/{spot.total} available</span></span>
                         <span className="text-[12px] text-emerald-300" style={{ fontWeight: 900 }}>${spot.price}/hr</span>
                       </button>
                     ))}
@@ -2092,10 +2101,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     className="w-8 h-8 rounded-full flex items-center justify-center bg-white/8 border border-white/15 disabled:opacity-50"
                     whileTap={{ scale: 0.9 }}
                   >
-                    <X className="w-4 h-4 text-white/70" />
+                    <X className="w-4 h-4 text-white" />
                   </motion.button>
                 </div>
-                <p className="text-[13px] text-white/70 leading-snug mb-4" style={{ fontWeight: 500 }}>
+                <p className="text-[13px] text-white leading-snug mb-4" style={{ fontWeight: 600 }}>
                   Premium turns every Bytspot Verified venue into a perks venue — discounts, skip-the-line entry, and exclusive Tap / Scan rewards.
                 </p>
                 <ul className="space-y-2 mb-5">
@@ -2110,8 +2119,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     </li>
                   ))}
                 </ul>
-                <div className="mb-4 rounded-[14px] border border-white/12 bg-black/20 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white/70">
+                <div className="mb-4 rounded-[14px] border border-white/35 bg-[#080A10] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white">
                     <span style={{ fontWeight: 800 }}>Loyalty price</span>
                     <span className="text-white" style={{ fontWeight: 900 }}>{formatPremiumCents(premiumEstimatedCents)} / month</span>
                   </div>

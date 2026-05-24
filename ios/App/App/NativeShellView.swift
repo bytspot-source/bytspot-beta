@@ -267,40 +267,154 @@ private struct NativeDiscoverView: View {
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     @State private var region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045))
+    @State private var selectedMode = "Nearby"
+    @State private var selectedPin: NativeMapPin? = NativeMapPin.samples.first
     private let pins = NativeMapPin.samples
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             Map(coordinateRegion: $region, annotationItems: pins) { pin in
                 MapAnnotation(coordinate: pin.coordinate) {
-                    NativeMapMarker(pin: pin)
+                    Button(action: { selectedPin = pin }) { NativeMapMarker(pin: pin, isSelected: selectedPin?.id == pin.id) }
+                        .buttonStyle(.plain)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Map Exploration").nativeTitle(22)
-                    Text("Native MapKit view with Bytspot access and parking markers.").nativeBody()
-                }
-                .padding(16).nativePanel().padding(14)
+            .ignoresSafeArea(edges: .top)
+            .overlay(alignment: .top) { mapHeader.padding(.horizontal, 16).padding(.top, 18) }
+            .overlay(alignment: .trailing) { mapControls.padding(.trailing, 16) }
+            spatialSheet
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+    }
+
+    private var mapHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundColor(NativeTheme.cyan)
+                Text("Search destination or service").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.74))
+                Spacer()
             }
-            NativeRow(title: "Open full map tools", subtitle: "Route planning, NFC patch scan, checkout", icon: "arrow.up.right.square.fill") { openHybrid(.map) }
-                .padding(14).background(NativeTheme.background)
+            .padding(14).background(Color.black.opacity(0.84)).clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            HStack(spacing: 8) {
+                ForEach(["Nearby", "Partners", "Route"], id: \.self) { mode in
+                    Button(action: { selectedMode = mode; if mode == "Partners" { selectedPin = pins.first(where: { $0.kind == .partner }) } }) {
+                        Text(mode).font(.system(size: 12, weight: .black)).foregroundColor(selectedMode == mode ? .black : .white)
+                            .padding(.horizontal, 13).padding(.vertical, 9)
+                            .background(selectedMode == mode ? NativeTheme.cyan : Color.black.opacity(0.72))
+                            .clipShape(Capsule())
+                    }.buttonStyle(.plain)
+                }
+            }
         }
     }
+
+    private var mapControls: some View {
+        VStack(spacing: 12) {
+            Button(action: { selectedMode = "Partners"; selectedPin = pins.first(where: { $0.kind == .partner }) }) { NativeRoundButton(symbol: "hexagon.fill", tint: NativeTheme.cyan) }
+            Button(action: { openHybrid(.map) }) { NativeRoundButton(symbol: "slider.horizontal.3", tint: .white) }
+            Button(action: { region.center = CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833) }) { NativeRoundButton(symbol: "location.fill", tint: .white) }
+        }
+    }
+
+    private var spatialSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Capsule().fill(Color.white.opacity(0.42)).frame(width: 40, height: 5).frame(maxWidth: .infinity)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(selectedMode == "Partners" ? "Partnered Tap Zones" : selectedMode == "Route" ? "Route Preview" : "Nearby Intelligence").nativeTitle(21)
+                    Text(selectedPin?.title ?? "Live results around you").nativeBody(color: .white.opacity(0.82))
+                }
+                Spacer()
+                Text(selectedMode == "Partners" ? "Verified" : "General")
+                    .font(.system(size: 11, weight: .black)).foregroundColor(.black)
+                    .padding(.horizontal, 10).padding(.vertical, 7).background(NativeTheme.cyan).clipShape(Capsule())
+            }
+            ForEach(filteredPins.prefix(3)) { pin in
+                Button(action: { selectedPin = pin }) {
+                    HStack(spacing: 13) {
+                        NativeIcon(symbol: pin.kind.icon, color: pin.color)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pin.title).nativeTitle(16)
+                            Text(pin.subtitle).nativeBody(size: 12.5, color: .white.opacity(0.78))
+                        }
+                        Spacer()
+                        Text(pin.distance).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+                    }.padding(14).background(Color.black.opacity(selectedPin?.id == pin.id ? 0.88 : 0.55)).clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                }.buttonStyle(.plain)
+            }
+            HStack(spacing: 10) {
+                Button(action: { openHybrid(.map) }) { NativeCTA(title: "Open full map", color: NativeTheme.cyan, foreground: .black) }
+                Button(action: { openHybrid(.concierge) }) { NativeCTA(title: "Ask Concierge", color: Color.white.opacity(0.10), foreground: .white) }
+            }
+        }
+        .padding(18).background(NativeTheme.panel.opacity(0.98)).overlay(RoundedRectangle(cornerRadius: 30).stroke(Color.white.opacity(0.10))).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous)).padding(14)
+    }
+
+    private var filteredPins: [NativeMapPin] { selectedMode == "Partners" ? pins.filter { $0.kind == .partner } : pins }
 }
 
 private struct NativeConciergeView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
-    private let rows = [
-        ("Ask for a plan", "Parking, arrival, venue timing, or service booking", "message.fill"),
-        ("Find access help", "Patch, ticket, and secure-hold support", "key.fill"),
-        ("Talk to support", "Open the full Concierge chat experience", "sparkles")
-    ]
+    @State private var draft = ""
+    @State private var escalated = false
+    private let chips = ["Find parking nearby", "Book a private chef", "Access my booking", "What's open now?"]
     var body: some View {
         NativeScreenScroll {
-            NativeSectionHeader(title: "Concierge", subtitle: "The same fourth tab as the current app, rebuilt as a native support entry point.")
-            NativeHeroCard(title: "How can Bytspot help?", eyebrow: "CONCIERGE", subtitle: "Get quick help with parking, reservations, access, and local services.")
-            ForEach(rows, id: \.0) { row in NativeRow(title: row.0, subtitle: row.1, icon: row.2) { openHybrid(.concierge) } }
+            conciergeHeader
+            suggestionRail
+            chatTranscript
+            handoffButtons
+            composer
+        }
+    }
+
+    private var conciergeHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                NativeIcon(symbol: "person.wave.2.fill", color: NativeTheme.cyan)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Bytspot Concierge").nativeTitle(26)
+                    Text("Human + AI").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
+                }
+                Spacer()
+                Circle().fill(NativeTheme.emerald).frame(width: 10, height: 10)
+            }
+            Text("White-glove help for parking, access, bookings, and local services.").nativeBody(color: .white.opacity(0.82))
+        }.padding(20).nativePanel()
+    }
+
+    private var suggestionRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(chips, id: \.self) { chip in
+                    Button(action: { draft = chip; escalated = chip.contains("chef") || chip.contains("booking") }) {
+                        Text(chip).font(.system(size: 13, weight: .black)).foregroundColor(.white).padding(.horizontal, 13).padding(.vertical, 10).background(Color.white.opacity(0.08)).clipShape(Capsule())
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var chatTranscript: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeChatBubble(text: "Hi — I can help find the best arrival path, verified access, parking, or a local booking.", isUser: false)
+            if !draft.isEmpty { NativeChatBubble(text: draft, isUser: true) }
+            NativeChatBubble(text: escalated ? "Connecting you to a Concierge specialist with the right context." : "I can answer instantly or hand this off to a human specialist.", isUser: false)
+        }.padding(16).background(Color.black.opacity(0.30)).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private var handoffButtons: some View {
+        HStack(spacing: 10) {
+            Button(action: { openHybrid(.discover) }) { NativeCTA(title: "Open Discover", color: Color.white.opacity(0.10), foreground: .white) }
+            Button(action: { openHybrid(.map) }) { NativeCTA(title: "Show on Map", color: NativeTheme.cyan, foreground: .black) }
+        }
+    }
+
+    private var composer: some View {
+        HStack(spacing: 10) {
+            Button(action: { draft = "Voice request: find parking nearby" }) { Image(systemName: "mic.fill").font(.system(size: 18, weight: .black)).foregroundColor(.black).frame(width: 48, height: 48).background(NativeTheme.cyan).clipShape(Circle()) }
+            TextField("Message Concierge", text: $draft).foregroundColor(.white).padding(.horizontal, 14).frame(height: 48).background(NativeTheme.panel).clipShape(Capsule())
+            Button(action: { escalated = draft.localizedCaseInsensitiveContains("book") || draft.localizedCaseInsensitiveContains("chef") }) { Image(systemName: "arrow.up").font(.system(size: 16, weight: .black)).foregroundColor(.black).frame(width: 42, height: 42).background(.white).clipShape(Circle()) }
         }
     }
 }
@@ -343,10 +457,38 @@ private struct NativeRow: View {
 
 private struct NativeIcon: View { let symbol: String; let color: Color; var body: some View { Image(systemName: symbol).font(.system(size: 18, weight: .black)).foregroundColor(.black).frame(width: 42, height: 42).background(color).clipShape(RoundedRectangle(cornerRadius: 14)) } }
 
-private struct NativeMapPin: Identifiable { let id: String; let title: String; let coordinate: CLLocationCoordinate2D; let color: Color
-    static let samples = [NativeMapPin(id: "midtown", title: "Midtown", coordinate: CLLocationCoordinate2D(latitude: 33.783, longitude: -84.383), color: NativeTheme.cyan), NativeMapPin(id: "parking", title: "Parking", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald), NativeMapPin(id: "access", title: "Access", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: .yellow)] }
+private struct NativeRoundButton: View {
+    let symbol: String; let tint: Color
+    var body: some View { Image(systemName: symbol).font(.system(size: 18, weight: .black)).foregroundColor(tint).frame(width: 50, height: 50).background(Color.black.opacity(0.78)).overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1.5)).clipShape(Circle()) }
+}
 
-private struct NativeMapMarker: View { let pin: NativeMapPin; var body: some View { VStack(spacing: 3) { Image(systemName: "mappin.circle.fill").font(.system(size: 28, weight: .black)).foregroundColor(pin.color); Text(pin.title).font(.system(size: 10, weight: .black)).foregroundColor(.white).padding(.horizontal, 7).padding(.vertical, 4).background(Color.black.opacity(0.75)).clipShape(Capsule()) } } }
+private struct NativeCTA: View {
+    let title: String; let color: Color; let foreground: Color
+    var body: some View { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(foreground).frame(maxWidth: .infinity).padding(.vertical, 13).background(color).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+}
+
+private struct NativeChatBubble: View {
+    let text: String; let isUser: Bool
+    var body: some View { Text(text).font(.system(size: 14, weight: .bold)).foregroundColor(isUser ? .black : .white).padding(13).frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading).background(isUser ? Color.white : NativeTheme.panel).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+}
+
+private enum NativeMapPinKind { case partner, parking, access
+    var icon: String { self == .partner ? "checkmark.seal.fill" : self == .parking ? "parkingsign.circle.fill" : "key.fill" }
+}
+
+private struct NativeMapPin: Identifiable {
+    let id: String; let title: String; let subtitle: String; let distance: String; let coordinate: CLLocationCoordinate2D; let color: Color; let kind: NativeMapPinKind
+    static let samples = [
+        NativeMapPin(id: "partner-colony", title: "Colony Square", subtitle: "Verified Tap Zone · Dining + access", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832), color: NativeTheme.cyan, kind: .partner),
+        NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking),
+        NativeMapPin(id: "access-arts", title: "Arts Center Access", subtitle: "Patch-ready entry and concierge help", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: .yellow, kind: .access)
+    ]
+}
+
+private struct NativeMapMarker: View {
+    let pin: NativeMapPin; let isSelected: Bool
+    var body: some View { VStack(spacing: 4) { Image(systemName: pin.kind.icon).font(.system(size: isSelected ? 34 : 28, weight: .black)).foregroundColor(pin.color).shadow(color: pin.color.opacity(0.45), radius: 10); Text(pin.title).font(.system(size: 10, weight: .black)).foregroundColor(.white).padding(.horizontal, 7).padding(.vertical, 4).background(Color.black.opacity(0.78)).clipShape(Capsule()) } }
+}
 
 private enum NativeTheme { static let background = Color(red: 0.015, green: 0.018, blue: 0.035); static let panel = Color(red: 0.035, green: 0.052, blue: 0.085); static let cyan = Color(red: 0.29, green: 0.88, blue: 0.96); static let emerald = Color(red: 0.29, green: 0.90, blue: 0.55) }
 

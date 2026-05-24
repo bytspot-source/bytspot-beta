@@ -239,6 +239,7 @@ export default function App() {
   const [showMapMenu, setShowMapMenu] = useState(false);
   const [selectedMapFunction, setSelectedMapFunction] = useState<MapFunction | undefined>();
   const [mapViewMode, setMapViewMode] = useState<MapViewMode>('standard');
+  const [requestMapServiceLocation, setRequestMapServiceLocation] = useState(false);
   const [showBottomNav, setShowBottomNav] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -2008,11 +2009,14 @@ export default function App() {
                     selectedFunction={selectedMapFunction}
                     viewMode={mapViewMode}
                     destination={selectedDestination}
+                    isRideBookingOpen={showRideSelection || Boolean(valetServiceFromRide)}
                     userCoords={activeCoords}
                     onOpenAccessWallet={openAccessWallet}
                     onAuditEvent={emitAuditEvent}
                     pendingPatchScan={pendingPatchScan}
                     onPendingPatchScanConsumed={consumePendingPatchScan}
+                    requestServiceLocation={requestMapServiceLocation}
+                    onServiceLocationRequestConsumed={() => setRequestMapServiceLocation(false)}
                     onOpenConciergeRequest={(prefill) => {
                       setConciergePrefill(prefill);
                       setActiveTab('concierge');
@@ -2106,6 +2110,14 @@ export default function App() {
             setActiveTab('map');
           }}
           onViewModeChange={(mode) => setMapViewMode(mode)}
+          onSearchPress={() => {
+            setActiveTab('map');
+            setSelectedDestination(undefined);
+          }}
+          onServiceLocationPress={() => {
+            setActiveTab('map');
+            setRequestMapServiceLocation(true);
+          }}
           currentViewMode={mapViewMode}
           isDarkMode={isDarkMode}
         />
@@ -2145,20 +2157,7 @@ export default function App() {
         </AnimatePresence>
 
         {/* Toast Notifications - ACCESSIBILITY: Screen reader announcements */}
-        <Toaster 
-          position="top-center"
-          toastOptions={{
-            style: {
-              background: '#020617',
-              backdropFilter: 'none',
-              border: '2px solid #38bdf8',
-              boxShadow: '0 22px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08)',
-              color: '#f8fafc',
-            },
-            // ACCESSIBILITY: Ensure toasts are announced to screen readers
-
-          }}
-        />
+        <Toaster position="top-center" />
 
         {/* Ride Selection Modal */}
         <Suspense fallback={null}>

@@ -5,9 +5,9 @@ import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation, Star, Plus, Minus, Target,
-  Zap, Umbrella, Filter, X,
-  MapPin, ChevronRight, Send, QrCode,
-  Lock, Sparkles, Wifi, Layers, Search, Car, Route, Crosshair,
+  Zap, X,
+  MapPin, ChevronRight, QrCode,
+  Lock, Sparkles, Wifi, Layers, Search, Car, Route, Crosshair, Check,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -57,6 +57,7 @@ interface MapSectionProps {
   selectedFunction?: MapFunction;
   viewMode?: MapViewMode;
   destination?: string;
+  isRideBookingOpen?: boolean;
   onBackToHome?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
   onOpenAccessWallet?: () => void;
@@ -70,11 +71,44 @@ interface MapSectionProps {
   onPendingPatchScanConsumed?: () => void;
   /** Route a map-created request into the established Concierge tab without adding nav layers. */
   onOpenConciergeRequest?: (prefill: string) => void;
+  /** Request from the Map menu to create a Service Location at the user's current location. */
+  requestServiceLocation?: boolean;
+  onServiceLocationRequestConsumed?: () => void;
 }
+
+type MapMode = 'default' | 'nearby' | 'partnered' | 'station' | 'request' | 'ride' | 'navigation';
+
+type SpatialResult = {
+  id: string;
+  name: string;
+  detail: string;
+  type: string;
+  onClick: () => void;
+  crowdLabel?: string;
+  waitLabel?: string;
+  isTrending?: boolean;
+};
+
+const DROPPED_PIN_SERVICE_OPTIONS = [
+  'White-Glove Valet Pickup',
+  'Private Chef Delivery',
+  'Concierge Runner',
+  'Luxury Transportation',
+  'Other',
+] as const;
+
+type DroppedPinServiceIntent = typeof DROPPED_PIN_SERVICE_OPTIONS[number];
 
 type DroppedRequestPin = { lat: number; lng: number; label: string };
 
-const SPATIAL_SHEET_PEEK_Y = 128;
+const CROWD_LEVEL_LABELS: Record<number, string> = {
+  1: 'Chill',
+  2: 'Active',
+  3: 'Busy',
+  4: 'Packed',
+};
+
+const SPATIAL_SHEET_PEEK_Y = 118;
 const SPATIAL_SHEET_SNAP_OFFSET = 44;
 const SPATIAL_SHEET_SNAP_VELOCITY = 420;
 
@@ -128,8 +162,13 @@ function MapInteractionController({
   return null;
 }
 
-function LongPressDropController({ onDrop }: { onDrop: (lat: number, lng: number) => void }) {
+function LongPressDropController({ onDrop, onMapTap }: { onDrop: (lat: number, lng: number) => void; onMapTap: () => void }) {
   useMapEvents({
+    click(event) {
+      const target = event.originalEvent.target as HTMLElement | null;
+      if (target?.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control, .leaflet-interactive')) return;
+      onMapTap();
+    },
     contextmenu(event) {
       onDrop(event.latlng.lat, event.latlng.lng);
     },
@@ -151,6 +190,7 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
     @keyframes bytspot-marker-in { 0%{opacity:0;transform:scale(.55) translateY(4px)} 60%{opacity:1;transform:scale(1.06) translateY(0)} 100%{opacity:1;transform:scale(1) translateY(0)} }
     @keyframes bytspot-station-orbit { 0%{transform:scale(.9);opacity:.7} 70%{transform:scale(2.15);opacity:0} 100%{transform:scale(2.15);opacity:0} }
     @keyframes bytspot-tapzone-scan { 0%,100%{transform:translateY(-2px);opacity:.35} 50%{transform:translateY(22px);opacity:.95} }
+    @keyframes bytspot-live-pop { 0%,100%{transform:scale(1);box-shadow:0 0 0 rgba(251,146,60,0)} 50%{transform:scale(1.08);box-shadow:0 0 16px rgba(251,146,60,.75)} }
     .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
     .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
     .byt-trend-pulse{position:absolute;inset:-9px;border-radius:50%;animation:bytspot-trend 1.1s ease-out infinite;}
@@ -159,6 +199,7 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
     .byt-marker-in{animation:bytspot-marker-in 320ms cubic-bezier(.2,.8,.25,1.05) both;transform-origin:center bottom;}
     .byt-station-orbit{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.72);animation:bytspot-station-orbit 1.9s ease-out infinite;}
     .byt-tapzone-scan{position:absolute;left:6px;right:6px;height:2px;border-radius:999px;background:rgba(103,232,249,.95);box-shadow:0 0 12px rgba(34,211,238,.8);animation:bytspot-tapzone-scan 1.6s ease-in-out infinite;}
+    .byt-live-badge{animation:bytspot-live-pop 1.15s ease-in-out infinite;}
   `;
   document.head.appendChild(style);
 }
@@ -189,7 +230,7 @@ function createDroppedPinIcon(): L.DivIcon {
   });
 }
 
-function createTapZoneIcon(): L.DivIcon {
+function createTapZoneIcon(crowdLabel = 'Live', waitLabel = 'Now'): L.DivIcon {
   return L.divIcon({
     html: `<div class="byt-marker-in" style="position:relative;width:40px;height:40px;">
       <div class="byt-verified-glow"></div>
@@ -197,7 +238,9 @@ function createTapZoneIcon(): L.DivIcon {
         <div class="byt-tapzone-scan"></div>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:white;font-size:15px;font-weight:900;line-height:1;">⌁</div>
       </div>
+      <div style="position:absolute;top:-12px;right:-18px;padding:2px 6px;border-radius:999px;background:#050505;border:1px solid rgba(103,232,249,.8);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;white-space:nowrap;box-shadow:0 0 12px rgba(34,211,238,.35);">${crowdLabel}</div>
       <div style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.94);border:1px solid rgba(103,232,249,.65);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;white-space:nowrap;">TAP</div>
+      <div style="position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.94);border:1px solid rgba(255,255,255,.45);color:white;font-size:7px;font-weight:900;white-space:nowrap;">${waitLabel}</div>
     </div>`,
     iconSize: [40, 40],
     iconAnchor: [20, 20],
@@ -243,6 +286,8 @@ function createVibeMarkerIcon(
   isTrending: boolean,
   priceBadge?: string | null,
   isVerified: boolean = false,
+  crowdLabel: string = CROWD_LEVEL_LABELS[level] ?? 'Live',
+  waitLabel: string = 'Now',
 ): L.DivIcon {
   const color = VIBE_COLORS[level] ?? '#9333ea';
   const size = isVerified ? (isTrending ? 38 : 34) : (isTrending ? 34 : 28);
@@ -264,6 +309,10 @@ function createVibeMarkerIcon(
       <div class="${pulseClass}" style="border:2px solid ${color};"></div>
       <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid rgba(255,255,255,0.92);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;cursor:pointer;">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
+      </div>
+      <div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);display:flex;gap:3px;align-items:center;white-space:nowrap;">
+        <span style="padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.95);border:1px solid rgba(255,255,255,.5);color:white;font-size:7px;font-weight:900;line-height:1.35;">${crowdLabel}</span>
+        <span style="padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.95);border:1px solid ${color};color:#fff;font-size:7px;font-weight:900;line-height:1.35;">${waitLabel}</span>
       </div>
       ${priceBadgeHtml}
     </div>`,
@@ -392,6 +441,21 @@ function createEventIcon(type: LiveEvent['type']): L.DivIcon {
   });
 }
 
+function createHotspotIcon(label = 'LIVE'): L.DivIcon {
+  return L.divIcon({
+    html: `<div class="byt-marker-in" style="position:relative;width:42px;height:42px;">
+      <div class="byt-trend-pulse" style="border:2px solid #fb923c;box-shadow:0 0 28px rgba(249,115,22,.8);"></div>
+      <div style="position:absolute;inset:7px;border-radius:999px;background:radial-gradient(circle,#fed7aa 0%,#fb923c 46%,#ea580c 100%);border:2px solid rgba(255,255,255,.96);box-shadow:0 0 24px rgba(251,146,60,.9),0 12px 26px rgba(0,0,0,.58);"></div>
+      <div class="byt-live-badge" style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);padding:2px 7px;border-radius:999px;background:#ff2f86;color:#050505;border:1px solid rgba(255,255,255,.92);font-size:8px;font-weight:950;letter-spacing:.08em;white-space:nowrap;">LIVE</div>
+      <div style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);padding:1px 6px;border-radius:999px;background:#050505;border:1px solid rgba(251,146,60,.85);color:#fed7aa;font-size:7px;font-weight:900;white-space:nowrap;">${label}</div>
+    </div>`,
+    iconSize: [42, 42],
+    iconAnchor: [21, 21],
+    popupAnchor: [0, -22],
+    className: '',
+  });
+}
+
 const CROWD_COLORS: Record<LiveEvent['crowd'], string> = { low: '#10B981', medium: '#F59E0B', high: '#EF4444' };
 
 /** Open native navigation — Google Maps on Android/web, Apple Maps on iOS */
@@ -415,7 +479,19 @@ function formatVenueAvailability(venue: ApiVenue): string {
   return (venue.crowd?.level ?? 1) >= 4 ? 'High activity' : 'Live availability';
 }
 
-export function MapSection({ isDarkMode, selectedFunction, destination, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed, onOpenConciergeRequest }: MapSectionProps) {
+function getVenueCrowdLabel(venue: ApiVenue): string {
+  return venue.crowd?.label ?? CROWD_LEVEL_LABELS[venue.crowd?.level ?? 1] ?? 'Live';
+}
+
+function getVenueWaitLabel(venue: ApiVenue): string {
+  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins} min wait` : 'Live wait';
+}
+
+function getVenueWaitShortLabel(venue: ApiVenue): string {
+  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins}m` : 'Now';
+}
+
+export function MapSection({ isDarkMode, selectedFunction, destination, isRideBookingOpen = false, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed, onOpenConciergeRequest, requestServiceLocation = false, onServiceLocationRequestConsumed }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
   const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_ATLANTA_PARKING);
   const [showParkingSpots, setShowParkingSpots] = useState(true);
@@ -425,11 +501,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [showSpotDetails, setShowSpotDetails] = useState(false);
   const [routeDestination, setRouteDestination] = useState<string>(destination || '');
   const [showTrafficIntel, setShowTrafficIntel] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [showLayerMenu, setShowLayerMenu] = useState(false);
+  const [openLayerGroup, setOpenLayerGroup] = useState('Show on map');
   const [mapQuery, setMapQuery] = useState(destination || '');
   const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
   const [droppedRequestPin, setDroppedRequestPin] = useState<DroppedRequestPin | null>(null);
+  const [droppedPinServiceIntent, setDroppedPinServiceIntent] = useState<DroppedPinServiceIntent>('White-Glove Valet Pickup');
   const [shouldRecenter, setShouldRecenter] = useState(false);
   const [zoomDirection, setZoomDirection] = useState(0);
   const [reservationSpot, setReservationSpot] = useState<ReservationSpot | null>(null);
@@ -448,6 +525,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
+  const [nearbySheetDismissed, setNearbySheetDismissed] = useState(true);
   const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
   const [showVirtualPatchSheet, setShowVirtualPatchSheet] = useState(false);
   const [showAINotice, setShowAINotice] = useState(false);
@@ -530,7 +608,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     [allFilteredVenues],
   );
   const verifiedVenues = useMemo(() => apiVenues.filter((venue) => hasHardwarePatchInstalled(venue)), [apiVenues]);
-  const verifiedVenueCount = useMemo(() => filteredMapVenues.filter((venue) => hasHardwarePatchInstalled(venue)).length, [filteredMapVenues]);
   const peekVenueIsVerified = hasHardwarePatchInstalled(peekVenue);
   const nearestVerifiedVenue = useMemo(
     () => findNearestVerifiedVenue(verifiedVenues, userCoords),
@@ -834,9 +911,18 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
     const pin = { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
     setDroppedRequestPin(pin);
     setPeekVenue(null);
+    setShowLayerMenu(false);
+    setDroppedPinServiceIntent('White-Glove Valet Pickup');
     setBottomSheetExpanded(true);
-    toast('Request pin dropped', { description: 'Create a Concierge request from this location.' });
+    toast('Service location selected', { description: 'Choose what you need at this location.' });
   }, [triggerLightHaptic]);
+
+  useEffect(() => {
+    if (!requestServiceLocation) return;
+    const target = userCoords ?? { lat: mapCenter[0], lng: mapCenter[1] };
+    handleDroppedPin(target.lat, target.lng);
+    onServiceLocationRequestConsumed?.();
+  }, [handleDroppedPin, mapCenter, onServiceLocationRequestConsumed, requestServiceLocation, userCoords]);
 
   const getAvailabilityStatus = (spot: ParkingSpot): AvailabilityStatus => {
     const pct = (spot.available / spot.total) * 100;
@@ -874,15 +960,50 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       .sort((a, b) => a.distanceMeters - b.distanceMeters)
       .slice(0, 3);
   }, [filteredParkingSpots, selectedDestinationCoords, mapCenter]);
-  const nearbyResults = useMemo(() => {
-    const providerResults = [...tapZoneVenues, ...filteredMapVenues].slice(0, 8).map((venue) => ({
+  const droppedPinLandmark = useMemo(() => {
+    if (!droppedRequestPin) return null;
+    const nearbyVenue = [...tapZoneVenues, ...filteredMapVenues]
+      .map(venue => ({ name: venue.name, distanceMeters: haversineMeters(droppedRequestPin.lat, droppedRequestPin.lng, venue.lat, venue.lng) }))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
+    const nearbyParking = filteredParkingSpots
+      .map(spot => ({ name: spot.name, distanceMeters: haversineMeters(droppedRequestPin.lat, droppedRequestPin.lng, spot.lat, spot.lng) }))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
+    const nearest = [nearbyVenue, nearbyParking].filter(Boolean).sort((a, b) => a!.distanceMeters - b!.distanceMeters)[0];
+    return nearest ? `Near ${nearest.name}` : 'Nearby area';
+  }, [droppedRequestPin, filteredMapVenues, filteredParkingSpots, tapZoneVenues]);
+  const visibleSmartParkingSuggestions = droppedRequestPin ? smartParkingSuggestions.slice(0, 2) : smartParkingSuggestions;
+  const liveHotspotVenues = useMemo(() => {
+    const sourceVenues = [
+      ...(showTapZones ? tapZoneVenues : []),
+      ...(showVenues ? filteredMapVenues : []),
+    ];
+    const uniqueVenues = new Map<string, ApiVenue>();
+    sourceVenues.forEach((venue) => {
+      uniqueVenues.set(String(venue.id ?? venue.name), venue);
+    });
+    return Array.from(uniqueVenues.values())
+      .filter(venue => trendingIds.has(venue.id ?? '') || trendingIds.has(venue.name) || (venue.crowd?.level ?? 0) >= 3)
+      .sort((a, b) => (b.crowd?.level ?? 0) - (a.crowd?.level ?? 0))
+      .slice(0, 4);
+  }, [filteredMapVenues, showTapZones, showVenues, tapZoneVenues, trendingIds]);
+  const showTrendingHotspots = (showEvents || showHeatmap) && liveHotspotVenues.length > 0;
+
+  const mapVenueToSpatialResult = useCallback((venue: ApiVenue): SpatialResult => ({
       id: `venue-${venue.id ?? venue.name}`,
       name: venue.name,
-      detail: `${venue.category ?? 'Service'} · ${formatVenueAvailability(venue)}`,
+      detail: `${venue.category ?? 'Service'} · ${getVenueWaitLabel(venue)}`,
       type: hasHardwarePatchInstalled(venue) ? 'Tap Zone' : 'Provider',
+      crowdLabel: getVenueCrowdLabel(venue),
+      waitLabel: getVenueWaitLabel(venue),
+      isTrending: trendingIds.has(venue.id ?? '') || trendingIds.has(venue.name) || (venue.crowd?.level ?? 0) >= 3,
       onClick: () => { setPeekVenue(venue); setBottomSheetExpanded(true); },
-    }));
-    const parkingResults = smartParkingSuggestions.map(({ spot, distanceMeters }) => ({
+  }), [trendingIds]);
+
+  const partneredResults = useMemo(() => tapZoneVenues.slice(0, 8).map(mapVenueToSpatialResult), [mapVenueToSpatialResult, tapZoneVenues]);
+
+  const nearbyResults = useMemo(() => {
+    const providerResults = [...tapZoneVenues, ...filteredMapVenues].slice(0, 8).map(mapVenueToSpatialResult);
+    const parkingResults: SpatialResult[] = smartParkingSuggestions.map(({ spot, distanceMeters }) => ({
       id: `parking-${spot.id}`,
       name: spot.name,
       detail: `${formatMeters(distanceMeters)} · ${spot.available}/${spot.total} spots · $${spot.price}/hr`,
@@ -890,7 +1011,93 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       onClick: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); },
     }));
     return [...providerResults, ...parkingResults].slice(0, 8);
-  }, [filteredMapVenues, smartParkingSuggestions, tapZoneVenues]);
+  }, [filteredMapVenues, mapVenueToSpatialResult, smartParkingSuggestions, tapZoneVenues]);
+
+  const partnerVenueCount = tapZoneVenues.length;
+  const partnerFocusActive = showVerifiedOnly && showTapZones;
+  const spatialResults = partnerFocusActive ? partneredResults : nearbyResults;
+  useEffect(() => {
+    if (partnerFocusActive || routeDestination || selectedFunction) setNearbySheetDismissed(false);
+  }, [partnerFocusActive, routeDestination, selectedFunction]);
+  const shouldShowSpatialSheet = !venueDetailsVenue && (peekVenue || droppedRequestPin || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
+  const mapMode: MapMode = isRideBookingOpen
+    ? 'ride'
+    : droppedRequestPin
+      ? 'request'
+      : peekVenue
+        ? 'station'
+      : selectedDestinationCoords
+      ? 'navigation'
+      : partnerFocusActive
+        ? 'partnered'
+        : shouldShowSpatialSheet
+          ? 'nearby'
+          : 'default';
+  const isFocusedMapMode = mapMode !== 'default';
+  const showSearchBar = mapMode === 'default' || mapMode === 'nearby' || mapMode === 'navigation';
+  const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
+  const hideTapScanFab = showLayerMenu || shouldShowSpatialSheet || partnerFocusActive || isRideBookingOpen;
+  const hideRightActionStack = trafficPanelActive || Boolean(droppedRequestPin) || mapMode === 'ride' || mapMode === 'partnered' || mapMode === 'station' || mapMode === 'request';
+  const showFloatingNavigationFab = Boolean(selectedDestinationCoords) && mapMode === 'navigation';
+  const showLayerButton = mapMode === 'default' || mapMode === 'navigation';
+  const showFullRightActionStack = mapMode === 'default' && !showLayerMenu;
+  const showSmartParkingRail = visibleSmartParkingSuggestions.length > 0 && !peekVenue && (mapMode === 'nearby' || mapMode === 'navigation');
+  const sheetTitle = mapMode === 'partnered' ? 'Partnered Tap Zones' : 'Nearby Intelligence';
+  const sheetModeChip = mapMode === 'partnered' ? 'Verified' : 'General';
+  const sheetResultCount = spatialResults.length;
+
+  useEffect(() => {
+    if (!showLayerButton) setShowLayerMenu(false);
+  }, [showLayerButton]);
+
+  const visibleLayerControls = [
+    { group: 'Show on map', icon: 'P', label: 'Parking', detail: 'Garages, lots, valet', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
+    { group: 'Show on map', icon: '•', label: 'Places', detail: 'Restaurants, nightlife, wellness', checked: showVenues, onToggle: () => setShowVenues(v => !v), modes: ['default'] },
+    { group: 'Show on map', icon: '⬢', label: 'Tap Zones', detail: `${partnerVenueCount} Patch-ready nearby`, checked: showTapZones, onToggle: () => setShowTapZones(v => !v), modes: ['default'] },
+    { group: 'Show on map', icon: '✓', label: 'Verified partners only', detail: 'Show partnered Bytspots first', checked: showVerifiedOnly, onToggle: () => setShowVerifiedOnly(v => !v), modes: ['default'] },
+    { group: 'Entry', icon: '✅', label: 'Free', detail: 'No-cost entry', checked: entryFilter === 'free', onToggle: () => setEntryFilter(current => current === 'free' ? null : 'free'), modes: ['default'] },
+    { group: 'Entry', icon: '💰', label: 'Paid', detail: 'Premium access', checked: entryFilter === 'paid', onToggle: () => setEntryFilter(current => current === 'paid' ? null : 'paid'), modes: ['default'] },
+    { group: 'Category', icon: '🍽️', label: 'Dining', detail: 'Food and chefs', checked: categoryFilter === 'dining', onToggle: () => setCategoryFilter(current => current === 'dining' ? null : 'dining'), modes: ['default'] },
+    { group: 'Category', icon: '🍸', label: 'Nightlife', detail: 'Bars and lounges', checked: categoryFilter === 'nightlife', onToggle: () => setCategoryFilter(current => current === 'nightlife' ? null : 'nightlife'), modes: ['default'] },
+    { group: 'Category', icon: '☕', label: 'Coffee', detail: 'Work-friendly', checked: categoryFilter === 'coffee', onToggle: () => setCategoryFilter(current => current === 'coffee' ? null : 'coffee'), modes: ['default'] },
+    { group: 'Category', icon: '🌳', label: 'Parks', detail: 'Outdoor spots', checked: categoryFilter === 'parks', onToggle: () => setCategoryFilter(current => current === 'parks' ? null : 'parks'), modes: ['default'] },
+    { group: 'Vibe', icon: '🟢', label: 'Chill', detail: 'Low-key', checked: vibeFilter === 1, onToggle: () => setVibeFilter(current => current === 1 ? null : 1), modes: ['default'] },
+    { group: 'Vibe', icon: '🟡', label: 'Active', detail: 'Balanced', checked: vibeFilter === 2, onToggle: () => setVibeFilter(current => current === 2 ? null : 2), modes: ['default'] },
+    { group: 'Vibe', icon: '🟠', label: 'Busy', detail: 'Lively', checked: vibeFilter === 3, onToggle: () => setVibeFilter(current => current === 3 ? null : 3), modes: ['default'] },
+    { group: 'Vibe', icon: '🔴', label: 'Packed', detail: 'Peak', checked: vibeFilter === 4, onToggle: () => setVibeFilter(current => current === 4 ? null : 4), modes: ['default'] },
+    { group: 'Live info', icon: '⚠️', label: 'Live Reports', detail: 'Crowd, hazards, closures', checked: showReports, onToggle: () => setShowReports(v => !v), modes: ['default', 'navigation'] },
+    { group: 'Live info', icon: '🎶', label: 'Live Events', detail: 'Music, activity, momentum', checked: showEvents, onToggle: () => setShowEvents(v => !v), modes: ['default'] },
+    { group: 'Live info', icon: '🌡️', label: 'Heatmap', detail: 'Busy areas at a glance', checked: showHeatmap, onToggle: () => setShowHeatmap(v => !v), modes: ['default'] },
+    { group: 'Live info', icon: '⚡', label: 'Traffic', detail: 'Street movement conditions', checked: showTrafficIntel, onToggle: () => setShowTrafficIntel(v => !v), modes: ['default', 'navigation'] },
+    { group: 'Parking options', icon: '🔌', label: 'EV charging', detail: 'Chargers available', checked: filters.evChargingOnly, onToggle: () => setFilters(current => ({ ...current, evChargingOnly: !current.evChargingOnly })), modes: ['default', 'navigation'] },
+    { group: 'Parking options', icon: '☂️', label: 'Covered', detail: 'Indoor or protected', checked: filters.coveredOnly, onToggle: () => setFilters(current => ({ ...current, coveredOnly: !current.coveredOnly })), modes: ['default', 'navigation'] },
+    { group: 'Parking options', icon: '★', label: 'Premium', detail: 'Higher-security spots', checked: filters.showPremiumOnly, onToggle: () => setFilters(current => ({ ...current, showPremiumOnly: !current.showPremiumOnly })), modes: ['default', 'navigation'] },
+  ].filter(item => item.modes.includes(mapMode));
+  const layerControlGroups = ['Show on map', 'Entry', 'Category', 'Vibe', 'Live info', 'Parking options']
+    .map(group => ({ group, items: visibleLayerControls.filter(item => item.group === group) }))
+    .filter(group => group.items.length > 0);
+
+  useEffect(() => {
+    if (!showLayerMenu) return;
+    if (!layerControlGroups.some(({ group }) => group === openLayerGroup)) {
+      setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
+    }
+  }, [layerControlGroups, openLayerGroup, showLayerMenu]);
+
+  const handleShowPartneredVendors = useCallback(() => {
+    void impactLight();
+    setShowTapZones(true);
+    setShowVerifiedOnly(true);
+    setNearbySheetDismissed(false);
+    setPeekVenue(null);
+    setVenueDetailsVenue(null);
+    setBottomSheetExpanded(true);
+    toast.success('Partnered vendors', {
+      description: partnerVenueCount > 0
+        ? `Showing ${partnerVenueCount} Tap Zone partner${partnerVenueCount === 1 ? '' : 's'} nearby.`
+        : 'Scanning for Bytspot Verified partners nearby.',
+    });
+  }, [partnerVenueCount]);
 
   return (
     <div className="relative w-full h-full" style={{ zIndex: 0 }}>
@@ -913,9 +1120,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           zoomDirection={zoomDirection} onZoomed={() => setZoomDirection(0)}
           center={mapCenter}
         />
-        <LongPressDropController onDrop={handleDroppedPin} />
+        <LongPressDropController
+          onDrop={handleDroppedPin}
+          onMapTap={() => {
+            setShowLayerMenu(false);
+            if (!partnerFocusActive) setNearbySheetDismissed(true);
+          }}
+        />
 
-        {selectedDestinationCoords && (
+        {selectedDestinationCoords && (mapMode === 'navigation' || mapMode === 'station') && (
           <Polyline
             positions={[mapCenter, selectedDestinationCoords]}
             pathOptions={{ color: '#22d3ee', weight: 4, opacity: 0.78, dashArray: '10 12' }}
@@ -980,7 +1193,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             <Marker
               key={v.id}
               position={[v.lat, v.lng]}
-              icon={createVibeMarkerIcon(level, isPaid, isTrending, v.entryPrice, isVerified)}
+              icon={createVibeMarkerIcon(level, isPaid, isTrending, v.entryPrice, isVerified, getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
               eventHandlers={{
                 click: () => {
                   setPeekVenue(v);
@@ -997,10 +1210,26 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           <Marker
             key={`tap-zone-${v.id ?? v.name}`}
             position={[v.lat, v.lng]}
-            icon={createTapZoneIcon()}
+            icon={createTapZoneIcon(getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
             eventHandlers={{
               click: () => {
                 setPeekVenue(v);
+                setVenueDetailsVenue(null);
+                setBottomSheetExpanded(true);
+              },
+            }}
+          />
+        ))}
+
+        {/* Trending Hotspots — high-momentum LIVE layer follows Live Events / Heatmap toggles */}
+        {showTrendingHotspots && liveHotspotVenues.map((venue) => (
+          <Marker
+            key={`hotspot-${venue.id ?? venue.name}`}
+            position={[venue.lat, venue.lng]}
+            icon={createHotspotIcon(getVenueCrowdLabel(venue))}
+            eventHandlers={{
+              click: () => {
+                setPeekVenue(venue);
                 setVenueDetailsVenue(null);
                 setBottomSheetExpanded(true);
               },
@@ -1056,8 +1285,16 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
       </MapContainer>
 
       {/* Spatial Intelligence Search */}
-      <div className="absolute left-3 right-3 top-4 z-[1000]">
-        <div className="rounded-[24px] border border-white/35 bg-[#080A10] px-3 py-3 shadow-2xl">
+      <AnimatePresence>
+      {showSearchBar && (
+      <motion.div
+        className="absolute left-3 right-20 top-4 z-[1000]"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: isFocusedMapMode ? 0.92 : 1, y: 0, scale: isFocusedMapMode ? 0.98 : 1 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={springConfig}
+      >
+        <div className={`rounded-[24px] border border-white/35 bg-[#080A10] px-3 shadow-2xl ${isFocusedMapMode ? 'py-2.5' : 'py-3'}`}>
           <div className="flex items-center gap-3">
             <Search className="h-5 w-5 flex-shrink-0 text-cyan-200" strokeWidth={2.5} />
             <input
@@ -1079,51 +1316,42 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
 
       {/* Floating Spatial Intelligence Actions */}
-      <div className="absolute top-28 right-4 flex flex-col gap-2 z-[1000]">
+      <motion.div
+        className={`absolute top-28 right-4 flex flex-col gap-2 ${mapMode === 'navigation' ? 'z-[1006]' : 'z-[1000]'}`}
+        data-testid="map-right-action-stack"
+        animate={hideRightActionStack ? { opacity: 0, x: 28, scale: 0.96 } : { opacity: 1, x: 0, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 340, damping: 32, mass: 0.85 }}
+        style={{ pointerEvents: hideRightActionStack ? 'none' : 'auto', zIndex: mapMode === 'navigation' ? 1006 : 1000 }}
+        aria-hidden={hideRightActionStack}
+      >
+        {showLayerButton && (
         <div className="relative">
           <motion.button
-            onClick={() => { triggerLightHaptic(); setShowLayerMenu(prev => !prev); }}
+            onClick={(event) => {
+              event.currentTarget.blur();
+              triggerLightHaptic();
+              setShowLayerMenu(prev => {
+                const next = !prev;
+                if (next) setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
+                return next;
+              });
+            }}
             className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showLayerMenu ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
             whileTap={{ scale: 0.9 }}
             transition={springConfig}
             aria-label="Map layers"
+            aria-expanded={showLayerMenu}
           >
             <Layers className="w-5 h-5 text-white" strokeWidth={2.5} />
           </motion.button>
-          <AnimatePresence>
-            {showLayerMenu && (
-              <motion.div
-                className="absolute right-14 top-0 w-52 rounded-[20px] border border-white/35 bg-[#050505] p-3 shadow-2xl"
-                initial={{ opacity: 0, x: 12, scale: 0.96 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 12, scale: 0.96 }}
-                transition={springConfig}
-              >
-                <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Layers</p>
-                {[
-                  { label: 'Parking', checked: showParkingSpots, set: setShowParkingSpots, icon: 'P' },
-                  { label: 'Providers', checked: showVenues, set: setShowVenues, icon: '•' },
-                  { label: 'Tap Zones', checked: showTapZones, set: setShowTapZones, icon: '⌁' },
-                ].map(layer => (
-                  <button
-                    key={layer.label}
-                    onClick={() => layer.set(!layer.checked)}
-                    className="flex w-full items-center justify-between rounded-2xl border border-white/20 bg-[#0B0B0F] px-2.5 py-2 text-left text-[13px] text-white transition-colors hover:border-cyan-400/50 hover:bg-[#101827]"
-                    style={{ fontWeight: 800 }}
-                  >
-                    <span className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full border border-cyan-400/35 bg-[#061B22] text-[11px] text-cyan-100">{layer.icon}</span>{layer.label}</span>
-                    <span className={`h-5 w-9 rounded-full border p-0.5 ${layer.checked ? 'border-cyan-200 bg-cyan-500' : 'border-white/35 bg-[#050505]'}`}>
-                      <span className={`block h-3.5 w-3.5 rounded-full bg-white transition-transform ${layer.checked ? 'translate-x-4' : ''}`} />
-                    </span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
+        )}
+        {!showLayerMenu && (
         <motion.button
           onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
           className="w-12 h-12 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
@@ -1133,15 +1361,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         >
           <Crosshair className="w-5 h-5 text-white" strokeWidth={2.5} />
         </motion.button>
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setShowFilters(!showFilters); }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showFilters ? 'bg-purple-600 border-purple-200' : 'bg-[#050505] border-white/40'}`}
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-          aria-label="Filter map results"
-        >
-          <Filter className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
+        )}
+        {showFullRightActionStack && (
+        <>
         <motion.button
           onClick={() => { triggerLightHaptic(); setZoomDirection(1); }}
           className="w-11 h-11 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
@@ -1160,24 +1382,27 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         </motion.button>
         {/* Traffic Intelligence toggle */}
         <motion.button
-          onClick={() => { triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
+          onClick={(event) => { event.currentTarget.blur(); triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
           className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500 border-amber-200' : 'bg-[#050505] border-white/40'}`}
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
           title="Traffic Intelligence"
+          aria-label="Traffic intelligence"
+          data-testid="traffic-intelligence-fab"
         >
           <Zap className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-amber-400'}`} strokeWidth={2.5} />
         </motion.button>
 
         {/* ── Bytspot Verified Only — hexagonal FAB toggle ── */}
         <motion.button
-          onClick={() => { triggerLightHaptic(); setShowVerifiedOnly(v => !v); }}
+          onClick={(event) => { event.currentTarget.blur(); handleShowPartneredVendors(); }}
           className="relative w-11 h-11 flex items-center justify-center"
           whileTap={{ scale: 0.9 }}
           transition={springConfig}
           aria-pressed={showVerifiedOnly}
-          aria-label={showVerifiedOnly ? 'Showing Bytspot Verified venues only — tap to show all' : 'Show Bytspot Verified venues only'}
-          title="Bytspot Verified only"
+          aria-label="Show partnered Tap Zone vendors"
+          data-testid="partnered-vendors-patch-button"
+          title="Partnered Tap Zone vendors"
         >
           {showVerifiedOnly && (
             <motion.span
@@ -1208,220 +1433,154 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
             />
           </motion.span>
         </motion.button>
-      </div>
+        </>
+        )}
+      </motion.div>
 
-      {/* ── Compact Vibe Filter Bar — secondary filters under search ── */}
-      <div className="absolute top-[92px] left-3 right-20 z-[1000]">
-        <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-
-          {/* ─ Vibe chips ─ */}
-          {([
-            { label: 'All Vibes', value: null,  emoji: '✨' },
-            { label: 'Chill',     value: 1,     emoji: '🟢' },
-            { label: 'Active',    value: 2,     emoji: '🟡' },
-            { label: 'Busy',      value: 3,     emoji: '🟠' },
-            { label: 'Packed',    value: 4,     emoji: '🔴' },
-          ] as { label: string; value: number | null; emoji: string }[]).map((chip, idx) => (
-            <div key={chip.label} className="flex-shrink-0 inline-flex items-stretch gap-1">
-              <motion.button
-                onClick={() => setVibeFilter(vibeFilter === chip.value ? null : chip.value)}
-                className={`px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-                  vibeFilter === chip.value
-                    ? 'bg-[#182033] border-white/80 text-white'
-                    : 'bg-[#050505] border-white/35 text-white'
-                }`}
-                style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-                whileTap={{ scale: 0.93 }}
-              >
-                {chip.emoji} {chip.label}
-              </motion.button>
-              {idx === 0 && (
-                <motion.button
-                  onClick={() => setShowAINotice(true)}
-                  className="px-2 py-1.5 rounded-full bg-[#06242B] border border-cyan-400/55 text-cyan-100 shadow-lg"
-                  whileTap={{ scale: 0.9 }}
-                  aria-label="How Bytspot AI works"
-                  title="How Bytspot AI works"
-                >
-                  <Sparkles className="w-3.5 h-3.5" strokeWidth={2.6} />
-                </motion.button>
-              )}
-            </div>
-          ))}
-
-          {(verifiedVenues.length > 0 || showVerifiedOnly) && (
-            <motion.button
-              onClick={() => { triggerLightHaptic(); setShowVerifiedOnly(v => !v); }}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg transition-colors ${
-                showVerifiedOnly
-                  ? 'bg-[#064E5A] border-cyan-200 text-white'
-                  : 'bg-[#06242B] border-cyan-400/55 text-cyan-100'
-              }`}
-              style={{ fontWeight: 800, whiteSpace: 'nowrap' }}
-              whileTap={{ scale: 0.93 }}
-              aria-pressed={showVerifiedOnly}
-              title={showVerifiedOnly ? 'Showing Verified only' : 'Tap to show Verified only'}
-            >
-              ⬢ {verifiedVenueCount} Verified{showVerifiedOnly ? ' · On' : ''}
-            </motion.button>
-          )}
-
-          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
-
-          {/* ─ Entry chips ─ */}
-          {([
-            { label: 'Free', value: 'free' as const, emoji: '✅' },
-            { label: 'Paid', value: 'paid' as const, emoji: '💰' },
-          ]).map(chip => (
-            <motion.button
-              key={chip.label}
-              onClick={() => setEntryFilter(entryFilter === chip.value ? null : chip.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-                entryFilter === chip.value
-                  ? 'bg-[#5A3400] border-amber-300 text-amber-100'
-                  : 'bg-[#050505] border-white/35 text-white'
-              }`}
-              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-              whileTap={{ scale: 0.93 }}
-            >
-              {chip.emoji} {chip.label}
-            </motion.button>
-          ))}
-
-          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
-
-          {/* ─ Category chips ─ */}
-          {([
-            { label: 'Dining',    value: 'dining',    emoji: '🍽️' },
-            { label: 'Nightlife', value: 'nightlife', emoji: '🍸' },
-            { label: 'Coffee',    value: 'coffee',    emoji: '☕' },
-            { label: 'Parks',     value: 'parks',     emoji: '🌳' },
-          ]).map(chip => (
-            <motion.button
-              key={chip.label}
-              onClick={() => setCategoryFilter(categoryFilter === chip.value ? null : chip.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-                categoryFilter === chip.value
-                  ? 'bg-[#32164E] border-purple-300 text-purple-100'
-                  : 'bg-[#050505] border-white/35 text-white'
-              }`}
-              style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-              whileTap={{ scale: 0.93 }}
-            >
-              {chip.emoji} {chip.label}
-            </motion.button>
-          ))}
-
-          <div className="flex-shrink-0 w-px bg-white/18 my-1" />
-
-          {/* ─ Layer toggles ─ */}
-          <motion.button
-            onClick={() => setShowHeatmap(!showHeatmap)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-              showHeatmap ? 'bg-[#4A0B0B] border-red-300 text-red-100' : 'bg-[#050505] border-white/35 text-white'
-            }`}
-            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-            whileTap={{ scale: 0.93 }}
-          >
-            🌡️ Heatmap
-          </motion.button>
-          <motion.button
-            onClick={() => setShowReports(!showReports)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-              showReports ? 'bg-[#4A0B0B] border-red-300 text-red-100' : 'bg-[#050505] border-white/35 text-white'
-            }`}
-            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-            whileTap={{ scale: 0.93 }}
-          >
-            ⚠️ Reports
-          </motion.button>
-          <motion.button
-            onClick={() => setShowEvents(!showEvents)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-              showEvents ? 'bg-[#32164E] border-purple-300 text-purple-100' : 'bg-[#050505] border-white/35 text-white'
-            }`}
-            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-            whileTap={{ scale: 0.93 }}
-          >
-            🎶 Vibes
-          </motion.button>
-          <motion.button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] border shadow-lg ${
-              (filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly)
-                ? 'bg-[#0A2B55] border-blue-300 text-blue-100'
-                : 'bg-[#050505] border-white/35 text-white'
-            }`}
-            style={{ fontWeight: 700, whiteSpace: 'nowrap' }}
-            whileTap={{ scale: 0.93 }}
-          >
-            <Filter className="inline w-3 h-3 mr-1" strokeWidth={2.5} />
-            Parking
-            {(filters.evChargingOnly || filters.coveredOnly || filters.showPremiumOnly) && (
-              <span className="ml-1 w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
-            )}
-          </motion.button>
-        </div>
-      </div>
-
-      {/* ── Bytspot Verified — Partner-Only mode indicators ── */}
+      {/* Map Layers — full-width mobile sheet so controls do not clip off-screen */}
       <AnimatePresence>
-        {showVerifiedOnly && (
-          <>
-            {/* Cyan vignette accent so it's obvious the map is in a special mode */}
-            <motion.div
-              key="verified-vignette"
-              className="pointer-events-none absolute inset-0 z-[999]"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.35 }}
-              style={{
-                boxShadow: 'inset 0 0 0 2px rgba(103,232,249,0.55), inset 0 0 60px rgba(34,211,238,0.18)',
-              }}
+        {showLayerMenu && showLayerButton && (
+          <motion.div
+            className="absolute inset-0 z-[1007] flex items-end px-3 pb-3"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45"
+              onClick={() => setShowLayerMenu(false)}
+              aria-label="Close Map Layers"
             />
-            {/* "Verified Mode" badge — sits just under the filter chips */}
             <motion.div
-              key="verified-badge"
-              className="absolute top-16 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none"
-              initial={{ opacity: 0, y: -8, scale: 0.94 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.94 }}
+              className="relative z-10 flex w-full flex-col overflow-hidden rounded-[28px] border border-white/35 bg-[#050505] shadow-2xl"
+              style={{ maxHeight: 'calc(100vh - 96px)' }}
+              data-testid="map-layers-menu"
+              role="dialog"
+              aria-label="Map Layers"
+              initial={{ y: 28, scale: 0.98 }}
+              animate={{ y: 0, scale: 1 }}
+              exit={{ y: 28, scale: 0.98 }}
               transition={springConfig}
             >
-              <div
-                className="px-3 py-1.5 rounded-full border border-cyan-200/60 shadow-2xl flex items-center gap-2"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(6,182,212,0.92), rgba(124,58,237,0.92) 60%, rgba(236,72,153,0.9))',
-                }}
-              >
-                <span className="text-[12px] text-white" style={{ fontWeight: 900, letterSpacing: '0.04em' }}>
-                  ⬢ VERIFIED MODE
-                </span>
-                <span className="text-[10px] text-white/85" style={{ fontWeight: 700 }}>
-                  Partner venues only
-                </span>
+              <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-white/70" />
+              <div className="flex items-start justify-between gap-3 border-b border-white/15 px-4 pb-3 pt-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Map Layers</p>
+                  <h3 className="mt-1 text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>
+                    {mapMode === 'navigation' ? 'What helps this route?' : 'What do you want to see?'}
+                  </h3>
+                  <p className="mt-0.5 text-[12px] text-white/85" style={{ fontWeight: 650 }}>
+                    {mapMode === 'navigation' ? 'Only route-useful layers are shown.' : 'Pick the map signals that matter right now.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowLayerMenu(false)}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-white/35 bg-[#080A10] text-white"
+                  aria-label="Close Map Layers"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto px-4 pb-4 pt-3 scrollbar-hide" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+                <div className="space-y-2.5">
+                  {layerControlGroups.map(({ group, items }) => {
+                    const isOpen = openLayerGroup === group;
+                    const activeCount = items.filter(item => item.checked).length;
+                    return (
+                      <section key={group} className="rounded-[22px] border border-white/22 bg-[#080A10] p-2">
+                        <button
+                          type="button"
+                          className={`flex min-h-[56px] w-full items-center gap-3 rounded-[18px] border px-3 py-2.5 text-left transition-colors ${isOpen ? 'border-cyan-300 bg-[#06242B]' : 'border-transparent bg-[#0E1117]'}`}
+                          onClick={() => setOpenLayerGroup(group)}
+                          aria-expanded={isOpen}
+                          aria-controls={`map-layer-group-${group.replace(/\s+/g, '-').toLowerCase()}`}
+                        >
+                          <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl border text-[13px] ${activeCount > 0 ? 'border-cyan-200 bg-cyan-400 text-black' : 'border-white/35 bg-[#050505] text-cyan-100'}`} style={{ fontWeight: 900 }}>
+                            {activeCount || items.length}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[15px] leading-tight text-white" style={{ fontWeight: 900 }}>{group}</span>
+                            <span className="mt-0.5 block text-[12px] leading-snug text-white/85" style={{ fontWeight: 650 }}>
+                              {activeCount > 0 ? `${activeCount} active` : `${items.length} option${items.length === 1 ? '' : 's'}`}
+                            </span>
+                          </span>
+                          <ChevronRight className={`h-5 w-5 flex-shrink-0 text-white transition-transform ${isOpen ? 'rotate-90 text-cyan-100' : ''}`} strokeWidth={2.7} />
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                          {isOpen && (
+                            <motion.div
+                              id={`map-layer-group-${group.replace(/\s+/g, '-').toLowerCase()}`}
+                              className="space-y-2 pt-2"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.18 }}
+                              style={{ overflow: 'hidden' }}
+                            >
+                              {items.map(item => (
+                                <button
+                                  key={item.label}
+                                  type="button"
+                                  role="checkbox"
+                                  aria-checked={item.checked}
+                                  onClick={item.onToggle}
+                                  data-layer-selected={item.checked ? 'true' : 'false'}
+                                  className={`flex min-h-[74px] w-full items-center gap-3 rounded-[20px] border p-3.5 text-left transition-colors ${item.checked ? 'border-cyan-200 bg-cyan-400 text-black shadow-[0_0_0_2px_rgba(165,243,252,0.35)]' : 'border-white/30 bg-[#050505] text-white'}`}
+                                >
+                                  <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border text-[16px] ${item.checked ? 'border-black/20 bg-black/10 text-black' : 'border-cyan-400/35 bg-[#061B22] text-cyan-100'}`} style={{ fontWeight: 900 }}>{item.icon}</span>
+                                  <span className="min-w-0 flex-1 pr-1">
+                                    <span className={`block whitespace-normal text-[16px] leading-tight ${item.checked ? 'text-black' : 'text-white'}`} style={{ fontWeight: 950 }}>{item.label}</span>
+                                    <span className={`mt-1 block whitespace-normal text-[12px] leading-snug ${item.checked ? 'text-black/80' : 'text-white/85'}`} style={{ fontWeight: 750 }}>{item.detail}</span>
+                                  </span>
+                                  <span className={`flex h-8 min-w-8 flex-shrink-0 items-center justify-center rounded-xl border px-1.5 ${item.checked ? 'border-black/25 bg-black text-cyan-200' : 'border-white/45 bg-[#080A10] text-transparent'}`}>
+                                    {item.checked ? <span className="text-[10px] uppercase tracking-[0.08em]" style={{ fontWeight: 950 }}>On</span> : <Check className="h-4 w-4" strokeWidth={3} />}
+                                  </span>
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Report FAB — bottom-right, clear of filter bar */}
-      <div className="fixed bottom-28 right-4 z-[1001]">
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setShowReportForm(!showReportForm); }}
-          className="w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br from-red-500 to-orange-500 border-2 border-white/40 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
-          animate={{ scale: showReportForm ? 1.03 : 1 }}
-          title="Community Report"
-        >
-          <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-      </div>
+      {/* Route FAB — appears only after a venue/pin route context exists */}
+      <AnimatePresence>
+        {showFloatingNavigationFab && selectedDestinationCoords && (
+          <motion.div
+            className="fixed bottom-28 right-4 z-[1001]"
+            initial={{ opacity: 0, scale: 0.86, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.86, y: 14 }}
+            transition={springConfig}
+          >
+            <motion.button
+              data-testid="orange-navigation-fab"
+              onClick={() => openNativeNavigation(selectedDestinationCoords[0], selectedDestinationCoords[1], peekVenue?.name ?? droppedRequestPin?.label ?? routeDestination ?? 'Destination')}
+              className="w-14 h-14 rounded-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-red-500 border-2 border-white/40 shadow-xl"
+              whileTap={{ scale: 0.9 }}
+              title="Start navigation"
+              aria-label="Start navigation"
+            >
+              <Navigation className="w-6 h-6 text-white" strokeWidth={2.7} />
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1001]">
+      {!hideTapScanFab && (
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1001]" data-testid="tap-scan-fab">
         <motion.button
           onClick={handleOpenVirtualPatch}
           className="relative min-w-[210px] px-3 py-3 rounded-full border border-white/25 shadow-2xl overflow-hidden"
@@ -1443,6 +1602,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           </div>
         </motion.button>
       </div>
+      )}
 
       {createPortal(
         <AnimatePresence>
@@ -1672,131 +1832,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
         )}
       </AnimatePresence>
 
-      {/* Filter Panel */}
-      <AnimatePresence>
-        {showFilters && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm z-40"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowFilters(false)}
-            />
-
-            {/* Filter Panel */}
-            <motion.div
-              className="absolute bottom-0 left-0 right-0 z-50"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={springConfig}
-            >
-              <div className="bg-[#050505] border-t-2 border-white/40 rounded-t-[28px] overflow-hidden shadow-2xl p-6">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-[20px] text-white" style={{ fontWeight: 700 }}>
-                    Map Filters
-                  </h3>
-                  <motion.button
-                    onClick={() => setShowFilters(false)}
-                    className="w-8 h-8 rounded-full flex items-center justify-center bg-[#080A10] border border-white/40"
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <X className="w-4 h-4 text-white" strokeWidth={2.5} />
-                  </motion.button>
-                </div>
-
-                {/* Quick Toggles */}
-                <div className="space-y-3 mb-6">
-                  <label className="flex items-center justify-between p-3 rounded-[14px] bg-white/5 border border-white/20 cursor-pointer">
-                    <div className="flex items-center gap-3">
-                      <Zap className="w-5 h-5 text-green-400" strokeWidth={2} />
-                      <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>
-                        EV Charging Only
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={filters.evChargingOnly}
-                      onChange={(e) => setFilters({ ...filters, evChargingOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-[14px] bg-white/5 border border-white/20 cursor-pointer">
-                    <div className="flex items-center gap-3">
-                      <Umbrella className="w-5 h-5 text-blue-400" strokeWidth={2} />
-                      <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>
-                        Covered Parking Only
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={filters.coveredOnly}
-                      onChange={(e) => setFilters({ ...filters, coveredOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-[14px] bg-white/5 border border-white/20 cursor-pointer">
-                    <div className="flex items-center gap-3">
-                      <Star className="w-5 h-5 text-purple-400" strokeWidth={2} />
-                      <span className="text-[15px] text-white" style={{ fontWeight: 500 }}>
-                        Premium Spots Only
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={filters.showPremiumOnly}
-                      onChange={(e) => setFilters({ ...filters, showPremiumOnly: e.target.checked })}
-                      className="w-5 h-5 rounded bg-[#080A10] border-2 border-white/40"
-                    />
-                  </label>
-                </div>
-
-                {/* Price Range */}
-                <div className="mb-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                      Price Range
-                    </span>
-                    <span className="text-[13px] text-white" style={{ fontWeight: 700 }}>
-                      ${filters.priceRange[0]} - ${filters.priceRange[1]}/hr
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="20"
-                    value={filters.priceRange[1]}
-                    onChange={(e) => setFilters({ ...filters, priceRange: [0, parseInt(e.target.value)] })}
-                    className="w-full h-2 rounded-full bg-white/20"
-                  />
-                </div>
-
-                {/* Apply Button */}
-                <motion.button
-                  onClick={() => {
-                    setShowFilters(false);
-                    toast.success('Filters applied', {
-                      description: `Showing ${filteredParkingSpots.length} parking spots`,
-                    });
-                  }}
-                  className="w-full py-3 rounded-[14px] bg-gradient-to-r from-purple-500 to-cyan-500 text-white"
-                  style={{ fontWeight: 600 }}
-                  whileTap={{ scale: 0.98 }}
-                  transition={springConfig}
-                >
-                  Apply Filters ({filteredParkingSpots.length} spots)
-                </motion.button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Live Update Indicator — auto-hides so it doesn't obstruct the map */}
       <AnimatePresence>
         {showLiveUpdates && (
@@ -1931,9 +1966,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
 
       {/* Spatial Intelligence Bottom Sheet */}
       <AnimatePresence>
-        {!venueDetailsVenue && (peekVenue || droppedRequestPin || nearbyResults.length > 0) && (
+        {shouldShowSpatialSheet && (
           <motion.div
             className="absolute bottom-20 left-3 right-3 z-[1002]"
+            data-testid="spatial-intelligence-sheet"
             initial={{ y: SPATIAL_SHEET_PEEK_Y, opacity: 0 }}
             animate={{ y: bottomSheetExpanded ? 0 : SPATIAL_SHEET_PEEK_Y, opacity: 1 }}
             exit={{ y: 180, opacity: 0 }}
@@ -1950,10 +1986,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
           >
             <div
               className={`max-h-[72vh] overflow-hidden rounded-[28px] border bg-[#050505] shadow-2xl ${peekVenueIsVerified ? 'border-cyan-400/55' : 'border-white/35'}`}
+              data-testid="spatial-sheet-surface"
               style={peekVenueIsVerified ? { boxShadow: '0 0 34px rgba(34,211,238,0.16), 0 18px 42px rgba(0,0,0,0.48)' } : undefined}
             >
               <button
                 className="mx-auto mt-3 block h-1.5 w-12 rounded-full bg-white/70"
+                data-testid="spatial-sheet-toggle"
                 onClick={() => setBottomSheetExpanded(prev => !prev)}
                 aria-label="Toggle map results sheet"
               />
@@ -1966,7 +2004,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <span className="rounded-full border border-cyan-400/50 bg-[#06242B] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 900 }}>Station Mode</span>
                           {peekVenueIsVerified && <span className="rounded-full border border-cyan-300/60 bg-[#06242B] px-2.5 py-1 text-[10px] text-cyan-100" style={{ fontWeight: 900 }}>Tap Zone</span>}
-                          <span className="rounded-full border border-white/35 bg-[#0B0B0F] px-2.5 py-1 text-[10px] text-white" style={{ fontWeight: 800 }}>{formatVenueAvailability(peekVenue)}</span>
+                          <span className="rounded-full border border-orange-300/70 bg-[#2A1205] px-2.5 py-1 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>Crowd Level · {getVenueCrowdLabel(peekVenue)}</span>
+                          <span className="rounded-full border border-white/35 bg-[#0B0B0F] px-2.5 py-1 text-[10px] text-white" style={{ fontWeight: 800 }}>Wait Time · {getVenueWaitLabel(peekVenue)}</span>
                         </div>
                         <h3 className="truncate text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>{peekVenue.name}</h3>
                         <p className="mt-1 text-[12px] capitalize text-white">{peekVenue.category} · {peekVenue.address || 'Nearby'}{routeEtaMinutes ? ` · ${routeEtaMinutes} min ETA` : ''}</p>
@@ -1981,9 +2020,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Crowd</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.label ?? 'Live'}</p></div>
+                      <div className="rounded-2xl border border-orange-300/50 bg-[#2A1205] p-3"><p className="text-[10px] text-orange-100">Crowd Level</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{getVenueCrowdLabel(peekVenue)}</p></div>
                       <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Access</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenueIsVerified ? 'Patch ready' : 'Standard'}</p></div>
-                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Reports</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{peekVenue.crowd?.level ?? 1}/4 activity</p></div>
+                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Wait Time</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{getVenueWaitShortLabel(peekVenue)}</p></div>
                     </div>
 
                     {selectedDestinationCoords && (
@@ -2002,54 +2041,155 @@ export function MapSection({ isDarkMode, selectedFunction, destination, onBookRi
                       </motion.button>
                     </div>
                     <button onClick={() => setVenueDetailsVenue(peekVenue)} className="w-full rounded-2xl border border-purple-300/55 bg-[#21102F] px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 900 }}>View full venue details</button>
-                  </div>
-                ) : droppedRequestPin ? (
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Dropped request pin</p>
-                        <h3 className="mt-1 text-[18px] text-white" style={{ fontWeight: 900 }}>{droppedRequestPin.label}</h3>
-                        <p className="mt-1 text-[12px] text-white">Create a white-glove Concierge request with coordinate context.</p>
-                      </div>
-                      <button onClick={() => setDroppedRequestPin(null)} className="h-8 w-8 rounded-full border border-white/40 bg-[#080A10] flex items-center justify-center"><X className="h-3.5 w-3.5 text-white" /></button>
-                    </div>
                     <motion.button
-                      onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for this map location: ${droppedRequestPin.label}. Help me find parking, access, and nearby services.`)}
-                      className="w-full rounded-2xl bg-white px-3 py-3 text-[13px] text-black flex items-center justify-center gap-1.5"
+                      onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for services at ${peekVenue.name}.`)}
+                      className="w-full rounded-2xl bg-white px-3 py-3.5 text-[14px] text-black flex items-center justify-center gap-1.5"
                       style={{ fontWeight: 900 }}
                       whileTap={{ scale: 0.96 }}
                     >
-                      <Sparkles className="h-4 w-4" /> Create Request
+                      <Sparkles className="h-4 w-4" /> Request Concierge Service
+                    </motion.button>
+                  </div>
+                ) : droppedRequestPin ? (
+                  <div className="space-y-3" data-testid="dropped-location-request-flow">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Service location</p>
+                        <h3 className="mt-1 text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>Request Service at This Location</h3>
+                        <p className="mt-1 text-[12px] text-white/85" style={{ fontWeight: 700 }}>{droppedRequestPin.label} · {droppedPinLandmark}</p>
+                      </div>
+                      <button onClick={() => setDroppedRequestPin(null)} className="h-8 w-8 flex-shrink-0 rounded-full border border-white/40 bg-[#080A10] flex items-center justify-center" aria-label="Close service location request"><X className="h-3.5 w-3.5 text-white" /></button>
+                    </div>
+
+                    <div className="rounded-[22px] border border-white/30 bg-[#080A10] p-3">
+                      <div className="mb-3 flex items-center gap-2 text-white">
+                        <Sparkles className="h-4 w-4 text-cyan-200" strokeWidth={2.6} />
+                        <span className="text-[15px]" style={{ fontWeight: 900 }}>What would you like?</span>
+                      </div>
+                      <div className="space-y-2">
+                        {DROPPED_PIN_SERVICE_OPTIONS.map(option => (
+                          <button
+                            key={option}
+                            type="button"
+                            role="radio"
+                            aria-checked={droppedPinServiceIntent === option}
+                            onClick={() => setDroppedPinServiceIntent(option)}
+                            className={`flex w-full items-center justify-between rounded-2xl border px-3 py-2.5 text-left transition-colors ${droppedPinServiceIntent === option ? 'border-cyan-300 bg-[#06242B]' : 'border-white/25 bg-[#050505]'}`}
+                          >
+                            <span className="text-[13px] text-white" style={{ fontWeight: 850 }}>{option}</span>
+                            <span className={`h-3 w-3 rounded-full border ${droppedPinServiceIntent === option ? 'border-cyan-100 bg-cyan-300' : 'border-white/45'}`} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <motion.button
+                      onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for ${droppedPinServiceIntent} at ${droppedRequestPin.label} (${droppedPinLandmark ?? 'nearby area'}). Include smart parking, access, arrival timing, and nearby service context.`)}
+                      className="w-full rounded-2xl bg-white px-3 py-3.5 text-[14px] text-black flex items-center justify-center gap-1.5"
+                      style={{ fontWeight: 900 }}
+                      whileTap={{ scale: 0.96 }}
+                    >
+                      <Sparkles className="h-4 w-4" /> Create Concierge Request
                     </motion.button>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-100" style={{ fontWeight: 900 }}>Nearby intelligence</p>
-                        <h3 className="text-[18px] text-white" style={{ fontWeight: 900 }}>Live results around you</h3>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-cyan-400/50 bg-[#06242B] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 900 }}>{sheetModeChip}</span>
+                          {mapMode === 'partnered' && <span className="rounded-full border border-white/30 bg-[#080A10] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 800 }}>{partnerVenueCount} nearby</span>}
+                        </div>
+                        <h3 className="truncate text-[20px] text-white" style={{ fontWeight: 900 }}>{sheetTitle}</h3>
+                        <p className="mt-0.5 text-[12px] text-white/80" style={{ fontWeight: 650 }}>{mapMode === 'partnered' ? 'Verified hardware-patch venues only' : 'Live context around your map view'}</p>
                       </div>
-                      <span className="rounded-full border border-white/35 bg-[#080A10] px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>{nearbyResults.length} results</span>
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        <span className="rounded-full border border-white/35 bg-[#080A10] px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>{sheetResultCount} results</span>
+                        <button
+                          type="button"
+                          aria-label="Close nearby intelligence sheet"
+                          data-testid="close-nearby-intelligence-sheet"
+                          onClick={() => {
+                            setNearbySheetDismissed(true);
+                            if (partnerFocusActive) setShowVerifiedOnly(false);
+                            setBottomSheetExpanded(false);
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-[#080A10] text-white"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    {nearbyResults.map(result => (
-                      <button key={result.id} onClick={result.onClick} className="flex w-full items-center gap-3 rounded-2xl border border-white/30 bg-[#080A10] p-3 text-left">
-                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-cyan-400/40 bg-[#06242B] text-cyan-100"><MapPin className="h-4 w-4" /></span>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-[14px] text-white" style={{ fontWeight: 850 }}>{result.name}</span><span className="block truncate text-[11px] text-white">{result.type} · {result.detail}</span></span>
-                        <ChevronRight className="h-4 w-4 text-white" />
-                      </button>
-                    ))}
+                    {showTrendingHotspots && mapMode === 'nearby' && (
+                      <div className="rounded-[22px] border border-orange-300/55 bg-[#2A1205] p-3" data-testid="trending-now-section">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-white"><Zap className="h-4 w-4 text-orange-200" /><span className="text-[14px]" style={{ fontWeight: 950 }}>Trending Now</span></div>
+                          <span className="byt-live-badge rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black" style={{ fontWeight: 950 }}>LIVE</span>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                          {liveHotspotVenues.map(venue => (
+                            <button key={`trend-row-${venue.id ?? venue.name}`} onClick={() => { setPeekVenue(venue); setBottomSheetExpanded(true); }} className="min-w-[178px] rounded-2xl border border-orange-200/55 bg-[#050505] p-3 text-left">
+                              <span className="block text-[13px] leading-tight text-white" style={{ fontWeight: 900 }}>{venue.name}</span>
+                              <span className="mt-2 inline-flex rounded-full border border-orange-300/60 bg-[#2A1205] px-2 py-0.5 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>{getVenueCrowdLabel(venue)}</span>
+                              <span className="ml-1 inline-flex rounded-full border border-white/30 bg-[#080A10] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 850 }}>{getVenueWaitLabel(venue)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {spatialResults.length > 0 ? (
+                      spatialResults.map(result => (
+                        <button key={result.id} onClick={result.onClick} className="flex w-full items-center gap-3 rounded-2xl border border-white/30 bg-[#080A10] p-3 text-left">
+                          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-cyan-400/40 bg-[#06242B] text-cyan-100"><MapPin className="h-4 w-4" /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[14px] text-white" style={{ fontWeight: 850 }}>{result.name}</span>
+                            <span className="block truncate text-[11px] text-white">{result.type} · {result.detail}</span>
+                            {result.crowdLabel && (
+                              <span className="mt-1 flex flex-wrap gap-1.5">
+                                <span className="rounded-full border border-orange-300/55 bg-[#2A1205] px-2 py-0.5 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>Crowd Level · {result.crowdLabel}</span>
+                                <span className="rounded-full border border-white/25 bg-[#050505] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 850 }}>{result.waitLabel}</span>
+                                {result.isTrending && <span className="byt-live-badge rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] text-black" style={{ fontWeight: 950 }}>LIVE</span>}
+                              </span>
+                            )}
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-white" />
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-white/30 bg-[#080A10] p-4 text-left">
+                        <p className="text-[15px] text-white" style={{ fontWeight: 900 }}>No Partnered Tap Zones nearby yet.</p>
+                        <p className="mt-1 text-[12px] text-white/80">Ask Concierge to locate verified access, parking, or services.</p>
+                        <button
+                          onClick={() => onOpenConciergeRequest?.('Help me locate verified Tap Zone access, parking, or services near my current map area.')}
+                          className="mt-3 rounded-2xl bg-white px-3 py-2.5 text-[13px] text-black"
+                          style={{ fontWeight: 900 }}
+                        >
+                          Ask Concierge
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {smartParkingSuggestions.length > 0 && (peekVenue || droppedRequestPin) && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-white"><Car className="h-4 w-4 text-cyan-200" /><span className="text-[13px]" style={{ fontWeight: 900 }}>Smart Parking</span></div>
-                    {smartParkingSuggestions.map(({ spot, distanceMeters }) => (
-                      <button key={spot.id} onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }} className="flex w-full items-center justify-between rounded-2xl border border-white/30 bg-[#080A10] px-3 py-2.5 text-left">
-                        <span><span className="block text-[13px] text-white" style={{ fontWeight: 800 }}>{spot.name}</span><span className="text-[11px] text-white">{formatMeters(distanceMeters)} · {spot.available}/{spot.total} available</span></span>
-                        <span className="text-[12px] text-emerald-300" style={{ fontWeight: 900 }}>${spot.price}/hr</span>
-                      </button>
-                    ))}
+                {showSmartParkingRail && (
+                  <div className="mt-4 space-y-2" data-testid="smart-parking-live-rail">
+                    <div className="flex items-center justify-between gap-2 text-white">
+                      <div className="flex items-center gap-2"><Car className="h-4 w-4 text-cyan-200" /><span className="text-[13px]" style={{ fontWeight: 950 }}>Smart Parking</span></div>
+                      <span className="rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black" style={{ fontWeight: 950 }}>LIVE</span>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                      {visibleSmartParkingSuggestions.map(({ spot, distanceMeters }) => (
+                        <button key={spot.id} onClick={() => { setSelectedSpot(spot.id); setShowSpotDetails(true); }} className="min-w-[178px] rounded-[20px] border border-cyan-300/45 bg-[#06242B] p-3 text-left">
+                          <span className="block text-[13px] leading-tight text-white" style={{ fontWeight: 900 }}>{spot.name}</span>
+                          <span className="mt-2 flex items-center justify-between gap-2">
+                            <span className="rounded-full border border-emerald-300/50 bg-[#062415] px-2 py-0.5 text-[11px] text-emerald-100" style={{ fontWeight: 900 }}>{spot.available}/{spot.total} spots</span>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-black" style={{ fontWeight: 950 }}>{spot.price > 0 ? `$${spot.price}/hr` : 'Live price'}</span>
+                          </span>
+                          <span className="mt-2 block text-[11px] text-white/85" style={{ fontWeight: 700 }}>{formatMeters(distanceMeters)} away · {spot.isCovered ? 'Covered' : 'Open-air'}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

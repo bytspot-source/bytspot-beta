@@ -63,6 +63,9 @@ import {
   trackLocationVisit,
   getUserPreferences,
   getUserBehavior,
+  getPreferredMapFilters,
+  getPersonalizedDiscoverCards,
+  saveUserPreferences,
   getContextualPrompt,
   type CategorySuggestion,
   type NearbyLocation
@@ -245,7 +248,10 @@ export default function App() {
   const [isScrolling, setIsScrolling] = useState(false);
   const navHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [discoverFilter, setDiscoverFilter] = useState<CardType | undefined>(undefined);
+  const [discoverFilter, setDiscoverFilter] = useState<CardType | undefined>(() => {
+    const preferred = getPreferredMapFilters(getUserPreferences());
+    return preferred.categoryFilter as CardType | undefined;
+  });
   const [selectedDestination, setSelectedDestination] = useState<string | undefined>(undefined);
   const [conciergePrefill, setConciergePrefill] = useState<string | undefined>(undefined);
   const [showRideSelection, setShowRideSelection] = useState(false);
@@ -393,6 +399,19 @@ export default function App() {
   const [virtualPatchFeedVersion, setVirtualPatchFeedVersion] = useState(0);
   const homeScrollRef = useRef<HTMLDivElement>(null);
 
+  // PERFORMANCE: Memoize user preferences and behavior to prevent redundant calculations
+  const userPreferences = useMemo(() => getUserPreferences(), [activeTab, currentScreen, showOnboarding]);
+  const userBehavior = useMemo(() => getUserBehavior(), [activeTab, currentScreen, showOnboarding]);
+  const preferredDiscoverFilter = useMemo(() => {
+    return getPreferredMapFilters(userPreferences).categoryFilter as CardType | undefined;
+  }, [userPreferences]);
+  const hasPersonalizedPreferenceSignal = Boolean(
+    preferredDiscoverFilter
+    || userPreferences?.interests?.length
+    || userPreferences?.vibePreferences?.selectedVibes?.length
+    || userPreferences?.cuisineAffinities?.length
+  );
+
   useEffect(() => {
     if (APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && (currentScreen === 'host' || currentScreen === 'valet')) {
       setCurrentScreen('main');
@@ -436,23 +455,26 @@ export default function App() {
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
     const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
-    return [...mirroredCards, ...discoverApiCards, ...curatedFallbackCards];
-  }, [discoverApiCards, savedVirtualPatchServiceCards]);
+    return getPersonalizedDiscoverCards([...mirroredCards, ...discoverApiCards, ...curatedFallbackCards], userPreferences);
+  }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
-  const shouldShowServiceRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext;
+  const shouldShowHomeRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext || hasPersonalizedPreferenceSignal;
 
-  const recommendedNearbyServiceCards = useMemo<DiscoverCard[]>(() => {
-    const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
-    const candidateCards = liveServiceCards.length > 0 ? liveServiceCards : curatedServiceRecommendationCards;
-    return candidateCards
+  const recommendedHomeCards = useMemo<DiscoverCard[]>(() => {
+    return discoverCardsWithSavedRequests
       .filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)))
       .slice(0, 8);
-  }, [discoverApiCards]);
+  }, [discoverCardsWithSavedRequests]);
 
-  const handleRecommendedNearbyServiceClick = useCallback((card: DiscoverCard) => {
-    sessionStorage.setItem(DISCOVER_SERVICE_HIGHLIGHT_KEY, getHomeServiceFocusId(card));
-    setDiscoverFilter('service');
+  const handleRecommendedHomeCardClick = useCallback((card: DiscoverCard) => {
+    if (card.type === 'service') {
+      sessionStorage.setItem(DISCOVER_SERVICE_HIGHLIGHT_KEY, getHomeServiceFocusId(card));
+      setDiscoverFilter('service');
+    } else {
+      setDiscoverFilter(card.type);
+    }
+    trackEvent('home_recommendation_selected', { type: card.type, category: card.serviceCategory ?? card.type });
     setActiveTab('discover');
   }, []);
 
@@ -467,6 +489,9 @@ export default function App() {
     if (!apiVenues || apiVenues.length === 0) return null;
     let quizAnswers: Record<string, string> = {};
     try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
+    if (!quizAnswers.vibe && userPreferences?.vibePreferences?.selectedVibes?.length) {
+      quizAnswers.vibe = userPreferences.vibePreferences.selectedVibes[0];
+    }
 
     // Map quiz vibe → preferred API categories
     const vibeMap: Record<string, string[]> = {
@@ -490,7 +515,7 @@ export default function App() {
     });
     scored.sort((a, b) => b.score - a.score);
     return scored[0]?.v ?? null;
-  }, [apiVenues]);
+  }, [apiVenues, userPreferences]);
 
   const springConfig = {
     type: "spring" as const,
@@ -770,10 +795,6 @@ export default function App() {
     });
   };
 
-  // PERFORMANCE: Memoize user preferences and behavior to prevent redundant calculations
-  const userPreferences = useMemo(() => getUserPreferences(), [activeTab, currentScreen]);
-  const userBehavior = useMemo(() => getUserBehavior(), [activeTab, currentScreen]);
-  
   // PERFORMANCE: Memoize personalized categories
   const memoizedCategories = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
@@ -795,6 +816,12 @@ export default function App() {
     return [];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentScreen, userPreferences, userBehavior, activeCoords.lat, activeCoords.lng]);
+
+  useEffect(() => {
+    if (discoverFilter === undefined && preferredDiscoverFilter) {
+      setDiscoverFilter(preferredDiscoverFilter);
+    }
+  }, [discoverFilter, preferredDiscoverFilter]);
   
   // Load personalized content on mount and when returning to home
   useEffect(() => {
@@ -1478,26 +1505,26 @@ export default function App() {
                     </div>
 
 
-                    {shouldShowServiceRecommendations && (
+                    {shouldShowHomeRecommendations && (
                       <div className="mb-6" data-testid="home-recommended-nearby-rail">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
-                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended near you</h2>
-		                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedNearbyServiceCards.length > 0 ? 'Live local services ready nearby' : 'Choose a service lane to explore next'}</p>
+	                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended for you</h2>
+		                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedHomeCards.length > 0 ? 'Personalized from your onboarding and nearby context' : 'Choose a service lane to explore next'}</p>
                           </div>
-	                          {recommendedNearbyServiceCards.length > 0 && (
+		                          {recommendedHomeCards.length > 0 && (
 	                            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>
-	                              {recommendedNearbyServiceCards.length} nearby
+		                              {recommendedHomeCards.length} picks
 	                            </span>
 	                          )}
                         </div>
                         <div className={HOME_CAROUSEL_CLASS}>
-		                          {recommendedNearbyServiceCards.length > 0 ? recommendedNearbyServiceCards.map((card, index) => (
+			                          {recommendedHomeCards.length > 0 ? recommendedHomeCards.map((card, index) => (
                             <motion.button
                               key={`recommended-nearby-${getHomeServiceFocusId(card)}`}
                               type="button"
                               data-testid="home-recommended-nearby-card"
-                              onClick={() => handleRecommendedNearbyServiceClick(card)}
+	                              onClick={() => handleRecommendedHomeCardClick(card)}
                               className={`${HOME_FEATURE_CARD_CLASS} border border-cyan-300/25`}
 	                              style={HOME_SERVICE_CARD_STYLE}
                               initial={{ opacity: 0, y: 12 }}
@@ -1510,13 +1537,13 @@ export default function App() {
                               <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
 	                              <div className={`absolute inset-x-0 bottom-0 p-3 pt-16 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
 	                                <div className="max-h-[150px] overflow-hidden">
-	                                  <p data-testid="home-service-card-vendor" className={`${HOME_CARD_META_CLASS} line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 850 }}>{card.location ?? 'Experienced professional'}</p>
+		                                  <p data-testid="home-service-card-vendor" className={`${HOME_CARD_META_CLASS} line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 850 }}>{card.location ?? card.serviceCategory ?? card.type}</p>
 	                                  <h3 data-testid="home-service-card-title" className={`${HOME_CARD_TITLE_CLASS} mt-1 line-clamp-2 text-[15px] leading-[18px]`} style={{ fontWeight: 950 }}>{card.name}</h3>
-	                                  <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 680 }}>{card.serviceSubtitle ?? card.description ?? card.availability ?? 'Near you'}</p>
+		                                  <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[11px] leading-[13px]`} style={{ fontWeight: 680 }}>{card.serviceSubtitle ?? card.description ?? card.availability ?? 'Picked for your preferences'}</p>
 	                                  <p className={`${HOME_CARD_META_CLASS} mt-1 line-clamp-1 text-[10px] leading-[12px]`} style={{ fontWeight: 850 }}>
 	                                    {[card.rating ? `${card.rating.toFixed(2)} ★` : null, card.bookingCount ? `${card.bookingCount} bookings` : null, card.entryPrice ?? card.price].filter(Boolean).join(' • ')}
 	                                  </p>
-	                                  <p data-testid="home-service-card-cta" className="mt-2 inline-flex max-w-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-2.5 py-1 text-[11px] leading-[13px] text-white shadow-lg shadow-cyan-950/25 ring-1 ring-white/25" style={{ fontWeight: 900 }}>{card.ctaText ?? 'Book now →'}</p>
+		                                  <p data-testid="home-service-card-cta" className="mt-2 inline-flex max-w-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-2.5 py-1 text-[11px] leading-[13px] text-white shadow-lg shadow-cyan-950/25 ring-1 ring-white/25" style={{ fontWeight: 900 }}>{card.ctaText ?? 'Open in Discover →'}</p>
 	                                </div>
                               </div>
                             </motion.button>
@@ -2316,8 +2343,16 @@ export default function App() {
               localStorage.setItem('bytspot_intro_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
               const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'] };
-              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
-              localStorage.setItem('bytspot_preferences', JSON.stringify({ interests, vibePreferences: answers.vibe ? { selectedVibes: [answers.vibe] } : undefined }));
+              const walkToInterests: Record<string, string[]> = { close: ['nearby', 'quick walk'], medium: ['walkable'], far: ['explore'] };
+              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.walk ? walkToInterests[answers.walk] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
+              saveUserPreferences({
+                interests,
+                vibePreferences: answers.vibe ? { selectedVibes: [answers.vibe] } : undefined,
+                discoveryPreferences: {
+                  walkPreference: answers.walk as 'close' | 'medium' | 'far' | undefined,
+                  groupPreference: answers.group as 'solo' | 'date' | 'group' | undefined,
+                },
+              });
               setShowOnboarding(false); setQuizStep(0);
               if ('Notification' in window && Notification.permission === 'default') setTimeout(() => setShowNotifPrompt(true), 600);
             };

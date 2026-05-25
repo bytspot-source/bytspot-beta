@@ -24,6 +24,7 @@ import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
+import { getUserPreferences, getPreferredMapFilters, getCulturalContext } from '../utils/personalization';
 import {
   FALLBACK_ATLANTA_PARKING,
   mergeParkingSources,
@@ -523,6 +524,22 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [entryFilter, setEntryFilter] = useState<'free' | 'paid' | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null); // 'dining'|'nightlife'|'coffee'|'parks'|null
   const [showHeatmap, setShowHeatmap] = useState(false);
+
+  const preferredMapFilters = useMemo(
+    () => getPreferredMapFilters(getUserPreferences(), getCulturalContext()),
+    []
+  );
+
+  useEffect(() => {
+    if (vibeFilter === null && categoryFilter === null) {
+      if (preferredMapFilters.vibeFilter !== null) {
+        setVibeFilter(preferredMapFilters.vibeFilter);
+      }
+      if (preferredMapFilters.categoryFilter !== null) {
+        setCategoryFilter(preferredMapFilters.categoryFilter);
+      }
+    }
+  }, [preferredMapFilters, vibeFilter, categoryFilter]);
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
   const [nearbySheetDismissed, setNearbySheetDismissed] = useState(true);

@@ -11,6 +11,7 @@ async function installProviderLandingMocks(page: Page) {
     // Skip onboarding gates so the path-level route handler runs unimpeded.
     localStorage.setItem('bytspot_intro_seen', 'true');
     (window as any).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
+    (window as any).__BYT_GOOGLE_AUTHORIZED_ORIGINS__ = window.location.origin;
     let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
     (window as any).google = {
       accounts: {

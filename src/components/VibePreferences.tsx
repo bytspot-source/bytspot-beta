@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Sparkles, Save, TrendingUp, Users, DollarSign, MapPin, Clock, Utensils, Heart, Brain, Zap, Crown, ChevronRight, Check } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { saveUserPreferences } from '../utils/personalization';
 
 interface VibePreferencesProps {
   isDarkMode: boolean;
@@ -182,14 +183,19 @@ export function VibePreferences({ isDarkMode, onBack }: VibePreferencesProps) {
   }, [settings]);
 
   const vibeProfile = useMemo(() => {
-    if (vibeScore <= 3) return { label: 'Zen Minimalist', color: 'from-blue-500 to-cyan-500', emoji: '🧘' };
-    if (vibeScore <= 5) return { label: 'Balanced Explorer', color: 'from-green-500 to-emerald-500', emoji: '🌿' };
-    if (vibeScore <= 7) return { label: 'Social Butterfly', color: 'from-purple-500 to-pink-500', emoji: '🦋' };
-    return { label: 'Energy Seeker', color: 'from-orange-500 to-red-500', emoji: '⚡' };
+    if (vibeScore <= 3) return { label: 'Zen Minimalist', color: 'from-blue-500 to-cyan-500', emoji: '🧘', token: 'coffee' };
+    if (vibeScore <= 5) return { label: 'Balanced Explorer', color: 'from-green-500 to-emerald-500', emoji: '🌿', token: 'food' };
+    if (vibeScore <= 7) return { label: 'Social Butterfly', color: 'from-purple-500 to-pink-500', emoji: '🦋', token: 'drinks' };
+    return { label: 'Energy Seeker', color: 'from-orange-500 to-red-500', emoji: '⚡', token: 'nightlife' };
   }, [vibeScore]);
 
   const handleSave = () => {
     localStorage.setItem('bytspot_vibe_preferences', JSON.stringify(settings));
+    saveUserPreferences({
+      vibePreferences: {
+        selectedVibes: [vibeProfile.token],
+      },
+    });
     toast.success('Vibe preferences saved', {
       description: `Your ${vibeProfile.label} profile is ready!`,
     });

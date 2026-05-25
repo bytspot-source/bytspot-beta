@@ -35,7 +35,11 @@ export interface CulturalContext {
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
 export interface UserPreferences {
-  interests: string[];
+  interests?: string[];
+  discoveryPreferences?: {
+    walkPreference?: 'close' | 'medium' | 'far';
+    groupPreference?: 'solo' | 'date' | 'group';
+  };
   parkingPreferences?: {
     covered?: boolean;
     evCharging?: boolean;
@@ -87,6 +91,25 @@ export interface NearbyLocation {
   type?: 'parking' | 'venue';
   rating?: number;
   priority: number;
+}
+
+export interface PersonalizableDiscoverCard {
+  type?: string;
+  name?: string;
+  description?: string;
+  location?: string;
+  features?: string[];
+  serviceCategory?: string;
+  serviceSubtitle?: string;
+  distance?: string;
+  rating?: number;
+  bookingCount?: number;
+  availableSpots?: number;
+  entryPrice?: string | null;
+  price?: string;
+  availability?: string;
+  verified?: boolean;
+  vibe?: number;
 }
 
 // ─── Region Bounding Boxes ────────────────────────────────────────────────────
@@ -210,6 +233,69 @@ const DEFAULT_CULTURAL_MAPPING: CulturalMapping = {
   vibes: [],
   categoryBoosts: {},
 };
+
+const CATEGORY_TOKEN_MAP: Record<string, string> = {
+  coffee: 'coffee',
+  cafe: 'coffee',
+  cafes: 'coffee',
+  brunch: 'coffee',
+  drinks: 'nightlife',
+  drink: 'nightlife',
+  bar: 'nightlife',
+  bars: 'nightlife',
+  cocktails: 'nightlife',
+  nightlife: 'nightlife',
+  food: 'dining',
+  dining: 'dining',
+  restaurant: 'dining',
+  restaurants: 'dining',
+  date: 'dining',
+  romantic: 'dining',
+  fitness: 'fitness',
+  gym: 'fitness',
+  wellness: 'fitness',
+  group: 'nightlife',
+  shopping: 'shopping',
+  entertainment: 'entertainment',
+};
+
+const VIBE_TOKEN_MAP: Record<string, number> = {
+  coffee: 1,
+  cafe: 1,
+  cafes: 1,
+  brunch: 1,
+  drinks: 3,
+  drink: 3,
+  bar: 3,
+  bars: 3,
+  cocktails: 3,
+  nightlife: 3,
+  food: 2,
+  dining: 2,
+  restaurant: 2,
+  restaurants: 2,
+  date: 2,
+  romantic: 2,
+  fitness: 2,
+  gym: 2,
+  wellness: 2,
+  group: 3,
+  shopping: 2,
+  entertainment: 3,
+};
+
+function normalizePreferenceTokens(tokens: string[] = []): string[] {
+  return Array.from(new Set(tokens.map((token) => token.toLowerCase().trim()).filter(Boolean)));
+}
+
+function getPreferenceTokens(preferences?: UserPreferences): string[] {
+  return normalizePreferenceTokens([
+    ...(preferences?.vibePreferences?.selectedVibes ?? []),
+    ...(preferences?.interests ?? []),
+    ...(preferences?.cuisineAffinities ?? []),
+    preferences?.discoveryPreferences?.groupPreference ?? '',
+  ]);
+}
 
 // ─── Identity → Culture Map ───────────────────────────────────────────────────
 // Maps lowercase cuisine labels, dish names, and music vibes → canonical country key.
@@ -417,6 +503,7 @@ export function saveCulturalContext(context: CulturalContext): void {
  * Use resolveCulturalContext() to get the full priority-resolved context instead.
  */
 export function getCulturalContext(): CulturalContext | null {
+  if (typeof localStorage === 'undefined') return null;
   const raw = localStorage.getItem(LOCATION_CONTEXT_KEY);
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
@@ -899,6 +986,7 @@ export function trackLocationVisit(locationName: string): void {
  * Get user preferences from storage
  */
 export function getUserPreferences(): UserPreferences | undefined {
+  if (typeof localStorage === 'undefined') return undefined;
   const prefsString = localStorage.getItem('bytspot_preferences');
   if (!prefsString) return undefined;
   
@@ -907,6 +995,122 @@ export function getUserPreferences(): UserPreferences | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function saveUserPreferences(update: Partial<UserPreferences>): void {
+  const existing: UserPreferences = getUserPreferences() || {};
+  const merged: UserPreferences = {
+    ...existing,
+    ...update,
+    vibePreferences: {
+      ...existing.vibePreferences,
+      ...update.vibePreferences,
+    },
+  };
+  localStorage.setItem('bytspot_preferences', JSON.stringify(merged));
+}
+
+export function getPreferredMapFilters(
+  preferences?: UserPreferences,
+  gpsContext?: CulturalContext | null
+): { categoryFilter: string | null; vibeFilter: number | null } {
+  const tokens = getPreferenceTokens(preferences);
+
+  for (const token of tokens) {
+    if (CATEGORY_TOKEN_MAP[token]) {
+      return {
+        categoryFilter: CATEGORY_TOKEN_MAP[token],
+        vibeFilter: VIBE_TOKEN_MAP[token] ?? 2,
+      };
+    }
+  }
+
+  const cultural = resolveCulturalContext(preferences, gpsContext ?? getCulturalContext());
+  if (cultural && cultural.country !== 'Unknown') {
+    const mapping = CULTURAL_MAPPINGS[cultural.country] ?? DEFAULT_CULTURAL_MAPPING;
+    const topCategory = Object.entries(mapping.categoryBoosts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    const culturalVibe = topCategory === 'coffee' ? 1
+      : topCategory === 'nightlife' ? 3
+      : topCategory === 'fitness' ? 2
+      : 2;
+
+    return {
+      categoryFilter: topCategory,
+      vibeFilter: culturalVibe,
+    };
+  }
+
+  return { categoryFilter: null, vibeFilter: null };
+}
+
+function getDiscoverSearchText(card: PersonalizableDiscoverCard): string {
+  return [
+    card.type,
+    card.name,
+    card.description,
+    card.location,
+    card.serviceCategory,
+    card.serviceSubtitle,
+    card.availability,
+    ...(card.features ?? []),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function parseDistanceMiles(distance?: string): number | null {
+  if (!distance) return null;
+  const normalized = distance.toLowerCase();
+  const numeric = Number.parseFloat(normalized);
+  if (!Number.isFinite(numeric)) return null;
+  if (normalized.includes('ft')) return numeric / 5280;
+  return numeric;
+}
+
+export function getPersonalizedDiscoverCardScore(
+  card: PersonalizableDiscoverCard,
+  preferences?: UserPreferences,
+  gpsContext?: CulturalContext | null
+): number {
+  const preferred = getPreferredMapFilters(preferences, gpsContext);
+  const cultural = resolveCulturalContext(preferences, gpsContext ?? getCulturalContext());
+  const culturalMapping = cultural && cultural.country !== 'Unknown'
+    ? CULTURAL_MAPPINGS[cultural.country] ?? DEFAULT_CULTURAL_MAPPING
+    : DEFAULT_CULTURAL_MAPPING;
+  const tokens = normalizePreferenceTokens([
+    ...getPreferenceTokens(preferences),
+    ...culturalMapping.cuisine,
+    ...culturalMapping.vibes,
+  ]);
+  const searchText = getDiscoverSearchText(card);
+  const distanceMiles = parseDistanceMiles(card.distance);
+  const preferredCategory = preferred.categoryFilter;
+  const isPreferredType = preferredCategory ? card.type === preferredCategory || searchText.includes(preferredCategory) : false;
+
+  // Simplex personalization ranking: Es = Φ_EM + Φ_E + ΔD + f × λ_sim
+  const phiEm = (card.rating ?? 4.4) * 3
+    + (card.verified ? 6 : 0)
+    + Math.min((card.bookingCount ?? 0) / 8, 10)
+    + (card.availableSpots && card.availableSpots <= 4 ? 4 : 0);
+  const phiE = (distanceMiles !== null ? Math.max(0, 14 - distanceMiles * 3) : 4)
+    + (isPreferredType ? 20 : 0);
+  const deltaD = card.entryPrice || card.price ? 8 : 4;
+  const matchedTokens = tokens.filter((token) => searchText.includes(token)).length;
+  const lambdaSim = matchedTokens * 8 + (isPreferredType ? 18 : 0);
+  const f = preferences?.discoveryPreferences?.walkPreference === 'close' && distanceMiles !== null && distanceMiles <= 0.75 ? 1.25 : 1;
+
+  return phiEm + phiE + deltaD + f * lambdaSim;
+}
+
+export function getPersonalizedDiscoverCards<T extends PersonalizableDiscoverCard>(
+  cards: T[],
+  preferences?: UserPreferences,
+  gpsContext?: CulturalContext | null
+): T[] {
+  return cards
+    .map((card, index) => ({ card, index, score: getPersonalizedDiscoverCardScore(card, preferences, gpsContext) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ card }) => card);
 }
 
 /**

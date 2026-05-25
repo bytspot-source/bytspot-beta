@@ -12,6 +12,8 @@ interface MapMenuSlideUpProps {
   onClose: () => void;
   onSelectFunction: (functionType: MapFunction) => void;
   onViewModeChange?: (mode: MapViewMode) => void;
+  onSearchPress?: () => void;
+  onServiceLocationPress?: () => void;
   currentViewMode?: MapViewMode;
   isDarkMode: boolean;
 }
@@ -82,7 +84,16 @@ const SAVED_ROUTES = [
   { id: '3', name: 'Weekend Route', time: '25 min', distance: '8.1 mi' },
 ];
 
-export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeChange, currentViewMode = 'standard', isDarkMode }: MapMenuSlideUpProps) {
+export function MapMenuSlideUp({
+  isOpen,
+  onClose,
+  onSelectFunction,
+  onViewModeChange,
+  onSearchPress,
+  onServiceLocationPress,
+  currentViewMode = 'standard',
+  isDarkMode,
+}: MapMenuSlideUpProps) {
   const [showLayers, setShowLayers] = useState(false);
   const [showRoutes, setShowRoutes] = useState(false);
   const [selectedLayers, setSelectedLayers] = useState<string[]>(['parking']);
@@ -135,20 +146,19 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
 
   const handleQuickAction = (action: string) => {
     triggerHaptic();
-    
-    const messages: Record<string, string> = {
-      location: '📍 Centering map on your location...',
-      search: '🔍 Opening search...',
-      layers: '🗺️ Map layers',
-      routes: '🚗 Saved routes',
-    };
-    
+
     if (action === 'layers') {
       setShowLayers(!showLayers);
     } else if (action === 'routes') {
       setShowRoutes(!showRoutes);
+    } else if (action === 'service-location') {
+      onServiceLocationPress?.();
+      setTimeout(() => onClose(), 180);
+    } else if (action === 'search') {
+      onSearchPress?.();
+      setTimeout(() => onClose(), 180);
     } else {
-      toast.info(messages[action]);
+      toast.info('Map action unavailable');
     }
   };
 
@@ -289,19 +299,22 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
             aria-describedby="map-menu-description"
           >
             {/* Handle Bar */}
-            <div className="flex justify-center pt-3 pb-2">
+            <div className="flex justify-center pt-2 pb-1">
               <motion.div
-                className="w-12 h-1.5 rounded-full bg-white/40"
+                className="h-1.5 w-11 rounded-full bg-white/40"
                 whileHover={{ scale: 1.1, backgroundColor: 'rgba(255, 255, 255, 0.6)' }}
                 transition={springConfig}
               />
             </div>
 
             {/* Menu Content */}
-            <div className="bg-[#1C1C1E]/95 backdrop-blur-2xl border-t-2 border-white/30 rounded-t-[28px] overflow-hidden shadow-2xl pb-safe">
+            <div
+              className="overflow-hidden rounded-t-[28px] border-t-2 border-white/30 bg-[#1C1C1E]/95 pb-safe shadow-2xl backdrop-blur-2xl"
+              style={{ maxHeight: '46vh' }}
+            >
               {/* Header */}
-              <div className="px-6 pt-5 pb-4 border-b border-white/20">
-                <div className="flex items-center justify-between mb-4">
+              <div className="border-b border-white/20 px-3 pb-2 pt-2">
+                <div className="mb-2 flex items-center justify-between">
                   {/* Back button when sections are open */}
                   {(showLayers || showRoutes) ? (
                     <motion.button
@@ -310,7 +323,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                         setShowRoutes(false);
                         triggerHaptic();
                       }}
-                      className="w-10 h-10 rounded-full flex items-center justify-center bg-white/10 border-2 border-white/30 tap-target"
+                      className="tap-target flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/30 bg-white/10"
                       whileTap={{ scale: 0.9 }}
                       transition={springConfig}
                       aria-label="Go back"
@@ -318,20 +331,20 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                       <ChevronDown className="w-5 h-5 text-white rotate-90" strokeWidth={2.5} />
                     </motion.button>
                   ) : (
-                    <div className="w-10" />
+                    <div className="w-8" />
                   )}
                   
                   <h2 
                     id="map-menu-title"
-                    className="text-[20px] text-white flex-1 text-center" 
-                    style={{ fontWeight: 700 }}
+                    className="flex-1 text-center text-[17px] text-white"
+                    style={{ fontWeight: 800 }}
                   >
                     {showLayers ? 'Map Layers' : showRoutes ? 'Saved Routes' : 'Map Functions'}
                   </h2>
                   
                   <motion.button
                     onClick={onClose}
-                    className="w-10 h-10 rounded-full flex items-center justify-center bg-white/10 border-2 border-white/30 tap-target"
+                    className="tap-target flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/30 bg-white/10"
                     whileTap={{ scale: 0.9 }}
                     transition={springConfig}
                     aria-label="Close menu"
@@ -342,9 +355,9 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
 
                 {/* Quick Actions - Only show when no sections are expanded */}
                 {!showLayers && !showRoutes && (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 gap-1.5 rounded-[18px] border border-white/15 bg-[#080A10]/70 p-1.5">
                   {[
-                    { id: 'location', icon: Navigation, label: 'My Location' },
+                    { id: 'service-location', icon: MapPin, label: 'Service Here' },
                     { id: 'search', icon: Search, label: 'Search' },
                     { id: 'layers', icon: Layers, label: 'Layers' },
                     { id: 'routes', icon: Bookmark, label: 'Routes' },
@@ -352,13 +365,13 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                     <motion.button
                       key={action.id}
                       onClick={() => handleQuickAction(action.id)}
-                      className="flex flex-col items-center gap-1.5 p-3 rounded-[16px] bg-white/5 border border-white/20"
+                      className="flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-[14px] border border-white/20 bg-white/5 px-1 py-2"
                       whileTap={{ scale: 0.95 }}
                       transition={springConfig}
                       aria-label={action.label}
                     >
-                      <action.icon className="w-5 h-5 text-white" strokeWidth={2} />
-                      <span className="text-[11px] text-white/80" style={{ fontWeight: 500 }}>
+                      <action.icon className="h-4 w-4 text-white" strokeWidth={2.3} />
+                      <span className="text-center text-[9.5px] leading-tight text-white/85" style={{ fontWeight: 750 }}>
                         {action.label}
                       </span>
                     </motion.button>
@@ -377,13 +390,13 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                     transition={{ duration: 0.3 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-6 py-5 space-y-5">
+                    <div className="space-y-3 overflow-y-auto px-3 py-2.5 scrollbar-hide" style={{ maxHeight: '26vh' }}>
                       {/* Map View Mode Toggle */}
                       <div>
-                        <div className="text-[13px] text-white/70 mb-3" style={{ fontWeight: 600 }}>
+                        <div className="mb-2 text-[12px] text-white/70" style={{ fontWeight: 700 }}>
                           MAP VIEW
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2.5">
                           <motion.button
                             onClick={() => {
                               triggerHaptic();
@@ -393,7 +406,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                                 duration: 2000,
                               });
                             }}
-                            className={`flex flex-col items-center gap-2 p-4 rounded-[14px] border-2 ${
+                            className={`flex flex-col items-center gap-1.5 rounded-[14px] border-2 p-2.5 ${
                               currentViewMode === 'standard'
                                 ? 'bg-cyan-500/20 border-cyan-400'
                                 : 'bg-white/5 border-white/20'
@@ -404,7 +417,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                             aria-pressed={currentViewMode === 'standard'}
                             role="radio"
                           >
-                            <div className={`w-8 h-8 rounded-lg border-2 ${
+                            <div className={`flex h-7 w-7 items-center justify-center rounded-lg border-2 ${
                               currentViewMode === 'standard' ? 'border-cyan-400' : 'border-white/30'
                             } flex items-center justify-center`}>
                               <MapPin 
@@ -457,17 +470,17 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
 
                       {/* Layer Toggles */}
                       <div>
-                        <div className="text-[13px] text-white/70 mb-3" style={{ fontWeight: 600 }}>
+                        <div className="mb-2 text-[12px] text-white/70" style={{ fontWeight: 700 }}>
                           MAP LAYERS
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2.5">
                           {LAYER_OPTIONS.map((layer) => {
                             const isSelected = selectedLayers.includes(layer.id);
                             return (
                               <motion.button
                                 key={layer.id}
                                 onClick={() => toggleLayer(layer.id)}
-                                className={`flex items-center gap-2.5 p-4 rounded-[14px] border-2 ${
+                                className={`flex items-center gap-2.5 rounded-[14px] border-2 p-3 ${
                                   isSelected
                                     ? 'bg-purple-500/20 border-purple-400'
                                     : 'bg-white/5 border-white/20'
@@ -508,24 +521,24 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                     transition={{ duration: 0.3 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-6 py-5">
-                      <div className="space-y-3">
+                    <div className="overflow-y-auto px-3 py-2.5 scrollbar-hide" style={{ maxHeight: '26vh' }}>
+                      <div className="space-y-2">
                         {SAVED_ROUTES.map((route) => (
                           <motion.button
                             key={route.id}
-                            className="w-full flex items-center justify-between p-4 rounded-[14px] bg-white/5 border-2 border-white/20"
+                            className="flex w-full items-center justify-between rounded-[14px] border-2 border-white/20 bg-white/5 p-2.5"
                             whileTap={{ scale: 0.98 }}
                             transition={springConfig}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border-2 border-cyan-400/40 flex items-center justify-center">
-                                <Navigation className="w-6 h-6 text-cyan-400" strokeWidth={2.5} />
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-cyan-400/40 bg-gradient-to-br from-cyan-500/20 to-blue-500/20">
+                                <Navigation className="h-4 w-4 text-cyan-400" strokeWidth={2.5} />
                               </div>
                               <div className="text-left">
-                                <div className="text-[16px] text-white mb-0.5" style={{ fontWeight: 600 }}>
+                                <div className="mb-0.5 text-[15px] text-white" style={{ fontWeight: 700 }}>
                                   {route.name}
                                 </div>
-                                <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                                <div className="text-[12px] text-white/70" style={{ fontWeight: 500 }}>
                                   {route.time} • {route.distance}
                                 </div>
                               </div>
@@ -541,8 +554,8 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
 
               {/* Main Functions Grid - Only show when no sections are expanded */}
               {!showLayers && !showRoutes && (
-                <div className="px-6 py-5 max-h-[50vh] overflow-y-auto scrollbar-hide">
-                  <div className="grid grid-cols-1 gap-3">
+                <div className="overflow-y-auto px-3 py-2.5 scrollbar-hide" style={{ maxHeight: '26vh' }}>
+                  <div className="grid grid-cols-1 gap-2">
                   {MAP_FUNCTIONS.map((func, index) => {
                     const Icon = func.icon;
                     
@@ -550,7 +563,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                       <motion.button
                         key={func.id}
                         onClick={() => handleSelectFunction(func)}
-                        className={`relative flex items-center gap-4 p-4 rounded-[16px] bg-gradient-to-br from-white/5 to-white/[0.02] border-2 overflow-hidden group ${
+                        className={`group relative flex items-center gap-2.5 overflow-hidden rounded-[15px] border-2 bg-gradient-to-br from-white/5 to-white/[0.02] p-2.5 ${
                           focusedIndex === index 
                             ? 'border-white/60 ring-2 ring-white/40' 
                             : 'border-white/20'
@@ -575,9 +588,9 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
 
                         {/* Icon */}
                         <div 
-                          className={`relative w-14 h-14 rounded-[14px] bg-gradient-to-br ${func.gradient} flex items-center justify-center shadow-lg`}
+                          className={`relative flex h-10 w-10 items-center justify-center rounded-[13px] bg-gradient-to-br ${func.gradient} shadow-lg`}
                         >
-                          <Icon className="w-7 h-7 text-white" strokeWidth={2} />
+                          <Icon className="h-5 w-5 text-white" strokeWidth={2} />
                           
                           {/* Badge */}
                           {func.badge && (
@@ -601,7 +614,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                         {/* Content */}
                         <div className="flex-1 text-left">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-[17px] text-white" style={{ fontWeight: 600 }}>
+                            <h3 className="text-[14px] text-white" style={{ fontWeight: 800 }}>
                               {func.title}
                             </h3>
                             {func.isPremium && (
@@ -612,7 +625,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
                               </div>
                             )}
                           </div>
-                          <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                          <p className="text-[11px] leading-snug text-white/70" style={{ fontWeight: 550 }}>
                             {func.description}
                           </p>
                         </div>
@@ -643,7 +656,7 @@ export function MapMenuSlideUp({ isOpen, onClose, onSelectFunction, onViewModeCh
               )}
 
               {/* Bottom Safe Area */}
-              <div className="h-8" />
+              <div className="h-3" />
             </div>
           </motion.div>
         </>

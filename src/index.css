@@ -7494,6 +7494,34 @@ html {
 .hover\:bg-red-800:hover { background-color: #991b1b; }
 .hover\:border-cyan-300:hover { border-color: #67e8f9; }
 
+/* Global Sonner contrast lock.
+   The checked-in CSS bundle may not include every generated Tailwind utility
+   used by toast classNames, so force readable solid surfaces at the selector
+   Sonner actually renders. */
+.bytspot-toast {
+  background: #e2e8f0 !important;
+  color: #020617 !important;
+  border: 1px solid #94a3b8 !important;
+  border-radius: 18px !important;
+  box-shadow: 0 26px 80px rgba(15, 23, 42, .36) !important;
+  backdrop-filter: none !important;
+}
+
+.bytspot-toast [data-title] {
+  color: #020617 !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  line-height: 1.375 !important;
+}
+
+.bytspot-toast [data-description] {
+  color: #020617 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1.375 !important;
+  opacity: 1 !important;
+}
+
 .provider-dashboard-main { padding-top: calc(4rem + env(safe-area-inset-top)); }
 
 @media (min-width: 1024px) {

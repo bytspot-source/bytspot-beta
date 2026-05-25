@@ -7,6 +7,7 @@ type GoogleButtonState = 'loading' | 'ready' | 'unavailable';
 declare global {
   interface Window {
     __BYT_GOOGLE_CLIENT_ID__?: string;
+    __BYT_GOOGLE_AUTHORIZED_ORIGINS__?: string | string[];
     google?: {
       accounts?: {
         id?: {
@@ -20,10 +21,29 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_ID = 'google-identity-services';
+const DEFAULT_GOOGLE_AUTHORIZED_ORIGINS = ['https://bytspot.app', 'https://www.bytspot.app'];
 let googleScriptPromise: Promise<void> | null = null;
 
 function getGoogleClientId(): string {
   return String(window.__BYT_GOOGLE_CLIENT_ID__ || import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+}
+
+function parseOrigins(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).map((origin) => origin.trim()).filter(Boolean);
+  return String(value || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function googleOriginAllowed(): boolean {
+  const configuredOrigins = [
+    ...parseOrigins(window.__BYT_GOOGLE_AUTHORIZED_ORIGINS__),
+    ...parseOrigins(import.meta.env.VITE_GOOGLE_AUTHORIZED_ORIGINS),
+  ];
+  const allowedOrigins = configuredOrigins.length > 0 ? configuredOrigins : DEFAULT_GOOGLE_AUTHORIZED_ORIGINS;
+  const currentOrigin = window.location.origin;
+  return allowedOrigins.includes('*') || allowedOrigins.includes(currentOrigin);
 }
 
 function GoogleLogoMark() {
@@ -106,6 +126,12 @@ export function GoogleSignInButton({
       return;
     }
 
+    if (!googleOriginAllowed()) {
+      setButtonState('unavailable');
+      setUnavailableMessage('Google Sign-In is not enabled for this preview address. Create your account with email and password instead.');
+      return;
+    }
+
     let cancelled = false;
     setButtonState('loading');
     setUnavailableMessage('');
@@ -165,18 +191,22 @@ export function GoogleSignInButton({
   return (
     <div className="relative w-full">
       {buttonState === 'unavailable' ? (
-        <button
-          type="button"
-          aria-label={label}
-          aria-describedby={fallbackId}
-          onClick={handleUnavailableClick}
-          data-testid="google-signin-button"
-          className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-black/10 bg-white px-4 text-[17px] text-black shadow-lg transition-colors hover:bg-white/95"
-          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
-        >
-          <GoogleLogoMark />
-          <span>{label}</span>
-        </button>
+        <div className="space-y-2" data-testid="google-signin-button">
+          <button
+            type="button"
+            aria-label={`${label} unavailable`}
+            aria-describedby={fallbackId}
+            onClick={handleUnavailableClick}
+            className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/20 bg-white/70 px-4 text-[17px] text-black/65 shadow-lg"
+            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
+          >
+            <GoogleLogoMark />
+            <span>Google unavailable here</span>
+          </button>
+          <p className="rounded-[12px] border border-cyan-400/30 bg-[#06242B] px-3 py-2 text-[12px] text-cyan-50" style={{ fontWeight: 700 }}>
+            {unavailableMessage || 'Create your account with email and password instead.'}
+          </p>
+        </div>
       ) : (
         <div className="relative min-h-[48px] w-full rounded-[10px]">
           <div

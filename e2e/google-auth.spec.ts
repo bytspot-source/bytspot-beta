@@ -4,6 +4,7 @@ async function installGoogleAuthMocks(page: Page) {
   await page.addInitScript(() => {
     type GoogleMockWindow = Window & {
       __BYT_GOOGLE_CLIENT_ID__?: string;
+      __BYT_GOOGLE_AUTHORIZED_ORIGINS__?: string;
       google?: {
         accounts: {
           id: {
@@ -17,6 +18,7 @@ async function installGoogleAuthMocks(page: Page) {
     const googleWindow = window as GoogleMockWindow;
     localStorage.setItem('bytspot_intro_seen', 'true');
     googleWindow.__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
+    googleWindow.__BYT_GOOGLE_AUTHORIZED_ORIGINS__ = window.location.origin;
     let googleCredentialCallback: ((response: { credential?: string }) => void) | null = null;
     googleWindow.google = {
       accounts: {
@@ -71,4 +73,22 @@ test('Parker consumer can continue with Google Sign-In', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('parker-google-token');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bytspot_user') || '{}').email)).toBe('google.consumer@bytspot.test');
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
+});
+
+test('Parker consumer sees email-first fallback when Google origin is not authorized', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('bytspot_intro_seen', 'true');
+    (window as Window & { __BYT_GOOGLE_CLIENT_ID__?: string }).__BYT_GOOGLE_CLIENT_ID__ = 'google-web-client-id';
+  });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.goto('/');
+
+  const landingCta = page.getByRole('button', { name: /Let's Go/i }).first();
+  await expect(landingCta).toBeVisible({ timeout: 20_000 });
+  await landingCta.evaluate((button) => (button as HTMLButtonElement).click());
+
+  await expect(page.getByRole('heading', { name: 'Welcome to Bytspot' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('google-signin-button')).toContainText('Google unavailable here');
+  await expect(page.getByText('Google Sign-In is not enabled for this preview address. Create your account with email and password instead.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create Account' })).toBeVisible();
 });

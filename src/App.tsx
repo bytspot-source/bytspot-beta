@@ -74,6 +74,7 @@ import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
+import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
 // Beta MVP: Simplified screen flow
@@ -94,6 +95,101 @@ const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Wellness', description: 'Massage, reset, recovery support' },
 ];
 const HIDDEN_SERVICE_SURFACE_TERM = String.fromCharCode(118, 97, 108, 101, 116);
+const CURATED_HOME_DISCOVERY_CARDS: DiscoverCard[] = [
+  {
+    id: 61_001,
+    type: 'coffee',
+    name: 'Morning Coffee Walk',
+    image: resolveVenuePhoto({ category: 'coffee', name: 'Morning Coffee Walk' }),
+    distance: '0.4 mi',
+    rating: 4.8,
+    availability: 'Open nearby',
+    description: 'Low-key cafés and brunch spots within a quick walk.',
+    location: 'Near you',
+    features: ['Coffee', 'Brunch', 'Quick walk'],
+    verified: true,
+    entryType: 'free',
+    vibe: 8,
+  },
+  {
+    id: 61_002,
+    type: 'dining',
+    name: 'Dinner Spots That Match Your Vibe',
+    image: resolveVenuePhoto({ category: 'restaurant', name: 'Dinner Spots That Match Your Vibe' }),
+    distance: '0.9 mi',
+    rating: 4.7,
+    availability: 'Tonight',
+    description: 'Personalized restaurants for food, dates, and group plans.',
+    location: 'Midtown picks',
+    features: ['Dining', 'Date night', 'Personalized'],
+    verified: true,
+    entryType: 'free',
+    vibe: 7,
+  },
+  {
+    id: 61_003,
+    type: 'nightlife',
+    name: 'Nightlife Momentum',
+    image: resolveVenuePhoto({ category: 'nightlife', name: 'Nightlife Momentum' }),
+    distance: '1.1 mi',
+    rating: 4.6,
+    availability: 'Live tonight',
+    description: 'Bars, lounges, and cocktail rooms with the right crowd energy.',
+    location: 'Tonight nearby',
+    features: ['Nightlife', 'Cocktails', 'Group energy'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: 'Varies',
+    vibe: 5,
+  },
+  {
+    id: 61_004,
+    type: 'parking',
+    name: 'Smart Parking Before You Arrive',
+    image: resolveVenuePhoto({ category: 'venue', name: 'Smart Parking Before You Arrive' }),
+    distance: '0.3 mi',
+    rating: 4.5,
+    availability: 'Nearby options',
+    description: 'Reserve-ready parking options around your next destination.',
+    location: 'Closest options',
+    features: ['Parking', 'Reserve ahead', 'Quick walk'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: 'From $8',
+    vibe: 6,
+  },
+  {
+    id: 61_005,
+    type: 'entertainment',
+    name: 'Events Worth Leaving For',
+    image: resolveVenuePhoto({ category: 'entertainment', name: 'Events Worth Leaving For' }),
+    distance: '1.5 mi',
+    rating: 4.7,
+    availability: 'Tonight',
+    description: 'Shows, music, and experiences aligned with your saved interests.',
+    location: 'Atlanta tonight',
+    features: ['Events', 'Music', 'Entertainment'],
+    verified: true,
+    entryType: 'paid',
+    entryPrice: 'Tickets',
+    vibe: 6,
+  },
+  {
+    id: 61_006,
+    type: 'fitness',
+    name: 'Wellness Reset Nearby',
+    image: resolveVenuePhoto({ category: 'fitness', name: 'Wellness Reset Nearby' }),
+    distance: '0.7 mi',
+    rating: 4.9,
+    availability: 'Available today',
+    description: 'Gyms, recovery, and movement options when your vibe is wellness.',
+    location: 'Nearby wellness',
+    features: ['Fitness', 'Wellness', 'Recovery'],
+    verified: true,
+    entryType: 'free',
+    vibe: 7,
+  },
+];
 
 function hasAuthenticatedConsumerSession(): boolean {
   const token = localStorage.getItem('bytspot_auth_token');
@@ -454,17 +550,20 @@ export default function App() {
     const existingServiceIds = new Set(discoverApiCards.map(card => card.vendorServiceId).filter(Boolean));
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
+    const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : CURATED_HOME_DISCOVERY_CARDS;
     const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
-    return getPersonalizedDiscoverCards([...mirroredCards, ...discoverApiCards, ...curatedFallbackCards], userPreferences);
+    return getPersonalizedDiscoverCards([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], userPreferences);
   }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
   const shouldShowHomeRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext || hasPersonalizedPreferenceSignal;
 
   const recommendedHomeCards = useMemo<DiscoverCard[]>(() => {
-    return discoverCardsWithSavedRequests
-      .filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)))
-      .slice(0, 8);
+    const visibleCards = discoverCardsWithSavedRequests.filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)));
+    const nonServiceCards = visibleCards.filter(card => card.type !== 'service').slice(0, 5);
+    const serviceCards = visibleCards.filter(card => card.type === 'service').slice(0, 3);
+    const balancedCards = [...nonServiceCards, ...serviceCards];
+    return balancedCards.length > 0 ? balancedCards.slice(0, 8) : visibleCards.slice(0, 8);
   }, [discoverCardsWithSavedRequests]);
 
   const handleRecommendedHomeCardClick = useCallback((card: DiscoverCard) => {

@@ -69,7 +69,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Map tab' })).toBeVisible();
     const serviceRail = page.getByTestId('home-recommended-nearby-rail');
     await expect(serviceRail).toBeVisible();
-    await expect(serviceRail).toContainText('Recommended near you');
+    await expect(serviceRail).toContainText('Recommended for you');
     await expect(serviceRail).toContainText('Chef Maria’s Table');
     await expect(serviceRail).toContainText('Book for Tonight');
     await expect(serviceRail).not.toContainText(/Valet/i);
@@ -92,7 +92,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     const serviceRail = page.getByTestId('home-recommended-nearby-rail');
     await expect(serviceRail).toBeVisible();
-    await expect(serviceRail).toContainText('Recommended near you');
+    await expect(serviceRail).toContainText('Recommended for you');
     await expect(serviceRail).toContainText('Chef Maria’s Table');
     await expect(serviceRail).toContainText('Zen Haven Mobile Spa');
     await expect(serviceRail).not.toContainText(/Valet/i);

@@ -15,6 +15,17 @@ const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONS
 const ATLANTA_HUB_COORDS = { lat: 33.7756, lng: -84.3963 };
 const NIGHTLIFE_SEARCH_TYPES = new Set(['nightlife', 'night_club', 'club', 'clubs', 'lounge', 'lounges', 'bar']);
 
+function isRuntimeConsumerOnlyReview(): boolean {
+  if (typeof window === 'undefined') return false;
+  return String((window as unknown as { __BYT_APP_STORE_CONSUMER_ONLY__?: unknown }).__BYT_APP_STORE_CONSUMER_ONLY__ ?? '')
+    .trim()
+    .toLowerCase() === 'true';
+}
+
+function shouldSuppressLiveCrowdStream(): boolean {
+  return APP_STORE_CONSUMER_ONLY_COMPILE_TIME || isRuntimeConsumerOnlyReview();
+}
+
 /** Haversine — returns distance in miles between two lat/lng points */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 3958.8; // Earth radius in miles
@@ -387,7 +398,7 @@ export function useVenues(): UseVenuesResult {
     function connectSSE() {
       if (!isMountedRef.current || connectingSSE) return;
       if (es && es.readyState !== EventSource.CLOSED) return;
-      if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME || typeof EventSource === 'undefined') {
+      if (shouldSuppressLiveCrowdStream() || typeof EventSource === 'undefined') {
         startPollingFallback();
         return;
       }

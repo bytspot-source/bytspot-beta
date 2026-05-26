@@ -4,10 +4,10 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle, P
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Navigation, Star, Plus, Minus, Target,
+  Navigation,
   Zap, X,
   MapPin, ChevronRight, QrCode,
-  Lock, Sparkles, Wifi, Layers, Search, Car, Route, Crosshair, Check,
+  Lock, Sparkles, Wifi, Car, Route,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -33,6 +33,10 @@ import {
   type MapParkingSpot,
 } from '../utils/mapParking';
 import { impactLight } from '../utils/haptics';
+import { MapActionStack } from './map/MapActionStack';
+import { MapLayersMenu } from './map/MapLayersMenu';
+import { MapSearchBar } from './map/MapSearchBar';
+import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 
 type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
@@ -1301,276 +1305,54 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
       </MapContainer>
 
-      {/* Spatial Intelligence Search */}
-      <AnimatePresence>
-      {showSearchBar && (
-      <motion.div
-        className="absolute left-3 right-20 top-4 z-[1000]"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: isFocusedMapMode ? 0.92 : 1, y: 0, scale: isFocusedMapMode ? 0.98 : 1 }}
-        exit={{ opacity: 0, y: -10 }}
+      <MapSearchBar
+        isVisible={showSearchBar}
+        isFocusedMapMode={isFocusedMapMode}
+        value={mapQuery}
+        onChange={setMapQuery}
+        onSubmit={() => {
+          setRouteDestination(mapQuery.trim());
+          setBottomSheetExpanded(true);
+          toast.success('Spatial search', { description: `Scanning for ${mapQuery.trim()}` });
+        }}
         transition={springConfig}
-      >
-        <div className={`rounded-[24px] border border-white/35 bg-[#080A10] px-3 shadow-2xl ${isFocusedMapMode ? 'py-2.5' : 'py-3'}`}>
-          <div className="flex items-center gap-3">
-            <Search className="h-5 w-5 flex-shrink-0 text-cyan-200" strokeWidth={2.5} />
-            <input
-              value={mapQuery}
-              onChange={(event) => setMapQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && mapQuery.trim()) {
-                  setRouteDestination(mapQuery.trim());
-                  setBottomSheetExpanded(true);
-                  toast.success('Spatial search', { description: `Scanning for ${mapQuery.trim()}` });
-                }
-              }}
-              placeholder="Search destination or service type"
-              className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/45"
-              style={{ fontWeight: 700 }}
-            />
-            <div className="hidden rounded-full border border-cyan-400/50 bg-[#06242B] px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-100 sm:block" style={{ fontWeight: 900 }}>
-              Station Mode
-            </div>
-          </div>
-        </div>
-      </motion.div>
-      )}
-      </AnimatePresence>
+      />
 
-      {/* Floating Spatial Intelligence Actions */}
-      <motion.div
-        className={`absolute top-28 right-4 flex flex-col gap-2 ${mapMode === 'navigation' ? 'z-[1006]' : 'z-[1000]'}`}
-        data-testid="map-right-action-stack"
-        animate={hideRightActionStack ? { opacity: 0, x: 28, scale: 0.96 } : { opacity: 1, x: 0, scale: 1 }}
-        transition={{ type: 'spring', stiffness: 340, damping: 32, mass: 0.85 }}
-        style={{ pointerEvents: hideRightActionStack ? 'none' : 'auto', zIndex: mapMode === 'navigation' ? 1006 : 1000 }}
-        aria-hidden={hideRightActionStack}
-      >
-        {showLayerButton && (
-        <div className="relative">
-          <motion.button
-            onClick={(event) => {
-              event.currentTarget.blur();
-              triggerLightHaptic();
-              setShowLayerMenu(prev => {
-                const next = !prev;
-                if (next) setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
-                return next;
-              });
-            }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showLayerMenu ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
-            whileTap={{ scale: 0.9 }}
-            transition={springConfig}
-            aria-label="Map layers"
-            aria-expanded={showLayerMenu}
-          >
-            <Layers className="w-5 h-5 text-white" strokeWidth={2.5} />
-          </motion.button>
-        </div>
-        )}
-        {!showLayerMenu && (
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setShouldRecenter(true); }}
-          className="w-12 h-12 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-          aria-label="Current location"
-        >
-          <Crosshair className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-        )}
-        {showFullRightActionStack && (
-        <>
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setZoomDirection(1); }}
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-        >
-          <Plus className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-        <motion.button
-          onClick={() => { triggerLightHaptic(); setZoomDirection(-1); }}
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-        >
-          <Minus className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </motion.button>
-        {/* Traffic Intelligence toggle */}
-        <motion.button
-          onClick={(event) => { event.currentTarget.blur(); triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
-          className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500 border-amber-200' : 'bg-[#050505] border-white/40'}`}
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-          title="Traffic Intelligence"
-          aria-label="Traffic intelligence"
-          data-testid="traffic-intelligence-fab"
-        >
-          <Zap className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-amber-400'}`} strokeWidth={2.5} />
-        </motion.button>
+      <MapActionStack
+        mapMode={mapMode}
+        hideRightActionStack={hideRightActionStack}
+        showLayerButton={showLayerButton}
+        showLayerMenu={showLayerMenu}
+        showFullRightActionStack={showFullRightActionStack}
+        showTrafficIntel={showTrafficIntel}
+        showVerifiedOnly={showVerifiedOnly}
+        onToggleLayers={(event) => {
+          event.currentTarget.blur();
+          triggerLightHaptic();
+          setShowLayerMenu(prev => {
+            const next = !prev;
+            if (next) setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
+            return next;
+          });
+        }}
+        onRecenter={() => { triggerLightHaptic(); setShouldRecenter(true); }}
+        onZoomIn={() => { triggerLightHaptic(); setZoomDirection(1); }}
+        onZoomOut={() => { triggerLightHaptic(); setZoomDirection(-1); }}
+        onToggleTraffic={(event) => { event.currentTarget.blur(); triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
+        onShowPartneredVendors={(event) => { event.currentTarget.blur(); handleShowPartneredVendors(); }}
+        transition={springConfig}
+      />
 
-        {/* ── Bytspot Verified Only — hexagonal FAB toggle ── */}
-        <motion.button
-          onClick={(event) => { event.currentTarget.blur(); handleShowPartneredVendors(); }}
-          className="relative w-11 h-11 flex items-center justify-center"
-          whileTap={{ scale: 0.9 }}
-          transition={springConfig}
-          aria-pressed={showVerifiedOnly}
-          aria-label="Show partnered Tap Zone vendors"
-          data-testid="partnered-vendors-patch-button"
-          title="Partnered Tap Zone vendors"
-        >
-          {showVerifiedOnly && (
-            <motion.span
-              key="verified-ping"
-              className="absolute inset-0 rounded-full"
-              style={{ background: 'radial-gradient(circle, rgba(34,211,238,0.55), rgba(124,58,237,0.25) 60%, transparent 75%)' }}
-              animate={{ scale: [1, 1.55, 1.85], opacity: [0.65, 0.15, 0] }}
-              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
-            />
-          )}
-          <motion.span
-            className="absolute inset-0 flex items-center justify-center border-2 shadow-xl"
-            style={{
-              clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)',
-              background: showVerifiedOnly
-                ? 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))'
-                : '#050505',
-              borderColor: showVerifiedOnly ? 'rgba(165,243,252,1)' : 'rgba(255,255,255,0.42)',
-            }}
-            animate={showVerifiedOnly
-              ? { scale: [1, 1.04, 1] }
-              : { scale: 1 }}
-            transition={{ duration: 2.4, repeat: showVerifiedOnly ? Infinity : 0, ease: 'easeInOut' }}
-          >
-            <Zap
-              className={`w-5 h-5 ${showVerifiedOnly ? 'text-white' : 'text-cyan-300'}`}
-              strokeWidth={2.6}
-            />
-          </motion.span>
-        </motion.button>
-        </>
-        )}
-      </motion.div>
-
-      {/* Map Layers — full-width mobile sheet so controls do not clip off-screen */}
-      <AnimatePresence>
-        {showLayerMenu && showLayerButton && (
-          <motion.div
-            className="absolute inset-0 z-[1007] flex items-end px-3 pb-3"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-          >
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/45"
-              onClick={() => setShowLayerMenu(false)}
-              aria-label="Close Map Layers"
-            />
-            <motion.div
-              className="relative z-10 flex w-full flex-col overflow-hidden rounded-[28px] border border-white/35 bg-[#050505] shadow-2xl"
-              style={{ maxHeight: 'calc(100vh - 96px)' }}
-              data-testid="map-layers-menu"
-              role="dialog"
-              aria-label="Map Layers"
-              initial={{ y: 28, scale: 0.98 }}
-              animate={{ y: 0, scale: 1 }}
-              exit={{ y: 28, scale: 0.98 }}
-              transition={springConfig}
-            >
-              <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-white/70" />
-              <div className="flex items-start justify-between gap-3 border-b border-white/15 px-4 pb-3 pt-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Map Layers</p>
-                  <h3 className="mt-1 text-[20px] leading-tight text-white" style={{ fontWeight: 900 }}>
-                    {mapMode === 'navigation' ? 'What helps this route?' : 'What do you want to see?'}
-                  </h3>
-                  <p className="mt-0.5 text-[12px] text-white/85" style={{ fontWeight: 650 }}>
-                    {mapMode === 'navigation' ? 'Only route-useful layers are shown.' : 'Pick the map signals that matter right now.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowLayerMenu(false)}
-                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-white/35 bg-[#080A10] text-white"
-                  aria-label="Close Map Layers"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="overflow-y-auto px-4 pb-4 pt-3 scrollbar-hide" style={{ maxHeight: 'calc(100vh - 240px)' }}>
-                <div className="space-y-2.5">
-                  {layerControlGroups.map(({ group, items }) => {
-                    const isOpen = openLayerGroup === group;
-                    const activeCount = items.filter(item => item.checked).length;
-                    return (
-                      <section key={group} className="rounded-[22px] border border-white/22 bg-[#080A10] p-2">
-                        <button
-                          type="button"
-                          className={`flex min-h-[56px] w-full items-center gap-3 rounded-[18px] border px-3 py-2.5 text-left transition-colors ${isOpen ? 'border-cyan-300 bg-[#06242B]' : 'border-transparent bg-[#0E1117]'}`}
-                          onClick={() => setOpenLayerGroup(group)}
-                          aria-expanded={isOpen}
-                          aria-controls={`map-layer-group-${group.replace(/\s+/g, '-').toLowerCase()}`}
-                        >
-                          <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl border text-[13px] ${activeCount > 0 ? 'border-cyan-200 bg-cyan-400 text-black' : 'border-white/35 bg-[#050505] text-cyan-100'}`} style={{ fontWeight: 900 }}>
-                            {activeCount || items.length}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[15px] leading-tight text-white" style={{ fontWeight: 900 }}>{group}</span>
-                            <span className="mt-0.5 block text-[12px] leading-snug text-white/85" style={{ fontWeight: 650 }}>
-                              {activeCount > 0 ? `${activeCount} active` : `${items.length} option${items.length === 1 ? '' : 's'}`}
-                            </span>
-                          </span>
-                          <ChevronRight className={`h-5 w-5 flex-shrink-0 text-white transition-transform ${isOpen ? 'rotate-90 text-cyan-100' : ''}`} strokeWidth={2.7} />
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isOpen && (
-                            <motion.div
-                              id={`map-layer-group-${group.replace(/\s+/g, '-').toLowerCase()}`}
-                              className="space-y-2 pt-2"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.18 }}
-                              style={{ overflow: 'hidden' }}
-                            >
-                              {items.map(item => (
-                                <button
-                                  key={item.label}
-                                  type="button"
-                                  role="checkbox"
-                                  aria-checked={item.checked}
-                                  onClick={item.onToggle}
-                                  data-layer-selected={item.checked ? 'true' : 'false'}
-                                  className={`flex min-h-[74px] w-full items-center gap-3 rounded-[20px] border p-3.5 text-left transition-colors ${item.checked ? 'border-cyan-200 bg-cyan-400 text-black shadow-[0_0_0_2px_rgba(165,243,252,0.35)]' : 'border-white/30 bg-[#050505] text-white'}`}
-                                >
-                                  <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border text-[16px] ${item.checked ? 'border-black/20 bg-black/10 text-black' : 'border-cyan-400/35 bg-[#061B22] text-cyan-100'}`} style={{ fontWeight: 900 }}>{item.icon}</span>
-                                  <span className="min-w-0 flex-1 pr-1">
-                                    <span className={`block whitespace-normal text-[16px] leading-tight ${item.checked ? 'text-black' : 'text-white'}`} style={{ fontWeight: 950 }}>{item.label}</span>
-                                    <span className={`mt-1 block whitespace-normal text-[12px] leading-snug ${item.checked ? 'text-black/80' : 'text-white/85'}`} style={{ fontWeight: 750 }}>{item.detail}</span>
-                                  </span>
-                                  <span className={`flex h-8 min-w-8 flex-shrink-0 items-center justify-center rounded-xl border px-1.5 ${item.checked ? 'border-black/25 bg-black text-cyan-200' : 'border-white/45 bg-[#080A10] text-transparent'}`}>
-                                    {item.checked ? <span className="text-[10px] uppercase tracking-[0.08em]" style={{ fontWeight: 950 }}>On</span> : <Check className="h-4 w-4" strokeWidth={3} />}
-                                  </span>
-                                </button>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </section>
-                    );
-                  })}
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <MapLayersMenu
+        isOpen={showLayerMenu}
+        showLayerButton={showLayerButton}
+        mapMode={mapMode}
+        groups={layerControlGroups}
+        openGroup={openLayerGroup}
+        onOpenGroup={setOpenLayerGroup}
+        onClose={() => setShowLayerMenu(false)}
+        transition={springConfig}
+      />
 
       {/* Route FAB — appears only after a venue/pin route context exists */}
       <AnimatePresence>
@@ -1981,39 +1763,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         document.body
       )}
 
-      {/* Spatial Intelligence Bottom Sheet */}
-      <AnimatePresence>
-        {shouldShowSpatialSheet && (
-          <motion.div
-            className="absolute bottom-20 left-3 right-3 z-[1002]"
-            data-testid="spatial-intelligence-sheet"
-            initial={{ y: SPATIAL_SHEET_PEEK_Y, opacity: 0 }}
-            animate={{ y: bottomSheetExpanded ? 0 : SPATIAL_SHEET_PEEK_Y, opacity: 1 }}
-            exit={{ y: 180, opacity: 0 }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: SPATIAL_SHEET_PEEK_Y }}
-            dragElastic={0.06}
-            dragMomentum={false}
-            onDragEnd={(_, info) => {
-              const shouldExpand = info.velocity.y < -SPATIAL_SHEET_SNAP_VELOCITY || info.offset.y < -SPATIAL_SHEET_SNAP_OFFSET;
-              const shouldCollapse = info.velocity.y > SPATIAL_SHEET_SNAP_VELOCITY || info.offset.y > SPATIAL_SHEET_SNAP_OFFSET;
-              setBottomSheetExpanded(current => shouldExpand ? true : shouldCollapse ? false : current);
-            }}
-            transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.82 }}
-          >
-            <div
-              className={`max-h-[72vh] overflow-hidden rounded-[28px] border bg-[#050505] shadow-2xl ${peekVenueIsVerified ? 'border-cyan-400/55' : 'border-white/35'}`}
-              data-testid="spatial-sheet-surface"
-              style={peekVenueIsVerified ? { boxShadow: '0 0 34px rgba(34,211,238,0.16), 0 18px 42px rgba(0,0,0,0.48)' } : undefined}
-            >
-              <button
-                className="mx-auto mt-3 block h-1.5 w-12 rounded-full bg-white/70"
-                data-testid="spatial-sheet-toggle"
-                onClick={() => setBottomSheetExpanded(prev => !prev)}
-                aria-label="Toggle map results sheet"
-              />
-
-              <div className="max-h-[68vh] overflow-y-auto px-4 pb-4 pt-3 scrollbar-hide">
+      <SpatialBottomSheetFrame
+        isVisible={shouldShowSpatialSheet}
+        isExpanded={bottomSheetExpanded}
+        isVerified={peekVenueIsVerified}
+        peekY={SPATIAL_SHEET_PEEK_Y}
+        snapOffset={SPATIAL_SHEET_SNAP_OFFSET}
+        snapVelocity={SPATIAL_SHEET_SNAP_VELOCITY}
+        onExpandedChange={setBottomSheetExpanded}
+      >
                 {peekVenue ? (
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
@@ -2209,11 +1967,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </SpatialBottomSheetFrame>
 
       {/* ── Premium Teaser Sheet — single keyed motion child so AnimatePresence treats it as one unit ── */}
       <AnimatePresence>

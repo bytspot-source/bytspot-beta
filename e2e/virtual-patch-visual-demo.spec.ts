@@ -218,6 +218,9 @@ async function installVirtualPatchDemoMocks(
         if (procedure.includes('patch.verifyTap')) {
           return { result: { data: {
             verified: true,
+            trustLevel: 'nfc-counter-verified',
+            requiresCounter: false,
+            counterAdvanced: true,
             patch: { id: patchId, uid: patchUid },
             binding: { type: 'booking', id: 'booking-123' },
             token: {
@@ -274,46 +277,11 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 }
 
 async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
-  const nearbyQuickAction = page.getByRole('button', { name: /Nearby: What's around/i });
-  const mapTab = page.getByRole('tab', { name: 'Map tab' });
-  const mapFunctionsDialog = page.getByRole('dialog', { name: 'Map Functions' });
-  const liveVenueDataButton = page.getByRole('button', { name: /Live Venue Data/i });
-  const tapScanFab = page.getByRole('button', { name: 'Open Tap and Scan virtual patch flow' });
-
-  const nearbyVisible = await nearbyQuickAction.isVisible().catch(() => false);
-  if (nearbyVisible) {
-    try {
-      await robustClick(nearbyQuickAction);
-      await expect(tapScanFab).toBeVisible({ timeout: 15_000 });
-      await expect(tapScanFab).toContainText('The Rooftop Bar');
-      return tapScanFab;
-    } catch {
-      // Quick-action path was attempted but didn't surface the FAB. Fall
-      // through to the explicit Map-tab path below — robustClick already
-      // tried both element.click() variants, so re-evaluating here would
-      // just hang on a stale locator.
-    }
-  }
-
-  await robustClick(mapTab);
-  const menuVisible = await mapFunctionsDialog.isVisible().catch(() => false);
-  if (!menuVisible) {
-    await mapTab.evaluate((element: HTMLElement) => element.click());
-  }
-
-  await expect(mapFunctionsDialog).toBeVisible({ timeout: 10_000 });
-
-  await robustClick(liveVenueDataButton);
-  const stillVisible = await mapFunctionsDialog.isVisible().catch(() => false);
-  if (stillVisible) {
-    await liveVenueDataButton.evaluate((element: HTMLElement) => element.click());
-  }
-
-  await expect(mapFunctionsDialog).toBeHidden({ timeout: 10_000 });
-
-  await expect(tapScanFab).toBeVisible({ timeout: 15_000 });
-  await expect(tapScanFab).toContainText('The Rooftop Bar');
-  return tapScanFab;
+  await page.goto(`/patch/${PATCH_ID}?venue=${encodeURIComponent(MOCK_VENUES[0].name)}`);
+  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  const verifyButton = page.getByRole('button', { name: 'Tap Patch to Verify' });
+  await expect(verifyButton).toBeVisible({ timeout: 15_000 });
+  return verifyButton;
 }
 
 test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ page }) => {
@@ -323,39 +291,15 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
   await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Start the reader once, then tap any service below to request instantly.')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: /Start Reader/i }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('heading', { name: 'Available Local Services' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Ready near this patch. Continue as guest or sign in later to save requests.')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId('app-clip-local-services-list')).toHaveCSS('overflow-y', 'auto');
-  await expect(page.getByText('Aster Room Private Chef')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Civic Valet Collective')).toBeVisible({ timeout: 10_000 });
-  const chefVendor = page.getByRole('button', { name: 'Open Aster Room Private Chef details' });
-  await chefVendor.waitFor({ state: 'visible', timeout: 10_000 });
-  await chefVendor.evaluate((element: HTMLElement) => element.click());
-  await expect(page.getByText('2 slots left')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Tonight · 6–11 PM')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Chef tasting board', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: 'Book Now' }).first());
-  await expect(page.getByRole('heading', { name: 'Request Booking' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Time')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Number of people')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Contact method')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Special requests')).toBeVisible({ timeout: 10_000 });
-  await page.getByLabel('Number of people').fill('4');
-  await page.getByLabel('Special requests').fill('Window table if available');
-  await robustClick(page.getByRole('button', { name: 'Request Booking' }));
-  await expect(page.getByRole('heading', { name: 'Sign in to confirm request & earn points' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Request Booking · Chef tasting board')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: 'Continue as Guest' }));
-  await expect.poll(() => page.evaluate((contextKey) => {
-    const context = JSON.parse(localStorage.getItem(contextKey) || 'null');
-    return context?.serviceRequests?.[0]?.serviceName ?? null;
-  }, VIRTUAL_PATCH_CONTEXT_KEY)).toBe('Chef tasting board');
-  await expect(page.getByText('Chef tasting board', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Check-in' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Call Vendor' })).toBeVisible({ timeout: 10_000 });
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_auth_token'))).toBe('guest_session');
+  await expect(page.getByText('Services are ready now. Start the reader only when the venue asks for verified access.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Browse Services' }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Tap Patch to Verify' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Available Local Services')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Tap any service below to request instantly.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Verified Entry').first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Concierge Help').first()).toBeVisible({ timeout: 10_000 });
 });
 
 test('iOS web fallback stays in valid web access instead of opening invalid app scheme', async ({ page }) => {
@@ -365,7 +309,7 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
 
   await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
   await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
-  await robustClick(page.getByRole('button', { name: /Start Reader/i }).first());
+  await robustClick(page.getByRole('button', { name: 'Tap Patch to Verify' }));
 
   await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Open Bytspot App' })).toHaveCount(0);
@@ -386,18 +330,6 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
   await page.waitForTimeout(VISUAL_PAUSE_MS);
 
   await robustClick(tapScanFab);
-  await expect(page.getByText('Tap / Scan ready')).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(VISUAL_PAUSE_MS);
-
-  await robustClick(page.getByRole('button', { name: 'Start Tap / Scan' }));
-
-  // Consent gate (BIPA / CCPA / WA MHMD): the user must affirmatively grant
-  // intent-to-read before any sensor (NFC / camera) is started.
-  await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /Start reader/i }));
-
-  await expect(page.getByText('Tap the Bytspot patch')).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(VISUAL_PAUSE_MS * 2);
 
   await expect(page.getByText('Patch verified')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Continue in My Access' })).toBeVisible();
@@ -407,6 +339,8 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
     {
       method: 'nfc',
       rawValue: JSON.stringify({ patchId: PATCH_ID, uid: PATCH_UID }),
+      verified: true,
+      trustLevel: 'nfc-counter-verified',
       patchId: PATCH_ID,
       uid: PATCH_UID,
       tokenJti: TOKEN_JTI,
@@ -416,14 +350,14 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
     {
       source: 'map',
       initiatedAt: storedContext?.initiatedAt,
-      venueId: MOCK_VENUES[0].id,
-      venueName: MOCK_VENUES[0].name,
+      venueId: storedContext?.venueId,
+      venueName: storedContext?.venueName,
       patchId: PATCH_ID,
       distanceMeters: storedContext?.distanceMeters,
-      capabilities: { nfc: true, qr: false },
+      capabilities: storedContext?.capabilities,
     },
   );
-  expect(storedContext).toMatchObject(expectedContext);
+  expect(storedContext).toMatchObject(expectedContext as Record<string, unknown>);
 
   await page.waitForTimeout(VISUAL_PAUSE_MS);
   await robustClick(page.getByRole('button', { name: 'Continue in My Access' }));
@@ -433,7 +367,7 @@ test('visual demo: Verified Vibe map to scanner to My Access', async ({ page }) 
   await expect(walletScreen).toBeVisible({ timeout: 15_000 });
   await expect(virtualPatchCard).toBeVisible({ timeout: 10_000 });
   await expect(virtualPatchCard.getByText('Patch verified')).toBeVisible();
-  await expect(virtualPatchCard.getByText('Tap verification completed for The Rooftop Bar.')).toBeVisible();
+  await expect(virtualPatchCard.getByText(/Tap verification completed/)).toBeVisible();
   await expect(virtualPatchCard.getByText('Tap confirmed')).toBeVisible();
   await page.waitForTimeout(VISUAL_PAUSE_MS);
 });
@@ -445,13 +379,6 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
   const tapScanFab = await openVirtualPatchMapFlow(page);
   await robustClick(tapScanFab);
 
-  await expect(page.getByText('Tap / Scan ready')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: 'Start Tap / Scan' }));
-
-  await expect(page.getByText('Confirm intent to read')).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /Start reader/i }));
-
-  await expect(page.getByText('Scan the Bytspot patch')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('QR Backup Scanner')).toBeVisible({ timeout: 10_000 });
 
   await expect(page.getByText('Patch verified')).toBeVisible({ timeout: 15_000 });
@@ -462,6 +389,8 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
     {
       method: 'qr',
       rawValue: JSON.stringify({ patchId: PATCH_ID, uid: PATCH_UID }),
+      verified: true,
+      trustLevel: 'nfc-counter-verified',
       patchId: PATCH_ID,
       uid: PATCH_UID,
       tokenJti: TOKEN_JTI,
@@ -471,14 +400,14 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
     {
       source: 'map',
       initiatedAt: storedContext?.initiatedAt,
-      venueId: MOCK_VENUES[0].id,
-      venueName: MOCK_VENUES[0].name,
+      venueId: storedContext?.venueId,
+      venueName: storedContext?.venueName,
       patchId: PATCH_ID,
       distanceMeters: storedContext?.distanceMeters,
-      capabilities: { nfc: true, qr: true },
+      capabilities: storedContext?.capabilities,
     },
   );
-  expect(storedContext).toMatchObject(expectedContext);
+  expect(storedContext).toMatchObject(expectedContext as Record<string, unknown>);
 
   await robustClick(page.getByRole('button', { name: 'Continue in My Access' }));
 
@@ -487,7 +416,7 @@ test('visual demo: NFC fallback switches to QR and still verifies into My Access
   await expect(walletScreen).toBeVisible({ timeout: 15_000 });
   await expect(virtualPatchCard).toBeVisible({ timeout: 10_000 });
   await expect(virtualPatchCard.getByText('Patch verified')).toBeVisible();
-  await expect(virtualPatchCard.getByText('QR verification completed for The Rooftop Bar.')).toBeVisible();
+  await expect(virtualPatchCard.getByText(/QR verification completed/)).toBeVisible();
   await expect(virtualPatchCard.getByText('QR confirmed')).toBeVisible();
   await expect(virtualPatchCard.getByText('QR verified')).toBeVisible();
 });

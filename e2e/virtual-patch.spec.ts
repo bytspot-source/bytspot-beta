@@ -98,6 +98,8 @@ test.describe('Virtual Patch', () => {
       {
         method: 'nfc',
         rawValue: '04A1B2C3D4E5F6',
+        verified: true,
+        trustLevel: 'nfc-counter-verified',
         patchId: 'patch-123456',
         uid: '04A1B2C3D4E5F6',
         tokenJti: 'token-jti-12345678',

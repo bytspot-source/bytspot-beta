@@ -86,10 +86,19 @@ function formatVirtualPatchMode(mode?: string): string {
   switch (mode) {
     case 'tap-verified': return 'Tap verified';
     case 'qr-verified': return 'QR verified';
+    case 'patch-discovery': return 'Discovery only';
     case 'verified-zone': return 'Venue in range';
     case 'wallet-fallback': return 'Wallet standby';
     default: return 'Virtual Patch';
   }
+}
+
+function isVerifiedVirtualPatchScan(context?: VirtualPatchContext | null): boolean {
+  return context?.scan?.verified === true && (
+    context.mode === 'tap-verified'
+    || context.mode === 'qr-verified'
+    || context.scan.trustLevel === 'nfc-counter-verified'
+  );
 }
 
 function isDemoVenueVirtualPatch(context?: VirtualPatchContext | null): boolean {
@@ -669,6 +678,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   }
 
   if (currentScreen === 'tickets') {
+    const hasVerifiedVirtualPatchScan = isVerifiedVirtualPatchScan(virtualPatchContext);
+
     return (
       <div className="h-full flex flex-col" data-testid="profile-access-wallet">
         <div className="px-4 pt-4 pb-2">
@@ -712,11 +723,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <div>
                   <p className="mb-1 inline-flex rounded-full border border-cyan-200/35 bg-cyan-300/15 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-cyan-100" style={{ fontWeight: 900 }}>Virtual Patch</p>
                   <h4 className="text-[21px] leading-7 text-white" style={{ fontWeight: 950 }}>
-                    {virtualPatchContext.scan ? 'Patch verified' : getPublicVirtualPatchVenueName(virtualPatchContext)}
+                    {virtualPatchContext.scan ? (hasVerifiedVirtualPatchScan ? 'Patch verified' : 'Patch discovery opened') : getPublicVirtualPatchVenueName(virtualPatchContext)}
                   </h4>
                   <p className="mt-2 text-[13.5px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>
                     {virtualPatchContext.scan
-                      ? `${virtualPatchContext.scan.type === 'nfc' ? 'Tap' : 'QR'} verification completed${virtualPatchContext.venueName ? ` for ${getPublicVirtualPatchVenueName(virtualPatchContext)}` : ''}.`
+                      ? hasVerifiedVirtualPatchScan
+                        ? `${virtualPatchContext.scan.type === 'nfc' ? 'Tap' : 'QR'} verification completed${virtualPatchContext.venueName ? ` for ${getPublicVirtualPatchVenueName(virtualPatchContext)}` : ''}.`
+                        : `${virtualPatchContext.scan.type === 'nfc' ? 'Tap' : 'QR'} discovery opened${virtualPatchContext.venueName ? ` for ${getPublicVirtualPatchVenueName(virtualPatchContext)}` : ''}. Physical verification requires a fresh NFC counter tap.`
                       : virtualPatchContext.venueName
                         ? `Continue your frictionless entry flow for ${getPublicVirtualPatchVenueName(virtualPatchContext)}.`
                         : 'Your last Tap / Scan handoff is ready to continue here.'}
@@ -753,7 +766,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 </div>
                 {virtualPatchContext.scan?.type && (
                   <div className="px-3 py-1.5 rounded-full bg-emerald-500/18 border border-emerald-400/25 text-[12px] text-emerald-200" style={{ fontWeight: 700 }}>
-                    {virtualPatchContext.scan.type === 'nfc' ? 'Tap confirmed' : 'QR confirmed'}
+                    {hasVerifiedVirtualPatchScan ? (virtualPatchContext.scan.type === 'nfc' ? 'Tap confirmed' : 'QR confirmed') : 'Discovery only'}
                   </div>
                 )}
                 {formatVirtualPatchDistance(virtualPatchContext.distanceMeters) && (

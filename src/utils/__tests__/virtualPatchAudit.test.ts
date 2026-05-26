@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildVerifiedVirtualPatchContext,
   createAuditEvent,
   isPatchRevoked,
   isValidTagId,
@@ -100,6 +101,42 @@ test('createAuditEvent: defaults at to current ISO timestamp when omitted', () =
   const after = Date.now();
   const ts = Date.parse(evt.at);
   assert.ok(ts >= before && ts <= after, `expected ${evt.at} between ${before} and ${after}`);
+});
+
+test('buildVerifiedVirtualPatchContext: stores static discovery without verified mode', () => {
+  const context = buildVerifiedVirtualPatchContext({
+    method: 'qr',
+    rawValue: 'https://bytspot.app/p/patch-1',
+    verified: false,
+    trustLevel: 'static-discovery',
+    patchId: 'patch-1',
+    uid: null,
+    tokenJti: 'jti-discovery',
+    verifiedAt: '2026-05-25T12:00:00.000Z',
+    binding: { type: 'service', id: 'svc-1' },
+  });
+
+  assert.equal(context.mode, 'patch-discovery');
+  assert.equal(context.scan?.verified, false);
+  assert.equal(context.scan?.trustLevel, 'static-discovery');
+});
+
+test('buildVerifiedVirtualPatchContext: keeps counter-backed NFC taps verified', () => {
+  const context = buildVerifiedVirtualPatchContext({
+    method: 'nfc',
+    rawValue: '{"patchId":"patch-1","readCounter":4}',
+    verified: true,
+    trustLevel: 'nfc-counter-verified',
+    patchId: 'patch-1',
+    uid: '04A1B2C3D4E5F6',
+    tokenJti: 'jti-counter',
+    verifiedAt: '2026-05-25T12:01:00.000Z',
+    binding: { type: 'service', id: 'svc-1' },
+  });
+
+  assert.equal(context.mode, 'tap-verified');
+  assert.equal(context.scan?.verified, true);
+  assert.equal(context.scan?.trustLevel, 'nfc-counter-verified');
 });
 
 // ─── revocation cache ───────────────────────────────────────────────────

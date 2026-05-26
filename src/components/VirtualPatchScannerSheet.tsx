@@ -631,6 +631,8 @@ export function VirtualPatchScannerSheet({
       const summary: VirtualPatchScanVerification = {
         method,
         rawValue,
+        verified: result.verified === true,
+        trustLevel: result.trustLevel === 'nfc-counter-verified' ? 'nfc-counter-verified' : 'static-discovery',
         patchId: result.patch.id,
         uid: result.patch.uid ?? parsed.uid ?? null,
         tokenJti: result.token.jti,
@@ -640,7 +642,10 @@ export function VirtualPatchScannerSheet({
 
       setVerification(summary);
       setStatus('success');
-      setStatusMessage(`${publicVenueName} is ready for frictionless entry.`);
+      const isCounterVerified = summary.verified && summary.trustLevel === 'nfc-counter-verified';
+      setStatusMessage(isCounterVerified
+        ? `${publicVenueName} is ready for frictionless entry.`
+        : `${publicVenueName} services are available. Tap the physical patch with NFC to verify presence.`);
       // NIST PR.PT-1: audit log on success. Tenant + token JTI captured so the
       // entry is independently reconcilable against the server-side ledger.
       emitAudit(createAuditEvent({
@@ -652,8 +657,12 @@ export function VirtualPatchScannerSheet({
         uid: summary.uid,
         tokenJti: summary.tokenJti,
       }));
-      onVerified?.(summary);
-      toast.success('Bytspot Verified', { description: `${publicVenueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.` });
+      if (isCounterVerified) onVerified?.(summary);
+      toast.success(isCounterVerified ? 'Bytspot Verified' : 'Patch opened', {
+        description: isCounterVerified
+          ? `${publicVenueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.`
+          : 'Service discovery is open. Physical verification still requires a fresh NFC counter.',
+      });
       await notifySuccess();
     } catch (error: any) {
       const message = error?.message || 'Unable to verify this patch code.';
@@ -1370,6 +1379,8 @@ export function VirtualPatchScannerSheet({
     }
   }, [authPromptIntent, resumeAuthPromptIntent]);
 
+  const isCounterVerified = verification?.verified === true && verification.trustLevel === 'nfc-counter-verified';
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -1584,12 +1595,13 @@ export function VirtualPatchScannerSheet({
                     </div>
                     <div className="min-w-0">
                       <div className="text-[15px] text-white" style={{ fontWeight: 850 }}>
-                        {status === 'success' ? 'Patch verified' : status === 'unsupported' ? 'Tap / Scan not supported here' : 'Tap / Scan needs attention'}
+                        {status === 'success' ? (isCounterVerified ? 'Patch verified' : 'Patch discovery opened') : status === 'unsupported' ? 'Tap / Scan not supported here' : 'Tap / Scan needs attention'}
                       </div>
                       <p className="text-[13px] mt-1 leading-5" style={{ color: 'rgba(255,255,255,0.74)', fontWeight: 600 }}>{statusMessage}</p>
                       {verification && (
                         <div className="flex flex-wrap gap-2 mt-3 text-[11px] text-emerald-50" style={{ fontWeight: 750 }}>
                           <div className="px-2.5 py-1 rounded-full bg-black/20 border border-emerald-300/25">Patch {verification.patchId.slice(-6)}</div>
+                          <div className="px-2.5 py-1 rounded-full bg-black/20 border border-emerald-300/25">{isCounterVerified ? 'Counter verified' : 'Discovery only'}</div>
                           <div className="px-2.5 py-1 rounded-full bg-black/20 border border-emerald-300/25">ICT {verification.tokenJti.slice(0, 8)}</div>
                         </div>
                       )}

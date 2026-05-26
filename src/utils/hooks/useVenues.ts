@@ -248,7 +248,11 @@ export function useVenues(): UseVenuesResult {
       const context = loadVirtualPatchContext();
       const patchId = context?.patchId ?? null;
       const distanceMeters = context?.distanceMeters ?? null;
-      const hasVerifiedPatchScan = Boolean(context?.scan?.verifiedAt || context?.mode === 'tap-verified' || context?.mode === 'qr-verified');
+      const hasVerifiedPatchScan = context?.scan?.verified === true && (
+        context.scan.trustLevel === 'nfc-counter-verified'
+        || context.mode === 'tap-verified'
+        || context.mode === 'qr-verified'
+      );
       savedRequestCards = (context?.serviceRequests ?? [])
         .slice()
         .reverse()

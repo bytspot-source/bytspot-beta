@@ -2,6 +2,7 @@ export const VIRTUAL_PATCH_CONTEXT_KEY = 'bytspot_virtual_patch_context';
 const SERVICE_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type VirtualPatchScanMethod = 'qr' | 'nfc';
+export type VirtualPatchTrustLevel = 'static-discovery' | 'nfc-counter-verified';
 
 /**
  * Vendor observation surface — EO 14365 / FCC uniform reporting readiness.
@@ -28,6 +29,8 @@ export interface VirtualPatchVendorObservation {
 export interface VirtualPatchScanVerification {
   method: VirtualPatchScanMethod;
   rawValue: string;
+  verified: boolean;
+  trustLevel: VirtualPatchTrustLevel;
   patchId: string;
   uid: string | null;
   tokenJti: string;
@@ -85,6 +88,8 @@ export interface VirtualPatchContext {
   scan?: {
     type?: VirtualPatchScanMethod;
     rawValue?: string;
+    verified?: boolean;
+    trustLevel?: VirtualPatchTrustLevel;
     uid?: string | null;
     tokenJti?: string;
     verifiedAt?: string;
@@ -237,9 +242,12 @@ export function buildVerifiedVirtualPatchContext(
   verification: VirtualPatchScanVerification,
   options: Omit<VirtualPatchContext, 'mode' | 'scan'> = {},
 ): VirtualPatchContext {
+  const isCounterVerified = verification.verified && verification.trustLevel === 'nfc-counter-verified';
   return {
     source: options.source ?? 'map',
-    mode: verification.method === 'nfc' ? 'tap-verified' : 'qr-verified',
+    mode: isCounterVerified
+      ? verification.method === 'nfc' ? 'tap-verified' : 'qr-verified'
+      : 'patch-discovery',
     initiatedAt: options.initiatedAt ?? new Date().toISOString(),
     venueId: options.venueId ?? null,
     venueName: options.venueName ?? null,
@@ -249,6 +257,8 @@ export function buildVerifiedVirtualPatchContext(
     scan: {
       type: verification.method,
       rawValue: verification.rawValue,
+      verified: verification.verified,
+      trustLevel: verification.trustLevel,
       uid: verification.uid,
       tokenJti: verification.tokenJti,
       verifiedAt: verification.verifiedAt,

@@ -81,11 +81,11 @@
             "typescript-eslint": "^8.0.0",
             "vite": "6.3.5"
       },
-	      "scripts": {
-	            "dev": "vite",
-	            "postinstall": "node scripts/patch-capacitor-apple-sign-in-spm.mjs",
-	            "build": "vite build",
-	            "build:app-store": "vite build --mode app-store && node scripts/assert-app-store-purity.mjs",
+      "scripts": {
+            "dev": "vite",
+            "postinstall": "node scripts/patch-capacitor-apple-sign-in-spm.mjs",
+            "build": "vite build",
+            "build:app-store": "vite build --mode app-store && node scripts/assert-app-store-purity.mjs",
             "preview:e2e": "node ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort",
             "type-check": "tsc -p tsconfig.app.json --noEmit",
             "lint": "eslint src --quiet",
@@ -103,6 +103,9 @@
             "cap:open": "npx cap open ios",
             "cap:run": "npm run build && npx cap sync ios && npx cap open ios",
             "cap:icons": "npx capacitor-assets generate --ios",
-            "test:e2e": "node -e \"const fs=require('fs'); fs.rmSync('test-results/chromium',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test --project=chromium --output=test-results/chromium --reporter=line"
+            "test:e2e": "node -e \"const fs=require('fs'); fs.rmSync('test-results/chromium',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test --project=chromium --output=test-results/chromium --reporter=line",
+            "release:quality": "npm run type-check && npm run lint && npm run build && npm run test:unit",
+            "release:e2e:smoke": "node -e \"const fs=require('fs'); fs.rmSync('test-results/release-smoke',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/google-auth.spec.ts e2e/map-spatial-intelligence.spec.ts e2e/toast-contrast.spec.ts e2e/app-store-consumer-only.spec.ts --project=chromium --output=test-results/release-smoke --reporter=line",
+            "release:gate": "npm run release:quality && npm audit --omit=dev --audit-level=high && npm run build:app-store && npm run release:e2e:smoke"
       }
 }

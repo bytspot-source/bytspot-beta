@@ -22,14 +22,14 @@ struct ClipLocalService: Identifiable, Equatable {
     let source: String
 
     static let fallbacks: [ClipLocalService] = [
-        ClipLocalService(id: "verified-entry", title: "Verified Entry", subtitle: "Skip the line with a secure patch check.", action: "Get Verified Entry", iconName: "shield.checkered", tintName: "emerald", priceLabel: "$25 hold", amountCents: 2500, currency: "USD", source: "curated"),
-        ClipLocalService(id: "vip-access", title: "VIP Access", subtitle: "Premium seating and priority arrival support.", action: "Request VIP Access", iconName: "crown.fill", tintName: "gold", priceLabel: "$75 hold", amountCents: 7500, currency: "USD", source: "curated"),
-        ClipLocalService(id: "smart-parking", title: "Smart Parking", subtitle: "Find nearby parking and arrival support.", action: "Find Parking", iconName: "parkingsign.circle.fill", tintName: "cyan", priceLabel: "$15 hold", amountCents: 1500, currency: "USD", source: "curated"),
-        ClipLocalService(id: "concierge-help", title: "Concierge Help", subtitle: "Local help, ride support, wellness, and guest requests.", action: "Message Concierge", iconName: "sparkles", tintName: "violet", priceLabel: "$50 hold", amountCents: 5000, currency: "USD", source: "curated")
+    ClipLocalService(id: "verified-entry", title: "Verified Entry", subtitle: "Skip the line with a secure patch check.", action: "Get Verified Entry", iconName: "shield.checkered", tintName: "emerald", priceLabel: "$25 secure", amountCents: 2500, currency: "USD", source: "curated"),
+    ClipLocalService(id: "vip-access", title: "VIP Access", subtitle: "Premium seating and priority arrival support.", action: "Request VIP Access", iconName: "crown.fill", tintName: "gold", priceLabel: "$75 secure", amountCents: 7500, currency: "USD", source: "curated"),
+    ClipLocalService(id: "smart-parking", title: "Smart Parking", subtitle: "Find nearby parking and arrival support.", action: "Find Parking", iconName: "parkingsign.circle.fill", tintName: "cyan", priceLabel: "$15 secure", amountCents: 1500, currency: "USD", source: "curated"),
+    ClipLocalService(id: "concierge-help", title: "Concierge Help", subtitle: "Local help, ride support, wellness, and guest requests.", action: "Message Concierge", iconName: "sparkles", tintName: "violet", priceLabel: "$50 secure", amountCents: 5000, currency: "USD", source: "curated")
     ]
 }
 
-struct ClipPaymentHoldResult: Equatable {
+struct ClipPaymentSecureResult: Equatable {
     let bookingId: String?
     let status: String
     let message: String
@@ -141,13 +141,13 @@ struct ClipPatchVerifier {
         }
     }
 
-    func authorizeApplePayHold(
+    func authorizeApplePaySecure(
         service: ClipLocalService,
         patchId: String?,
         stripePaymentMethodId: String,
         amountCents: Int,
         guestContact: [String: String]? = nil
-    ) async throws -> ClipPaymentHoldResult {
+    ) async throws -> ClipPaymentSecureResult {
         var input: [String: Any] = [
             "serviceId": service.id,
             "patchId": patchId ?? NSNull(),
@@ -155,17 +155,17 @@ struct ClipPatchVerifier {
             "currency": service.currency.lowercased(),
             "stripePaymentMethodId": stripePaymentMethodId,
             "captureMode": "manual",
-            "source": "app_clip.apple_pay_secure_hold"
+            "source": "app_clip.apple_pay_secure"
         ]
         if let guestContact, !guestContact.isEmpty {
             input["guestContact"] = guestContact
         }
         let payload = try await postTRPC("booking.authorizeApplePayHold", input: input)
         let root = payload as? [String: Any]
-        return ClipPaymentHoldResult(
+        return ClipPaymentSecureResult(
             bookingId: Self.string(root?["bookingId"]),
             status: Self.string(root?["status"]) ?? "authorized",
-            message: Self.string(root?["message"]) ?? "Secure hold authorized."
+            message: Self.string(root?["message"]) ?? "Apple Pay Secure authorized."
         )
     }
 
@@ -221,7 +221,7 @@ struct ClipPatchVerifier {
         let rawCategory = Self.string(row["category"]) ?? Self.string(row["serviceCategory"]) ?? Self.string(vendor?["category"])
         let title = Self.string(row["title"]) ?? Self.string(row["name"]) ?? Self.string(vendor?["displayName"]) ?? "Local Service"
         let desc = Self.string(row["description"]) ?? Self.string(row["serviceSubtitle"]) ?? rawCategory ?? "Available near this verified patch."
-        let action = Self.string(row["ctaText"]) ?? Self.string(row["action"]) ?? "Book Secure Hold"
+        let action = Self.string(row["ctaText"]) ?? Self.string(row["action"]) ?? "Book Apple Pay Secure"
         let rawAmount = Self.int(row["priceCents"]) ?? Self.int(row["amountCents"])
         let currency = Self.string(row["currency"])?.uppercased() ?? "USD"
         let price = Self.string(row["entryPrice"]) ?? Self.string(row["price"]) ?? rawAmount.map { Self.formatCurrency(cents: $0, currency: currency) }
@@ -270,9 +270,9 @@ struct ClipPatchVerifier {
     private static func formatCurrency(cents: Int, currency: String) -> String {
         let dollars = Double(cents) / 100.0
         if currency.uppercased() == "USD" {
-            return String(format: "$%.0f hold", dollars)
+            return String(format: "$%.0f secure", dollars)
         }
-        return "\(currency.uppercased()) \(String(format: "%.2f", dollars)) hold"
+        return "\(currency.uppercased()) \(String(format: "%.2f", dollars)) secure"
     }
 
     private func string(_ value: Any?) -> String? { Self.string(value) }

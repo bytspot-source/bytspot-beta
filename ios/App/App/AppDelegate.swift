@@ -162,7 +162,7 @@ private struct NativePatchExperienceView: View {
                     hero
                     services
                     verification
-                    secureHold
+                    applePaySecure
                     Button("Continue to Bytspot") { dismiss() }
                         .font(.system(size: 15, weight: .black))
                         .foregroundColor(.white)
@@ -233,12 +233,12 @@ private struct NativePatchExperienceView: View {
         }.padding(16).background(Color(red: 0.02, green: 0.03, blue: 0.07)).clipShape(RoundedRectangle(cornerRadius: 22))
     }
 
-    private var secureHold: some View {
+    private var applePaySecure: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "creditcard.and.123").font(.system(size: 18, weight: .black)).foregroundColor(.black).frame(width: 42, height: 42).background(Color.emerald).clipShape(RoundedRectangle(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Apple Pay + Card Hold").font(.system(size: 15, weight: .black)).foregroundColor(.white)
+                    Text("Apple Pay Secure").font(.system(size: 15, weight: .black)).foregroundColor(.white)
                     Text("After sign-in, Bytspot authorizes funds for booking and captures only after service completion.").font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.72))
                 }
             }

@@ -18,7 +18,7 @@ struct ClipContentView: View {
     @EnvironmentObject var invocation: ClipInvocationModel
     @State private var showOverlay = false
     @State private var selectedService: ClipLocalService?
-    @StateObject private var paymentHold = ClipPaymentHoldController()
+    @StateObject private var paymentSecure = ClipPaymentSecureController()
 
     var body: some View {
         ZStack {
@@ -30,7 +30,7 @@ struct ClipContentView: View {
                     heroCard
                     servicesSection
                     verificationCard
-                    secureHoldCard
+                    applePaySecureCard
                     fullAppSecondaryButton
                 }
                 .padding(.horizontal, 20)
@@ -180,20 +180,20 @@ struct ClipContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("GUEST REQUEST READY").font(.system(size: 12, weight: .black)).foregroundColor(tint(service.tintName)).tracking(1.0)
             Text(service.action).font(.system(size: 18, weight: .heavy)).foregroundColor(.white)
-            Text("Use Apple Pay for the fastest secure hold, or continue to the full app for card checkout and sign-in.")
+            Text("Use Apple Pay for the fastest secure booking, or continue to the full app for card checkout and sign-in.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(.white.opacity(0.76)).lineSpacing(3)
 
             VStack(spacing: 10) {
-                Button(action: { paymentHold.startApplePay(service: service, patchId: invocation.patchId ?? invocation.patchContext?.patchId) }) {
+                Button(action: { paymentSecure.startApplePay(service: service, patchId: invocation.patchId ?? invocation.patchContext?.patchId) }) {
                     paymentButtonLabel(
-                        title: paymentHold.canUseApplePay ? "Book with Apple Pay" : "Apple Pay Setup Needed",
+                        title: paymentSecure.canUseApplePay ? "Book with Apple Pay" : "Apple Pay Setup Needed",
                         icon: "apple.logo",
                         foreground: .black,
-                        background: paymentHold.canUseApplePay ? .white : Color.white.opacity(0.55)
+                        background: paymentSecure.canUseApplePay ? .white : Color.white.opacity(0.55)
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(paymentHold.isAuthorizing)
+                .disabled(paymentSecure.isAuthorizing)
 
                 Button(action: { impactLight(); showOverlay = true }) {
                     paymentButtonLabel(title: "Pay with Card in Full App", icon: "creditcard.and.123", foreground: .white, background: Color.white.opacity(0.10))
@@ -202,16 +202,16 @@ struct ClipContentView: View {
             }
             .padding(.top, 6)
 
-            if paymentHold.isAuthorizing {
-                ProgressView("Authorizing secure hold…")
+            if paymentSecure.isAuthorizing {
+                ProgressView("Authorizing Apple Pay Secure…")
                     .font(.system(size: 12.5, weight: .bold))
                     .tint(.cyan)
                     .foregroundColor(.white.opacity(0.78))
             }
-            if let message = paymentHold.statusMessage {
+            if let message = paymentSecure.statusMessage {
                 Text(message)
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(paymentHold.statusTone == .success ? .emerald : paymentHold.statusTone == .warning ? .yellow : .white.opacity(0.72))
+                    .foregroundColor(paymentSecure.statusTone == .success ? .emerald : paymentSecure.statusTone == .warning ? .yellow : .white.opacity(0.72))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -245,14 +245,14 @@ struct ClipContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private var secureHoldCard: some View {
+    private var applePaySecureCard: some View {
         HStack(spacing: 12) {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 18, weight: .black)).foregroundColor(.black)
                 .frame(width: 42, height: 42).background(Color.emerald).clipShape(RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 4) {
-                Text("Apple Pay + Card Hold").font(.system(size: 15, weight: .black)).foregroundColor(.white)
-                Text("Apple Pay is the fast path. Card checkout remains available in the full app. Funds are authorized first and captured after completion.")
+                Text("Apple Pay Secure").font(.system(size: 15, weight: .black)).foregroundColor(.white)
+                Text("Apple Pay is the fast path. Card checkout remains available in the full app. Authorization is completed securely and captured after completion.")
                     .font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.72)).lineLimit(3)
             }
         }
@@ -349,7 +349,7 @@ private enum ClipPaymentStatusTone {
 }
 
 @MainActor
-private final class ClipPaymentHoldController: NSObject, ObservableObject, PKPaymentAuthorizationControllerDelegate {
+private final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAuthorizationControllerDelegate {
     @Published var isAuthorizing = false
     @Published var statusMessage: String?
     @Published var statusTone: ClipPaymentStatusTone = .neutral
@@ -398,7 +398,7 @@ private final class ClipPaymentHoldController: NSObject, ObservableObject, PKPay
         let amount = NSDecimalNumber(value: Double(amountCents) / 100.0)
         request.paymentSummaryItems = [
             PKPaymentSummaryItem(label: service.title, amount: amount),
-            PKPaymentSummaryItem(label: "Bytspot Secure Hold", amount: amount)
+            PKPaymentSummaryItem(label: "Bytspot Apple Pay Secure", amount: amount)
         ]
 
         isAuthorizing = true
@@ -423,7 +423,7 @@ private final class ClipPaymentHoldController: NSObject, ObservableObject, PKPay
             }
             do {
                 let paymentMethodId = try await createStripePaymentMethod(from: payment)
-                let result = try await api.authorizeApplePayHold(
+                let result = try await api.authorizeApplePaySecure(
                     service: service,
                     patchId: pendingPatchId,
                     stripePaymentMethodId: paymentMethodId,
@@ -435,7 +435,7 @@ private final class ClipPaymentHoldController: NSObject, ObservableObject, PKPay
                 completion(PKPaymentAuthorizationResult(status: .success, errors: nil))
             } catch {
                 statusTone = .warning
-                statusMessage = "Apple Pay was ready, but the secure-hold backend is not enabled yet. Use card checkout in the full app."
+                statusMessage = "Apple Pay was ready, but the secure payment backend is not enabled yet. Use card checkout in the full app."
                 completion(PKPaymentAuthorizationResult(status: .failure, errors: nil))
             }
             isAuthorizing = false

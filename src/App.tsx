@@ -1609,7 +1609,7 @@ export default function App() {
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
 	                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 750 }}>Recommended for you</h2>
-		                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedHomeCards.length > 0 ? 'Personalized from your onboarding and nearby context' : 'Choose a service lane to explore next'}</p>
+			                            <p className="text-[12px] text-white drop-shadow-sm shadow-black" style={{ fontWeight: 650 }}>{recommendedHomeCards.length > 0 ? 'Personalized from your saved preferences and nearby context' : 'Choose a local lane to explore next'}</p>
                           </div>
 		                          {recommendedHomeCards.length > 0 && (
 	                            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-white shadow-black drop-shadow-sm" style={{ fontWeight: 800 }}>

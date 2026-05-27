@@ -215,7 +215,7 @@ type VirtualPatchAnalyticsEvent =
   | 'service_tapped'
   | 'vendor_viewed'
   | 'booking_requested'
-  | 'apple_pay_secure_hold_attempted'
+  | 'apple_pay_secure_attempted'
   | 'checkin_clicked'
   | 'call_clicked'
   | 'wallet_fallback_shown'
@@ -1329,11 +1329,11 @@ export function VirtualPatchScannerSheet({
     setApplePayMessage('');
   }, []);
 
-  const handleHybridApplePaySecureHold = useCallback(() => {
+  const handleHybridApplePaySecure = useCallback(() => {
     void impactLight();
     const patchId = fallbackPatchId ?? verification?.patchId ?? null;
     const supportsApplePay = canUseApplePaySession();
-    logVirtualPatchEvent('apple_pay_secure_hold_attempted', {
+    logVirtualPatchEvent('apple_pay_secure_attempted', {
       surface: 'virtual_patch',
       vendorId: selectedPremiumVendor?.id ?? null,
       vendorName: selectedPremiumVendor?.name ?? null,
@@ -1345,16 +1345,16 @@ export function VirtualPatchScannerSheet({
 
     if (isNativeApp && patchId) {
       const url = `bytspot://access/${encodeURIComponent(patchId)}?venue=${encodeURIComponent(publicVenueName)}&payment=apple-pay`;
-      setApplePayMessage('Opening the native Apple Pay secure-hold sheet for this Tap Zone.');
+      setApplePayMessage('Opening the native Apple Pay Secure sheet for this Tap Zone.');
       window.location.assign(url);
       return;
     }
 
     const message = supportsApplePay
-      ? 'Apple Pay is available on this device. Open this Tap Zone in the iOS app or App Clip to authorize the secure hold.'
-      : 'Apple Pay secure hold is available in the native iOS app/App Clip. This browser cannot present the Apple Pay sheet; continue with booking request or card handoff.';
+      ? 'Apple Pay is available on this device. Open this Tap Zone in the iOS app or App Clip to authorize securely.'
+      : 'Apple Pay Secure is available in the native iOS app/App Clip. This browser cannot present the Apple Pay sheet; continue with booking request or card handoff.';
     setApplePayMessage(message);
-    toast.info('Apple Pay Secure Hold', { description: message });
+    toast.info('Apple Pay Secure', { description: message });
   }, [fallbackPatchId, isNativeApp, publicVenueName, selectedBookingService, selectedPremiumVendor, verification?.patchId]);
 
   const handleSubmitBooking = useCallback((mode?: 'guest') => {
@@ -1764,19 +1764,19 @@ export function VirtualPatchScannerSheet({
                         </label>
                       </div>
                       <div className="mt-[18px] space-y-2.5">
-                        <div data-testid="hybrid-apple-pay-secure-hold" className="rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92)_52%,rgba(20,184,166,0.20))] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_30px_rgba(0,0,0,0.24)]">
-                          <div className="flex items-start gap-3">
-                            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] bg-white text-slate-950 shadow-[0_10px_24px_rgba(255,255,255,0.14)]" style={{ fontWeight: 950 }}></div>
+                        <div data-testid="hybrid-apple-pay-secure" className="rounded-[22px] border border-white/16 bg-[linear-gradient(145deg,rgba(2,6,23,0.98),rgba(15,23,42,0.95)_48%,rgba(20,184,166,0.18))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_18px_38px_rgba(0,0,0,0.30)]">
+                          <div className="flex items-start gap-3.5">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[16px] bg-white text-[18px] text-slate-950 shadow-[0_12px_28px_rgba(255,255,255,0.14)]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif', fontWeight: 950 }}>Pay</div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-[13px] uppercase tracking-[0.13em] text-cyan-100" style={{ fontWeight: 950 }}>Apple Pay Secure Hold</p>
-                              <p className="mt-1 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Authorize now with Apple Pay where available. Bytspot captures only after the service team completes your booking.</p>
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Apple Pay Secure</p>
+                              <p className="mt-1 text-[16px] leading-5 text-white" style={{ fontWeight: 950 }}>Fast Apple Pay booking authorization</p>
+                              <p className="mt-1.5 text-[12.75px] leading-5 text-slate-200" style={{ fontWeight: 780 }}>Use Apple Pay to authorize securely. Bytspot captures only after the service team completes your booking.</p>
                             </div>
                           </div>
-                          <button onClick={handleHybridApplePaySecureHold} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-white px-4 py-3 text-[14px] text-slate-950 shadow-[0_12px_26px_rgba(255,255,255,0.12)]" style={{ fontWeight: 950 }}>
-                            <span aria-hidden="true"></span>
-                            Book with Apple Pay
+                          <button aria-label="Book with Apple Pay" onClick={handleHybridApplePaySecure} className="mt-4 flex w-full items-center justify-center gap-2 rounded-[17px] border border-white/18 bg-black px-4 py-3.5 text-[15px] text-white shadow-[0_16px_32px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.16)] transition active:scale-[0.99]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif', fontWeight: 950 }}>
+                            <span className="text-[15px] leading-none">Book with Apple Pay</span>
                           </button>
-                          <button onClick={() => toast.info('Card checkout', { description: 'Card checkout continues in the full app while Apple Pay secure holds use the native iOS/App Clip sheet.' })} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[16px] border border-white/16 bg-white/8 px-4 py-3 text-[13px] text-white" style={{ fontWeight: 900 }}>
+                          <button onClick={() => toast.info('Card checkout', { description: 'Card checkout continues in the full app while Apple Pay Secure uses the native iOS/App Clip sheet.' })} className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-[16px] border border-white/16 bg-white/[0.07] px-4 py-3 text-[13px] text-slate-100 transition active:scale-[0.99]" style={{ fontWeight: 900 }}>
                             <CreditCard className="h-4 w-4" strokeWidth={2.5} />
                             Pay with Card in Full App
                           </button>

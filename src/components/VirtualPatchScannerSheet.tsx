@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorNfc, type PluginListenerHandle } from '@capgo/capacitor-nfc';
 import { AnimatePresence, motion } from 'motion/react';
-import { Camera, LoaderCircle, QrCode, ShieldCheck, X, Zap } from 'lucide-react';
+import { Camera, CreditCard, LoaderCircle, QrCode, ShieldCheck, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { impactLight, notifyError, notifySuccess } from '../utils/haptics';
@@ -215,6 +215,7 @@ type VirtualPatchAnalyticsEvent =
   | 'service_tapped'
   | 'vendor_viewed'
   | 'booking_requested'
+  | 'apple_pay_secure_hold_attempted'
   | 'checkin_clicked'
   | 'call_clicked'
   | 'wallet_fallback_shown'
@@ -323,6 +324,15 @@ function resolveAvailability(row: any): { availability: string; isOpen: boolean 
 
 function defaultBookingForm(contactOptions: string[] = ['In-app request']): BookingFormState {
   return { time: '', partySize: '2', specialRequests: '', contactMethod: contactOptions[0] ?? 'In-app request' };
+}
+
+function canUseApplePaySession(): boolean {
+  const applePaySession = (window as Window & { ApplePaySession?: { canMakePayments?: () => boolean } }).ApplePaySession;
+  try {
+    return Boolean(applePaySession?.canMakePayments?.());
+  } catch {
+    return false;
+  }
 }
 
 function normalizeVendorServices(rows: any[]): PremiumVendor[] {
@@ -454,6 +464,7 @@ export function VirtualPatchScannerSheet({
   const [premiumVendorsError, setPremiumVendorsError] = useState('');
   const [selectedBookingService, setSelectedBookingService] = useState<string | null>(null);
   const [bookingForm, setBookingForm] = useState<BookingFormState>(() => defaultBookingForm());
+  const [applePayMessage, setApplePayMessage] = useState('');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [authPromptIntent, setAuthPromptIntent] = useState<AuthPromptIntent | null>(null);
   const [authPromptError, setAuthPromptError] = useState('');
@@ -761,6 +772,7 @@ export function VirtualPatchScannerSheet({
       setPremiumVendorsError('');
       setSelectedBookingService(null);
       setBookingForm(defaultBookingForm());
+      setApplePayMessage('');
       setSelectedServiceIds([]);
       setAuthPromptIntent(null);
       setAuthPromptError('');
@@ -1314,7 +1326,36 @@ export function VirtualPatchScannerSheet({
     setSelectedBookingService(serviceName);
     setBookingForm(defaultBookingForm(vendor.contactOptions));
     setDemoVenueServicesView('booking');
+    setApplePayMessage('');
   }, []);
+
+  const handleHybridApplePaySecureHold = useCallback(() => {
+    void impactLight();
+    const patchId = fallbackPatchId ?? verification?.patchId ?? null;
+    const supportsApplePay = canUseApplePaySession();
+    logVirtualPatchEvent('apple_pay_secure_hold_attempted', {
+      surface: 'virtual_patch',
+      vendorId: selectedPremiumVendor?.id ?? null,
+      vendorName: selectedPremiumVendor?.name ?? null,
+      serviceName: selectedBookingService,
+      patchId,
+      native: isNativeApp,
+      supportsApplePay,
+    });
+
+    if (isNativeApp && patchId) {
+      const url = `bytspot://access/${encodeURIComponent(patchId)}?venue=${encodeURIComponent(publicVenueName)}&payment=apple-pay`;
+      setApplePayMessage('Opening the native Apple Pay secure-hold sheet for this Tap Zone.');
+      window.location.assign(url);
+      return;
+    }
+
+    const message = supportsApplePay
+      ? 'Apple Pay is available on this device. Open this Tap Zone in the iOS app or App Clip to authorize the secure hold.'
+      : 'Apple Pay secure hold is available in the native iOS app/App Clip. This browser cannot present the Apple Pay sheet; continue with booking request or card handoff.';
+    setApplePayMessage(message);
+    toast.info('Apple Pay Secure Hold', { description: message });
+  }, [fallbackPatchId, isNativeApp, publicVenueName, selectedBookingService, selectedPremiumVendor, verification?.patchId]);
 
   const handleSubmitBooking = useCallback((mode?: 'guest') => {
     void impactLight();
@@ -1723,6 +1764,26 @@ export function VirtualPatchScannerSheet({
                         </label>
                       </div>
                       <div className="mt-[18px] space-y-2.5">
+                        <div data-testid="hybrid-apple-pay-secure-hold" className="rounded-[18px] border border-white/16 bg-[linear-gradient(145deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92)_52%,rgba(20,184,166,0.20))] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_30px_rgba(0,0,0,0.24)]">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] bg-white text-slate-950 shadow-[0_10px_24px_rgba(255,255,255,0.14)]" style={{ fontWeight: 950 }}></div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] uppercase tracking-[0.13em] text-cyan-100" style={{ fontWeight: 950 }}>Apple Pay Secure Hold</p>
+                              <p className="mt-1 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>Authorize now with Apple Pay where available. Bytspot captures only after the service team completes your booking.</p>
+                            </div>
+                          </div>
+                          <button onClick={handleHybridApplePaySecureHold} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-white px-4 py-3 text-[14px] text-slate-950 shadow-[0_12px_26px_rgba(255,255,255,0.12)]" style={{ fontWeight: 950 }}>
+                            <span aria-hidden="true"></span>
+                            Book with Apple Pay
+                          </button>
+                          <button onClick={() => toast.info('Card checkout', { description: 'Card checkout continues in the full app while Apple Pay secure holds use the native iOS/App Clip sheet.' })} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[16px] border border-white/16 bg-white/8 px-4 py-3 text-[13px] text-white" style={{ fontWeight: 900 }}>
+                            <CreditCard className="h-4 w-4" strokeWidth={2.5} />
+                            Pay with Card in Full App
+                          </button>
+                          {applePayMessage && (
+                            <p className="mt-2 rounded-[14px] border border-cyan-200/20 bg-cyan-300/10 px-3 py-2 text-[11.5px] leading-5 text-cyan-100" style={{ fontWeight: 760 }}>{applePayMessage}</p>
+                          )}
+                        </div>
                         <button onClick={() => handleSubmitBooking()} className="w-full rounded-[17px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-3 text-[14px] text-white shadow-[0_14px_30px_rgba(168,85,247,0.28)]" style={{ fontWeight: 950 }}>Request Booking</button>
                         {isGuestSession() && !authPromptIntent && (
                           <button onClick={() => handleSubmitBooking('guest')} className="w-full rounded-[17px] border border-cyan-200/30 bg-cyan-300/14 px-4 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 900 }}>Continue as Guest</button>

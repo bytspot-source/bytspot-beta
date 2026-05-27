@@ -302,6 +302,29 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await expect(page.getByText('Concierge Help').first()).toBeVisible({ timeout: 10_000 });
 });
 
+test('App Clip booking exposes Apple Pay secure hold in the hybrid flow', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page);
+
+  await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
+
+  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await robustClick(page.getByRole('button', { name: 'Browse Services' }).first());
+  await expect(page.getByRole('heading', { name: 'Available Local Services' })).toBeVisible({ timeout: 10_000 });
+
+  await robustClick(page.getByRole('button', { name: /Open Aster Room Private Chef details/ }));
+  await robustClick(page.getByRole('button', { name: 'Book Now' }).first());
+
+  const applePayPanel = page.getByTestId('hybrid-apple-pay-secure-hold');
+  await expect(applePayPanel).toBeVisible({ timeout: 10_000 });
+  await expect(applePayPanel).toContainText('Apple Pay Secure Hold');
+  await expect(applePayPanel).toContainText('Bytspot captures only after the service team completes your booking.');
+  await expect(applePayPanel.getByRole('button', { name: 'Book with Apple Pay' })).toBeVisible();
+  await expect(applePayPanel.getByRole('button', { name: 'Pay with Card in Full App' })).toBeVisible();
+
+  await robustClick(applePayPanel.getByRole('button', { name: 'Book with Apple Pay' }));
+  await expect(applePayPanel).toContainText(/Apple Pay secure hold is available|Apple Pay is available/);
+});
+
 test('iOS web fallback stays in valid web access instead of opening invalid app scheme', async ({ page }) => {
   await installVirtualPatchDemoMocks(page, { iosWebFallback: true, scannerUnavailable: true });
 

@@ -147,7 +147,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
           type="button"
           data-testid="provider-account-mode-signup"
           onClick={() => { setAuthMode('signup'); setError(null); }}
-          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${isSignup ? 'bg-white text-slate-950 shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
+          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${isSignup ? 'bg-white text-black shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
           style={{ fontWeight: 800 }}
         >
           Sign up
@@ -156,7 +156,7 @@ export function Step1AccountCreation({ onComplete, initialValue }: Step1AccountC
           type="button"
           data-testid="provider-account-mode-signin"
           onClick={() => { setAuthMode('signin'); setError(null); }}
-          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${!isSignup ? 'bg-white text-slate-950 shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
+          className={`rounded-[14px] px-3 py-2.5 text-[14px] transition ${!isSignup ? 'bg-white text-black shadow-lg' : 'text-white/75 hover:bg-white/10'}`}
           style={{ fontWeight: 800 }}
         >
           Sign in

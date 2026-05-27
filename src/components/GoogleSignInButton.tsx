@@ -197,7 +197,7 @@ export function GoogleSignInButton({
             aria-label={`${label} unavailable`}
             aria-describedby={fallbackId}
             onClick={handleUnavailableClick}
-            className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/20 bg-white/70 px-4 text-[17px] text-black/65 shadow-lg"
+            className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/20 bg-white/70 px-4 text-[17px] text-black shadow-lg"
             style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
           >
             <GoogleLogoMark />

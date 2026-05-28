@@ -357,7 +357,7 @@ function normalizeVendorServices(rows: any[]): PremiumVendor[] {
     const canBook = availability.isOpen && services.some((service) => String(service?.status ?? 'active') === 'active');
     return {
       id: key,
-      name: String(first?.vendor?.displayName ?? first?.vendorName ?? 'Premium Vendor'),
+      name: String(first?.vendor?.displayName ?? first?.vendorName ?? 'Premium Provider'),
       category,
       photo: iconForVendorCategory(category),
       rating: first?.vendor?.rating ? String(first.vendor.rating) : first?.rating ? String(first.rating) : 'New',
@@ -1180,7 +1180,7 @@ export function VirtualPatchScannerSheet({
 
   const completePremiumVendorAction = useCallback((action: string, vendorName: string, serviceName: string | undefined, mode: 'guest' | 'signed-in' = 'guest', vendor?: PremiumVendor | null) => {
     const resolvedVendorName = vendor?.name ?? vendorName;
-    const kind = action === 'Check-in' ? 'check-in' : action === 'Call Vendor' ? 'call' : 'vendor-request';
+    const kind = action === 'Check-in' ? 'check-in' : action === 'Call Provider' ? 'call' : 'vendor-request';
     persistVirtualServiceRequest({
       kind,
       vendorId: vendor?.id ?? null,
@@ -1189,7 +1189,7 @@ export function VirtualPatchScannerSheet({
       vendorPhoto: vendor?.photo ?? '✦',
       serviceName: serviceName ?? action,
       actionLabel: action,
-      status: action === 'Check-in' ? 'check-in' : action === 'Call Vendor' ? 'called' : 'requested',
+      status: action === 'Check-in' ? 'check-in' : action === 'Call Provider' ? 'called' : 'requested',
       venueId: venueId ?? null,
       venueName: publicVenueName,
       source: vendor?.source ?? 'vendor',
@@ -1380,7 +1380,7 @@ export function VirtualPatchScannerSheet({
     const vendor = premiumVendors.find((item) => item.name === vendorName);
     const eventName = action === 'Check-in'
       ? 'checkin_clicked'
-      : action === 'Call Vendor'
+      : action === 'Call Provider'
         ? 'call_clicked'
         : null;
     if (eventName) {
@@ -1824,7 +1824,7 @@ export function VirtualPatchScannerSheet({
                       </div>
                       <div className="mt-[18px] grid grid-cols-2 gap-3">
                         <button onClick={() => handlePremiumVendorAction('Check-in', selectedPremiumVendor.name)} className="rounded-[16px] border border-emerald-200/30 bg-emerald-300/18 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 950 }}>Check-in</button>
-                        <button onClick={() => handlePremiumVendorAction('Call Vendor', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Now</button>
+                        <button onClick={() => handlePremiumVendorAction('Call Provider', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Now</button>
                       </div>
                     </>
                   ) : (

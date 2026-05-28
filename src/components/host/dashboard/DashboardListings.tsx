@@ -322,12 +322,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
   const summaryCards = access.canSeeFinancials
     ? [
-        { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
+        { label: 'Station Mode', value: String(activeServices.length), helper: `${services.length} total services`, Icon: BadgeCheck },
         { label: 'Published price total', value: formatCents(totalGrossCents), helper: 'Sum of listed service rates', Icon: DollarSign },
         { label: 'Payout estimate', value: formatCents(payoutEstimateCents), helper: 'After platform commission', Icon: CreditCard },
       ]
     : [
-        { label: 'Active services', value: String(activeServices.length), helper: `${services.length} total in catalog`, Icon: BadgeCheck },
+        { label: 'Station Mode', value: String(activeServices.length), helper: `${services.length} total services`, Icon: BadgeCheck },
         { label: 'Draft services', value: String(draftServices.length), helper: 'Needs owner/manager review', Icon: Edit3 },
         { label: 'Patch required', value: String(patchRequiredServices.length), helper: 'Physical verification outstanding', Icon: ShieldCheck },
       ];
@@ -357,7 +357,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               My Services
             </h1>
             <p className={`mt-3 text-[15px] leading-6 ${tone.body}`}>
-              {activeServices.length} Active • {draftServices.length} Draft. Manage the live services that power customer booking, patch verification, and staff handoffs.
+              {activeServices.length} Station Mode • {draftServices.length} Draft. Manage the services that power customer booking, patch verification, and staff handoffs.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

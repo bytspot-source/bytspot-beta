@@ -56,6 +56,6 @@ test.describe('Toast contrast', () => {
     await page.getByTestId('partnered-vendors-patch-button').click();
 
     const toast = page.locator('[data-sonner-toast]').first();
-    await expectReadableToast(toast, 'Partnered vendors');
+    await expectReadableToast(toast, 'Partnered providers');
   });
 });

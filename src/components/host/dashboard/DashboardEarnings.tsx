@@ -190,7 +190,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.1 }}
         >
-          <p className="text-[15px]" style={{ fontWeight: 700 }}>No active services yet</p>
+          <p className="text-[15px]" style={{ fontWeight: 700 }}>No services in Station Mode yet</p>
           <p className="mt-1 text-[13px] leading-5 text-slate-100">Earnings track payouts from confirmed marketplace bookings. Publish a service so guests can start booking.</p>
         </motion.div>
       ) : (

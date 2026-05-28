@@ -312,13 +312,13 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.goto('/provider/connect/return');
 
     await expect(page.getByText('Manager · Cottage')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Services' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Bookings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Background Configuration/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Your cottage business is ready for bookings.' })).toBeVisible();
-    await page.getByRole('button', { name: 'My Listings' }).click();
+    await page.getByRole('button', { name: 'My Services' }).click();
     await expect(page.getByTestId('provider-service-add')).toBeEnabled();
   });
 
@@ -333,7 +333,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.goto('/provider/connect/return');
 
     await expect(page.getByText('Manager · Standard')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Services' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('manager');
   });
@@ -345,7 +345,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     await expect(page.getByText('Staff · Standard')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Bookings', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'My Listings', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'My Services', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
     await expect(page.getByText('Operational role')).toBeVisible();
     await expect(page.getByText('Staff', { exact: true })).toBeVisible();
@@ -373,12 +373,12 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-booking-checkin-booking-staff-checkin')).toHaveText('Checked In');
   });
 
-  test('lets owners edit live vendor service metadata from My Listings', async ({ page }) => {
+  test('lets owners edit Station Mode provider service metadata from My Services', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
     await page.goto('/provider/connect/return');
 
-    await page.getByRole('button', { name: 'My Listings' }).click();
+    await page.getByRole('button', { name: 'My Services' }).click();
     await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('provider-service-card-svc-1')).toContainText('VIP Arrival');
 
@@ -400,12 +400,12 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     expect(calls.some((call) => call.procedure.includes('vendors.updateService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 17500)).toBeTruthy();
   });
 
-  test('lets owners create a live vendor service from My Listings', async ({ page }) => {
+  test('lets owners create a Station Mode provider service from My Services', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [] });
     await page.goto('/provider/connect/return');
 
-    await page.getByRole('button', { name: 'My Listings' }).click();
+    await page.getByRole('button', { name: 'My Services' }).click();
     await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
     await page.getByTestId('provider-service-add').click();
     await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
@@ -453,7 +453,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { authToken: 'beta_guest' });
     await page.goto('/provider/connect/return');
 
-    await page.getByRole('button', { name: 'My Listings' }).click();
+    await page.getByRole('button', { name: 'My Services' }).click();
     await expect(page.getByTestId('provider-services-panel')).toContainText('Provider sign-in required');
     await expect(page.getByTestId('provider-services-panel')).toContainText('Provider business account that owns this workspace');
     await expect(page.getByTestId('provider-service-add')).toBeDisabled();
@@ -476,7 +476,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     await page.getByTestId('provider-role-staff').click();
     await expect(page.getByText('Staff · Standard')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'My Listings', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'My Services', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Earnings', exact: true })).toHaveCount(0);
     await expect(page.getByTestId('provider-role-staff')).toHaveClass(/bg-cyan/);
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_role'))).toBe('staff');
@@ -484,7 +484,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('provider-role-owner').click();
     await page.getByTestId('provider-mode-cottage').click();
     await expect(page.getByText('Owner · Cottage')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'My Listings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Services' })).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_provider_business_mode'))).toBe('cottage');
   });
 
@@ -603,13 +603,13 @@ test.describe('Provider calendar empty-state ladder', () => {
     await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);
   });
 
-  test('shows the no-services empty state when the vendor has not published any services', async ({ page }) => {
+  test('shows the no-services empty state when the provider has not published any services', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [], bookings: [] });
     await openCalendar(page);
 
     await expect(page.getByTestId('provider-calendar-empty-no-services')).toBeVisible();
-    await expect(page.getByTestId('provider-calendar-empty-no-services')).toContainText('No active services yet');
+    await expect(page.getByTestId('provider-calendar-empty-no-services')).toContainText('No services in Station Mode yet');
     await expect(page.getByTestId('provider-calendar-bookings-list')).toHaveCount(0);
     await expect(page.getByTestId('provider-calendar-empty-unauth')).toHaveCount(0);
     await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);
@@ -688,13 +688,13 @@ test.describe('Provider earnings empty-state ladder', () => {
     await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);
   });
 
-  test('shows the no-services empty state when the vendor has not published any services', async ({ page }) => {
+  test('shows the no-services empty state when the provider has not published any services', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [], bookings: [] });
     await openEarnings(page);
 
     await expect(page.getByTestId('provider-earnings-empty-no-services')).toBeVisible();
-    await expect(page.getByTestId('provider-earnings-empty-no-services')).toContainText('No active services yet');
+    await expect(page.getByTestId('provider-earnings-empty-no-services')).toContainText('No services in Station Mode yet');
     await expect(page.getByTestId('provider-earnings-stats')).toHaveCount(0);
     await expect(page.getByTestId('provider-earnings-empty-unauth')).toHaveCount(0);
     await expect(page.getByTestId('provider-earnings-empty-no-bookings')).toHaveCount(0);

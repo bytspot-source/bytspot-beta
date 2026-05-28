@@ -43,7 +43,7 @@ export function ProviderLanding({ isDarkMode, onGetStarted, onBackToMain }: Prov
       icon: Clock,
       title: 'You\'re in Full Control',
       teaser: 'Set your own hours & rules',
-      description: 'Open and close your space whenever it suits you — set blackout dates, limit booking windows, or pause listings instantly from your phone. Providing fits around your schedule, not the other way around.',
+      description: 'Open and close your space whenever it suits you — set blackout dates, limit booking windows, or pause services instantly from your phone. Providing fits around your schedule, not the other way around.',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {

@@ -69,7 +69,7 @@ export function ProviderInstallPrompt() {
           <div>
             <p className="text-[16px] font-extrabold text-white">Save Bytspot Provider</p>
             <p className="mt-1 text-[12px] leading-5 text-white/65">
-              Add this provider entry to your home screen so vendors can open onboarding in one tap.
+              Add this provider entry to your home screen so providers can open onboarding in one tap.
             </p>
           </div>
         </div>

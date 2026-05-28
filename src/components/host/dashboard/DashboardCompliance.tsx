@@ -64,7 +64,7 @@ const georgiaChecklists: Array<{
     title: 'Private Chef / Cottage Food',
     subtitle: 'Georgia-focused sample checklist · 2026',
     items: [
-      { label: 'Complete ANSI-accredited Food Handler training', status: 'Required', detail: 'Georgia cottage food rules are vendor-friendly, but food handler training remains mandatory.' },
+      { label: 'Complete ANSI-accredited Food Handler training', status: 'Required', detail: 'Georgia cottage food rules are provider-friendly, but food handler training remains mandatory.' },
       { label: 'Register business name', status: 'Recommended', detail: 'DBA or LLC registration is recommended depending on how you operate and market the service.' },
       { label: 'Follow proper labeling', status: 'Required', detail: 'Use “Made in a home kitchen” plus allergen information where applicable.' },
       { label: 'Liability insurance', status: 'Strongly recommended', detail: '$1M liability coverage is a common baseline for customer trust.' },
@@ -77,7 +77,7 @@ const georgiaChecklists: Array<{
     subtitle: 'Georgia-focused sample checklist · 2026',
     items: [
       { label: 'Valid Georgia Massage Therapy License', status: 'Required', detail: 'Verify active standing with the Georgia Board of Massage Therapy.' },
-      { label: 'Professional liability insurance', status: 'Required', detail: 'Required for Bytspot platform verification before wellness services go live.' },
+      { label: 'Professional liability insurance', status: 'Required', detail: 'Required for Bytspot platform verification before wellness services enter Station Mode.' },
       { label: 'Client intake & consent forms', status: 'Required', detail: 'Collect informed consent, health intake, and session boundaries before appointments.' },
       { label: 'Background check', status: 'Recommended', detail: 'Recommended for customer trust and high-touch in-home or hotel services.' },
       { label: 'Maintain private, clean treatment space', status: 'Required', detail: 'Use sanitation, privacy, and setup standards appropriate for wellness appointments.' },
@@ -181,12 +181,12 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
       color: 'from-cyan-500 to-blue-500',
       items: [
         {
-          name: 'Active services',
+          name: 'Station Mode services',
           status: catalogStatus,
           details: data.totalServices === 0
             ? 'No services published yet.'
-            : `${data.activeServices} of ${data.totalServices} services are live.`,
-          guidance: catalogStatus !== 'complete' ? 'Add or activate services from the Listings tab.' : undefined,
+            : `${data.activeServices} of ${data.totalServices} services are in Station Mode.`,
+          guidance: catalogStatus !== 'complete' ? 'Add or activate services from My Services.' : undefined,
         },
       ],
     },
@@ -361,7 +361,7 @@ export function DashboardCompliance({ isDarkMode, access }: DashboardComplianceP
       >
         <h3 className="text-[18px]" style={{ fontWeight: 850 }}>Federal AI & Cottage Regulation Context · 2026</h3>
         <div className="mt-3 grid gap-3 text-[13px] leading-6 text-slate-50 md:grid-cols-2">
-          <p><span className="text-white" style={{ fontWeight: 850 }}>Cottage food:</span> Primarily state-level. Georgia’s HB 398 is vendor-friendly: no state license required, no sales cap, retail sales allowed, and food handler training remains mandatory. There is no comprehensive federal cottage food law; FDA provides general food safety guidelines.</p>
+          <p><span className="text-white" style={{ fontWeight: 850 }}>Cottage food:</span> Primarily state-level. Georgia’s HB 398 is provider-friendly: no state license required, no sales cap, retail sales allowed, and food handler training remains mandatory. There is no comprehensive federal cottage food law; FDA provides general food safety guidelines.</p>
           <p><span className="text-white" style={{ fontWeight: 850 }}>AI transparency:</span> There is no single comprehensive federal AI law yet. Key platform principles are transparency, accountability, risk-based guidance, consent for data use, data minimization, and avoiding deceptive AI claims.</p>
         </div>
       </motion.div>

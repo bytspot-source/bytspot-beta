@@ -49,7 +49,7 @@ export function ProviderDashboardLayout({
 
   const navItems = [
     { id: 'overview' as const, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'listings' as const, label: 'My Listings', icon: MapPin },
+    { id: 'listings' as const, label: 'My Services', icon: MapPin },
     { id: 'bookings' as const, label: 'Bookings', icon: Calendar },
     { id: 'earnings' as const, label: 'Earnings', icon: DollarSign },
     { id: 'reviews' as const, label: 'Reviews', icon: Star },

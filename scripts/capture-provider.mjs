@@ -13,7 +13,7 @@ const VIEWPORTS = [
 ];
 const VIEWS = [
   { id: 'overview', label: 'Dashboard' },
-  { id: 'listings', label: 'My Listings' },
+  { id: 'listings', label: 'My Services' },
   { id: 'bookings', label: 'Bookings' },
   { id: 'earnings', label: 'Earnings' },
   { id: 'reviews', label: 'Reviews' },

@@ -46,8 +46,8 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
     },
     {
       icon: Users,
-      title: 'Go Live',
-      description: 'Start accepting bookings and earning money',
+      title: 'Station Mode',
+      description: 'Activate services, accept bookings, and earn money',
       color: 'from-orange-500 to-red-500',
     },
   ];

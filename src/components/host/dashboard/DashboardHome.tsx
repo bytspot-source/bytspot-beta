@@ -167,13 +167,13 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
     },
     {
       testId: 'listing-health',
-      title: 'Listing health',
+      title: 'Service health',
       value: data.loading ? dash : totalListings === 0 ? '0%' : `${listingHealth}%`,
       detail: data.loading
         ? 'Loading services'
         : totalListings === 0
           ? 'Publish your first marketplace service'
-          : `${activeListings}/${totalListings} services live`,
+          : `${activeListings}/${totalListings} in Station Mode`,
       icon: ShieldCheck,
       tone: 'from-violet-400/22 to-fuchsia-500/10',
     },
@@ -203,12 +203,12 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
             ? 'Confirm bank account, tax ID, and payout schedule.'
             : approved
               ? 'Resolve remaining Stripe Connect requirements to enable payouts.'
-              : 'Resolve required metadata before payouts go live.',
+              : 'Resolve required metadata before payouts are enabled.',
           icon: Wallet,
           target: 'settings',
         },
         {
-          title: totalListings === 0 ? 'Publish your first service' : 'Refine listing health',
+          title: totalListings === 0 ? 'Publish your first service' : 'Refine service health',
           detail: totalListings === 0 ? 'Add a marketplace service so guests can book.' : 'Update pricing, photos, and availability windows.',
           icon: MapPin,
           target: 'listings',
@@ -223,7 +223,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
     : [
         { title: 'Review today’s bookings', detail: 'Keep arrivals and departures current.', icon: Clock, target: 'bookings' },
         { title: 'Open the team calendar', detail: 'Coordinate handoffs across the schedule.', icon: Calendar, target: 'calendar' },
-        { title: 'Audit listing details', detail: totalListings === 0 ? 'No services published yet.' : 'Confirm published services and access notes.', icon: MapPin, target: 'listings' },
+        { title: 'Audit service details', detail: totalListings === 0 ? 'No services published yet.' : 'Confirm published services and access notes.', icon: MapPin, target: 'listings' },
       ];
 
   const handleAction = (target: DashboardView) => {
@@ -491,7 +491,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
 		                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500 bg-slate-700 px-3 py-1.5 text-[12px] text-slate-50 transition hover:border-cyan-300 hover:bg-cyan-900"
 	                  style={{ fontWeight: 800 }}
 	                >
-	                  {totalListings === 0 ? 'Create listing' : 'Open calendar'} <ArrowUpRight className="h-3.5 w-3.5" />
+                  {totalListings === 0 ? 'Create service' : 'Open calendar'} <ArrowUpRight className="h-3.5 w-3.5" />
 	                </button>
 	              )}
 	            </div>

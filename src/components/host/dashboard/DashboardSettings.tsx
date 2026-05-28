@@ -449,7 +449,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
           {activePanel === 'privacy' && (
             <div className="grid gap-3">
-              <button type="button" onClick={() => { const next = !privacyShare; setPrivacyShare(next); localStorage.setItem('bytspot_provider_privacy_share', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketplace visibility data</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyShare ? 'Enabled' : 'Disabled'} — controls whether operational listing signals improve provider recommendations.</span></button>
+              <button type="button" onClick={() => { const next = !privacyShare; setPrivacyShare(next); localStorage.setItem('bytspot_provider_privacy_share', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketplace visibility data</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyShare ? 'Enabled' : 'Disabled'} — controls whether operational service signals improve provider recommendations.</span></button>
               <button type="button" onClick={() => { const next = !privacyMarketing; setPrivacyMarketing(next); localStorage.setItem('bytspot_provider_privacy_marketing', String(next)); }} className={`rounded-2xl border p-4 text-left ${isDarkMode ? 'border-slate-500 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-950'}`}><span className="font-bold">Marketing contact</span><span className={`mt-1 block text-[12px] ${tone.muted}`}>{privacyMarketing ? 'Enabled' : 'Disabled'} — controls non-critical product and growth emails.</span></button>
               <button type="button" onClick={() => { window.location.href = '/privacy'; }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-cyan-900 px-4 py-3 text-[13px] font-black text-cyan-50"><ExternalLink className="h-4 w-4" /> Open Privacy Policy</button>
             </div>
@@ -457,7 +457,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
 
           {activePanel === 'help' && (
             <div className="grid gap-3 md:grid-cols-3">
-              {['Create a listing from My Listings.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
+              {['Create a service from My Services.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
               <button type="button" onClick={() => { window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white md:col-span-3"><Mail className="h-4 w-4" /> Email Provider Support</button>
             </div>
           )}

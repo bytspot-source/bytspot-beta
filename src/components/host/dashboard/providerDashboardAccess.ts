@@ -100,7 +100,7 @@ export function financialValue(access: ProviderDashboardAccess, value: string): 
 
 export function guidanceForRole(access: ProviderDashboardAccess): string {
   if (access.role === 'staff') return 'Staff mode shows only the tasks needed to operate today: arrivals, active bookings, and schedule handoffs.';
-  if (access.role === 'manager') return 'Manager mode focuses on listings, bookings, calendars, reviews, and patch operations while keeping payout settings owner-only.';
-  if (access.isCottage) return 'Cottage mode keeps your workspace lightweight: bookings, listings, patches, payouts, and a simple setup path.';
-  return 'Owner mode includes full financials, Stripe Connect payouts, compliance, listings, bookings, and calendar operations.';
+  if (access.role === 'manager') return 'Manager mode focuses on services, bookings, calendars, reviews, and patch operations while keeping payout settings owner-only.';
+  if (access.isCottage) return 'Cottage mode keeps your workspace lightweight: bookings, services, patches, payouts, and a simple setup path.';
+  return 'Owner mode includes full financials, Stripe Connect payouts, compliance, services, bookings, and calendar operations.';
 }

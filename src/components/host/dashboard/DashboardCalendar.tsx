@@ -74,18 +74,18 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
 
   const guidanceChecklist = access.role === 'staff'
     ? [
-        'Confirm the day\'s active services match the patches you have on hand.',
+        'Confirm the day\'s Station Mode services match the patches you have on hand.',
         'Coordinate with the on-shift owner before changing a booking status.',
         'Flag any guest pre-arrival messages to your manager before the start of the shift.',
       ]
     : access.role === 'manager'
       ? [
-          'Verify each active service has at least one published patch label.',
+          'Verify each Station Mode service has at least one published patch label.',
           'Pre-stage staff handoff notes for any high-volume day before guests arrive.',
           'Escalate Stripe Connect or compliance gaps to the owner before the booking window opens.',
         ]
       : [
-          'Keep at least one active service published so the calendar surfaces real availability.',
+          'Keep at least one service in Station Mode so the calendar surfaces real availability.',
           'Reconcile payouts at the end of each operating week.',
           'Use the legend to align the team on today, the selected date, and days with bookings.',
         ];
@@ -359,9 +359,9 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
               <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
-            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No active services yet</p>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>No services in Station Mode yet</p>
             <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
-              Publish at least one service from the Listings tab so the calendar can surface real availability and bookings on this date.
+              Publish at least one service from My Services so the calendar can surface real availability and bookings on this date.
             </p>
           </div>
         ) : selectedDayBookings.length > 0 ? (

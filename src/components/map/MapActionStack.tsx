@@ -85,9 +85,9 @@ export function MapActionStack({
             whileTap={{ scale: 0.9 }}
             transition={transition}
             aria-pressed={showVerifiedOnly}
-            aria-label="Show partnered Tap Zone vendors"
+            aria-label="Show partnered Tap Zone providers"
             data-testid="partnered-vendors-patch-button"
-            title="Partnered Tap Zone vendors"
+            title="Partnered Tap Zone providers"
           >
             {showVerifiedOnly && (
               <motion.span className="absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle, rgba(34,211,238,0.55), rgba(124,58,237,0.25) 60%, transparent 75%)' }} animate={{ scale: [1, 1.55, 1.85], opacity: [0.65, 0.15, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }} />

@@ -826,7 +826,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         return;
       }
       toast('Premium preview', {
-        description: result?.message ?? 'Stripe is not configured in this build — perks unlock will go live soon.',
+        description: result?.message ?? 'Stripe is not configured in this build — perks unlock will be available soon.',
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not start checkout';
@@ -1113,7 +1113,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setPeekVenue(null);
     setVenueDetailsVenue(null);
     setBottomSheetExpanded(true);
-    toast.success('Partnered vendors', {
+    toast.success('Partnered providers', {
       description: partnerVenueCount > 0
         ? `Showing ${partnerVenueCount} Tap Zone partner${partnerVenueCount === 1 ? '' : 's'} nearby.`
         : 'Scanning for Bytspot Verified partners nearby.',

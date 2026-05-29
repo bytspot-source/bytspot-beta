@@ -61,13 +61,20 @@ final class NativeBridgeStore: ObservableObject {
     @Published var requestedTab: BytspotNativeTab?
     @Published var requestedHybridRoute: BytspotHybridRoute?
     @Published private(set) var currentRoute: BytspotHybridRoute = .home
+    private var lastInjectedRoute: BytspotHybridRoute?
 
     init() { bridgeViewController.loadViewIfNeeded() }
 
-    func open(_ route: BytspotHybridRoute) {
-        currentRoute = route
+    func preloadBridge() {
+        bridgeViewController.loadViewIfNeeded()
+    }
+
+    func open(_ route: BytspotHybridRoute, force: Bool = false) {
+        if currentRoute != route { currentRoute = route }
         bridgeViewController.loadViewIfNeeded()
         guard let webView = bridgeViewController.webView else { return }
+        guard force || lastInjectedRoute != route else { return }
+        lastInjectedRoute = route
         let detail: [String: String] = ["tab": route.reactTab, "focus": route.focus ?? ""]
         let detailJSON = jsonObject(detail)
         let tabJSON = jsonString(route.reactTab)
@@ -187,7 +194,7 @@ private struct HybridBridgeView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {
-        bridgeStore.open(route)
+        bridgeStore.preloadBridge()
     }
 }
 

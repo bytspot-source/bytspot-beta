@@ -65,3 +65,7 @@ yarn-error.log*
 /ticketing-spec-*.txt
 
 /artifacts/
+
+# Local-only screen captures from the iOS App Clip walkthrough sweep
+# (scripts/clip-screencap-sweep.sh). Never commit the rendered gallery.
+/.dev-screenshots/

@@ -17,6 +17,31 @@ struct BytspotClipApp: App {
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     invocation.handle(activity: activity)
                 }
+                .onOpenURL { url in
+                    invocation.handle(url: url)
+                }
+                .task {
+                    #if DEBUG
+                    // Simulator recovery path: on iOS 26 the _XCAppClipURL
+                    // argv is not consistently surfaced through
+                    // onContinueUserActivity. Pull it directly from argv
+                    // (or the explicit BYT_DEBUG_URL env override used by
+                    // the screencap sweep) so the deep-link walkthrough is
+                    // reachable.
+                    guard invocation.invocationURL == nil else { return }
+                    if let env = ProcessInfo.processInfo.environment["BYT_DEBUG_URL"],
+                       let url = URL(string: env) {
+                        invocation.handle(url: url)
+                        return
+                    }
+                    let argv = ProcessInfo.processInfo.arguments
+                    if let idx = argv.firstIndex(of: "_XCAppClipURL"),
+                       idx + 1 < argv.count,
+                       let url = URL(string: argv[idx + 1]) {
+                        invocation.handle(url: url)
+                    }
+                    #endif
+                }
         }
     }
 }
@@ -89,12 +114,60 @@ final class ClipInvocationModel: ObservableObject {
         vendorsByService.removeAll()
 
         loadTask?.cancel()
+
+        #if DEBUG
+        // Deep-link walkthrough hook used by scripts/clip-screencap-sweep.sh
+        // to fast-forward the flow state machine for the TestFlight pre-flight
+        // screenshot gallery. Stripped from Release builds entirely.
+        if let step = items.first(where: { $0.name == "step" })?.value,
+           applyDebugWalkthrough(step: step) {
+            return
+        }
+        #endif
+
         guard let patchId else { return }
         let token = token
         loadTask = Task { [weak self] in
             await self?.loadContextAndVerify(patchId: patchId, token: token)
         }
     }
+
+    #if DEBUG
+    /// Synchronously advances `flow` to the requested step using the locally
+    /// resolved tier fallback catalog + vendor pool. Returns `true` when the
+    /// hook handled the URL (so the live backend resolve is skipped, keeping
+    /// the screenshot deterministic). Returns `false` for `catalog` / unknown
+    /// values so the regular `loadContextAndVerify` path still runs.
+    private func applyDebugWalkthrough(step: String) -> Bool {
+        switch step.lowercased() {
+        case "catalog":
+            flow = .catalog
+            return true
+        case "vendors":
+            guard let service = services.first else { return false }
+            selectService(service)
+            return true
+        case "checkout":
+            guard let service = services.first else { return false }
+            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
+                ?? vendors(for: service).first
+            guard let vendor else { return false }
+            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+            flow = .checkout(service: service, vendor: vendor)
+            return true
+        case "success":
+            guard let service = services.first else { return false }
+            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
+                ?? vendors(for: service).first
+            guard let vendor else { return false }
+            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001")
+            return true
+        default:
+            return false
+        }
+    }
+    #endif
 
     func selectService(_ service: ClipLocalService) {
         flow = .vendors(service: service)

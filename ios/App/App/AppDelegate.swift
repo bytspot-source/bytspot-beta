@@ -72,11 +72,80 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
+// MARK: - BytspotTier (App-target mirror)
+// File-scoped duplicate of the Clip-target BytspotTier so the native patch
+// experience can route + theme + price-floor independently of the Clip bundle.
+// Keep cases/detect/min-cents/eyebrow/defaultSubtitle in sync with
+// ios/App/Clip/ClipPatchVerifier.swift.
+enum BytspotTier: String, Equatable, CaseIterable {
+    case black
+    case platinum
+    case green
+
+    var eyebrow: String {
+        switch self {
+        case .black: return "BYTSPOT BLACK"
+        case .platinum: return "BYTSPOT PLATINUM"
+        case .green: return "BYTSPOT GREEN"
+        }
+    }
+
+    var minimumCents: Int {
+        switch self {
+        case .black: return 45_000
+        case .platinum: return 5_000
+        case .green: return 500
+        }
+    }
+
+    var defaultSubtitle: String {
+        switch self {
+        case .black: return "Curated ultra-luxury experiences. Verified by tap."
+        case .platinum: return "Trusted local providers. Reserve and verify with one tap."
+        case .green: return "Neighborhood services from your community. Tap to support."
+        }
+    }
+
+    static func detect(url: URL?, patchId: String?) -> BytspotTier {
+        if let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let items = components.queryItems ?? []
+            if let raw = items.first(where: { $0.name.lowercased() == "tier" })?.value,
+               let tier = BytspotTier(rawValue: raw.lowercased()) {
+                return tier
+            }
+            if let invite = items.first(where: { $0.name.lowercased() == "invite" })?.value?.uppercased() {
+                if invite.hasPrefix("BLACK-") { return .black }
+                if invite.hasPrefix("PLATINUM-") { return .platinum }
+                if invite.hasPrefix("GREEN-") { return .green }
+            }
+            let parts = components.path.split(separator: "/").map { $0.lowercased() }
+            if parts.count >= 2 {
+                let first = parts[0], second = parts[1]
+                if first == "p" || first == "patch" {
+                    if second.hasPrefix("black-") { return .black }
+                    if second.hasPrefix("platinum-") { return .platinum }
+                    if second.hasPrefix("green-") { return .green }
+                }
+                if first == "black" { return .black }
+                if first == "platinum" { return .platinum }
+                if first == "green" { return .green }
+            }
+        }
+        if let patchId = patchId?.uppercased() {
+            if patchId.hasPrefix("BLACK-") || patchId.hasPrefix("BYT-B-") { return .black }
+            if patchId.hasPrefix("PLATINUM-") || patchId.hasPrefix("BYT-P-") { return .platinum }
+            if patchId.hasPrefix("GREEN-") || patchId.hasPrefix("BYT-G-") { return .green }
+        }
+        return .black
+    }
+}
+
 private struct NativePatchRoute: Equatable {
     let url: URL
     let patchId: String
     let token: String?
     let venueName: String?
+    let tier: BytspotTier
 
     init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
@@ -93,14 +162,16 @@ private struct NativePatchRoute: Equatable {
         self.patchId = patchId
         self.token = query.first(where: { ["t", "token"].contains($0.name) })?.value
         self.venueName = query.first(where: { ["venue", "venueName", "v"].contains($0.name) })?.value
+        self.tier = BytspotTier.detect(url: url, patchId: patchId)
     }
 }
 
 @MainActor
 private final class NativePatchViewModel: ObservableObject {
     @Published var title = "Bytspot Patch"
-    @Published var subtitle = "Loading secure venue context…"
-    @Published var services: [NativePatchService] = NativePatchService.fallbacks
+    @Published var subtitle: String
+    @Published var tier: BytspotTier
+    @Published var services: [NativePatchService]
     @Published var isLoading = true
     @Published var isVerifying = false
     @Published var verifiedLabel: String?
@@ -111,17 +182,28 @@ private final class NativePatchViewModel: ObservableObject {
 
     init(route: NativePatchRoute) {
         self.route = route
+        self.tier = route.tier
+        self.subtitle = route.tier.defaultSubtitle
+        self.services = NativePatchService.fallbacks(for: route.tier)
         self.title = route.venueName?.replacingOccurrences(of: "-", with: " ").capitalized ?? "Bytspot Patch"
         Task { await load() }
     }
 
     func load() async {
         isLoading = true
-        let resolved = try? await api.resolvePatch(patchId: route.patchId)
-        let liveServices = (try? await api.searchServices(patchId: route.patchId)) ?? []
+        let activeTier = tier
+        let resolved = try? await api.resolvePatch(patchId: route.patchId, tier: activeTier)
+        let liveServices = (try? await api.searchServices(patchId: route.patchId, tier: activeTier)) ?? []
         if let resolved {
             title = resolved.title
             subtitle = resolved.subtitle
+            // Backend authority on tier — re-skin if the URL guess was wrong.
+            if let serverTier = resolved.tier, serverTier != tier {
+                tier = serverTier
+                if liveServices.isEmpty {
+                    services = NativePatchService.fallbacks(for: serverTier)
+                }
+            }
         }
         if !liveServices.isEmpty { services = liveServices }
         isLoading = false
@@ -153,10 +235,35 @@ private struct NativePatchExperienceView: View {
         _model = StateObject(wrappedValue: NativePatchViewModel(route: route))
     }
 
+    /// Primary accent — eyebrow + spinners + verification chip.
+    private var accent: Color {
+        switch model.tier {
+        case .black: return Color(red: 0.96, green: 0.83, blue: 0.45) // gold
+        case .platinum: return .cyan
+        case .green: return .emerald
+        }
+    }
+    /// Secondary accent — corner wash on the radial gradient.
+    private var secondaryAccent: Color {
+        switch model.tier {
+        case .black: return Color(red: 0.62, green: 0.45, blue: 0.96) // violet
+        case .platinum: return Color(red: 0.62, green: 0.45, blue: 0.96)
+        case .green: return .cyan
+        }
+    }
+    private var heroTrailing: Color {
+        switch model.tier {
+        case .black: return Color(red: 0.62, green: 0.45, blue: 0.96).opacity(0.22)
+        case .platinum: return Color.purple.opacity(0.20)
+        case .green: return Color.emerald.opacity(0.22)
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            RadialGradient(colors: [Color.cyan.opacity(0.18), .clear], center: .topLeading, startRadius: 10, endRadius: 430).ignoresSafeArea()
+            RadialGradient(colors: [accent.opacity(0.18), .clear], center: .topLeading, startRadius: 10, endRadius: 430).ignoresSafeArea()
+            RadialGradient(colors: [secondaryAccent.opacity(0.14), .clear], center: .bottomTrailing, startRadius: 10, endRadius: 400).ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     hero
@@ -181,24 +288,24 @@ private struct NativePatchExperienceView: View {
             HStack {
                 Image(systemName: model.verifiedLabel == nil ? "bolt.fill" : "checkmark.seal.fill")
                     .foregroundColor(.black).font(.system(size: 14, weight: .black))
-                    .frame(width: 30, height: 30).background(model.verifiedLabel == nil ? Color.cyan : Color.emerald).clipShape(Circle())
-                Text(model.verifiedLabel == nil ? "NATIVE PATCH" : "VERIFIED ACCESS").font(.system(size: 12, weight: .black)).foregroundColor(.cyan).tracking(1.2)
+                    .frame(width: 30, height: 30).background(model.verifiedLabel == nil ? accent : Color.emerald).clipShape(Circle())
+                Text(model.verifiedLabel == nil ? model.tier.eyebrow : "VERIFIED ACCESS").font(.system(size: 12, weight: .black)).foregroundColor(accent).tracking(1.2)
                 Spacer()
-                if model.isLoading { ProgressView().tint(.cyan) }
+                if model.isLoading { ProgressView().tint(accent) }
             }
             Text(model.title).font(.system(size: 32, weight: .heavy)).foregroundColor(.white).lineLimit(2)
             Text(model.subtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.78))
             Text("Patch \(model.route.patchId)").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.55)).lineLimit(1).truncationMode(.middle)
         }
         .padding(21)
-        .background(LinearGradient(colors: [Color(red: 0.02, green: 0.06, blue: 0.10), Color(red: 0.02, green: 0.03, blue: 0.07), Color.purple.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color.cyan.opacity(0.22)))
+        .background(LinearGradient(colors: [Color(red: 0.02, green: 0.06, blue: 0.10), Color(red: 0.02, green: 0.03, blue: 0.07), heroTrailing], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 30).stroke(accent.opacity(0.22)))
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
     private var services: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("LOCAL SERVICES").font(.system(size: 12, weight: .black)).foregroundColor(.cyan).tracking(1.15)
+            Text("LOCAL SERVICES").font(.system(size: 12, weight: .black)).foregroundColor(accent).tracking(1.15)
             ForEach(model.services) { service in serviceRow(service) }
         }
     }
@@ -218,13 +325,13 @@ private struct NativePatchExperienceView: View {
     private var verification: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: model.verifiedLabel == nil ? "shield.checkered" : "checkmark.seal.fill").font(.system(size: 28, weight: .black)).foregroundColor(model.verifiedLabel == nil ? .cyan : .emerald)
+                Image(systemName: model.verifiedLabel == nil ? "shield.checkered" : "checkmark.seal.fill").font(.system(size: 28, weight: .black)).foregroundColor(model.verifiedLabel == nil ? accent : .emerald)
                 VStack(alignment: .leading) {
                     Text(model.verifiedLabel ?? "Guest browsing active").font(.system(size: 15, weight: .black)).foregroundColor(.white)
                     Text(model.route.token == nil ? "Tap Patch to Verify with a signed NFC/QR token." : "Secure token detected for native verification.").font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.68))
                 }
             }
-            if model.isVerifying { ProgressView("Verifying secure patch…").tint(.cyan).foregroundColor(.white) }
+            if model.isVerifying { ProgressView("Verifying secure patch…").tint(accent).foregroundColor(.white) }
             if let error = model.errorMessage { Text(error).font(.system(size: 12.5, weight: .bold)).foregroundColor(.yellow) }
             Button(action: { Task { await model.verify() } }) {
                 HStack { Text(model.route.token == nil ? "Tap Patch to Verify" : "Verify Secure Tap"); Spacer(); Image(systemName: "wave.3.right.circle.fill") }
@@ -255,7 +362,7 @@ private struct NativePatchExperienceView: View {
             if let paymentHint {
                 Text(paymentHint)
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.cyan.opacity(0.86))
+                    .foregroundColor(accent.opacity(0.86))
             }
         }.padding(15).background(Color(red: 0.01, green: 0.11, blue: 0.09)).clipShape(RoundedRectangle(cornerRadius: 22))
     }
@@ -268,31 +375,54 @@ private struct NativePatchService: Identifiable {
     let icon: String
     let tint: Color
 
-    static let fallbacks = [
-        NativePatchService(id: "entry", title: "Verified Entry", subtitle: "Skip the line with a secure patch check.", icon: "shield.checkered", tint: .emerald),
-        NativePatchService(id: "vip", title: "VIP Access", subtitle: "Premium seating and priority arrival support.", icon: "crown.fill", tint: .yellow),
-        NativePatchService(id: "parking", title: "Smart Parking", subtitle: "Find nearby parking and arrival support.", icon: "car.side.lock.fill", tint: .cyan),
-        NativePatchService(id: "concierge", title: "Concierge Help", subtitle: "Local support, wellness, and guest requests.", icon: "sparkles", tint: .purple)
-    ]
+    /// Tier-shaped fallback catalog. Black = ultra-luxury entry/VIP, Platinum =
+    /// trusted city services, Green = neighborhood/cottage-industry.
+    static func fallbacks(for tier: BytspotTier) -> [NativePatchService] {
+        switch tier {
+        case .black:
+            return [
+                NativePatchService(id: "entry", title: "Verified Entry", subtitle: "Skip the line with a secure patch check.", icon: "shield.checkered", tint: Color(red: 0.96, green: 0.83, blue: 0.45)),
+                NativePatchService(id: "vip", title: "VIP Access", subtitle: "Reserved seating and priority arrival.", icon: "crown.fill", tint: .yellow),
+                NativePatchService(id: "valet", title: "Black Valet", subtitle: "White-glove handoff, S-Class fleet on call.", icon: "car.side.lock.fill", tint: Color(red: 0.62, green: 0.45, blue: 0.96)),
+                NativePatchService(id: "concierge", title: "Black Concierge", subtitle: "House lifestyle desk, 24/7 fulfillment.", icon: "sparkles", tint: .purple)
+            ]
+        case .platinum:
+            return [
+                NativePatchService(id: "entry", title: "Verified Entry", subtitle: "Skip the line with a secure patch check.", icon: "shield.checkered", tint: .emerald),
+                NativePatchService(id: "parking", title: "Smart Parking", subtitle: "Reserved spot near this venue.", icon: "car.side.lock.fill", tint: .cyan),
+                NativePatchService(id: "table", title: "Table Reservation", subtitle: "Priority booking with trusted local hosts.", icon: "fork.knife", tint: .yellow),
+                NativePatchService(id: "concierge", title: "Concierge Help", subtitle: "Local support and guest requests.", icon: "sparkles", tint: .purple)
+            ]
+        case .green:
+            return [
+                NativePatchService(id: "farm", title: "Farm Stand", subtitle: "Tap to support neighborhood growers.", icon: "leaf.fill", tint: .emerald),
+                NativePatchService(id: "baked", title: "Home Baked", subtitle: "Same-day bakes from your community.", icon: "birthday.cake.fill", tint: .yellow),
+                NativePatchService(id: "lessons", title: "Lessons & Tutors", subtitle: "Music, K-12, and hobby classes.", icon: "music.note", tint: .cyan),
+                NativePatchService(id: "handy", title: "Handy Neighbors", subtitle: "Trusted small-job help nearby.", icon: "wrench.and.screwdriver.fill", tint: .purple)
+            ]
+        }
+    }
 }
 
-private struct NativePatchContext { let title: String; let subtitle: String }
+private struct NativePatchContext { let title: String; let subtitle: String; let tier: BytspotTier? }
 
 private struct NativePatchAPIClient {
     private let baseURL = URL(string: Bundle.main.object(forInfoDictionaryKey: "BytspotAPIBaseURL") as? String ?? "https://bytspot-api.onrender.com")!
 
-    func resolvePatch(patchId: String) async throws -> NativePatchContext {
-        let payload = try await getTRPC("patch.resolve", input: ["patchId": patchId]) as? [String: Any]
+    func resolvePatch(patchId: String, tier: BytspotTier = .black) async throws -> NativePatchContext {
+        let payload = try await getTRPC("patch.resolve", input: ["patchId": patchId, "tier": tier.rawValue]) as? [String: Any]
         let patch = payload?["patch"] as? [String: Any]
         let vendor = payload?["vendor"] as? [String: Any]
         let service = payload?["service"] as? [String: Any]
         let title = string(vendor?["displayName"]) ?? string(patch?["label"]) ?? "Bytspot Patch"
-        let subtitle = string(service?["title"]) ?? string(service?["name"]) ?? "Secure local access"
-        return NativePatchContext(title: title, subtitle: subtitle)
+        let subtitle = string(service?["title"]) ?? string(service?["name"]) ?? tier.defaultSubtitle
+        let serverTierRaw = string(payload?["tier"]) ?? string(patch?["tier"]) ?? string(vendor?["tier"])
+        let serverTier = serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) }
+        return NativePatchContext(title: title, subtitle: subtitle, tier: serverTier)
     }
 
-    func searchServices(patchId: String) async throws -> [NativePatchService] {
-        let payload = try await getTRPC("vendors.search", input: ["patchId": patchId, "limit": 12]) as? [String: Any]
+    func searchServices(patchId: String, tier: BytspotTier = .black) async throws -> [NativePatchService] {
+        let payload = try await getTRPC("vendors.search", input: ["patchId": patchId, "tier": tier.rawValue, "limit": 12]) as? [String: Any]
         let rows = payload?["services"] as? [[String: Any]] ?? []
         return rows.prefix(6).enumerated().map { idx, row in
             let title = string(row["title"]) ?? string(row["name"]) ?? "Local Service"

@@ -45,9 +45,9 @@ enum BytspotTier: String, Equatable, CaseIterable {
     /// Resolve a tier from any Bytspot patch URL or patchId. Inspection order:
     /// (1) `?tier=` query, (2) `?invite=BLACK-…` prefix, (3) `/p/<tier>-…`,
     /// (4) `/black|/platinum|/green/<slug>` path, (5) `BLACK-/PLATINUM-/GREEN-`
-    /// or `BYT-B-/BYT-P-/BYT-G-` patchId prefix. Defaults to `.black` so the
-    /// existing Clip surface preserves its luxury default when no markers
-    /// are present.
+    /// or `BYT-B-/BYT-P-/BYT-G-` patchId prefix, (6) NTAG424 batch suffixes like
+    /// `BYT424-0301-B/P/G`. Defaults to `.black` so the existing Clip surface
+    /// preserves its luxury default when no markers are present.
     static func detect(url: URL?, patchId: String?) -> BytspotTier {
         if let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             let items = components.queryItems ?? []
@@ -74,11 +74,15 @@ enum BytspotTier: String, Equatable, CaseIterable {
             }
         }
         if let patchId = patchId?.uppercased() {
-            if patchId.hasPrefix("BLACK-") || patchId.hasPrefix("BYT-B-") { return .black }
-            if patchId.hasPrefix("PLATINUM-") || patchId.hasPrefix("BYT-P-") { return .platinum }
-            if patchId.hasPrefix("GREEN-") || patchId.hasPrefix("BYT-G-") { return .green }
+            if Self.isTierCoded(patchId, prefixes: ["BLACK-", "BYT-B-"], suffixes: ["-B", "_B", ".B", "-BLACK", "_BLACK", ".BLACK"]) { return .black }
+            if Self.isTierCoded(patchId, prefixes: ["PLATINUM-", "BYT-P-"], suffixes: ["-P", "_P", ".P", "-PLATINUM", "_PLATINUM", ".PLATINUM"]) { return .platinum }
+            if Self.isTierCoded(patchId, prefixes: ["GREEN-", "BYT-G-"], suffixes: ["-G", "_G", ".G", "-GREEN", "_GREEN", ".GREEN"]) { return .green }
         }
         return .black
+    }
+
+    private static func isTierCoded(_ value: String, prefixes: [String], suffixes: [String]) -> Bool {
+        prefixes.contains(where: { value.hasPrefix($0) }) || suffixes.contains(where: { value.hasSuffix($0) })
     }
 }
 

@@ -641,6 +641,21 @@ export default function App() {
           : parsed.pathname;
         const path = pathFromName.replace(/^\/+/, '');
 
+        const service = parsed.searchParams.get('service') ?? parsed.searchParams.get('action');
+        const venue = parsed.searchParams.get('venue');
+        const patch = parsed.searchParams.get('patch');
+        if (path === 'concierge' || path.startsWith('concierge/')) {
+          const prompt = [
+            service ? `I need help with ${service}` : 'I need Concierge help',
+            venue ? `at ${venue}` : null,
+            patch ? `for patch ${patch}` : null,
+          ].filter(Boolean).join(' ');
+          setConciergePrefill(prompt);
+          setCurrentScreen('main');
+          setActiveTab('concierge');
+          return;
+        }
+
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
         // App Clip / NFC demo alias: bytspot.app/patch/<patchId>
         // Production NFC tag URL: bytspot.app/<uniqueid>?c=<customerId>
@@ -654,10 +669,13 @@ export default function App() {
 
         if (path.startsWith('venue/')) {
           // bytspot://venue/<id> → open venue details via discover tab
+          setCurrentScreen('main');
           setActiveTab('discover');
         } else if (path === 'map') {
+          setCurrentScreen('main');
           setActiveTab('map');
         } else if (path === 'profile') {
+          setCurrentScreen('main');
           setActiveTab('profile');
         }
       } catch { /* ignore malformed URLs */ }

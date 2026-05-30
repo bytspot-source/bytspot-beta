@@ -103,6 +103,7 @@ final class NativeBridgeStore: ObservableObject {
         let route: BytspotHybridRoute?
         if path == "map" || path.hasPrefix("map/") { target = .map; route = .map }
         else if path == "discover" || path.hasPrefix("venue/") { target = .discover; route = .discover }
+        else if path == "concierge" || path.hasPrefix("concierge/") { target = .concierge; route = .concierge }
         else if path == "profile" || path.hasPrefix("profile/") { target = .home; route = .profile }
         else if path == "access" || path.hasPrefix("booking") { target = .home; route = .access }
         else { target = nil; route = nil }

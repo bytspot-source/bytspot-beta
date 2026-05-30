@@ -16,6 +16,7 @@ enum ClipVerifyState: Equatable {
 
 struct ClipContentView: View {
     @EnvironmentObject var invocation: ClipInvocationModel
+    @Environment(\.openURL) private var openURL
     @State private var showOverlay = false
     @State private var selectedService: ClipLocalService?
     @StateObject private var paymentSecure = ClipPaymentSecureController()
@@ -180,10 +181,15 @@ struct ClipContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("GUEST REQUEST READY").font(.system(size: 12, weight: .black)).foregroundColor(tint(service.tintName)).tracking(1.0)
             Text(service.action).font(.system(size: 18, weight: .heavy)).foregroundColor(.white)
-            Text("Use Apple Pay for the fastest secure booking, or continue to the full app for card checkout and sign-in.")
+            Text("Ask Concierge to complete this request, or use Apple Pay when live pricing is available.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(.white.opacity(0.76)).lineSpacing(3)
 
             VStack(spacing: 10) {
+                Button(action: { requestService(service) }) {
+                    actionButtonLabel(title: service.id == "concierge-help" ? "Message Concierge Now" : "Request This Service", icon: "message.fill", foreground: .black, background: Color.cyan)
+                }
+                .buttonStyle(.plain)
+
                 Button(action: { paymentSecure.startApplePay(service: service, patchId: invocation.patchId ?? invocation.patchContext?.patchId) }) {
                     paymentButtonLabel(
                         title: paymentSecure.canUseApplePay ? "Book with Apple Pay" : "Apple Pay Setup Needed",
@@ -285,6 +291,21 @@ struct ClipContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
+    private func actionButtonLabel(title: String, icon: String, foreground: Color, background: Color) -> some View {
+        HStack {
+            Image(systemName: icon)
+            Text(title)
+            Spacer()
+            Image(systemName: "arrow.up.forward.app.fill")
+        }
+        .font(.system(size: 14, weight: .black))
+        .foregroundColor(foreground)
+        .padding(.vertical, 13)
+        .padding(.horizontal, 15)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
     private var fullAppSecondaryButton: some View {
         Button(action: { impactLight(); showOverlay = true }) {
             HStack { Image(systemName: "square.and.arrow.down"); Text(upsellLabel); Spacer(); Image(systemName: "chevron.up") }
@@ -326,8 +347,33 @@ struct ClipContentView: View {
     private var verificationTitle: String { if case .verified = invocation.verificationState { return "Verified access" }; return hasVerificationToken ? "Checking secure patch" : "Patch reader" }
     private var upsellLabel: String { if case .verified = invocation.verificationState { return "Open in the Bytspot app" }; return "Open full Bytspot app" }
 
-    private func browseAsGuest() { impactLight(); if selectedService == nil { selectedService = invocation.services.first } }
+    private func browseAsGuest() {
+        impactLight()
+        if let selectedService { requestService(selectedService); return }
+        selectedService = invocation.services.first
+    }
     private func select(_ service: ClipLocalService) { impactLight(); selectedService = service }
+    private func requestService(_ service: ClipLocalService) {
+        impactLight()
+        guard let url = fullAppServiceURL(for: service) else { showOverlay = true; return }
+        openURL(url) { accepted in
+            if !accepted { showOverlay = true }
+        }
+    }
+    private func fullAppServiceURL(for service: ClipLocalService) -> URL? {
+        var components = URLComponents()
+        components.scheme = "bytspot"
+        components.host = "concierge"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: "app_clip"),
+            URLQueryItem(name: "serviceId", value: service.id),
+            URLQueryItem(name: "service", value: service.title),
+            URLQueryItem(name: "action", value: service.action),
+            URLQueryItem(name: "patch", value: invocation.patchId ?? invocation.patchContext?.patchId),
+            URLQueryItem(name: "venue", value: invocation.patchContext?.title ?? venueDisplayName)
+        ].filter { !($0.value ?? "").isEmpty }
+        return components.url
+    }
     private func impactLight() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     private func formatted(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }

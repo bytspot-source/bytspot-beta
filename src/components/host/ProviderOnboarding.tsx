@@ -5,6 +5,7 @@ import { toast } from 'sonner@2.0.3';
 import { evaluateProviderApplication, persistProviderReviewState } from '../../utils/providerApproval';
 import { saveProviderProgress, submitProviderApplication } from '../../utils/providerOnboardingApi';
 import { isProviderStripeConnectPath, syncProviderStripeConnectReturn } from '../../utils/providerStripeConnectReturn';
+import { resolveBlackInvite, type BlackInviteRecord } from '../../utils/blackInvite';
 import { Step1AccountCreation } from './onboarding/Step1AccountCreation';
 import { Step2ProviderType } from './onboarding/Step2ProviderType';
 import { Step3BusinessInfo } from './onboarding/Step3BusinessInfo';
@@ -28,6 +29,13 @@ export interface OnboardingData {
   providerType?: ProviderType;
   /** @deprecated Legacy saved-draft key. Use providerType for new code. */
   hostType?: ProviderOnboardingType;
+
+  // Stealth Black-tier invite (set when ?invite=BLACK-XXXX is accepted).
+  blackInvite?: {
+    code: string;
+    acceptedAt: string;
+    tier: 'black';
+  };
   
   // Step 3: Business Info
   businessInfo?: {
@@ -154,7 +162,21 @@ function getInitialOnboardingData(): OnboardingData {
   if (typeof window === 'undefined') return {};
   const selectedRole = localStorage.getItem('bytspot_provider_role') || '';
   const providerType = providerRoleToProviderType[selectedRole];
-  return providerType ? normalizeProviderOnboardingData({ providerType }) : {};
+  const base: OnboardingData = providerType ? normalizeProviderOnboardingData({ providerType }) : {};
+  const invite = resolveBlackInvite();
+  return applyBlackInvite(base, invite);
+}
+
+/** Merge an accepted Black invite into the onboarding draft (default operational shape: venue). */
+function applyBlackInvite(data: OnboardingData, invite: BlackInviteRecord | null): OnboardingData {
+  if (!invite) return data;
+  const providerType = data.providerType ?? 'venue';
+  return {
+    ...data,
+    providerType,
+    hostType: providerType,
+    blackInvite: { code: invite.code, acceptedAt: invite.acceptedAt, tier: 'black' },
+  };
 }
 
 interface ProviderOnboardingProps {
@@ -178,6 +200,8 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
       const savedStep = Number(res.host.currentStep ?? 1);
       let nextStep = res.host.status === 'draft' && savedStep > 1 ? savedStep : 1;
       let nextData = normalizeProviderOnboardingData({ ...getInitialOnboardingData(), ...((res.host.onboardingData as OnboardingData) || {}) });
+      // Re-apply the invite after merging server-side draft so the gate survives refreshes.
+      nextData = applyBlackInvite(nextData, resolveBlackInvite());
 
       if (isProviderStripeConnectPath()) {
         const synced = await syncProviderStripeConnectReturn(nextData as Record<string, unknown>, nextStep);
@@ -216,9 +240,13 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
   };
 
   const handleStepComplete = (data: Partial<OnboardingData>) => {
-    const nextStep = currentStep + 1;
+    let nextStep = currentStep + 1;
+    // Stealth Black flow: Step 2 (public provider-type picker) is skipped — providerType is pre-set.
+    if (nextStep === 2 && onboardingData.blackInvite) {
+      nextStep = 3;
+    }
     saveProgress(nextStep, data);
-    
+
     if (nextStep <= totalSteps) {
       setCurrentStep(nextStep);
     }
@@ -226,7 +254,9 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      // Skip Step 2 on the way back too, so Black providers never see the public picker.
+      const prevStep = currentStep === 3 && onboardingData.blackInvite ? 1 : currentStep - 1;
+      setCurrentStep(prevStep);
     }
   };
 
@@ -246,9 +276,18 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
   };
 
   const providerType = getProviderType(onboardingData);
+  const blackInvite = onboardingData.blackInvite;
 
   return (
-    <div data-testid="provider-onboarding-root" data-current-step={currentStep} className="min-h-screen pt-20 pb-24">
+    <div data-testid="provider-onboarding-root" data-current-step={currentStep} data-black-invite={blackInvite ? 'accepted' : undefined} className="min-h-screen pt-20 pb-24">
+      {blackInvite && (
+        <div data-testid="provider-onboarding-black-badge" className="px-8 mb-4">
+          <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/60 px-3.5 py-1.5 text-[11px] uppercase tracking-[0.2em] text-white/90 backdrop-blur-xl" style={{ fontWeight: 700 }}>
+            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+            Bytspot Black · Invite Accepted
+          </div>
+        </div>
+      )}
       {/* Progress Bar */}
       <div className="px-8 mb-8">
         <div className="flex items-center justify-between mb-3">
@@ -307,6 +346,7 @@ export function ProviderOnboarding({ isDarkMode, onComplete }: ProviderOnboardin
           <Step4ListingDetails
             onComplete={handleStepComplete}
             initialValue={onboardingData.listing}
+            providerType={providerType}
           />
         )}
         

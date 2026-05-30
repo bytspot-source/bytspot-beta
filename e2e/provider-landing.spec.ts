@@ -278,8 +278,9 @@ test.describe('Provider landing route', () => {
     await expectOnboardingStep(page, 4);
     await page.getByTestId('provider-listing-address').fill('100 Festival Way Lot B');
     await page.getByTestId('provider-listing-notes').fill('Use the north gate near the blue tower.');
-    await page.getByTestId('provider-listing-spot-type-covered').click();
-    await page.getByTestId('provider-listing-size-large').click();
+    // Spot-type / size selectors are parking-only; event providers see the simplified on-site features list.
+    await expect(page.getByTestId('provider-listing-spot-type-covered')).toHaveCount(0);
+    await expect(page.getByTestId('provider-listing-size-large')).toHaveCount(0);
     await page.getByTestId('provider-listing-amenity-security').click();
     await continueOnboarding(page);
 
@@ -487,5 +488,62 @@ test.describe('Provider landing route', () => {
 
     await back.click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  });
+
+  // Stealth Bytspot Black invite — ?invite=BLACK-XXXX flips the onboarding into a
+  // Black-tier flow, skips the public provider-type picker (Step 2), and surfaces
+  // the "Invite Accepted" badge. Public providers never see any of this.
+  test('Bytspot Black invite gate skips Step 2 and renders the stealth badge', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/provider/onboarding?invite=BLACK-TEST01');
+
+    // Invite is persisted to localStorage by the gate util.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_black_invite'))).toContain('"code":"BLACK-TEST01"');
+
+    // Stealth badge is rendered.
+    await expect(page.getByTestId('provider-onboarding-black-badge')).toBeVisible();
+    await expect(page.getByTestId('provider-onboarding-root')).toHaveAttribute('data-black-invite', 'accepted');
+
+    // Step 1: account creation.
+    await expectOnboardingStep(page, 1);
+    await page.getByTestId('provider-account-email').fill('black.invitee@bytspot.test');
+    await page.getByTestId('provider-account-phone').fill('4155550199');
+    await page.getByTestId('provider-account-password').fill('securepass123');
+    await page.getByTestId('provider-account-terms').check();
+    await continueOnboarding(page);
+
+    // Step 2 (public provider-type picker) must be skipped — we land directly on Step 3.
+    await expectOnboardingStep(page, 3);
+    await expect(page.getByTestId('provider-onboarding-type-venue')).toHaveCount(0);
+    await expect(page.getByTestId('provider-onboarding-type-parking')).toHaveCount(0);
+
+    // Going back must also skip Step 2 — Black providers never see the public picker.
+    await page.getByTestId('provider-onboarding-back').click();
+    await expectOnboardingStep(page, 1);
+  });
+
+  test('No invite means the public provider-type picker is shown as normal', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/provider/onboarding');
+
+    await expect(page.getByTestId('provider-onboarding-black-badge')).toHaveCount(0);
+    await expectOnboardingStep(page, 1);
+    await page.getByTestId('provider-account-email').fill('public.provider@bytspot.test');
+    await page.getByTestId('provider-account-phone').fill('4155550111');
+    await page.getByTestId('provider-account-password').fill('securepass123');
+    await page.getByTestId('provider-account-terms').check();
+    await continueOnboarding(page);
+
+    await expectOnboardingStep(page, 2);
+    await expect(page.getByTestId('provider-onboarding-type-venue')).toBeVisible();
+  });
+
+  test('Invalid invite (wrong prefix) falls through to the public picker', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.goto('/provider/onboarding?invite=PLATINUM-ABCDEF');
+
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('bytspot_black_invite'))).toBe(null);
+    await expect(page.getByTestId('provider-onboarding-black-badge')).toHaveCount(0);
+    await expectOnboardingStep(page, 1);
   });
 });

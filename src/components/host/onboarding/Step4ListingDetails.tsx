@@ -1,14 +1,23 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { MapPin, Upload, Zap, Shield, Clock, Car } from 'lucide-react';
-import type { OnboardingData } from '../ProviderOnboarding';
+import type { OnboardingData, ProviderType } from '../ProviderOnboarding';
 
 interface Step4ListingDetailsProps {
   onComplete: (data: Partial<OnboardingData>) => void;
   initialValue?: OnboardingData['listing'];
+  providerType?: ProviderType;
 }
 
-export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDetailsProps) {
+export function Step4ListingDetails({ onComplete, initialValue, providerType }: Step4ListingDetailsProps) {
+  const isParking = providerType === 'parking';
+  const copy = isParking
+    ? { title: 'List Your Space', subtitle: 'Tell us about your parking space', addressPlaceholder: 'Enter parking spot address', notesPlaceholder: 'Location notes (e.g., Behind building, Level 2)', photosLabel: 'Photos', photosHelp: 'Upload at least 3 photos of your parking space' }
+    : providerType === 'event'
+    ? { title: 'List Your Event Footprint', subtitle: 'Tell us about your event location', addressPlaceholder: 'Enter event address or venue', notesPlaceholder: 'Entrance, gate, or staging notes', photosLabel: 'Event Photos', photosHelp: 'Upload at least 3 photos of the event site' }
+    : providerType === 'valet'
+    ? { title: 'List Your Dispatch Hub', subtitle: 'Tell us where your team operates', addressPlaceholder: 'Enter dispatch or service address', notesPlaceholder: 'Pickup, drop-off, or meeting-point notes', photosLabel: 'Team / Hub Photos', photosHelp: 'Upload at least 3 photos of your team or service area' }
+    : { title: 'List Your Venue', subtitle: 'Tell us about your space', addressPlaceholder: 'Enter venue address', notesPlaceholder: 'Suite, floor, or entrance notes', photosLabel: 'Venue Photos', photosHelp: 'Upload at least 3 photos of your venue' };
   const [address, setAddress] = useState(initialValue?.location?.address || '');
   const [notes, setNotes] = useState(initialValue?.location?.notes || '');
   const [spotType, setSpotType] = useState<'outdoor' | 'covered' | 'garage' | 'valet'>(
@@ -89,10 +98,10 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
         transition={springConfig}
       >
         <h1 className="text-large-title text-white mb-3">
-          List Your Space
+          {copy.title}
         </h1>
         <p className="text-[17px] text-white/70" style={{ fontWeight: 400 }}>
-          Tell us about your parking space
+          {copy.subtitle}
         </p>
       </motion.div>
 
@@ -115,24 +124,25 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Enter parking spot address"
+              placeholder={copy.addressPlaceholder}
               className="w-full pl-12 pr-4 py-3.5 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
               style={{ fontSize: '17px', fontWeight: 400 }}
             />
           </div>
-          
+
           <input
             data-testid="provider-listing-notes"
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Location notes (e.g., Behind building, Level 2)"
+            placeholder={copy.notesPlaceholder}
             className="w-full px-4 py-3 rounded-[16px] border-2 border-white/30 bg-[#1C1C1E]/80 backdrop-blur-xl text-white placeholder:text-white/50 outline-none focus:border-purple-500/50 transition-colors"
             style={{ fontSize: '15px', fontWeight: 400 }}
           />
         </motion.div>
 
-        {/* Spot Type */}
+        {/* Spot Type — parking only */}
+        {isParking && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -164,8 +174,10 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
             })}
           </div>
         </motion.div>
+        )}
 
-        {/* Size */}
+        {/* Vehicle Size — parking only */}
+        {isParking && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -193,26 +205,35 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
             ))}
           </div>
         </motion.div>
+        )}
 
-        {/* Amenities */}
+        {/* Amenities — parking-specific list collapses for non-parking */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.25 }}
         >
           <label className="block text-[15px] text-white mb-3" style={{ fontWeight: 600 }}>
-            Amenities
+            {isParking ? 'Amenities' : 'On-Site Features'}
           </label>
           <div className="space-y-2">
-            {[
-              { key: 'evCharging' as const, label: 'EV Charging', icon: Zap },
-              { key: 'covered' as const, label: 'Covered/Sheltered', icon: Shield },
-              { key: 'security' as const, label: 'Security Camera', icon: Shield },
-              { key: 'gated' as const, label: 'Gated Access', icon: Shield },
-              { key: 'access24' as const, label: '24/7 Access', icon: Clock },
-              { key: 'attendant' as const, label: 'Attendant On-Site', icon: Car },
-              { key: 'accessible' as const, label: 'Wheelchair Accessible', icon: Car },
-            ].map((amenity) => {
+            {(isParking
+              ? [
+                  { key: 'evCharging' as const, label: 'EV Charging', icon: Zap },
+                  { key: 'covered' as const, label: 'Covered/Sheltered', icon: Shield },
+                  { key: 'security' as const, label: 'Security Camera', icon: Shield },
+                  { key: 'gated' as const, label: 'Gated Access', icon: Shield },
+                  { key: 'access24' as const, label: '24/7 Access', icon: Clock },
+                  { key: 'attendant' as const, label: 'Attendant On-Site', icon: Car },
+                  { key: 'accessible' as const, label: 'Wheelchair Accessible', icon: Car },
+                ]
+              : [
+                  { key: 'security' as const, label: 'Security On-Site', icon: Shield },
+                  { key: 'restroom' as const, label: 'Restrooms Available', icon: Shield },
+                  { key: 'attendant' as const, label: 'Staff / Host On-Site', icon: Car },
+                  { key: 'accessible' as const, label: 'Wheelchair Accessible', icon: Car },
+                ]
+            ).map((amenity) => {
               const Icon = amenity.icon;
               return (
                 <button
@@ -259,7 +280,7 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
           transition={{ ...springConfig, delay: 0.3 }}
         >
           <label className="block text-[15px] text-white mb-3" style={{ fontWeight: 600 }}>
-            Photos
+            {copy.photosLabel}
           </label>
           <div className="border-2 border-dashed border-white/30 rounded-[16px] p-8 text-center bg-[#1C1C1E]/50 backdrop-blur-xl">
             <Upload className="w-12 h-12 text-white/60 mx-auto mb-3" strokeWidth={2} />
@@ -267,7 +288,7 @@ export function Step4ListingDetails({ onComplete, initialValue }: Step4ListingDe
               Add Photos
             </p>
             <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
-              Upload at least 3 photos of your parking space
+              {copy.photosHelp}
             </p>
           </div>
         </motion.div>

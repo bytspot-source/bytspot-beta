@@ -92,19 +92,18 @@ final class ClipInvocationModel: ObservableObject {
     func handle(url: URL) {
         invocationURL = url
         flow = .catalog
+        vendorFilter = .now
+        guestCount = 1
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         let items = components.queryItems ?? []
-        let pathParts = components.path
-            .split(separator: "/")
-            .map(String.init)
+        let pathParts = Self.pathParts(from: components)
 
-        venueSlug = items.first(where: { ["venue", "venueName", "v"].contains($0.name) })?.value
+        venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
             ?? venueSlug
-        patchId = items.first(where: { ["patch", "patchId", "p"].contains($0.name) })?.value
+        patchId = Self.queryValue(in: items, names: ["patch", "patchid", "p"])
             ?? Self.patchId(from: pathParts)
             ?? patchId
-        token = items.first(where: { $0.name == "t" })?.value
-            ?? items.first(where: { $0.name == "token" })?.value
+        token = Self.queryValue(in: items, names: ["t", "token"])
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
@@ -130,6 +129,33 @@ final class ClipInvocationModel: ObservableObject {
         loadTask = Task { [weak self] in
             await self?.loadContextAndVerify(patchId: patchId, token: token)
         }
+    }
+
+    /// Universal Link used when the Clip hands off to the installed full app.
+    /// If the full app is not installed, the view layer falls back to SKOverlay.
+    var mainAppHandoffURL: URL? {
+        let resolvedPatchId = patchId ?? patchContext?.patchId
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bytspot.app"
+        if let resolvedPatchId, !resolvedPatchId.isEmpty {
+            components.path = "/access/\(resolvedPatchId)"
+        } else {
+            components.path = "/"
+        }
+        var queryItems = [
+            URLQueryItem(name: "tier", value: tier.rawValue),
+            URLQueryItem(name: "source", value: "app_clip"),
+            URLQueryItem(name: "handoff", value: "1")
+        ]
+        if let token, !token.isEmpty {
+            queryItems.append(URLQueryItem(name: "t", value: token))
+        }
+        if let venue = venueSlug ?? patchContext?.title, !venue.isEmpty {
+            queryItems.append(URLQueryItem(name: "venue", value: venue))
+        }
+        components.queryItems = queryItems
+        return components.url
     }
 
     #if DEBUG
@@ -292,5 +318,18 @@ final class ClipInvocationModel: ObservableObject {
             return pathParts[0]
         }
         return nil
+    }
+
+    private static func pathParts(from components: URLComponents) -> [String] {
+        var parts = components.path.split(separator: "/").map(String.init)
+        let scheme = components.scheme?.lowercased()
+        if scheme != "http", scheme != "https", let host = components.host, !host.isEmpty {
+            parts.insert(host, at: 0)
+        }
+        return parts
+    }
+
+    private static func queryValue(in items: [URLQueryItem], names: Set<String>) -> String? {
+        items.first { names.contains($0.name.lowercased()) }?.value
     }
 }

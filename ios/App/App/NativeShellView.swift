@@ -115,12 +115,12 @@ final class NativeBridgeStore: ObservableObject {
     }
 
     private func jsonString(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value), let result = String(data: data, encoding: .utf8) else { return "\"\"" }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let result = String(data: data, encoding: .utf8) else { return "\"\"" }
         return result
     }
 
     private func jsonObject(_ value: [String: String]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value), let result = String(data: data, encoding: .utf8) else { return "{}" }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let result = String(data: data, encoding: .utf8) else { return "{}" }
         return result
     }
 }

@@ -114,6 +114,18 @@ extension ClipLocalService {
 private func impactLight() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
 private func impactMedium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
 
+private func openFullApp(url: URL?, showOverlay: Binding<Bool>) {
+    guard let url else {
+        showOverlay.wrappedValue = true
+        return
+    }
+    UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { opened in
+        if !opened {
+            DispatchQueue.main.async { showOverlay.wrappedValue = true }
+        }
+    }
+}
+
 private func formattedSlug(_ value: String?) -> String? {
     guard let value, !value.isEmpty else { return nil }
     return value.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
@@ -181,8 +193,11 @@ struct ClipCatalogView: View {
         }
     }
 
-    private func catalogTile(_ service: ClipLocalService) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private func catalogTile(_ service: ClipLocalService) -> AnyView {
+        if isBlackAviation(service) {
+            return AnyView(blackAviationCatalogTile(service))
+        }
+        return AnyView(VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 LinearGradient(
                     colors: [service.tintColor.opacity(0.78), service.tintColor.opacity(0.18), Color.black.opacity(0.55)],
@@ -242,7 +257,38 @@ struct ClipCatalogView: View {
         }
         .background(ClipTheme.panel)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
+    }
+
+    private func blackAviationCatalogTile(_ service: ClipLocalService) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [Color.black, ClipTheme.gold.opacity(0.38), ClipTheme.violet.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [ClipTheme.gold.opacity(0.28), .clear], center: .topTrailing, startRadius: 12, endRadius: 150)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack { Text("BLACK · FLIGHT DESK").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
+                        .font(.system(size: 9.5, weight: .black))
+                        .foregroundColor(ClipTheme.gold)
+                    Spacer()
+                    HStack(alignment: .bottom) {
+                        Image(systemName: service.iconName).font(.system(size: 32, weight: .black)).foregroundColor(.white)
+                        Spacer()
+                        Text("90 MIN").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 9).padding(.vertical, 5).background(ClipTheme.gold).clipShape(Capsule())
+                    }
+                }.padding(12)
+            }
+            .frame(height: 128)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(service.title).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
+                Text(service.priceLabel ?? "Quote ready").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                Text("Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
+            }.padding(12)
+        }
+        .background(LinearGradient(colors: [ClipTheme.panelElevated, Color.black.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.gold.opacity(0.28), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: ClipTheme.gold.opacity(0.12), radius: 18, x: 0, y: 10)
     }
 
     private var skeletonTile: some View {
@@ -258,10 +304,10 @@ struct ClipCatalogView: View {
     }
 
     private var upsellFooter: some View {
-        Button(action: { impactLight(); showOverlay = true }) {
+        Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.app.fill")
-                Text("Get the full Bytspot app for live updates")
+                Text("Open full Bytspot app with this patch")
                 Spacer()
                 Image(systemName: "chevron.right")
             }
@@ -282,6 +328,10 @@ struct ClipCatalogView: View {
     }
     private var venueTitle: String { invocation.patchContext?.title ?? formattedSlug(invocation.venueSlug) ?? "Bytspot Patch" }
     private var venueSubtitle: String { invocation.patchContext?.subtitle ?? invocation.tier.defaultSubtitle }
+
+    private func isBlackAviation(_ service: ClipLocalService) -> Bool {
+        invocation.tier == .black && ((service.category ?? service.id).lowercased().contains("aviation") || service.id.lowercased().contains("jet"))
+    }
 }
 
 // MARK: - Screen 2: Vendor list
@@ -371,8 +421,11 @@ struct ClipVendorListView: View {
         }
     }
 
-    private func vendorRow(_ vendor: ClipVendor) -> some View {
-        HStack(spacing: 14) {
+    private func vendorRow(_ vendor: ClipVendor) -> AnyView {
+        if isBlackAviationService {
+            return AnyView(blackAviationVendorRow(vendor))
+        }
+        return AnyView(HStack(spacing: 14) {
             ZStack {
                 LinearGradient(colors: [service.tintColor.opacity(0.75), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let url = vendor.displayPosterURL {
@@ -421,6 +474,43 @@ struct ClipVendorListView: View {
         .padding(12)
         .background(ClipTheme.panel)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
+    }
+
+    private func blackAviationVendorRow(_ vendor: ClipVendor) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                LinearGradient(colors: [ClipTheme.gold.opacity(0.70), ClipTheme.violet.opacity(0.24), Color.black.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "airplane.departure")
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
+            }
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("DEPARTURE")
+                        .font(.system(size: 8.5, weight: .black))
+                        .foregroundColor(ClipTheme.gold)
+                        .tracking(1.1)
+                    Spacer()
+                }
+                Text(vendor.name).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
+                Text(vendor.tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.70)).lineLimit(1)
+                HStack(spacing: 8) {
+                    if let eta = vendor.etaLabel {
+                        Text(formatEtaLabel(eta, for: service)).font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.78))
+                    }
+                    Spacer()
+                    Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                }
+            }
+            Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(ClipTheme.gold.opacity(0.72))
+        }
+        .padding(12)
+        .background(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.gold.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -446,6 +536,10 @@ struct ClipVendorListView: View {
         let isAviation = cat.contains("aviation") || cat.contains("jet") || cat.contains("charter")
         guard isAviation, raw.uppercased().hasPrefix("ETA ") else { return raw }
         return "Departing in " + raw.dropFirst(4)
+    }
+
+    private var isBlackAviationService: Bool {
+        invocation.tier == .black && ((service.category ?? service.id).lowercased().contains("aviation") || service.id.lowercased().contains("jet"))
     }
 }
 
@@ -694,7 +788,7 @@ struct ClipCheckoutView: View {
     }
 
     private var cardFallback: some View {
-        Button(action: { impactLight(); showOverlay = true }) {
+        Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
             HStack(spacing: 8) {
                 Image(systemName: "creditcard.and.123")
                 Text("Pay with card in the full Bytspot app")
@@ -854,7 +948,7 @@ struct ClipSuccessView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }.buttonStyle(.plain)
 
-            Button(action: { impactLight(); showOverlay = true }) {
+            Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.down.app.fill")
                     Text("Get the full Bytspot app")

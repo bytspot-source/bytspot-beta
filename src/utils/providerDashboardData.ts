@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { trpc } from './trpc';
+import { inferBytspotPatchTier, normalizeBytspotPatchTier, type BytspotPatchTier } from './patchTiers';
 import { persistProviderRoleFromBackend, type ProviderRole } from '../components/host/dashboard/providerDashboardAccess';
 
 export type DashboardServiceSummary = {
   id: string;
   title: string;
   status: string;
+  tier?: BytspotPatchTier | string | null;
   category?: string | null;
   priceCents: number;
   currency: string;
@@ -74,6 +76,7 @@ export type DashboardPatchSummary = {
   readCounter?: number;
   serviceId?: string | null;
   serviceTitle?: string | null;
+  tier?: BytspotPatchTier | string | null;
 };
 
 export type DashboardEarningsTotals = {
@@ -127,6 +130,7 @@ function mapService(raw: any): DashboardServiceSummary {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? 'Untitled service'),
     status: String(raw?.status ?? 'draft'),
+    tier: normalizeBytspotPatchTier(raw?.tier, null),
     category: raw?.category ?? 'General',
     priceCents: Number(raw?.priceCents ?? 0),
     currency: String(raw?.currency ?? 'USD'),
@@ -191,6 +195,7 @@ function mapBooking(raw: any): DashboardBookingSummary | null {
 function mapPatch(raw: any): DashboardPatchSummary | null {
   const id = raw?.id != null ? String(raw.id) : null;
   if (!id) return null;
+  const service = raw?.service ?? null;
   return {
     id,
     uid: raw?.uid ?? null,
@@ -201,8 +206,10 @@ function mapPatch(raw: any): DashboardPatchSummary | null {
     url: String(raw?.url ?? ''),
     status: raw?.status ?? null,
     readCounter: Number(raw?.readCounter ?? 0),
-    serviceId: raw?.serviceId != null ? String(raw.serviceId) : null,
-    serviceTitle: raw?.serviceTitle ?? null,
+    serviceId: raw?.serviceId != null ? String(raw.serviceId) : service?.id != null ? String(service.id) : null,
+    serviceTitle: raw?.serviceTitle ?? service?.title ?? null,
+    tier: normalizeBytspotPatchTier(raw?.tier ?? service?.tier, null)
+      ?? (service ? inferBytspotPatchTier(service) : null),
   };
 }
 

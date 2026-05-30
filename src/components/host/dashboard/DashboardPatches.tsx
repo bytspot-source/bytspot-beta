@@ -5,6 +5,7 @@ import { ProviderPremiumGate } from '../../provider/ProviderPremiumGate';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 import { type DashboardPatchSummary, useProviderDashboardData } from '../../../utils/providerDashboardData';
 import { trpc } from '../../../utils/trpc';
+import { BYTSPOT_PATCH_TIER_META, BYTSPOT_PATCH_TIERS, inferBytspotPatchTier, withBytspotPatchTier, type BytspotPatchTier } from '../../../utils/patchTiers';
 
 const UNASSIGNED_SERVICE_VALUE = '__unassigned__';
 
@@ -19,9 +20,9 @@ function patchBaseUrl(): string {
   return 'https://bytspot.app/p/';
 }
 
-function buildPatchUrl(patchId: string, venueName: string, serviceId?: string | null): string {
+function buildPatchUrl(patchId: string, venueName: string, serviceId?: string | null, tier: BytspotPatchTier = 'platinum'): string {
   const encoded = encodeURIComponent(venueName.trim() || 'Bytspot Provider');
-  const base = `${patchBaseUrl()}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}`;
+  const base = `${patchBaseUrl()}${encodeURIComponent(patchId)}?patch=${encodeURIComponent(patchId)}&venue=${encoded}&tier=${encodeURIComponent(tier)}`;
   return serviceId ? `${base}&service=${encodeURIComponent(serviceId)}` : base;
 }
 
@@ -30,6 +31,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   const [venueName, setVenueName] = useState('');
   const [label, setLabel] = useState('Main Entrance');
   const [serviceSelection, setServiceSelection] = useState<string>(UNASSIGNED_SERVICE_VALUE);
+  const [patchTier, setPatchTier] = useState<BytspotPatchTier>('platinum');
   const [patches, setPatches] = useState<DashboardPatchSummary[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -68,6 +70,17 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   const selectedService = serviceSelection === UNASSIGNED_SERVICE_VALUE
     ? null
     : assignableServices.find((service) => service.id === serviceSelection) ?? null;
+  const selectedPatchTier = selectedService ? inferBytspotPatchTier(selectedService) : patchTier;
+  const patchTierMeta = BYTSPOT_PATCH_TIER_META[selectedPatchTier];
+  const tierForPatch = (patch: DashboardPatchSummary): BytspotPatchTier => {
+    const linkedService = patch.serviceId ? assignableServices.find((service) => service.id === patch.serviceId) : null;
+    return inferBytspotPatchTier(patch.tier ? { tier: patch.tier } : linkedService, selectedPatchTier);
+  };
+  const patchUrl = (patch: DashboardPatchSummary): string => {
+    const tier = tierForPatch(patch);
+    const base = patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId, tier);
+    return withBytspotPatchTier(base, tier, patch.serviceId);
+  };
 
   useEffect(() => {
     setPatches(data.patches);
@@ -100,12 +113,16 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             venueName: venueName.trim() || data.vendor?.displayName || 'Bytspot Provider',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            url: buildPatchUrl(fallbackId, venueName || data.vendor?.displayName || 'Bytspot Provider', selectedService?.id),
+            url: buildPatchUrl(fallbackId, venueName || data.vendor?.displayName || 'Bytspot Provider', selectedService?.id, selectedPatchTier),
             status: 'local-preview',
             readCounter: 0,
             serviceId: selectedService?.id ?? null,
             serviceTitle: selectedService?.title ?? null,
+            tier: selectedPatchTier,
           };
+      patch.tier = patch.tier ?? selectedPatchTier;
+      const patchedUrl = patchUrl(patch);
+      patch.url = patchedUrl;
       setPatches((current) => [patch, ...current.filter((item) => item.id !== patch.id)].slice(0, 12));
       setVenueName(patch.venueName || venueName);
       setLabel('Main Entrance');
@@ -117,7 +134,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
   };
 
   const copyPatch = async (patch: DashboardPatchSummary) => {
-    const url = patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId);
+    const url = patchUrl(patch);
     await navigator.clipboard?.writeText(url).catch(() => undefined);
     setCopiedId(patch.id);
     window.setTimeout(() => setCopiedId(null), 1800);
@@ -177,7 +194,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
               <option value={UNASSIGNED_SERVICE_VALUE}>Unassigned (general venue patch)</option>
               {assignableServices.map((service) => (
                 <option key={service.id} value={service.id}>
-                  {service.title}{service.status === 'draft' ? ' (draft)' : ''}
+                  {service.title} · {BYTSPOT_PATCH_TIER_META[inferBytspotPatchTier(service)].shortLabel}{service.status === 'draft' ? ' (draft)' : ''}
                 </option>
               ))}
             </select>
@@ -189,6 +206,25 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
                   : assignableServices.length === 0
                     ? 'Publish a service to link patches directly to bookable inventory.'
                     : 'Linking a patch to a service deep-links scans into that listing\u2019s booking flow.'}
+            </p>
+          </div>
+          <div>
+            <label className={`mb-2 block text-[13px] font-extrabold ${labelClass}`}>Patch Scanner Tier</label>
+            <select
+              value={selectedPatchTier}
+              onChange={(event) => setPatchTier(event.target.value as BytspotPatchTier)}
+              disabled={Boolean(selectedService)}
+              className={`w-full rounded-[16px] border px-4 py-3 font-bold outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 disabled:opacity-100 ${inputClass}`}
+              data-testid="provider-patches-tier-select"
+            >
+              {BYTSPOT_PATCH_TIERS.map((tier) => (
+                <option key={tier} value={tier}>{BYTSPOT_PATCH_TIER_META[tier].label}</option>
+              ))}
+            </select>
+            <p className={`mt-2 rounded-xl border px-3 py-2 text-[12px] font-extrabold leading-5 ${isDarkMode ? 'border-cyan-300 bg-slate-700 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`} data-testid="provider-patches-tier-hint">
+              {selectedService
+                ? `${patchTierMeta.label} scanner is inherited from the linked service.`
+                : 'Choose Black, Platinum, or Green for an unassigned venue patch scanner.'}
             </p>
           </div>
           {createError && (
@@ -207,7 +243,7 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
             <p><Smartphone className={`mr-2 inline h-4 w-4 ${helperPurpleIconClass}`} />Print the link as a QR code or encode it to an NFC sticker.</p>
             <p><Link className={`mr-2 inline h-4 w-4 ${helperIconClass}`} />Customers tap/scan and open Bytspot App Clip or the full app.</p>
           </div>
-          <p className={`mt-4 break-all rounded-2xl border p-3 font-mono text-[12px] font-black leading-5 ${previewUrlClass}`} data-testid="provider-patches-preview-url">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider', selectedService?.id)}</p>
+          <p className={`mt-4 break-all rounded-2xl border p-3 font-mono text-[12px] font-black leading-5 ${previewUrlClass}`} data-testid="provider-patches-preview-url">{buildPatchUrl(nextPatchId, venueName || 'Bytspot Provider', selectedService?.id, selectedPatchTier)}</p>
         </div>
       </motion.div>
 
@@ -231,15 +267,18 @@ export function DashboardPatches({ isDarkMode, access }: { isDarkMode: boolean; 
                   <Package className="h-3 w-3 shrink-0" strokeWidth={2.5} />
                   <span className="truncate">{patch.serviceTitle ? patch.serviceTitle : 'Unassigned'}</span>
                 </div>
+                <div className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDarkMode ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-amber-300 bg-amber-50 text-amber-900'}`} data-testid="provider-patches-card-tier">
+                  {BYTSPOT_PATCH_TIER_META[tierForPatch(patch)].shortLabel} scanner
+                </div>
               </div>
               <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-black tracking-[0.12em] text-emerald-800">READY</span>
             </div>
-            <p className={`mb-3 break-all rounded-2xl border p-3 font-mono text-[12px] font-bold leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`} data-testid="provider-patches-url">{patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)}</p>
+            <p className={`mb-3 break-all rounded-2xl border p-3 font-mono text-[12px] font-bold leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-cyan-50' : 'border-cyan-200 bg-cyan-50 text-cyan-900'}`} data-testid="provider-patches-url">{patchUrl(patch)}</p>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => copyPatch(patch)} aria-label={`Copy ${patch.label} patch link`} className="inline-flex items-center justify-center gap-2 rounded-[14px] border border-slate-500 bg-slate-700 px-3 py-2.5 text-[13px] font-black text-white shadow-lg shadow-black/25 transition hover:bg-slate-600" data-testid="provider-patches-copy">
                 {copiedId === patch.id ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />} {copiedId === patch.id ? 'Copied' : 'Copy'}
               </button>
-              <a href={patch.url || buildPatchUrl(patch.id, patch.venueName, patch.serviceId)} target="_blank" rel="noreferrer" aria-label={`Test ${patch.label} patch link`} className="inline-flex items-center justify-center gap-2 rounded-[14px] border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-[13px] font-black text-cyan-950 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-100" data-testid="provider-patches-test">
+              <a href={patchUrl(patch)} target="_blank" rel="noreferrer" aria-label={`Test ${patch.label} patch link`} className="inline-flex items-center justify-center gap-2 rounded-[14px] border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-[13px] font-black text-cyan-950 shadow-lg shadow-cyan-950/10 transition hover:bg-cyan-100" data-testid="provider-patches-test">
                 <ExternalLink className="h-4 w-4" /> Test
               </a>
             </div>

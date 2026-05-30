@@ -1,3 +1,15 @@
+import {
+  detectBytspotPatchTierFromUrl,
+  detectBytspotTagIntentFromUrl,
+  detectBytspotTagUseModeFromUrl,
+  normalizeBytspotPatchTier,
+  normalizeBytspotTagIntent,
+  normalizeBytspotTagUseMode,
+  type BytspotPatchTier,
+  type BytspotTagIntent,
+  type BytspotTagUseMode,
+} from './patchTiers.ts';
+
 export const VIRTUAL_PATCH_CONTEXT_KEY = 'bytspot_virtual_patch_context';
 const SERVICE_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -46,6 +58,12 @@ export interface VirtualPatchScanVerification {
   vendorKeySig?: string | null;
   /** Optional vendor observation record — see {@link VirtualPatchVendorObservation}. */
   vendorObservation?: VirtualPatchVendorObservation;
+  /** Black / Platinum / Green scanner context derived from the patch URL. */
+  tier?: BytspotPatchTier | null;
+  tagUseMode?: BytspotTagUseMode | null;
+  tagIntent?: BytspotTagIntent | null;
+  referralCode?: string | null;
+  groupSize?: number | null;
 }
 
 export type VirtualPatchServiceRequestKind = 'venue-service' | 'vendor-request' | 'booking' | 'check-in' | 'call';
@@ -83,6 +101,11 @@ export interface VirtualPatchContext {
   venueId?: string | null;
   venueName?: string | null;
   patchId?: string | null;
+  tier?: BytspotPatchTier | null;
+  tagUseMode?: BytspotTagUseMode | null;
+  tagIntent?: BytspotTagIntent | null;
+  referralCode?: string | null;
+  groupSize?: number | null;
   distanceMeters?: number | null;
   capabilities?: { qr?: boolean; nfc?: boolean };
   scan?: {
@@ -97,6 +120,11 @@ export interface VirtualPatchContext {
     vendorId?: string | null;
     vendorKeySig?: string | null;
     vendorObservation?: VirtualPatchVendorObservation;
+    tier?: BytspotPatchTier | null;
+    tagUseMode?: BytspotTagUseMode | null;
+    tagIntent?: BytspotTagIntent | null;
+    referralCode?: string | null;
+    groupSize?: number | null;
   };
   serviceRequests?: VirtualPatchSavedServiceRequest[];
 }
@@ -108,6 +136,11 @@ export interface ParsedVirtualPatchPayload {
   readCounter: number | null;
   token: string | null;
   customerId: string | null;
+  tier: BytspotPatchTier | null;
+  tagUseMode: BytspotTagUseMode | null;
+  tagIntent: BytspotTagIntent | null;
+  referralCode: string | null;
+  groupSize: number | null;
 }
 
 interface NativeNdefRecordLike {
@@ -149,6 +182,14 @@ function normalizeMaybeReference(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function queryValue(url: URL, names: readonly string[]): string | null {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  for (const [name, value] of url.searchParams.entries()) {
+    if (wanted.has(name.toLowerCase())) return value;
+  }
+  return null;
+}
+
 export function isValidTagId(slug: string | undefined): slug is string {
   if (!slug) return false;
   return (
@@ -161,9 +202,9 @@ export function isValidTagId(slug: string | undefined): slug is string {
   );
 }
 
-export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: string | null): ParsedVirtualPatchPayload {
+export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: string | null, fallbackTier?: BytspotPatchTier | null): ParsedVirtualPatchPayload {
   const trimmed = rawValue.trim();
-  const base = { rawValue: trimmed, patchId: fallbackPatchId ?? null, uid: null, readCounter: null, token: null, customerId: null };
+  const base = { rawValue: trimmed, patchId: fallbackPatchId ?? null, uid: null, readCounter: null, token: null, customerId: null, tier: fallbackTier ?? null, tagUseMode: null, tagIntent: null, referralCode: null, groupSize: null };
 
   if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(trimmed)) return { ...base, token: trimmed };
   if (/^[0-9A-F]{14}$/i.test(trimmed)) return { ...base, uid: trimmed.toUpperCase() };
@@ -177,6 +218,11 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
       readCounter: parseMaybeInt(parsed.readCounter),
       token: typeof parsed.token === 'string' ? parsed.token : null,
       customerId: normalizeMaybeReference(parsed.customerId ?? parsed.customer ?? parsed.c),
+      tier: normalizeBytspotPatchTier(parsed.tier ?? parsed.scanner, base.tier),
+      tagUseMode: normalizeBytspotTagUseMode(parsed.tagUseMode ?? parsed.useMode ?? parsed.use, null),
+      tagIntent: normalizeBytspotTagIntent(parsed.tagIntent ?? parsed.intent ?? parsed.action, null),
+      referralCode: normalizeMaybeReference(parsed.referralCode ?? parsed.ref ?? parsed.r),
+      groupSize: parseMaybeInt(parsed.groupSize ?? parsed.group),
     };
   } catch {
     // fall through to URL parsing
@@ -192,14 +238,21 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
         : null;
     const rootPatchFromPath = pathParts.length === 1 && isValidTagId(pathParts[0]) ? pathParts[0] : null;
     const patchFromPath = explicitPatchFromPath ?? rootPatchFromPath;
+    const patchId = url.searchParams.get('patchId') ?? url.searchParams.get('patch') ?? patchFromPath ?? base.patchId;
+    const tagUseMode = detectBytspotTagUseModeFromUrl(url) ?? (rootPatchFromPath ? 'everyday' : null);
 
     return {
       rawValue: trimmed,
-      patchId: url.searchParams.get('patchId') ?? url.searchParams.get('patch') ?? patchFromPath ?? base.patchId,
+      patchId,
       uid: normalizeMaybeUid(url.searchParams.get('uid')),
       readCounter: parseMaybeInt(url.searchParams.get('readCounter') ?? url.searchParams.get('counter')),
       token: url.searchParams.get('token') ?? url.searchParams.get('t'),
       customerId: normalizeMaybeReference(url.searchParams.get('customerId') ?? url.searchParams.get('customer') ?? url.searchParams.get('c')),
+      tier: detectBytspotPatchTierFromUrl(url, patchId) ?? base.tier,
+      tagUseMode,
+      tagIntent: detectBytspotTagIntentFromUrl(url),
+      referralCode: normalizeMaybeReference(queryValue(url, ['referralCode', 'referral', 'ref', 'r', 'owner'])),
+      groupSize: parseMaybeInt(queryValue(url, ['groupSize', 'group', 'party'])),
     };
   } catch {
     return base;
@@ -252,6 +305,11 @@ export function buildVerifiedVirtualPatchContext(
     venueId: options.venueId ?? null,
     venueName: options.venueName ?? null,
     patchId: options.patchId ?? verification.patchId ?? null,
+    tier: options.tier ?? verification.tier ?? null,
+    tagUseMode: options.tagUseMode ?? verification.tagUseMode ?? null,
+    tagIntent: options.tagIntent ?? verification.tagIntent ?? null,
+    referralCode: options.referralCode ?? verification.referralCode ?? null,
+    groupSize: options.groupSize ?? verification.groupSize ?? null,
     distanceMeters: options.distanceMeters ?? null,
     capabilities: options.capabilities,
     scan: {
@@ -271,6 +329,11 @@ export function buildVerifiedVirtualPatchContext(
       ...(verification.vendorObservation !== undefined
         ? { vendorObservation: verification.vendorObservation }
         : {}),
+      tier: verification.tier ?? options.tier ?? null,
+      tagUseMode: verification.tagUseMode ?? options.tagUseMode ?? null,
+      tagIntent: verification.tagIntent ?? options.tagIntent ?? null,
+      referralCode: verification.referralCode ?? options.referralCode ?? null,
+      groupSize: verification.groupSize ?? options.groupSize ?? null,
     },
   };
 }

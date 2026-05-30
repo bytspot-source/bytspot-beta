@@ -20,11 +20,17 @@ import {
   type VirtualPatchAuditEvent,
   type VirtualPatchScanVerification,
 } from '../utils/virtualPatch';
+import { normalizeBytspotPatchTier, normalizeBytspotTagIntent, normalizeBytspotTagUseMode, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from '../utils/patchTiers';
 
 interface VirtualPatchScannerSheetProps {
   isOpen: boolean;
   venueName: string;
   fallbackPatchId?: string | null;
+  fallbackTier?: BytspotPatchTier | null;
+  fallbackTagUseMode?: BytspotTagUseMode | null;
+  fallbackTagIntent?: BytspotTagIntent | null;
+  fallbackReferralCode?: string | null;
+  fallbackGroupSize?: number | null;
   userCoords?: { lat: number; lng: number };
   onClose: () => void;
   onVerified?: (verification: VirtualPatchScanVerification) => void;
@@ -419,6 +425,11 @@ export function VirtualPatchScannerSheet({
   isOpen,
   venueName,
   fallbackPatchId,
+  fallbackTier = null,
+  fallbackTagUseMode = null,
+  fallbackTagIntent = null,
+  fallbackReferralCode = null,
+  fallbackGroupSize = null,
   userCoords,
   onClose,
   onVerified,
@@ -596,7 +607,7 @@ export function VirtualPatchScannerSheet({
     let parsedUid: string | null = null;
 
     try {
-      const parsed = parseScannedPatchPayload(rawValue, fallbackPatchId);
+      const parsed = parseScannedPatchPayload(rawValue, fallbackPatchId, fallbackTier);
       parsedPatchId = parsed.patchId;
       parsedUid = parsed.uid;
 
@@ -638,6 +649,9 @@ export function VirtualPatchScannerSheet({
         uid: parsed.uid ?? undefined,
         readCounter: parsed.readCounter ?? undefined,
       });
+      const resolvedTier = normalizeBytspotPatchTier(result?.tier ?? result?.patch?.tier ?? result?.entitlement?.tier, parsed.tier ?? fallbackTier ?? null);
+      const resolvedUseMode = normalizeBytspotTagUseMode(result?.tagUseMode ?? result?.useMode ?? result?.patch?.tagUseMode ?? result?.patch?.useMode, parsed.tagUseMode ?? fallbackTagUseMode);
+      const resolvedIntent = normalizeBytspotTagIntent(result?.tagIntent ?? result?.intent, parsed.tagIntent ?? fallbackTagIntent);
 
       const summary: VirtualPatchScanVerification = {
         method,
@@ -649,6 +663,11 @@ export function VirtualPatchScannerSheet({
         tokenJti: result.token.jti,
         verifiedAt: result.token.issuedAt,
         binding: result.binding ?? null,
+        tier: resolvedTier,
+        tagUseMode: resolvedUseMode,
+        tagIntent: resolvedIntent,
+        referralCode: parsed.referralCode ?? fallbackReferralCode ?? null,
+        groupSize: parsed.groupSize ?? fallbackGroupSize ?? null,
       };
 
       setVerification(summary);
@@ -695,7 +714,7 @@ export function VirtualPatchScannerSheet({
       toast.error(method === 'nfc' ? 'Tap verification failed' : 'QR scan failed', { description: message });
       await notifyError();
     }
-  }, [emitAudit, fallbackPatchId, onVerified, publicVenueName, stopScanner, userCoords, vendorId, venueId]);
+  }, [emitAudit, fallbackGroupSize, fallbackPatchId, fallbackReferralCode, fallbackTagIntent, fallbackTagUseMode, fallbackTier, onVerified, publicVenueName, stopScanner, userCoords, vendorId, venueId]);
 
   const scheduleScan = useCallback(() => {
     rafRef.current = window.requestAnimationFrame(async () => {
@@ -1037,6 +1056,11 @@ export function VirtualPatchScannerSheet({
         venueId: venueId ?? null,
         venueName,
         patchId: verification.patchId,
+        tier: verification.tier ?? fallbackTier ?? null,
+        tagUseMode: verification.tagUseMode ?? fallbackTagUseMode ?? null,
+        tagIntent: verification.tagIntent ?? fallbackTagIntent ?? null,
+        referralCode: verification.referralCode ?? fallbackReferralCode ?? null,
+        groupSize: verification.groupSize ?? fallbackGroupSize ?? null,
       }));
     } else if (fallbackPatchId || venueName) {
       saveVirtualPatchContext({
@@ -1046,13 +1070,18 @@ export function VirtualPatchScannerSheet({
         venueId: venueId ?? null,
         venueName,
         patchId: fallbackPatchId ?? null,
+        tier: fallbackTier ?? null,
+        tagUseMode: fallbackTagUseMode ?? null,
+        tagIntent: fallbackTagIntent ?? null,
+        referralCode: fallbackReferralCode ?? null,
+        groupSize: fallbackGroupSize ?? null,
         distanceMeters: null,
         capabilities: { nfc: supportsNfc, qr: supportsLiveQr },
       });
     }
     onClose();
     onOpenAccessWallet?.();
-  }, [fallbackPatchId, onClose, onOpenAccessWallet, supportsLiveQr, supportsNfc, verification, venueId, venueName]);
+  }, [fallbackGroupSize, fallbackPatchId, fallbackReferralCode, fallbackTagIntent, fallbackTagUseMode, fallbackTier, onClose, onOpenAccessWallet, supportsLiveQr, supportsNfc, verification, venueId, venueName]);
 
   const handleClose = useCallback(() => {
     void impactLight();

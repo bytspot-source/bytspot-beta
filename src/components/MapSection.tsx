@@ -23,6 +23,7 @@ import { trpc, type ApiVenue } from '../utils/trpc';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
+import { type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from '../utils/patchTiers';
 import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
 import { getUserPreferences, getPreferredMapFilters, getCulturalContext } from '../utils/personalization';
 import {
@@ -71,7 +72,7 @@ interface MapSectionProps {
   /** Audit log sink (NIST PR.PT-1). Wired by App.tsx to the durable audit pipeline. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
   /** Universal-link / App Clip handoff — auto-opens the scanner with this patch pre-filled. */
-  pendingPatchScan?: { patchId?: string | null; venueName?: string; source?: 'app-clip' | 'wallet' } | null;
+  pendingPatchScan?: { patchId?: string | null; venueName?: string; tier?: BytspotPatchTier | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null; source?: 'app-clip' | 'wallet' } | null;
   /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
   onPendingPatchScanConsumed?: () => void;
   /** Route a map-created request into the established Concierge tab without adding nav layers. */
@@ -553,6 +554,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [showQrScannerSheet, setShowQrScannerSheet] = useState(false);
   const [qrScannerVenue, setQrScannerVenue] = useState<ApiVenue | null>(null);
   const [qrScannerEntrySource, setQrScannerEntrySource] = useState<'map' | 'app-clip' | 'wallet'>('map');
+  const [qrScannerTier, setQrScannerTier] = useState<BytspotPatchTier | null>(null);
+  const [qrScannerTagUseMode, setQrScannerTagUseMode] = useState<BytspotTagUseMode | null>(null);
+  const [qrScannerTagIntent, setQrScannerTagIntent] = useState<BytspotTagIntent | null>(null);
+  const [qrScannerReferralCode, setQrScannerReferralCode] = useState<string | null>(null);
+  const [qrScannerGroupSize, setQrScannerGroupSize] = useState<number | null>(null);
   const [showLiveUpdates, setShowLiveUpdates] = useState(true);
   // Bytspot Premium gating: drives the perks panel inside the verified peek sheet
   const [isPremium, setIsPremium] = useState(false);
@@ -653,6 +659,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
     setQrScannerEntrySource('map');
+    setQrScannerTier(null);
+    setQrScannerTagUseMode(null);
+    setQrScannerTagIntent(null);
+    setQrScannerReferralCode(null);
+    setQrScannerGroupSize(null);
   }, []);
 
   // Universal-link / App Clip / wallet handoff: when App.tsx receives a deep-link
@@ -666,6 +677,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       hardwarePatch: { id: pendingPatchScan.patchId ?? null },
     } as unknown as ApiVenue;
     setQrScannerEntrySource(pendingPatchScan.source ?? 'app-clip');
+    setQrScannerTier(pendingPatchScan.tier ?? null);
+    setQrScannerTagUseMode(pendingPatchScan.tagUseMode ?? null);
+    setQrScannerTagIntent(pendingPatchScan.tagIntent ?? null);
+    setQrScannerReferralCode(pendingPatchScan.referralCode ?? null);
+    setQrScannerGroupSize(pendingPatchScan.groupSize ?? null);
     setQrScannerVenue(synthetic);
     setShowQrScannerSheet(true);
     onPendingPatchScanConsumed?.();
@@ -678,6 +694,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       venueId: targetVenue?.id ?? null,
       venueName: targetVenue?.name ?? null,
       patchId: verification.patchId ?? targetVenue?.hardwarePatch?.id ?? null,
+      tier: verification.tier ?? qrScannerTier ?? null,
+      tagUseMode: verification.tagUseMode ?? qrScannerTagUseMode ?? null,
+      tagIntent: verification.tagIntent ?? qrScannerTagIntent ?? null,
+      referralCode: verification.referralCode ?? qrScannerReferralCode ?? null,
+      groupSize: verification.groupSize ?? qrScannerGroupSize ?? null,
       distanceMeters: nearbyVerifiedVenue ? Math.round(nearbyVerifiedVenue.distanceMeters) : null,
       capabilities: scanCapabilities,
     }));
@@ -690,7 +711,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     } else {
       toast.success('Verified', { description: 'Tap confirmed.' });
     }
-  }, [nearbyVerifiedVenue, qrScannerVenue, scanCapabilities]);
+  }, [nearbyVerifiedVenue, qrScannerGroupSize, qrScannerReferralCode, qrScannerTagIntent, qrScannerTagUseMode, qrScannerTier, qrScannerVenue, scanCapabilities]);
 
   const handleLaunchVirtualPatchSession = useCallback(() => {
     if (!nearbyVerifiedVenue) return;
@@ -712,6 +733,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
     if (scanCapabilities.nfc || scanCapabilities.qr) {
       setQrScannerEntrySource('map');
+      setQrScannerTier(null);
+      setQrScannerTagUseMode(null);
+      setQrScannerTagIntent(null);
+      setQrScannerReferralCode(null);
+      setQrScannerGroupSize(null);
       setQrScannerVenue(targetVenue);
       setShowQrScannerSheet(true);
       toast.success('Tap / Scan ready', {
@@ -739,6 +765,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setVenueDetailsVenue(null);
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
+    setQrScannerTier(null);
+    setQrScannerTagUseMode(null);
+    setQrScannerTagIntent(null);
+    setQrScannerReferralCode(null);
+    setQrScannerGroupSize(null);
 
     const suggestedVenue = nearbyVerifiedVenue?.venue ?? (peekVenueIsVerified ? peekVenue : nearestVerifiedVenue?.venue) ?? null;
 
@@ -1561,6 +1592,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           isOpen={showQrScannerSheet && Boolean(qrScannerVenue)}
           venueName={qrScannerVenue?.name ?? 'Bytspot Verified venue'}
           fallbackPatchId={qrScannerVenue?.hardwarePatch?.id ?? null}
+          fallbackTier={qrScannerTier}
+          fallbackTagUseMode={qrScannerTagUseMode}
+          fallbackTagIntent={qrScannerTagIntent}
+          fallbackReferralCode={qrScannerReferralCode}
+          fallbackGroupSize={qrScannerGroupSize}
           venueId={qrScannerVenue?.id ?? null}
           userCoords={userCoords}
           onClose={handleCloseQrScanner}

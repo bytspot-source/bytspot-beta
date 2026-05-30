@@ -73,6 +73,7 @@ import {
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
+import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
@@ -201,7 +202,7 @@ function getHomeServiceFocusId(card: DiscoverCard): string {
   return card.vendorServiceId ?? String(card.id);
 }
 
-function extractPatchDeepLink(url: string): { patchId: string; venueName?: string } | null {
+function extractPatchDeepLink(url: string): { patchId: string; venueName?: string; tier?: BytspotPatchTier | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null } | null {
   try {
     const parsed = new URL(url);
     const pathFromName = parsed.protocol === 'bytspot:' && parsed.hostname
@@ -216,9 +217,19 @@ function extractPatchDeepLink(url: string): { patchId: string; venueName?: strin
         : pathParts.length === 1 && isValidTagId(pathParts[0])
           ? pathParts[0]
           : null;
-    const patchId = patchFromPath || parsed.searchParams.get('patch');
+    const patchId = patchFromPath || parsed.searchParams.get('patch') || parsed.searchParams.get('patchId');
     if (!patchId) return null;
-    return { patchId, venueName: parsed.searchParams.get('venue') || undefined };
+    const isRootTag = pathParts.length === 1 && isValidTagId(pathParts[0]);
+    const groupSize = Number.parseInt(parsed.searchParams.get('groupSize') ?? parsed.searchParams.get('group') ?? '', 10);
+    return {
+      patchId,
+      venueName: parsed.searchParams.get('venue') || undefined,
+      tier: detectBytspotPatchTierFromUrl(parsed, patchId),
+      tagUseMode: detectBytspotTagUseModeFromUrl(parsed) ?? (isRootTag ? 'everyday' : null),
+      tagIntent: detectBytspotTagIntentFromUrl(parsed),
+      referralCode: parsed.searchParams.get('referralCode') ?? parsed.searchParams.get('referral') ?? parsed.searchParams.get('ref') ?? parsed.searchParams.get('r') ?? null,
+      groupSize: Number.isFinite(groupSize) ? Math.max(0, groupSize) : null,
+    };
   } catch {
     return null;
   }
@@ -394,7 +405,7 @@ export default function App() {
 
   // Universal-link / App Clip handoff — when the user lands via bytspot.app/p/<id>?venue=...
   // we surface this to MapSection which auto-opens the scanner with the patch pre-filled.
-  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId?: string | null; venueName?: string; source?: 'app-clip' | 'wallet' } | null>(null);
+  const [pendingPatchScan, setPendingPatchScan] = useState<{ patchId?: string | null; venueName?: string; tier?: BytspotPatchTier | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null; source?: 'app-clip' | 'wallet' } | null>(null);
   const consumePendingPatchScan = useCallback(() => setPendingPatchScan(null), []);
 
   const openVirtualPatchFromWallet = useCallback((context: VirtualPatchContext | null) => {
@@ -405,6 +416,11 @@ export default function App() {
     setPendingPatchScan({
       patchId: context?.patchId ?? null,
       venueName: context?.venueName ?? undefined,
+      tier: context?.tier ?? null,
+      tagUseMode: context?.tagUseMode ?? null,
+      tagIntent: context?.tagIntent ?? null,
+      referralCode: context?.referralCode ?? null,
+      groupSize: context?.groupSize ?? null,
       source: 'wallet',
     });
   }, []);
@@ -415,7 +431,7 @@ export default function App() {
     setActiveTab('profile');
   }, []);
 
-  const routePatchTap = useCallback(async (patchId: string, venueName?: string) => {
+  const routePatchTap = useCallback(async (patchId: string, venueName?: string, tier?: BytspotPatchTier | null, tagUseMode?: BytspotTagUseMode | null, tagIntent?: BytspotTagIntent | null, referralCode?: string | null, groupSize?: number | null) => {
     const authToken = localStorage.getItem('bytspot_auth_token');
     const isLoggedInConsumerOrVendor = Boolean(authToken && authToken !== 'guest_session');
 
@@ -442,13 +458,18 @@ export default function App() {
       initiatedAt: existingPatchContext?.patchId === patchId ? existingPatchContext.initiatedAt ?? now : now,
       patchId,
       venueName: venueName ?? existingPatchContext?.venueName ?? null,
+      tier: tier ?? existingPatchContext?.tier ?? null,
+      tagUseMode: tagUseMode ?? existingPatchContext?.tagUseMode ?? null,
+      tagIntent: tagIntent ?? existingPatchContext?.tagIntent ?? null,
+      referralCode: referralCode ?? existingPatchContext?.referralCode ?? null,
+      groupSize: groupSize ?? existingPatchContext?.groupSize ?? null,
       capabilities: { ...(existingPatchContext?.capabilities ?? {}), nfc: true, qr: true },
     });
     localStorage.setItem('bytspot_intro_seen', 'true');
     setCurrentScreen('main');
     setActiveTab('map');
-    setPendingPatchScan({ patchId, venueName, source: 'app-clip' });
-    window.history.replaceState({}, '', consumerPatchPath(patchId));
+    setPendingPatchScan({ patchId, venueName, tier: tier ?? null, tagUseMode: tagUseMode ?? null, tagIntent: tagIntent ?? null, referralCode: referralCode ?? null, groupSize: groupSize ?? null, source: 'app-clip' });
+    window.history.replaceState({}, '', consumerPatchPath(patchId, tier));
   }, [openProviderPatchManager]);
 
   useEffect(() => {
@@ -659,11 +680,12 @@ export default function App() {
         // Patch verify universal-link: bytspot.app/p/<patchId>?venue=<name>&t=<token>
         // App Clip / NFC demo alias: bytspot.app/patch/<patchId>
         // Production NFC tag URL: bytspot.app/<uniqueid>?c=<customerId>
+        // NTAG424 DNA cards/wristbands may also arrive as bytspot.com/BYT424-0301.
         // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
         const patchDeepLink = extractPatchDeepLink(url);
         if (patchDeepLink) {
-          void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName);
+          void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName, patchDeepLink.tier, patchDeepLink.tagUseMode, patchDeepLink.tagIntent, patchDeepLink.referralCode, patchDeepLink.groupSize);
           return;
         }
 

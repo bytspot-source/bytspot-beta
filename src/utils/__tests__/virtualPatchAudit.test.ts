@@ -20,6 +20,7 @@ import {
   parseScannedPatchPayload,
   type VirtualPatchAuditEvent,
 } from '../virtualPatch.ts';
+import { detectBytspotPatchTierFromUrl, inferBytspotPatchTier, resolveBytspotPatchTier, withBytspotPatchTier } from '../patchTiers.ts';
 
 // ─── createAuditEvent shape ─────────────────────────────────────────────
 
@@ -254,6 +255,36 @@ test('parseScannedPatchPayload: supports clean /p patch URLs for NFC tags', () =
   const parsed = parseScannedPatchPayload('https://bytspot.app/p/PATCH-PROD-20260511-A7F2K9?venue=Bytspot%20Demo');
   assert.equal(parsed.patchId, 'PATCH-PROD-20260511-A7F2K9');
   assert.equal(parsed.token, null);
+  assert.equal(parsed.tier, null);
+});
+
+test('parseScannedPatchPayload: preserves tiered vendor patch scanner URLs', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/p/PATCH-BLACK-1?patch=PATCH-BLACK-1&venue=FBO&tier=black&service=svc-jet');
+  assert.equal(parsed.patchId, 'PATCH-BLACK-1');
+  assert.equal(parsed.tier, 'black');
+});
+
+test('patch tier helpers map vendor services and retrofit existing patch URLs', () => {
+  assert.equal(inferBytspotPatchTier({ tier: 'green', priceCents: 45000 }), 'green');
+  assert.equal(inferBytspotPatchTier({ priceCents: 5000 }), 'platinum');
+  assert.equal(detectBytspotPatchTierFromUrl(new URL('https://bytspot.app/p/BYT-B-100')), 'black');
+  assert.equal(detectBytspotPatchTierFromUrl(new URL('https://bytspot.com/BYT424-0301-B')), 'black');
+  assert.equal(detectBytspotPatchTierFromUrl(new URL('https://bytspot.com/BYT424-0301-P')), 'platinum');
+  assert.equal(detectBytspotPatchTierFromUrl(new URL('https://bytspot.com/BYT424-0301-G')), 'green');
+  const url = withBytspotPatchTier('https://bytspot.app/p/patch-1?patch=patch-1&venue=Demo', 'green', 'svc-farm');
+  assert.equal(new URL(url).searchParams.get('tier'), 'green');
+  assert.equal(new URL(url).searchParams.get('service'), 'svc-farm');
+});
+
+test('resolveBytspotPatchTier: backend registry wins over tier-coded fallback for dynamic upgrades', () => {
+  const resolved = resolveBytspotPatchTier({
+    serverTier: 'black',
+    url: new URL('https://bytspot.com/BYT424-0301-G'),
+    patchId: 'BYT424-0301-G',
+  });
+  assert.equal(resolved.tier, 'black');
+  assert.equal(resolved.source, 'backend-registry');
+  assert.equal(resolved.dynamic, true);
 });
 
 test('parseScannedPatchPayload: supports /patch URLs for App Clip NFC demos', () => {
@@ -282,6 +313,24 @@ test('parseScannedPatchPayload: supports root production tag URLs with optional 
   assert.equal(parsed.patchId, 'BYT424-0001');
   assert.equal(parsed.customerId, 'CUST-7788');
   assert.equal(parsed.token, null);
+});
+
+test('parseScannedPatchPayload: supports preordered NTAG424 DNA bytspot.com wristband URLs', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.com/BYT424-0301?tier=black');
+  assert.equal(parsed.patchId, 'BYT424-0301');
+  assert.equal(parsed.tier, 'black');
+  assert.equal(parsed.tagUseMode, 'everyday');
+  assert.equal(parsed.token, null);
+});
+
+test('parseScannedPatchPayload: supports one-time event and Friend Tap referral metadata', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.com/BYT424-0301-B?use=event&intent=friend_tap&ref=OWNER-42&group=3');
+  assert.equal(parsed.patchId, 'BYT424-0301-B');
+  assert.equal(parsed.tier, 'black');
+  assert.equal(parsed.tagUseMode, 'one_time');
+  assert.equal(parsed.tagIntent, 'friend_tap');
+  assert.equal(parsed.referralCode, 'OWNER-42');
+  assert.equal(parsed.groupSize, 3);
 });
 
 test('parseScannedPatchPayload: does not treat normal routes or non-BYT /t slugs as tag IDs', () => {

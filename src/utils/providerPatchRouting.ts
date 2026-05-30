@@ -1,4 +1,5 @@
 import { trpc } from './trpc';
+import { type BytspotPatchTier } from './patchTiers';
 import type { VirtualPatchContext } from './virtualPatch';
 
 export const PROVIDER_PATCH_FOCUS_KEY = 'bytspot_provider_patch_focus';
@@ -14,8 +15,9 @@ export function providerPatchPath(patchId: string): string {
   return `/vendor/station/${encodeURIComponent(patchId)}`;
 }
 
-export function consumerPatchPath(patchId: string): string {
-  return `/access/${encodeURIComponent(patchId)}`;
+export function consumerPatchPath(patchId: string, tier?: BytspotPatchTier | null): string {
+  const path = `/access/${encodeURIComponent(patchId)}`;
+  return tier ? `${path}?tier=${encodeURIComponent(tier)}` : path;
 }
 
 export function readProviderPatchIdFromPath(pathname: string): string | null {

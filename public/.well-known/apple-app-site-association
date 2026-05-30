@@ -8,6 +8,7 @@
           "MK4J6M36S8.com.bytspot.app.Clip"
         ],
         "components": [
+          { "/": "/BYT*", "comment": "Root NTAG424 DNA production tag links, e.g. /BYT424-0301" },
           { "/": "/p/*", "comment": "Patch verify deep link" },
           { "/": "/patch/*", "comment": "Patch verify deep link alias for NFC/App Clip demos" },
           { "/": "/t/*", "comment": "Production NFC tag serial deep link" },

@@ -23,7 +23,6 @@ import { trpc, type ApiVenue } from '../utils/trpc';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
-import { type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from '../utils/patchTiers';
 import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
 import { getUserPreferences, getPreferredMapFilters, getCulturalContext } from '../utils/personalization';
 import {
@@ -38,6 +37,7 @@ import { MapActionStack } from './map/MapActionStack';
 import { MapLayersMenu } from './map/MapLayersMenu';
 import { MapSearchBar } from './map/MapSearchBar';
 import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
+import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
 
 type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
@@ -72,7 +72,7 @@ interface MapSectionProps {
   /** Audit log sink (NIST PR.PT-1). Wired by App.tsx to the durable audit pipeline. */
   onAuditEvent?: (event: VirtualPatchAuditEvent) => void;
   /** Universal-link / App Clip handoff — auto-opens the scanner with this patch pre-filled. */
-  pendingPatchScan?: { patchId?: string | null; venueName?: string; tier?: BytspotPatchTier | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null; source?: 'app-clip' | 'wallet' } | null;
+  pendingPatchScan?: PendingPatchScan | null;
   /** Called once the pending scan has been delivered to the scanner so App.tsx can clear it. */
   onPendingPatchScanConsumed?: () => void;
   /** Route a map-created request into the established Concierge tab without adding nav layers. */
@@ -551,14 +551,22 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
   const [showVirtualPatchSheet, setShowVirtualPatchSheet] = useState(false);
   const [showAINotice, setShowAINotice] = useState(false);
-  const [showQrScannerSheet, setShowQrScannerSheet] = useState(false);
-  const [qrScannerVenue, setQrScannerVenue] = useState<ApiVenue | null>(null);
-  const [qrScannerEntrySource, setQrScannerEntrySource] = useState<'map' | 'app-clip' | 'wallet'>('map');
-  const [qrScannerTier, setQrScannerTier] = useState<BytspotPatchTier | null>(null);
-  const [qrScannerTagUseMode, setQrScannerTagUseMode] = useState<BytspotTagUseMode | null>(null);
-  const [qrScannerTagIntent, setQrScannerTagIntent] = useState<BytspotTagIntent | null>(null);
-  const [qrScannerReferralCode, setQrScannerReferralCode] = useState<string | null>(null);
-  const [qrScannerGroupSize, setQrScannerGroupSize] = useState<number | null>(null);
+  const {
+    showQrScannerSheet,
+    qrScannerVenue,
+    qrScannerEntrySource,
+    qrScannerTier,
+    qrScannerTagUseMode,
+    qrScannerTagIntent,
+    qrScannerReferralCode,
+    qrScannerGroupSize,
+    setShowQrScannerSheet,
+    setQrScannerVenue,
+    resetQrScannerContext,
+    openMapQrScanner,
+    openPendingPatchScan,
+    handleCloseQrScanner,
+  } = useMapPatchScanner();
   const [showLiveUpdates, setShowLiveUpdates] = useState(true);
   // Bytspot Premium gating: drives the perks panel inside the verified peek sheet
   const [isPremium, setIsPremium] = useState(false);
@@ -655,47 +663,14 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     ? `${nearbyVerifiedVenue.venue.name} · ${formatMeters(nearbyVerifiedVenue.distanceMeters)}`
     : 'Open Virtual Patch';
 
-  const resetQrScannerContext = useCallback(() => {
-    setQrScannerEntrySource('map');
-    setQrScannerTier(null);
-    setQrScannerTagUseMode(null);
-    setQrScannerTagIntent(null);
-    setQrScannerReferralCode(null);
-    setQrScannerGroupSize(null);
-  }, []);
-
-  const openMapQrScanner = useCallback((venue: ApiVenue) => {
-    resetQrScannerContext();
-    setQrScannerVenue(venue);
-    setShowQrScannerSheet(true);
-  }, [resetQrScannerContext]);
-
-  const handleCloseQrScanner = useCallback(() => {
-    setShowQrScannerSheet(false);
-    setQrScannerVenue(null);
-    resetQrScannerContext();
-  }, [resetQrScannerContext]);
-
   // Universal-link / App Clip / wallet handoff: when App.tsx receives a deep-link
   // or My Access resume request, auto-open the scanner. If a patch ID is known,
   // prefill it; otherwise the live NFC/QR payload supplies the patch identifier.
   useEffect(() => {
     if (!pendingPatchScan) return;
-    const synthetic = {
-      id: null,
-      name: pendingPatchScan.venueName ?? 'Bytspot patch',
-      hardwarePatch: { id: pendingPatchScan.patchId ?? null },
-    } as unknown as ApiVenue;
-    setQrScannerEntrySource(pendingPatchScan.source ?? 'app-clip');
-    setQrScannerTier(pendingPatchScan.tier ?? null);
-    setQrScannerTagUseMode(pendingPatchScan.tagUseMode ?? null);
-    setQrScannerTagIntent(pendingPatchScan.tagIntent ?? null);
-    setQrScannerReferralCode(pendingPatchScan.referralCode ?? null);
-    setQrScannerGroupSize(pendingPatchScan.groupSize ?? null);
-    setQrScannerVenue(synthetic);
-    setShowQrScannerSheet(true);
+    openPendingPatchScan(pendingPatchScan);
     onPendingPatchScanConsumed?.();
-  }, [pendingPatchScan, onPendingPatchScanConsumed]);
+  }, [openPendingPatchScan, pendingPatchScan, onPendingPatchScanConsumed]);
 
   const handleQrVerified = useCallback((verification: VirtualPatchScanVerification) => {
     const targetVenue = qrScannerVenue ?? nearbyVerifiedVenue?.venue ?? null;

@@ -189,6 +189,9 @@ final class ClipInvocationModel: ObservableObject {
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
             flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001")
             return true
+        case "black_ride", "ride", "valet":
+            openValetBoutiqueServices()
+            return true
         default:
             return false
         }
@@ -207,6 +210,16 @@ final class ClipInvocationModel: ObservableObject {
 
     func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String) {
         flow = .success(service: service, vendor: vendor, bookingRef: bookingRef)
+    }
+
+    func openValetBoutiqueServices() {
+        let catalog = services + ClipLocalService.fallbacks(for: tier)
+        guard let service = catalog.first(where: Self.isRideLogisticsService) else {
+            flow = .catalog
+            return
+        }
+        flow = .vendors(service: service)
+        prefetchVendors(for: service)
     }
 
     func backToCatalog() {
@@ -306,6 +319,17 @@ final class ClipInvocationModel: ObservableObject {
             }
             verificationState = .failed(message: msg)
         }
+    }
+
+    private static func isRideLogisticsService(_ service: ClipLocalService) -> Bool {
+        let text = [service.id, service.title, service.action, service.category ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("valet")
+            || text.contains("chauffeur")
+            || text.contains("rideshare")
+            || text.contains("ride")
+            || text.contains("transport")
     }
 
     private static func patchId(from pathParts: [String]) -> String? {

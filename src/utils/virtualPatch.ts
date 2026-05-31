@@ -12,6 +12,7 @@ import {
 
 export const VIRTUAL_PATCH_CONTEXT_KEY = 'bytspot_virtual_patch_context';
 const SERVICE_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
+export const VIRTUAL_PATCH_HOLD_WINDOW_MS = 45 * 60 * 1000;
 
 export type VirtualPatchScanMethod = 'qr' | 'nfc';
 export type VirtualPatchTrustLevel = 'static-discovery' | 'nfc-counter-verified';
@@ -71,6 +72,7 @@ export type VirtualPatchServiceRequestKind = 'venue-service' | 'vendor-request' 
 export interface VirtualPatchSavedServiceRequest {
   id: string;
   kind: VirtualPatchServiceRequestKind;
+  serviceId?: string | null;
   vendorId?: string | null;
   vendorName: string;
   vendorCategory?: string | null;
@@ -87,6 +89,10 @@ export interface VirtualPatchSavedServiceRequest {
   eta?: string | null;
   availability?: string | null;
   signedIn?: boolean;
+  amountCents?: number | null;
+  guestCount?: number | null;
+  idempotencyKey?: string | null;
+  holdExpiresAt?: string | null;
   booking?: {
     time?: string;
     partySize?: string;
@@ -143,6 +149,29 @@ export interface ParsedVirtualPatchPayload {
   groupSize: number | null;
 }
 
+export type VirtualPatchCheckoutDecision = 'create' | 'reuse_active' | 'blocked_one_time';
+export type VirtualPatchMembershipMode = 'black_everyday_membership' | 'one_time' | 'standard';
+
+export interface VirtualPatchCheckoutIntent {
+  kind?: VirtualPatchServiceRequestKind;
+  serviceId?: string | null;
+  serviceName: string;
+  vendorId?: string | null;
+  amountCents?: number | null;
+  guestCount?: number | string | null;
+  requestedAt?: string;
+  holdExpiresAt?: string | null;
+}
+
+export interface VirtualPatchCheckoutPolicyResult {
+  decision: VirtualPatchCheckoutDecision;
+  membershipMode: VirtualPatchMembershipMode;
+  idempotencyKey: string;
+  holdExpiresAt: string;
+  existingRequest?: VirtualPatchSavedServiceRequest;
+  reason: string;
+}
+
 interface NativeNdefRecordLike {
   payload: number[];
   type: number[];
@@ -188,6 +217,95 @@ function queryValue(url: URL, names: readonly string[]): string | null {
     if (wanted.has(name.toLowerCase())) return value;
   }
   return null;
+}
+
+function timeMs(value: string | number | Date | null | undefined): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : Date.now();
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
+function keyPart(value: unknown, fallback: string): string {
+  const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value : '';
+  const normalized = raw.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function numberPart(value: unknown, fallback: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(Math.max(0, Math.trunc(value)));
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) return String(Math.max(0, parsed));
+  }
+  return fallback;
+}
+
+function patchMembershipScope(context: Pick<VirtualPatchContext, 'patchId' | 'venueId' | 'scan'>): string {
+  return keyPart(context.patchId ?? context.scan?.uid ?? context.scan?.tokenJti ?? context.venueId, 'unknown-patch');
+}
+
+function requestHoldExpiresAtMs(request: Pick<VirtualPatchSavedServiceRequest, 'requestedAt' | 'holdExpiresAt'>, holdWindowMs: number): number {
+  const explicit = request.holdExpiresAt ? Date.parse(request.holdExpiresAt) : Number.NaN;
+  if (Number.isFinite(explicit)) return explicit;
+  const requested = Date.parse(request.requestedAt);
+  return Number.isFinite(requested) ? requested + holdWindowMs : 0;
+}
+
+export function getVirtualPatchMembershipMode(context: Pick<VirtualPatchContext, 'tier' | 'tagUseMode'>): VirtualPatchMembershipMode {
+  if (context.tier === 'black' && context.tagUseMode === 'everyday') return 'black_everyday_membership';
+  if (context.tagUseMode === 'one_time') return 'one_time';
+  return 'standard';
+}
+
+export function buildVirtualPatchCheckoutIdempotencyKey(
+  context: Pick<VirtualPatchContext, 'patchId' | 'venueId' | 'scan'>,
+  intent: VirtualPatchCheckoutIntent,
+): string {
+  const service = keyPart(intent.serviceId ?? intent.serviceName, 'unknown-service');
+  const vendor = keyPart(intent.vendorId, 'venue');
+  const kind = keyPart(intent.kind ?? 'booking', 'booking');
+  const amount = numberPart(intent.amountCents, 'quote');
+  const guests = numberPart(intent.guestCount, '1');
+  return ['vpatch', 'checkout', 'v1', patchMembershipScope(context), kind, vendor, service, amount, guests].join(':');
+}
+
+export function resolveVirtualPatchCheckoutPolicy(
+  context: Pick<VirtualPatchContext, 'patchId' | 'venueId' | 'scan' | 'tier' | 'tagUseMode' | 'serviceRequests'>,
+  intent: VirtualPatchCheckoutIntent,
+  options: { now?: string | number | Date; holdWindowMs?: number } = {},
+): VirtualPatchCheckoutPolicyResult {
+  const now = timeMs(options.now);
+  const holdWindowMs = options.holdWindowMs ?? VIRTUAL_PATCH_HOLD_WINDOW_MS;
+  const requestedAt = timeMs(intent.requestedAt ?? now);
+  const idempotencyKey = buildVirtualPatchCheckoutIdempotencyKey(context, intent);
+  const holdExpiresAt = intent.holdExpiresAt ?? new Date(requestedAt + holdWindowMs).toISOString();
+  const membershipMode = getVirtualPatchMembershipMode(context);
+  const activeRequests = (context.serviceRequests ?? []).filter((request) => requestHoldExpiresAtMs(request, holdWindowMs) > now);
+  const duplicate = activeRequests.find((request) => {
+    const requestKey = request.idempotencyKey ?? buildVirtualPatchCheckoutIdempotencyKey(context, {
+      kind: request.kind,
+      serviceId: request.serviceId,
+      serviceName: request.serviceName,
+      vendorId: request.vendorId,
+      amountCents: request.amountCents,
+      guestCount: request.guestCount ?? request.booking?.partySize,
+    });
+    return requestKey === idempotencyKey;
+  });
+
+  if (duplicate) {
+    return { decision: 'reuse_active', membershipMode, idempotencyKey, holdExpiresAt, existingRequest: duplicate, reason: 'identical_active_hold' };
+  }
+
+  if (membershipMode === 'one_time' && activeRequests.length > 0) {
+    return { decision: 'blocked_one_time', membershipMode, idempotencyKey, holdExpiresAt, existingRequest: activeRequests[0], reason: 'one_time_tag_active_request_exists' };
+  }
+
+  return { decision: 'create', membershipMode, idempotencyKey, holdExpiresAt, reason: membershipMode === 'black_everyday_membership' ? 'membership_allows_distinct_service' : 'no_active_duplicate' };
 }
 
 export function isValidTagId(slug: string | undefined): slug is string {
@@ -451,15 +569,20 @@ export function loadVirtualPatchContext(): VirtualPatchContext | null {
   }
 }
 
+type AppendVirtualPatchServiceRequestOptions = Partial<VirtualPatchContext> & {
+  now?: string | number | Date;
+  holdWindowMs?: number;
+  enforceCheckoutPolicy?: boolean;
+};
+
 export function appendVirtualPatchServiceRequest(
   request: Omit<VirtualPatchSavedServiceRequest, 'id' | 'requestedAt'> & Partial<Pick<VirtualPatchSavedServiceRequest, 'id' | 'requestedAt'>>,
-  options: Partial<VirtualPatchContext> = {},
+  options: AppendVirtualPatchServiceRequestOptions = {},
 ): VirtualPatchContext {
   const existing = loadVirtualPatchContext();
   const requestedAt = request.requestedAt ?? new Date().toISOString();
-  const id = request.id ?? `${request.kind}:${request.vendorId ?? 'venue'}:${request.serviceName}:${requestedAt}`;
   const previousRequests = Array.isArray(existing?.serviceRequests) ? existing.serviceRequests : [];
-  const nextContext: VirtualPatchContext = {
+  const baseContext: VirtualPatchContext = {
     ...(existing ?? {}),
     ...options,
     source: existing?.source ?? options.source ?? 'scanner',
@@ -467,9 +590,35 @@ export function appendVirtualPatchServiceRequest(
     initiatedAt: existing?.initiatedAt ?? options.initiatedAt ?? requestedAt,
     venueId: existing?.venueId ?? options.venueId ?? request.venueId ?? null,
     venueName: existing?.venueName ?? options.venueName ?? request.venueName ?? null,
+    serviceRequests: previousRequests,
+  };
+  const policyEnabled = options.enforceCheckoutPolicy !== false && ['venue-service', 'vendor-request', 'booking'].includes(request.kind);
+  const policy = policyEnabled
+    ? resolveVirtualPatchCheckoutPolicy(baseContext, {
+      kind: request.kind,
+      serviceId: request.serviceId,
+      serviceName: request.serviceName,
+      vendorId: request.vendorId,
+      amountCents: request.amountCents,
+      guestCount: request.guestCount ?? request.booking?.partySize,
+      requestedAt,
+      holdExpiresAt: request.holdExpiresAt,
+    }, { now: options.now ?? requestedAt, holdWindowMs: options.holdWindowMs })
+    : null;
+
+  if (policy && policy.decision !== 'create') {
+    saveVirtualPatchContext(baseContext);
+    return baseContext;
+  }
+
+  const idempotencyKey = policy?.idempotencyKey ?? null;
+  const holdExpiresAt = request.holdExpiresAt ?? policy?.holdExpiresAt ?? null;
+  const id = request.id ?? idempotencyKey ?? `${request.kind}:${request.vendorId ?? 'venue'}:${request.serviceName}:${requestedAt}`;
+  const nextContext: VirtualPatchContext = {
+    ...baseContext,
     serviceRequests: [
       ...previousRequests,
-      { ...request, id, requestedAt },
+      { ...request, id, requestedAt, idempotencyKey, holdExpiresAt },
     ].slice(-20),
   };
   saveVirtualPatchContext(nextContext);

@@ -836,6 +836,8 @@ struct ClipCheckoutView: View {
                 paymentSecure.startApplePay(
                     service: service,
                     patchId: invocation.patchId ?? invocation.patchContext?.patchId,
+                    vendorId: vendor.id,
+                    guestCount: invocation.guestCount,
                     amountCentsOverride: totalCents,
                     lineLabel: "\(vendor.name) · \(service.title)"
                 )
@@ -1238,16 +1240,12 @@ struct ClipSuccessView: View {
                 }.buttonStyle(.plain)
 
                 if hasGroundLogistics {
-                    Button(action: { impactLight(); openUberBlack() }) {
-                        actionRow(icon: "car.fill", title: "Request Uber Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
-                    }.buttonStyle(.plain)
-
-                    Button(action: { impactLight(); openLyftBlack() }) {
-                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Lyft Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                    Button(action: { impactLight(); openBlackRide() }) {
+                        actionRow(icon: "car.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     }.buttonStyle(.plain)
                 } else {
-                    Button(action: { impactLight(); openUberBlack() }) {
-                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Uber Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                    Button(action: { impactLight(); openBlackRide() }) {
+                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.28), ClipTheme.violet.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     }.buttonStyle(.plain)
                 }
             }
@@ -1323,6 +1321,32 @@ struct ClipSuccessView: View {
         }
     }
 
+    private func openBlackRide() {
+        guard let uberCheckURL = URL(string: "uber://"),
+              let lyftCheckURL = URL(string: "lyft://"),
+              let uberBlackURL = URL(string: "uber://?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880&product_id=9a0f7356-61b9-4b71-8854-93c683b519e4"),
+              let lyftBlackURL = URL(string: "lyft://ridetype?id=lyft_lux") else {
+            openValetBoutiqueServices()
+            return
+        }
+
+        if UIApplication.shared.canOpenURL(uberCheckURL) {
+            openUberBlack()
+        } else if UIApplication.shared.canOpenURL(lyftCheckURL) {
+            openLyftBlack()
+        } else {
+            // App Clips ignore LSApplicationQueriesSchemes, so canOpenURL may be
+            // conservative. Try the native URLs in priority order, then fall back
+            // to Bytspot's valet logistics flow if neither app accepts the link.
+            UIApplication.shared.open(uberBlackURL) { openedUber in
+                guard !openedUber else { return }
+                UIApplication.shared.open(lyftBlackURL) { openedLyft in
+                    if !openedLyft { openValetBoutiqueServices() }
+                }
+            }
+        }
+    }
+
     private func openUberBlack() {
         guard let appURL = URL(string: "uber://?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880&product_id=9a0f7356-61b9-4b71-8854-93c683b519e4"),
               let webURL = URL(string: "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880") else { return }
@@ -1336,6 +1360,12 @@ struct ClipSuccessView: View {
               let webURL = URL(string: "https://www.lyft.com/rider?ride_type=lyft_lux") else { return }
         UIApplication.shared.open(appURL) { opened in
             if !opened { UIApplication.shared.open(webURL) }
+        }
+    }
+
+    private func openValetBoutiqueServices() {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            invocation.openValetBoutiqueServices()
         }
     }
 }
@@ -1410,6 +1440,7 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
     private var pendingService: ClipLocalService?
     private var pendingPatchId: String?
     private var pendingAmountCents: Int = 0
+    private var pendingIdempotencyKey: String?
 
     var canUseApplePay: Bool {
         PKPaymentAuthorizationController.canMakePayments(usingNetworks: supportedNetworks)
@@ -1423,9 +1454,10 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
         pendingService = nil
         pendingPatchId = nil
         pendingAmountCents = 0
+        pendingIdempotencyKey = nil
     }
 
-    func startApplePay(service: ClipLocalService, patchId: String?, amountCentsOverride: Int? = nil, lineLabel: String? = nil) {
+    func startApplePay(service: ClipLocalService, patchId: String?, vendorId: String? = nil, guestCount: Int = 1, amountCentsOverride: Int? = nil, lineLabel: String? = nil) {
         guard configureStripeApplePay() else {
             if !canUseApplePay {
                 statusTone = .warning
@@ -1445,9 +1477,16 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
         }
 
         let amountCents = max(amountCentsOverride ?? service.amountCents ?? 2500, 50)
+        let idempotencyKey = Self.checkoutIdempotencyKey(patchId: patchId, serviceId: service.id, vendorId: vendorId, amountCents: amountCents, guestCount: guestCount)
+        if isAuthorizing && pendingIdempotencyKey == idempotencyKey {
+            statusTone = .neutral
+            statusMessage = "Secure hold already in progress for this service."
+            return
+        }
         pendingService = service
         pendingPatchId = patchId
         pendingAmountCents = amountCents
+        pendingIdempotencyKey = idempotencyKey
         statusMessage = nil
         statusTone = .neutral
         completedResult = nil
@@ -1492,6 +1531,7 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
                     patchId: pendingPatchId,
                     stripePaymentMethodId: paymentMethodId,
                     amountCents: pendingAmountCents,
+                    idempotencyKey: pendingIdempotencyKey,
                     guestContact: applePayGuestContact(from: payment)
                 )
                 statusTone = .success
@@ -1529,6 +1569,26 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
         guard let raw = Bundle.main.object(forInfoDictionaryKey: "BytspotApplePayMerchantID") as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func checkoutIdempotencyKey(patchId: String?, serviceId: String, vendorId: String?, amountCents: Int, guestCount: Int) -> String {
+        [
+            "vpatch", "checkout", "v1",
+            keyPart(patchId, fallback: "unknown-patch"),
+            "booking",
+            keyPart(vendorId, fallback: "venue"),
+            keyPart(serviceId, fallback: "unknown-service"),
+            String(max(amountCents, 0)),
+            String(max(guestCount, 1))
+        ].joined(separator: ":")
+    }
+
+    private static func keyPart(_ value: String?, fallback: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let lowered = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = lowered.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }.reduce(into: "") { $0.append($1) }
+        let trimmed = normalized.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? fallback : trimmed
     }
 
     private var stripePublishableKey: String? {

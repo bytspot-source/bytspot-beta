@@ -12,13 +12,18 @@ import assert from 'node:assert/strict';
 
 import {
   buildVerifiedVirtualPatchContext,
+  buildVirtualPatchCheckoutIdempotencyKey,
   createAuditEvent,
+  getVirtualPatchMembershipMode,
   isPatchRevoked,
   isValidTagId,
   loadRevocationList,
   markPatchRevoked,
   parseScannedPatchPayload,
+  resolveVirtualPatchCheckoutPolicy,
   type VirtualPatchAuditEvent,
+  type VirtualPatchContext,
+  type VirtualPatchSavedServiceRequest,
 } from '../virtualPatch.ts';
 import { detectBytspotPatchTierFromUrl, inferBytspotPatchTier, resolveBytspotPatchTier, withBytspotPatchTier } from '../patchTiers.ts';
 
@@ -345,3 +350,80 @@ test('parseScannedPatchPayload: supports /verify patch URLs with token alias', (
   assert.equal(parsed.token, 'secure-token-123');
   assert.equal(parsed.uid, 'B4AE347131AF4D');
 });
+
+// ─── Membership checkout idempotency ────────────────────────────────────────
+
+const blackEverydayContext: VirtualPatchContext = {
+  patchId: 'BYT424-0301-B',
+  tier: 'black',
+  tagUseMode: 'everyday',
+};
+
+function activeRequest(overrides: Partial<VirtualPatchSavedServiceRequest> = {}): VirtualPatchSavedServiceRequest {
+  return {
+    id: 'hold-jet-active',
+    kind: 'booking',
+    serviceId: 'black-aviation',
+    vendorId: 'stratos',
+    vendorName: 'Stratos Jet Charters',
+    serviceName: 'Private Aviation',
+    actionLabel: 'Place Secure Hold',
+    status: 'booked',
+    requestedAt: '2026-05-31T17:00:00.000Z',
+    holdExpiresAt: '2026-05-31T17:45:00.000Z',
+    amountCents: 2_800_000,
+    guestCount: 2,
+    ...overrides,
+  };
+}
+
+test('membership mode: Black everyday wristband is treated as reusable membership access', () => {
+  assert.equal(getVirtualPatchMembershipMode(blackEverydayContext), 'black_everyday_membership');
+  assert.equal(getVirtualPatchMembershipMode({ tier: 'black', tagUseMode: 'one_time' }), 'one_time');
+});
+
+test('checkout idempotency: identical active Black hold is reused, not duplicated', () => {
+  const intent = { serviceId: 'black-aviation', serviceName: 'Private Aviation', vendorId: 'stratos', amountCents: 2_800_000, guestCount: 2 };
+  const existing = activeRequest({ idempotencyKey: buildVirtualPatchCheckoutIdempotencyKey(blackEverydayContext, intent) });
+  const result = resolveVirtualPatchCheckoutPolicy({ ...blackEverydayContext, serviceRequests: [existing] }, intent, { now: '2026-05-31T17:10:00.000Z' });
+
+  assert.equal(result.decision, 'reuse_active');
+  assert.equal(result.existingRequest?.id, 'hold-jet-active');
+  assert.equal(result.reason, 'identical_active_hold');
+});
+
+test('checkout idempotency: Black everyday wristband allows different Black services', () => {
+  const result = resolveVirtualPatchCheckoutPolicy({ ...blackEverydayContext, serviceRequests: [activeRequest()] }, {
+    serviceId: 'black-dining',
+    serviceName: 'Elite Dining',
+    vendorId: 'chef-atelier',
+    amountCents: 120_000,
+    guestCount: 2,
+  }, { now: '2026-05-31T17:10:00.000Z' });
+
+  assert.equal(result.decision, 'create');
+  assert.equal(result.membershipMode, 'black_everyday_membership');
+  assert.equal(result.reason, 'membership_allows_distinct_service');
+});
+
+test('checkout idempotency: expired identical hold can create a new hold', () => {
+  const intent = { serviceId: 'black-aviation', serviceName: 'Private Aviation', vendorId: 'stratos', amountCents: 2_800_000, guestCount: 2 };
+  const expired = activeRequest({ holdExpiresAt: '2026-05-31T17:45:00.000Z' });
+  const result = resolveVirtualPatchCheckoutPolicy({ ...blackEverydayContext, serviceRequests: [expired] }, intent, { now: '2026-05-31T17:46:00.000Z' });
+
+  assert.equal(result.decision, 'create');
+});
+
+test('checkout idempotency: one-time tags block a second distinct active service', () => {
+  const result = resolveVirtualPatchCheckoutPolicy({ patchId: 'BYT-EVENT-1', tier: 'black', tagUseMode: 'one_time', serviceRequests: [activeRequest()] }, {
+    serviceId: 'black-dining',
+    serviceName: 'Elite Dining',
+    vendorId: 'chef-atelier',
+    amountCents: 120_000,
+    guestCount: 2,
+  }, { now: '2026-05-31T17:10:00.000Z' });
+
+  assert.equal(result.decision, 'blocked_one_time');
+  assert.equal(result.reason, 'one_time_tag_active_request_exists');
+}
+);

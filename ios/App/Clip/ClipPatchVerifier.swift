@@ -540,6 +540,7 @@ struct ClipPatchVerifier {
         patchId: String?,
         stripePaymentMethodId: String,
         amountCents: Int,
+        idempotencyKey: String? = nil,
         guestContact: [String: String]? = nil
     ) async throws -> ClipPaymentSecureResult {
         var input: [String: Any] = [
@@ -551,6 +552,9 @@ struct ClipPatchVerifier {
             "captureMode": "manual",
             "source": "app_clip.apple_pay_secure"
         ]
+        if let idempotencyKey, !idempotencyKey.isEmpty {
+            input["idempotencyKey"] = idempotencyKey
+        }
         if let guestContact, !guestContact.isEmpty {
             input["guestContact"] = guestContact
         }

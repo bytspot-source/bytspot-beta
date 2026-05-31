@@ -17,13 +17,17 @@ enum ClipVerifyState: Equatable {
 }
 
 enum ClipTheme {
-    static let background = Color(red: 0.015, green: 0.018, blue: 0.035)
-    static let panel = Color(red: 0.035, green: 0.052, blue: 0.085)
-    static let panelElevated = Color(red: 0.06, green: 0.08, blue: 0.13)
-    static let cyan = Color(red: 0.29, green: 0.88, blue: 0.96)
-    static let emerald = Color(red: 0.29, green: 0.90, blue: 0.55)
-    static let gold = Color(red: 0.96, green: 0.83, blue: 0.45)
-    static let violet = Color(red: 0.62, green: 0.45, blue: 0.96)
+    // Canonical Bytspot brand palette from src/BRAND_COLORS.md + LOGO_BEFORE_AFTER.md.
+    // Brand identity: Cyan → Purple → Pink/Magenta on an iOS dark glass base.
+    static let background = Color(red: 0.043, green: 0.043, blue: 0.063) // #0B0B10
+    static let panel = Color(red: 0.059, green: 0.067, blue: 0.095)
+    static let panelElevated = Color(red: 0.110, green: 0.110, blue: 0.118) // #1C1C1E
+    static let cyan = Color(red: 0.000, green: 0.749, blue: 1.000) // #00BFFF
+    static let violet = Color(red: 0.659, green: 0.333, blue: 0.969) // #A855F7
+    static let pink = Color(red: 0.851, green: 0.275, blue: 0.937) // #D946EF
+    static let magenta = Color(red: 1.000, green: 0.000, blue: 1.000) // #FF00FF
+    static let emerald = Color(red: 0.133, green: 0.773, blue: 0.369)
+    static let gold = Color(red: 0.847, green: 0.729, blue: 0.384) // Black-tier accent only
 
     // MARK: Tier palette
     /// Primary accent — eyebrow, progress spinners, price labels.
@@ -37,7 +41,7 @@ enum ClipTheme {
     /// Secondary accent — used in the corner radial wash + verification chip.
     static func secondaryAccent(for tier: BytspotTier) -> Color {
         switch tier {
-        case .black: return violet
+        case .black: return magenta
         case .platinum: return violet
         case .green: return cyan
         }
@@ -45,8 +49,8 @@ enum ClipTheme {
     /// Tier-specific corner gradient stops applied behind the catalog flow.
     static func cornerGradientStops(for tier: BytspotTier) -> (top: Color, bottom: Color) {
         switch tier {
-        case .black: return (gold.opacity(0.16), violet.opacity(0.18))
-        case .platinum: return (cyan.opacity(0.18), violet.opacity(0.14))
+        case .black: return (violet.opacity(0.18), magenta.opacity(0.12))
+        case .platinum: return (cyan.opacity(0.18), violet.opacity(0.16))
         case .green: return (emerald.opacity(0.18), cyan.opacity(0.12))
         }
     }
@@ -129,6 +133,37 @@ private func openFullApp(url: URL?, showOverlay: Binding<Bool>) {
 private func formattedSlug(_ value: String?) -> String? {
     guard let value, !value.isEmpty else { return nil }
     return value.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
+}
+
+private enum ClipLogisticsMode { case inboundToUser, outboundToVenue }
+
+private struct ClipBookingContext {
+    let isHighTicket: Bool
+    let logisticsMode: ClipLogisticsMode
+    let holdMinutes: Int
+    let eyebrow: String
+    let title: String
+    let cta: String
+    let authorizationNote: String
+    let requiresSpecialRequests: Bool
+    let requiresPhoneNumber: Bool
+
+    static func make(service: ClipLocalService, vendor: ClipVendor, tier: BytspotTier) -> ClipBookingContext {
+        let category = [service.category, service.id, service.title].compactMap { $0 }.joined(separator: " ").lowercased()
+        let inbound = ["chef", "dining", "wellness", "concierge", "marine"].contains { category.contains($0) }
+        let highTicket = tier == .black && (inbound || vendor.priceFromCents >= 85_000)
+        return ClipBookingContext(
+            isHighTicket: highTicket,
+            logisticsMode: inbound ? .inboundToUser : .outboundToVenue,
+            holdMinutes: highTicket ? 45 : 0,
+            eyebrow: highTicket ? "SECURE HOLD" : "INSTANT BOOKING",
+            title: highTicket ? "Place a secure hold" : "Book now",
+            cta: highTicket ? "Place Secure Hold" : "Book & Charge Now",
+            authorizationNote: highTicket ? "Funds are securely authorized. You will only be charged once the vendor confirms." : "Instant Apple Pay booking. Your confirmation is saved in Bytspot.",
+            requiresSpecialRequests: highTicket,
+            requiresPhoneNumber: highTicket
+        )
+    }
 }
 
 // MARK: - Screen 1: Catalog
@@ -263,8 +298,8 @@ struct ClipCatalogView: View {
     private func blackAviationCatalogTile(_ service: ClipLocalService) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [Color.black, ClipTheme.gold.opacity(0.38), ClipTheme.violet.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                RadialGradient(colors: [ClipTheme.gold.opacity(0.28), .clear], center: .topTrailing, startRadius: 12, endRadius: 150)
+                LinearGradient(colors: [Color.black, ClipTheme.violet.opacity(0.34), ClipTheme.magenta.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [ClipTheme.gold.opacity(0.16), .clear], center: .topTrailing, startRadius: 12, endRadius: 150)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack { Text("BLACK · FLIGHT DESK").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
                         .font(.system(size: 9.5, weight: .black))
@@ -286,9 +321,9 @@ struct ClipCatalogView: View {
             }.padding(12)
         }
         .background(LinearGradient(colors: [ClipTheme.panelElevated, Color.black.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.gold.opacity(0.28), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.violet.opacity(0.24), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: ClipTheme.gold.opacity(0.12), radius: 18, x: 0, y: 10)
+        .shadow(color: ClipTheme.magenta.opacity(0.10), radius: 18, x: 0, y: 10)
     }
 
     private var skeletonTile: some View {
@@ -480,7 +515,7 @@ struct ClipVendorListView: View {
     private func blackAviationVendorRow(_ vendor: ClipVendor) -> some View {
         HStack(spacing: 14) {
             ZStack {
-                LinearGradient(colors: [ClipTheme.gold.opacity(0.70), ClipTheme.violet.opacity(0.24), Color.black.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [ClipTheme.violet.opacity(0.70), ClipTheme.magenta.opacity(0.24), Color.black.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 Image(systemName: "airplane.departure")
                     .font(.system(size: 24, weight: .black))
                     .foregroundColor(.white)
@@ -510,7 +545,7 @@ struct ClipVendorListView: View {
         }
         .padding(12)
         .background(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.gold.opacity(0.22), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.violet.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -551,7 +586,10 @@ struct ClipCheckoutView: View {
     let vendor: ClipVendor
     @ObservedObject var paymentSecure: ClipPaymentSecureController
     @Binding var showOverlay: Bool
+    @State private var specialRequests = ""
+    @State private var phoneNumber = ""
 
+    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
     private var totalCents: Int { vendor.priceFromCents * max(invocation.guestCount, 1) }
     private var totalLabel: String {
         let dollars = Double(totalCents) / 100.0
@@ -566,6 +604,7 @@ struct ClipCheckoutView: View {
                 vendorHero
                 includedCard
                 guestPicker
+                bookingDetailsCard
                 totalRow
                 applePayBlock
                 cardFallback
@@ -589,9 +628,9 @@ struct ClipCheckoutView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("STEP 3 · CHECKOUT")
                     .font(.system(size: 10.5, weight: .black))
-                    .foregroundColor(ClipTheme.cyan)
+                    .foregroundColor(ClipTheme.accent(for: invocation.tier))
                     .tracking(1.4)
-                Text("Confirm & pay")
+                Text(bookingContext.title)
                     .font(.system(size: 22, weight: .heavy))
                     .foregroundColor(.white)
             }
@@ -720,10 +759,63 @@ struct ClipCheckoutView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
+    private var bookingDetailsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(bookingContext.eyebrow)
+                    .font(.system(size: 10.5, weight: .black))
+                    .foregroundColor(ClipTheme.accent(for: invocation.tier))
+                    .tracking(1.3)
+                Spacer()
+                if bookingContext.holdMinutes > 0 {
+                    Text("Vendor confirms in \(bookingContext.holdMinutes)m")
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(ClipTheme.gold)
+                        .clipShape(Capsule())
+                }
+            }
+            if bookingContext.requiresSpecialRequests {
+                TextField("Special requests, allergies, access notes…", text: $specialRequests)
+                    .font(.system(size: 13, weight: .semibold))
+                    .textInputAutocapitalization(.sentences)
+                    .padding(12)
+                    .foregroundColor(.white)
+                    .accentColor(.white)
+                    .colorScheme(.dark)
+                    .background(Color(red: 0.14, green: 0.15, blue: 0.18))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            if bookingContext.requiresPhoneNumber {
+                TextField("Phone number for SMS coordination", text: $phoneNumber)
+                    .font(.system(size: 13, weight: .semibold))
+                    .keyboardType(.phonePad)
+                    .padding(12)
+                    .foregroundColor(.white)
+                    .accentColor(.white)
+                    .colorScheme(.dark)
+                    .background(Color(red: 0.14, green: 0.15, blue: 0.18))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            Text(bookingContext.authorizationNote)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white.opacity(0.68))
+                .lineSpacing(2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ClipTheme.panel)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
     private var totalRow: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Total").font(.system(size: 12.5, weight: .black)).foregroundColor(.white.opacity(0.7)).tracking(1)
+                Text(bookingContext.isHighTicket ? "Hold amount" : "Total").font(.system(size: 12.5, weight: .black)).foregroundColor(.white.opacity(0.7)).tracking(1)
                 Text(totalLabel).font(.system(size: 28, weight: .heavy, design: .monospaced)).foregroundColor(.white)
             }
             Spacer()
@@ -750,7 +842,7 @@ struct ClipCheckoutView: View {
             }) {
                 HStack(spacing: 10) {
                     Image(systemName: "apple.logo").font(.system(size: 17, weight: .black))
-                    Text("Pay").font(.system(size: 18, weight: .heavy))
+                    Text(bookingContext.cta).font(.system(size: 18, weight: .heavy))
                     Text(totalLabel).font(.system(size: 18, weight: .heavy, design: .monospaced)).opacity(0.85)
                 }
                 .foregroundColor(.white)
@@ -813,19 +905,215 @@ struct ClipSuccessView: View {
     let vendor: ClipVendor
     let bookingRef: String
     @Binding var showOverlay: Bool
+    @State private var timeRemaining = 0
+    @State private var isHoldExpired = false
+    @State private var showFeedbackSheet = false
+    @State private var showFeedbackPrompt = false
+    @State private var rating = 5
+    @State private var comment = ""
+    @State private var feedbackSubmitted = false
+
+    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
+    private var hasGroundLogistics: Bool {
+        vendor.includedHighlights.contains { $0.lowercased().contains("ground transport") || $0.lowercased().contains("chauffeur") }
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                successHero
-                bookingCard
-                whatsIncluded
-                primaryActions
-                secondaryActions
+            if isHoldExpired {
+                expiredState
+                    .padding(.horizontal, 18)
+                    .padding(.top, 80)
+                    .padding(.bottom, 28)
+            } else {
+                VStack(alignment: .leading, spacing: 18) {
+                    successHero
+                    bookingCard
+                    authorizationCard
+                    countdownCard
+                    whatsIncluded
+                    primaryActions
+                    secondaryActions
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 22)
+                .padding(.bottom, 28)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 22)
-            .padding(.bottom, 28)
+        }
+        .overlay(alignment: .bottom) {
+            feedbackPromptToast
+                .padding(.horizontal, 18)
+                .padding(.bottom, 14)
+        }
+        .onAppear {
+            configureTimerState()
+            presentFeedbackPrompt()
+        }
+        .onChange(of: invocation.invocationURL) { _ in
+            configureTimerState()
+            presentFeedbackPrompt()
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            guard bookingContext.holdMinutes > 0, !isHoldExpired else { return }
+            if timeRemaining > 0 {
+                timeRemaining -= 1
+            } else {
+                isHoldExpired = true
+            }
+        }
+        .sheet(isPresented: $showFeedbackSheet) {
+            ClipFeedbackSheet(rating: $rating, comment: $comment, submitted: $feedbackSubmitted) {
+                feedbackSubmitted = true
+                showFeedbackPrompt = false
+                showFeedbackSheet = false
+            }
+        }
+    }
+
+    private var forcedExpiredForPreview: Bool {
+        guard let url = invocation.invocationURL,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return (components.queryItems ?? []).contains { item in
+            ["expired", "holdExpired"].contains(item.name) && item.value != "0"
+        }
+    }
+
+    private func configureTimerState() {
+        guard bookingContext.holdMinutes > 0 else {
+            timeRemaining = 0
+            isHoldExpired = false
+            return
+        }
+        if forcedExpiredForPreview {
+            timeRemaining = 0
+            isHoldExpired = true
+        } else if timeRemaining <= 0 {
+            timeRemaining = bookingContext.holdMinutes * 60
+            isHoldExpired = false
+        }
+    }
+
+    private func presentFeedbackPrompt() {
+        guard !feedbackSubmitted, !isHoldExpired else { return }
+        showFeedbackPrompt = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+            guard !showFeedbackSheet, !feedbackSubmitted else { return }
+            withAnimation(.easeOut(duration: 0.25)) { showFeedbackPrompt = false }
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackPromptToast: some View {
+        if showFeedbackPrompt && !feedbackSubmitted && !isHoldExpired {
+            Button(action: {
+                impactLight()
+                showFeedbackPrompt = false
+                showFeedbackSheet = true
+            }) {
+                HStack(spacing: 9) {
+                    Image(systemName: "star.fill")
+                    Text("Rate this experience")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                }
+                .font(.system(size: 12.5, weight: .black))
+                .foregroundColor(.white.opacity(0.86))
+                .padding(.vertical, 11).padding(.horizontal, 13)
+                .background(Color.black.opacity(0.72))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 10)
+            }
+            .buttonStyle(.plain)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var expiredState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundColor(.white.opacity(0.62))
+            Text("Request Window Expired")
+                .font(.system(size: 26, weight: .heavy))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+            Text("We've released your hold. Here are immediate alternatives from the Bytspot Black desk.")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+            Button(action: { impactMedium(); invocation.backToCatalog() }) {
+                Text("Explore Alternatives")
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            Text("🛡️ Bytspot Elite Guarantee: $1M logistics insurance + 24/7 concierge.")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white.opacity(0.62))
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(ClipTheme.panel)
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var countdownCard: some View {
+        if bookingContext.holdMinutes > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Request sent")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundColor(.white.opacity(0.62))
+                    .tracking(1.2)
+                Text("45-minute confirmation window • \(timeString(from: timeRemaining)) remaining")
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.68))
+                Text("\(vendor.name) has \(bookingContext.holdMinutes) minutes to respond before the authorization is released automatically.")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.52))
+                    .lineSpacing(2)
+            }
+            .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text("Your booking is confirmed instantly. Use the route and valet actions below for arrival logistics.")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(.white.opacity(0.62))
+                .lineSpacing(2)
+                .padding(.horizontal, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var authorizationCard: some View {
+        if bookingContext.isHighTicket {
+            VStack(spacing: 10) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.72))
+                Text("Funds Securely Authorized")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundColor(.white)
+                Text("You will only be charged once the vendor confirms.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(ClipTheme.panel)
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
     }
 
@@ -874,14 +1162,14 @@ struct ClipSuccessView: View {
             .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("STEP 4 · CONFIRMED")
+                Text(bookingContext.isHighTicket ? "STEP 4 · HOLD PLACED" : "STEP 4 · CONFIRMED")
                     .font(.system(size: 10.5, weight: .black))
                     .foregroundColor(ClipTheme.emerald)
                     .tracking(1.4)
-                Text("You're set.")
+                Text(bookingContext.isHighTicket ? "Hold Placed Successfully" : "You're set.")
                     .font(.system(size: 32, weight: .heavy))
                     .foregroundColor(.white)
-                Text("\(vendor.name) is preparing your \(service.title.lowercased()).")
+                Text(bookingContext.isHighTicket ? "\(vendor.name) is reviewing your \(service.title.lowercased()) request." : "\(vendor.name) is preparing your \(service.title.lowercased()).")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white.opacity(0.78))
                     .lineSpacing(2)
@@ -934,19 +1222,35 @@ struct ClipSuccessView: View {
 
     private var primaryActions: some View {
         VStack(spacing: 10) {
-            Button(action: { impactMedium(); openInMaps() }) {
-                HStack(spacing: 10) {
-                    Image(systemName: "location.north.line.fill")
-                    Text("View Live Route & Valet")
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
+            switch bookingContext.logisticsMode {
+            case .inboundToUser:
+                Button(action: { impactMedium(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                    actionRow(icon: "house.fill", title: "Provide Property Access", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+                }.buttonStyle(.plain)
+
+                Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                    actionRow(icon: "map.fill", title: "Track Live ETA", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                }.buttonStyle(.plain)
+
+            case .outboundToVenue:
+                Button(action: { impactMedium(); openInMaps() }) {
+                    actionRow(icon: "location.north.line.fill", title: "View Live Route & Valet", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.cyan.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+                }.buttonStyle(.plain)
+
+                if hasGroundLogistics {
+                    Button(action: { impactLight(); openUberBlack() }) {
+                        actionRow(icon: "car.fill", title: "Request Uber Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                    }.buttonStyle(.plain)
+
+                    Button(action: { impactLight(); openLyftBlack() }) {
+                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Lyft Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                    }.buttonStyle(.plain)
+                } else {
+                    Button(action: { impactLight(); openUberBlack() }) {
+                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Uber Black", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                    }.buttonStyle(.plain)
                 }
-                .font(.system(size: 15, weight: .black))
-                .foregroundColor(.black)
-                .padding(.vertical, 15).padding(.horizontal, 16)
-                .background(LinearGradient(colors: [.white, ClipTheme.cyan.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }.buttonStyle(.plain)
+            }
 
             Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
                 HStack(spacing: 10) {
@@ -966,20 +1270,42 @@ struct ClipSuccessView: View {
     }
 
     private var secondaryActions: some View {
-        Button(action: { impactLight(); invocation.backToCatalog() }) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                Text("Book another service here")
-                Spacer()
-                Image(systemName: "arrow.uturn.left")
+        VStack(spacing: 10) {
+            Button(action: { impactLight(); invocation.backToCatalog() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text("Book another service here")
+                    Spacer()
+                    Image(systemName: "arrow.uturn.left")
+                }
+                .font(.system(size: 12.5, weight: .black))
+                .foregroundColor(.white.opacity(0.78))
+                .padding(.vertical, 12).padding(.horizontal, 14)
+                .background(Color.white.opacity(0.06))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(.white.opacity(0.78))
-            .padding(.vertical, 12).padding(.horizontal, 14)
-            .background(Color.white.opacity(0.06))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }.buttonStyle(.plain)
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func actionRow(icon: String, title: String, foreground: Color, background: LinearGradient) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+            Text(title)
+            Spacer()
+            Image(systemName: "arrow.up.right")
+        }
+        .font(.system(size: 15, weight: .black))
+        .foregroundColor(foreground)
+        .padding(.vertical, 15).padding(.horizontal, 16)
+        .background(background)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func timeString(from seconds: Int) -> String {
+        String(format: "%02d:%02d", max(seconds, 0) / 60, max(seconds, 0) % 60)
     }
 
     private func openInMaps() {
@@ -994,6 +1320,71 @@ struct ClipSuccessView: View {
         components.queryItems = items
         if let url = components.url {
             UIApplication.shared.open(url)
+        }
+    }
+
+    private func openUberBlack() {
+        guard let appURL = URL(string: "uber://?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880&product_id=9a0f7356-61b9-4b71-8854-93c683b519e4"),
+              let webURL = URL(string: "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880") else { return }
+        UIApplication.shared.open(appURL) { opened in
+            if !opened { UIApplication.shared.open(webURL) }
+        }
+    }
+
+    private func openLyftBlack() {
+        guard let appURL = URL(string: "lyft://ridetype?id=lyft_lux"),
+              let webURL = URL(string: "https://www.lyft.com/rider?ride_type=lyft_lux") else { return }
+        UIApplication.shared.open(appURL) { opened in
+            if !opened { UIApplication.shared.open(webURL) }
+        }
+    }
+}
+
+private struct ClipFeedbackSheet: View {
+    @Binding var rating: Int
+    @Binding var comment: String
+    @Binding var submitted: Bool
+    let onSubmit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Capsule().fill(Color.secondary.opacity(0.28)).frame(width: 44, height: 5).frame(maxWidth: .infinity)
+            Text("How was your experience?")
+                .font(.system(size: 24, weight: .heavy))
+            StarRatingView(rating: $rating)
+            TextField("Optional comment", text: $comment)
+                .textInputAutocapitalization(.sentences)
+                .padding(12)
+                .background(Color.secondary.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Button(action: onSubmit) {
+                Text(submitted ? "Submitted" : "Submit")
+                    .font(.system(size: 16, weight: .black))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .foregroundColor(.white)
+                    .background(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+    }
+}
+
+private struct StarRatingView: View {
+    @Binding var rating: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(1...5, id: \.self) { value in
+                Button(action: { rating = value }) {
+                    Image(systemName: value <= rating ? "star.fill" : "star")
+                        .font(.system(size: 30, weight: .black))
+                        .foregroundColor(value <= rating ? .yellow : .secondary.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }

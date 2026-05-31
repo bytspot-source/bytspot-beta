@@ -5,7 +5,7 @@ import {
   ShoppingBag, Utensils, Wine, Dumbbell, Camera, AlertTriangle
 } from 'lucide-react';
 import { useState, useEffect, memo } from 'react';
-import type { MapFunction } from './MapMenuSlideUp';
+import type { MapFunction } from './map/mapTypes';
 
 interface MapIntelligenceOverlaysProps {
   activeFunction?: MapFunction;

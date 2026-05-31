@@ -53,10 +53,9 @@ async function openMapTab(page: Page) {
   });
   await page.goto('/');
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible();
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('bytspot:native-tab', { detail: { tab: 'map' } }));
-  });
+  await page.getByRole('tab', { name: 'Map tab' }).click();
   await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('dialog', { name: 'Map Functions' })).toBeHidden();
 }
 
 async function topOf(locator: Locator) {
@@ -155,6 +154,15 @@ test.describe('Map Spatial Intelligence sheet', () => {
     await activeVibe.click();
     await expect(activeVibe).toHaveAttribute('aria-checked', 'true');
     await expect(chillVibe).toHaveAttribute('aria-checked', 'false');
+
+    await page.getByRole('button', { name: /Live info/ }).click();
+    await page.getByRole('checkbox', { name: /Traffic/ }).click();
+    await expect(layersMenu).toBeHidden();
+    await expect(page.getByText('Traffic Intel')).toBeVisible();
+    await expect(page.getByPlaceholder('Search destination or service type')).toBeHidden();
+    await expect(page.getByTestId('tap-scan-fab')).toBeHidden();
+    await expect(rightActionStack).toHaveCSS('pointer-events', 'none');
+    await expect(rightActionStack).toHaveAttribute('aria-hidden', 'true');
   });
 
   test('keeps dropped-location request mode focused on service intent', async ({ page }) => {
@@ -176,7 +184,7 @@ test.describe('Map Spatial Intelligence sheet', () => {
     await expect(page.getByTestId('map-layers-menu')).toBeHidden();
   });
 
-  test('Map menu exposes Service Here at the current location', async ({ page }) => {
+  test('secondary Map tools expose Service Here at the current location', async ({ page }) => {
     await openMapTab(page);
 
     await page.getByRole('tab', { name: 'Map tab' }).click();
@@ -198,10 +206,17 @@ test.describe('Map Spatial Intelligence sheet', () => {
     await expect(rightActionStack).toHaveCSS('pointer-events', 'auto');
 
     await activateHiddenControl(page.getByTestId('traffic-intelligence-fab'));
-    await expect(page.getByText('Traffic Intel')).toBeVisible();
+    const trafficPanel = page.getByTestId('traffic-intelligence-panel');
+    await expect(trafficPanel).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Traffic Intelligence' })).toBeVisible();
     await expect(rightActionStack).toHaveCSS('pointer-events', 'none');
     await expect(rightActionStack).toHaveCSS('opacity', '0');
     await expect(rightActionStack).toHaveAttribute('aria-hidden', 'true');
+
+    const html = await trafficPanel.evaluate((node) => node.outerHTML);
+    expect(html).not.toMatch(/bg-\[#1C1C1E\]\/95|bg-\[#0B0B0F\]\/96|bg-\[#080A10\]\/92/);
+    expect(html).not.toMatch(/bg-black\/20|bg-white\/10|bg-white\/\[0\.05\]|backdrop-blur/);
+    expect(html).not.toMatch(/border-white\/16|border-white\/18|text-white\/(55|58|65|70)/);
   });
 
   test('renders LIVE hotspot markers when live event or heatmap layers are active', async ({ page }) => {

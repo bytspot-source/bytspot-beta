@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner@2.0.3';
+import type { MapFunction, MapViewMode } from './map/mapTypes';
 
 interface MapMenuSlideUpProps {
   isOpen: boolean;
@@ -17,17 +18,6 @@ interface MapMenuSlideUpProps {
   currentViewMode?: MapViewMode;
   isDarkMode: boolean;
 }
-
-export type MapFunction =
-  | 'trending-hotspots'
-  | 'live-venue-data'
-  | 'smart-parking'
-  | 'ai-navigation'
-  | 'spot-radar'
-  | 'route'
-  | 'traffic-intelligence';
-
-export type MapViewMode = 'standard' | 'satellite';
 
 interface MapFunctionItem {
   id: MapFunction;

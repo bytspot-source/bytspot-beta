@@ -9,7 +9,8 @@ import { LandingPage } from './components/LandingPage';
 import { EnhancedHeader } from './components/EnhancedHeader';
 import { SmartSearchBar } from './components/SmartSearchBar';
 import type { ProviderRole } from './components/provider/ProviderLanding';
-import { MapMenuSlideUp, type MapFunction, type MapViewMode } from './components/MapMenuSlideUp';
+import { MapMenuSlideUp } from './components/MapMenuSlideUp';
+import type { MapFunction, MapViewMode } from './components/map/mapTypes';
 import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
 import { Toaster } from './components/ui/sonner';
@@ -2267,7 +2268,7 @@ export default function App() {
           isVisible={showBottomNav}
         />
 
-        {/* Map Menu Slide Up */}
+        {/* Secondary Map Tools sheet: the Map tab itself opens the map directly. */}
         <MapMenuSlideUp
           isOpen={showMapMenu}
           onClose={() => setShowMapMenu(false)}

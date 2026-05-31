@@ -22,11 +22,19 @@ export const BottomNav = memo(function BottomNav({
 
   const handleNavClick = (itemId: string) => {
     impactLight();
-    if (itemId === 'map' && onMapButtonClick) {
-      onMapButtonClick();
-    } else {
+    if (itemId === 'map') {
+      if (activeTab === 'map' && onMapButtonClick) {
+        onMapButtonClick();
+        return;
+      }
       setActiveTab(itemId);
+      return;
     }
+
+    if (itemId === activeTab) {
+      return;
+    }
+    setActiveTab(itemId);
   };
 
   const navItems = [

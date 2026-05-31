@@ -154,10 +154,10 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
-      case 'high': return 'border-red-400/50 bg-red-500/10';
-      case 'medium': return 'border-yellow-400/50 bg-yellow-500/10';
-      case 'low': return 'border-green-400/50 bg-green-500/10';
-      default: return 'border-white/20 bg-white/5';
+      case 'high': return 'border-red-300 bg-red-950';
+      case 'medium': return 'border-amber-300 bg-amber-950';
+      case 'low': return 'border-emerald-300 bg-emerald-950';
+      default: return 'border-slate-600 bg-slate-900';
     }
   };
 
@@ -168,17 +168,20 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
       <AnimatePresence>
         {isExpanded && (
           <motion.div
-            className="fixed top-16 right-0 bottom-24 w-[340px] max-w-[90vw] bg-[#1C1C1E]/95 backdrop-blur-xl border-l-2 border-white/30 shadow-2xl z-40 flex flex-col"
+            data-testid="traffic-intelligence-panel"
+            role="dialog"
+            aria-label="Traffic Intelligence"
+            className="fixed top-16 right-0 bottom-24 z-40 flex w-[340px] max-w-[90vw] flex-col border-l-2 border-slate-600 bg-slate-950 shadow-2xl"
             initial={{ x: 400 }}
             animate={{ x: 0 }}
             exit={{ x: 400 }}
             transition={springConfig}
           >
             {/* Header */}
-            <div className="flex-shrink-0 px-4 pt-4 pb-3 border-b border-white/20">
+            <div className="flex-shrink-0 border-b border-slate-700 bg-slate-900 px-4 pb-3 pt-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-500 border-2 border-white/30 flex items-center justify-center">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-orange-200 bg-gradient-to-br from-red-500 to-orange-500">
                     <ShieldAlert className="w-4 h-4 text-white" strokeWidth={2.5} />
                   </div>
                   <h3 className="text-[17px] text-white" style={{ fontWeight: 700 }}>
@@ -187,7 +190,8 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                 </div>
                 <motion.button
                   onClick={onToggle}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 border border-white/20"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-500 bg-slate-900 text-white shadow-lg"
+                  aria-label="Close Traffic Intelligence"
                   whileTap={{ scale: 0.9 }}
                   transition={springConfig}
                 >
@@ -196,18 +200,18 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
               </div>
 
               {/* Current Speed Limit */}
-              <div className="rounded-[12px] p-3 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-400/30">
+              <div className="rounded-[12px] border border-cyan-300 bg-cyan-950 p-3 shadow-inner shadow-cyan-950">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-blue-400" strokeWidth={2.5} />
-                    <span className="text-[13px] text-white/90" style={{ fontWeight: 600 }}>
+                    <Zap className="w-4 h-4 text-cyan-200" strokeWidth={2.5} />
+                    <span className="text-[13px] text-slate-50" style={{ fontWeight: 600 }}>
                       Speed Limit
                     </span>
                   </div>
                   <div className={`px-2 py-0.5 rounded-full text-[11px] ${
                     currentSpeed > CURRENT_SPEED_LIMIT.current 
-                      ? 'bg-red-500/30 border border-red-400/50 text-red-300'
-                      : 'bg-green-500/30 border border-green-400/50 text-green-300'
+                      ? 'border border-red-300 bg-red-950 text-red-100'
+                      : 'border border-emerald-300 bg-emerald-950 text-emerald-100'
                   }`} style={{ fontWeight: 600 }}>
                     {currentSpeed > CURRENT_SPEED_LIMIT.current ? 'SLOW DOWN' : 'OK'}
                   </div>
@@ -216,30 +220,30 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                   <span className="text-[28px] text-white" style={{ fontWeight: 700 }}>
                     {CURRENT_SPEED_LIMIT.current}
                   </span>
-                  <span className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
+                  <span className="text-[15px] text-slate-200" style={{ fontWeight: 400 }}>
                     MPH
                   </span>
-                  <span className="text-[12px] text-white/60 ml-auto" style={{ fontWeight: 400 }}>
+                  <span className="ml-auto text-[12px] text-slate-300" style={{ fontWeight: 400 }}>
                     {CURRENT_SPEED_LIMIT.zone}
                   </span>
                 </div>
-                <div className="mt-1.5 text-[11px] text-red-400" style={{ fontWeight: 500 }}>
+                <div className="mt-1.5 text-[11px] text-red-200" style={{ fontWeight: 600 }}>
                   Fine: {CURRENT_SPEED_LIMIT.fine}
                 </div>
               </div>
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div className="flex-1 overflow-y-auto bg-slate-950 px-4 py-3">
               {/* Live Alerts */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[15px] text-white" style={{ fontWeight: 600 }}>
                     Live Alerts
                   </h4>
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-400/30">
+                  <div className="flex items-center gap-1.5 rounded-full border border-red-300 bg-red-950 px-2 py-0.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                    <span className="text-[11px] text-red-300" style={{ fontWeight: 600 }}>
+                    <span className="text-[11px] text-red-100" style={{ fontWeight: 700 }}>
                       {activeAlerts.length} Active
                     </span>
                   </div>
@@ -255,7 +259,7 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                       transition={{ ...springConfig, delay: index * 0.05 }}
                     >
                       <div className="flex items-start gap-2.5">
-                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${alert.color} border border-white/30 flex items-center justify-center flex-shrink-0`}>
+                        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-gradient-to-br ${alert.color}`}>
                           {alert.icon}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -263,20 +267,20 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                             <h5 className="text-[14px] text-white" style={{ fontWeight: 600 }}>
                               {alert.location}
                             </h5>
-                            <span className="text-[12px] text-white/70 flex-shrink-0" style={{ fontWeight: 500 }}>
+                            <span className="flex-shrink-0 text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                               {alert.distance} mi
                             </span>
                           </div>
-                          <p className="text-[12px] text-white/80 mb-1.5" style={{ fontWeight: 400 }}>
+                          <p className="mb-1.5 text-[12px] text-slate-100" style={{ fontWeight: 400 }}>
                             {alert.description}
                           </p>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <div className="flex items-center gap-1 text-white/60">
+                            <div className="flex items-center gap-1 text-slate-300">
                               <Eye className="w-3 h-3" strokeWidth={2.5} />
                               <span>{alert.reportedBy} reports</span>
                             </div>
-                            <span className="text-white/40">•</span>
-                            <span className="text-white/60">{alert.timeAgo}</span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-slate-300">{alert.timeAgo}</span>
                           </div>
                         </div>
                       </div>
@@ -294,7 +298,7 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                   {QUICK_RULES.map((rule, index) => (
                     <motion.div
                       key={index}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] bg-white/5 border border-white/10"
+                      className="flex items-center gap-2.5 rounded-[10px] border border-slate-700 bg-slate-900 px-3 py-2"
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ ...springConfig, delay: 0.3 + index * 0.05 }}
@@ -302,7 +306,7 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
                       <div className={rule.color}>
                         {rule.icon}
                       </div>
-                      <span className="text-[13px] text-white/90" style={{ fontWeight: 400 }}>
+                      <span className="text-[13px] text-slate-100" style={{ fontWeight: 500 }}>
                         {rule.text}
                       </span>
                     </motion.div>
@@ -311,14 +315,14 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
               </div>
 
               {/* Safety Tips */}
-              <div className="rounded-[12px] p-3 bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-400/30">
+              <div className="rounded-[12px] border border-emerald-300 bg-emerald-950 p-3">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" strokeWidth={2.5} />
                   <div>
                     <h5 className="text-[13px] text-white mb-1" style={{ fontWeight: 600 }}>
                       Safe Driving Zone
                     </h5>
-                    <p className="text-[12px] text-white/80" style={{ fontWeight: 400 }}>
+                    <p className="text-[12px] text-emerald-50" style={{ fontWeight: 400 }}>
                       No recent violations reported in this area. Keep following traffic rules!
                     </p>
                   </div>
@@ -327,8 +331,8 @@ export function TrafficIntelligencePanel({ isDarkMode, isExpanded, onToggle }: T
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 px-4 py-3 border-t border-white/20 bg-[#1C1C1E]/60">
-              <div className="flex items-center justify-between text-[11px] text-white/60">
+            <div className="flex-shrink-0 border-t border-slate-700 bg-slate-900 px-4 py-3">
+              <div className="flex items-center justify-between text-[11px] text-slate-300">
                 <div className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3" strokeWidth={2.5} />
                   <span>Powered by community reports</span>

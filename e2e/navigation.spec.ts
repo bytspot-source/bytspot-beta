@@ -365,14 +365,13 @@ test.describe('App Navigation Flow', () => {
   test('Map tab activates when Map button clicked', async ({ page }) => {
     await getToMainApp(page);
 
-    // Click Map tab (this opens the MapMenu or goes to map directly)
+    // First tap opens the Map tab directly. The legacy MapMenu is now
+    // reserved for secondary access from an already-active Map tab.
     await page.getByRole('tab', { name: 'Map tab' }).click({ force: true });
 
-    // The map tab should become active or a map menu should appear
     await page.waitForTimeout(1500);
-    const mapActive = await page.getByRole('tab', { name: 'Map tab' }).getAttribute('aria-selected');
-    const menuVisible = await page.getByText('Route').isVisible().catch(() => false);
-    expect(mapActive === 'true' || menuVisible).toBeTruthy();
+    await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('dialog', { name: 'Map Functions' })).toBeHidden();
   });
 });
 

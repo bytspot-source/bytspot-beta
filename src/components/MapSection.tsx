@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import type { MapFunction, MapViewMode } from './MapMenuSlideUp';
+import type { MapFunction, MapViewMode } from './map/mapTypes';
 import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
@@ -77,7 +77,7 @@ interface MapSectionProps {
   onServiceLocationRequestConsumed?: () => void;
 }
 
-type MapMode = 'default' | 'nearby' | 'partnered' | 'station' | 'request' | 'ride' | 'navigation';
+type MapMode = 'default' | 'nearby' | 'partnered' | 'station' | 'request' | 'ride' | 'navigation' | 'traffic';
 
 type SpatialResult = {
   id: string;
@@ -902,6 +902,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     const pin = { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
     setDroppedRequestPin(pin);
     setPeekVenue(null);
+    setShowTrafficIntel(false);
+    setShowVerifiedOnly(false);
     setShowLayerMenu(false);
     setDroppedPinServiceIntent('White-Glove Valet Pickup');
     setBottomSheetExpanded(true);
@@ -979,6 +981,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   }, [filteredMapVenues, showTapZones, showVenues, tapZoneVenues, trendingIds]);
   const showTrendingHotspots = (showEvents || showHeatmap) && liveHotspotVenues.length > 0;
 
+  const focusVenue = useCallback((venue: ApiVenue) => {
+    setShowTrafficIntel(false);
+    setShowLayerMenu(false);
+    setDroppedRequestPin(null);
+    setVenueDetailsVenue(null);
+    setPeekVenue(venue);
+    setBottomSheetExpanded(true);
+  }, []);
+
   const mapVenueToSpatialResult = useCallback((venue: ApiVenue): SpatialResult => ({
       id: `venue-${venue.id ?? venue.name}`,
       name: venue.name,
@@ -987,8 +998,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       crowdLabel: getVenueCrowdLabel(venue),
       waitLabel: getVenueWaitLabel(venue),
       isTrending: trendingIds.has(venue.id ?? '') || trendingIds.has(venue.name) || (venue.crowd?.level ?? 0) >= 3,
-      onClick: () => { setPeekVenue(venue); setBottomSheetExpanded(true); },
-  }), [trendingIds]);
+      onClick: () => focusVenue(venue),
+  }), [focusVenue, trendingIds]);
 
   const partneredResults = useMemo(() => tapZoneVenues.slice(0, 8).map(mapVenueToSpatialResult), [mapVenueToSpatialResult, tapZoneVenues]);
 
@@ -1010,13 +1021,16 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     if (partnerFocusActive || routeDestination || selectedFunction) setNearbySheetDismissed(false);
   }, [partnerFocusActive, routeDestination, selectedFunction]);
-  const shouldShowSpatialSheet = !venueDetailsVenue && (peekVenue || droppedRequestPin || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
+  const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
+  const shouldShowSpatialSheet = !trafficPanelActive && !venueDetailsVenue && (peekVenue || droppedRequestPin || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
   const mapMode: MapMode = isRideBookingOpen
     ? 'ride'
     : droppedRequestPin
       ? 'request'
       : peekVenue
         ? 'station'
+      : trafficPanelActive
+        ? 'traffic'
       : selectedDestinationCoords
       ? 'navigation'
       : partnerFocusActive
@@ -1026,9 +1040,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           : 'default';
   const isFocusedMapMode = mapMode !== 'default';
   const showSearchBar = mapMode === 'default' || mapMode === 'nearby' || mapMode === 'navigation';
-  const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
-  const hideTapScanFab = showLayerMenu || shouldShowSpatialSheet || partnerFocusActive || isRideBookingOpen;
-  const hideRightActionStack = trafficPanelActive || Boolean(droppedRequestPin) || mapMode === 'ride' || mapMode === 'partnered' || mapMode === 'station' || mapMode === 'request';
+  const hideTapScanFab = showLayerMenu || shouldShowSpatialSheet || partnerFocusActive || isRideBookingOpen || mapMode === 'traffic';
+  const hideRightActionStack = mapMode === 'traffic' || Boolean(droppedRequestPin) || mapMode === 'ride' || mapMode === 'partnered' || mapMode === 'station' || mapMode === 'request';
   const showFloatingNavigationFab = Boolean(selectedDestinationCoords) && mapMode === 'navigation';
   const showLayerButton = mapMode === 'default' || mapMode === 'navigation';
   const showFullRightActionStack = mapMode === 'default' && !showLayerMenu;
@@ -1040,6 +1053,23 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     if (!showLayerButton) setShowLayerMenu(false);
   }, [showLayerButton]);
+
+  const toggleTrafficIntel = useCallback(() => {
+    const nextTrafficState = !showTrafficIntel;
+    if (nextTrafficState) {
+      setShowLayerMenu(false);
+      setNearbySheetDismissed(true);
+      setShowVerifiedOnly(false);
+      setPeekVenue(null);
+      setVenueDetailsVenue(null);
+      setDroppedRequestPin(null);
+      setBottomSheetExpanded(false);
+      setShowSpotDetails(false);
+      setSelectedSpot(null);
+      setShowReportForm(false);
+    }
+    setShowTrafficIntel(nextTrafficState);
+  }, [showTrafficIntel]);
 
   const visibleLayerControls = [
     { group: 'Show on map', icon: 'P', label: 'Parking', detail: 'Garages, lots, valet', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
@@ -1059,7 +1089,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     { group: 'Live info', icon: '⚠️', label: 'Live Reports', detail: 'Crowd, hazards, closures', checked: showReports, onToggle: () => setShowReports(v => !v), modes: ['default', 'navigation'] },
     { group: 'Live info', icon: '🎶', label: 'Live Events', detail: 'Music, activity, momentum', checked: showEvents, onToggle: () => setShowEvents(v => !v), modes: ['default'] },
     { group: 'Live info', icon: '🌡️', label: 'Heatmap', detail: 'Busy areas at a glance', checked: showHeatmap, onToggle: () => setShowHeatmap(v => !v), modes: ['default'] },
-    { group: 'Live info', icon: '⚡', label: 'Traffic', detail: 'Street movement conditions', checked: showTrafficIntel, onToggle: () => setShowTrafficIntel(v => !v), modes: ['default', 'navigation'] },
+    { group: 'Live info', icon: '⚡', label: 'Traffic', detail: 'Street movement conditions', checked: trafficPanelActive, onToggle: toggleTrafficIntel, modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '🔌', label: 'EV charging', detail: 'Chargers available', checked: filters.evChargingOnly, onToggle: () => setFilters(current => ({ ...current, evChargingOnly: !current.evChargingOnly })), modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '☂️', label: 'Covered', detail: 'Indoor or protected', checked: filters.coveredOnly, onToggle: () => setFilters(current => ({ ...current, coveredOnly: !current.coveredOnly })), modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '★', label: 'Premium', detail: 'Higher-security spots', checked: filters.showPremiumOnly, onToggle: () => setFilters(current => ({ ...current, showPremiumOnly: !current.showPremiumOnly })), modes: ['default', 'navigation'] },
@@ -1077,6 +1107,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const handleShowPartneredVendors = useCallback(() => {
     void impactLight();
+    setShowLayerMenu(false);
+    setShowTrafficIntel(false);
+    setDroppedRequestPin(null);
     setShowTapZones(true);
     setShowVerifiedOnly(true);
     setNearbySheetDismissed(false);
@@ -1186,11 +1219,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
               position={[v.lat, v.lng]}
               icon={createVibeMarkerIcon(level, isPaid, isTrending, v.entryPrice, isVerified, getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
               eventHandlers={{
-                click: () => {
-                  setPeekVenue(v);
-                  setVenueDetailsVenue(null);
-	                  setBottomSheetExpanded(true);
-                },
+                click: () => focusVenue(v),
               }}
             />
           );
@@ -1203,11 +1232,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
             position={[v.lat, v.lng]}
             icon={createTapZoneIcon(getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
             eventHandlers={{
-              click: () => {
-                setPeekVenue(v);
-                setVenueDetailsVenue(null);
-                setBottomSheetExpanded(true);
-              },
+              click: () => focusVenue(v),
             }}
           />
         ))}
@@ -1219,11 +1244,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
             position={[venue.lat, venue.lng]}
             icon={createHotspotIcon(getVenueCrowdLabel(venue))}
             eventHandlers={{
-              click: () => {
-                setPeekVenue(venue);
-                setVenueDetailsVenue(null);
-                setBottomSheetExpanded(true);
-              },
+              click: () => focusVenue(venue),
             }}
           />
         ))}
@@ -1235,11 +1256,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
             position={[b.lat, b.lng]}
             icon={createEBikeIcon()}
             eventHandlers={{
-              click: () => {
-                setPeekVenue(b);
-                setVenueDetailsVenue(null);
-	                setBottomSheetExpanded(true);
-              },
+              click: () => focusVenue(b),
             }}
           />
         ))}
@@ -1308,7 +1325,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         onRecenter={() => { triggerLightHaptic(); setShouldRecenter(true); }}
         onZoomIn={() => { triggerLightHaptic(); setZoomDirection(1); }}
         onZoomOut={() => { triggerLightHaptic(); setZoomDirection(-1); }}
-        onToggleTraffic={(event) => { event.currentTarget.blur(); triggerLightHaptic(); setShowTrafficIntel(!showTrafficIntel); }}
+        onToggleTraffic={(event) => { event.currentTarget.blur(); triggerLightHaptic(); toggleTrafficIntel(); }}
         onShowPartneredVendors={(event) => { event.currentTarget.blur(); handleShowPartneredVendors(); }}
         transition={springConfig}
       />
@@ -1720,8 +1737,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       {/* Traffic Intelligence Panel */}
       <TrafficIntelligencePanel
         isDarkMode={isDarkMode}
-        isExpanded={showTrafficIntel || selectedFunction === 'traffic-intelligence'}
-        onToggle={() => setShowTrafficIntel(!showTrafficIntel)}
+        isExpanded={mapMode === 'traffic'}
+        onToggle={toggleTrafficIntel}
       />
 
       {/* Parking Reservation Flow — portal escapes Leaflet z-index stacking */}
@@ -1878,7 +1895,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                           {liveHotspotVenues.map(venue => (
-                            <button key={`trend-row-${venue.id ?? venue.name}`} onClick={() => { setPeekVenue(venue); setBottomSheetExpanded(true); }} className="min-w-[178px] rounded-2xl border border-orange-200/55 bg-[#050505] p-3 text-left">
+                            <button key={`trend-row-${venue.id ?? venue.name}`} onClick={() => focusVenue(venue)} className="min-w-[178px] rounded-2xl border border-orange-200/55 bg-[#050505] p-3 text-left">
                               <span className="block text-[13px] leading-tight text-white" style={{ fontWeight: 900 }}>{venue.name}</span>
                               <span className="mt-2 inline-flex rounded-full border border-orange-300/60 bg-[#2A1205] px-2 py-0.5 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>{getVenueCrowdLabel(venue)}</span>
                               <span className="ml-1 inline-flex rounded-full border border-white/30 bg-[#080A10] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 850 }}>{getVenueWaitLabel(venue)}</span>

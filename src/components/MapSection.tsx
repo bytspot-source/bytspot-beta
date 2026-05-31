@@ -25,19 +25,14 @@ import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
 import { getUserPreferences, getPreferredMapFilters, getCulturalContext } from '../utils/personalization';
-import {
-  FALLBACK_ATLANTA_PARKING,
-  mergeParkingSources,
-  placeToParkingSpot,
-  venueToParkingSpot,
-  type MapParkingSpot,
-} from '../utils/mapParking';
+import { type MapParkingSpot } from '../utils/mapParking';
 import { impactLight } from '../utils/haptics';
 import { MapActionStack } from './map/MapActionStack';
 import { MapLayersMenu } from './map/MapLayersMenu';
 import { MapSearchBar } from './map/MapSearchBar';
 import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
+import { useMapParkingData } from './map/useMapParkingData';
 
 type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
@@ -499,7 +494,8 @@ function getVenueWaitShortLabel(venue: ApiVenue): string {
 
 export function MapSection({ isDarkMode, selectedFunction, destination, isRideBookingOpen = false, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed, onOpenConciergeRequest, requestServiceLocation = false, onServiceLocationRequestConsumed }: MapSectionProps) {
   const mapCenter: [number, number] = userCoords ? [userCoords.lat, userCoords.lng] : DEFAULT_MAP_CENTER;
-  const [parkingData, setParkingData] = useState<ParkingSpot[]>(FALLBACK_ATLANTA_PARKING);
+  const { venues: apiVenues } = useVenues();
+  const parkingData = useMapParkingData({ apiVenues, userCoords, fallbackCenter: DEFAULT_MAP_CENTER });
   const [showParkingSpots, setShowParkingSpots] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
   const [showTapZones, setShowTapZones] = useState(true);
@@ -614,7 +610,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
   const triggerLightHaptic = useCallback(() => { void impactLight(); }, []);
-  const { venues: apiVenues } = useVenues();
 
   // Venues that have high check-in velocity in the last hour
   const trendingIds = useMemo(() => getTrendingVenueIds(), []);
@@ -859,30 +854,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       toast.success(toasts[selectedFunction], { duration: 2000 });
     }
   }, [selectedFunction]);
-
-  // Tiered parking fetch: vendor-reported venues + Google Places nearby +
-  // static fallback. Vendor entries always win; Places fills gaps; the static
-  // fallback only renders if both are empty (cold-start / offline).
-  useEffect(() => {
-    let cancelled = false;
-    const center = userCoords ?? { lat: DEFAULT_MAP_CENTER[0], lng: DEFAULT_MAP_CENTER[1] };
-    const vendor = apiVenues
-      .map(venueToParkingSpot)
-      .filter((s): s is MapParkingSpot => s !== null);
-
-    trpc.places.nearbySearch.query({ lat: center.lat, lng: center.lng, type: 'parking', maxResults: 12 })
-      .then((res: { places?: Array<{ placeId: string; name: string; lat: number; lng: number }> }) => {
-        if (cancelled) return;
-        const places = (res.places ?? []).map(placeToParkingSpot);
-        setParkingData(mergeParkingSources({ vendor, places, fallback: FALLBACK_ATLANTA_PARKING }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setParkingData(mergeParkingSources({ vendor, places: [], fallback: FALLBACK_ATLANTA_PARKING }));
-      });
-
-    return () => { cancelled = true; };
-  }, [apiVenues, userCoords]);
 
   // Stable reserve callback — reads from refs so never stale
   const handleSpotReserve = useCallback((spotId: number) => {

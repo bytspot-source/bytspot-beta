@@ -655,9 +655,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     ? `${nearbyVerifiedVenue.venue.name} · ${formatMeters(nearbyVerifiedVenue.distanceMeters)}`
     : 'Open Virtual Patch';
 
-  const handleCloseQrScanner = useCallback(() => {
-    setShowQrScannerSheet(false);
-    setQrScannerVenue(null);
+  const resetQrScannerContext = useCallback(() => {
     setQrScannerEntrySource('map');
     setQrScannerTier(null);
     setQrScannerTagUseMode(null);
@@ -665,6 +663,18 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setQrScannerReferralCode(null);
     setQrScannerGroupSize(null);
   }, []);
+
+  const openMapQrScanner = useCallback((venue: ApiVenue) => {
+    resetQrScannerContext();
+    setQrScannerVenue(venue);
+    setShowQrScannerSheet(true);
+  }, [resetQrScannerContext]);
+
+  const handleCloseQrScanner = useCallback(() => {
+    setShowQrScannerSheet(false);
+    setQrScannerVenue(null);
+    resetQrScannerContext();
+  }, [resetQrScannerContext]);
 
   // Universal-link / App Clip / wallet handoff: when App.tsx receives a deep-link
   // or My Access resume request, auto-open the scanner. If a patch ID is known,
@@ -732,14 +742,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setShowVirtualPatchSheet(false);
 
     if (scanCapabilities.nfc || scanCapabilities.qr) {
-      setQrScannerEntrySource('map');
-      setQrScannerTier(null);
-      setQrScannerTagUseMode(null);
-      setQrScannerTagIntent(null);
-      setQrScannerReferralCode(null);
-      setQrScannerGroupSize(null);
-      setQrScannerVenue(targetVenue);
-      setShowQrScannerSheet(true);
+      openMapQrScanner(targetVenue);
       toast.success('Tap / Scan ready', {
         description: scanCapabilities.nfc
           ? `Hold your phone near the patch sticker at ${targetVenue.name}, or switch to QR if needed.`
@@ -756,7 +759,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
     toast.success('Virtual Patch ready', { description });
     onOpenAccessWallet?.();
-  }, [nearbyVerifiedVenue, onOpenAccessWallet, scanCapabilities]);
+  }, [nearbyVerifiedVenue, onOpenAccessWallet, openMapQrScanner, scanCapabilities]);
 
   const handleOpenVirtualPatch = useCallback(() => {
     void impactLight();
@@ -765,11 +768,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setVenueDetailsVenue(null);
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
-    setQrScannerTier(null);
-    setQrScannerTagUseMode(null);
-    setQrScannerTagIntent(null);
-    setQrScannerReferralCode(null);
-    setQrScannerGroupSize(null);
+    resetQrScannerContext();
 
     const suggestedVenue = nearbyVerifiedVenue?.venue ?? (peekVenueIsVerified ? peekVenue : nearestVerifiedVenue?.venue) ?? null;
 
@@ -779,9 +778,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     }
 
     if (suggestedVenue && (scanCapabilities.nfc || scanCapabilities.qr)) {
-      setQrScannerEntrySource('map');
-      setQrScannerVenue(suggestedVenue);
-      setShowQrScannerSheet(true);
+      openMapQrScanner(suggestedVenue);
       toast.success('Tap / Scan ready', {
         description: scanCapabilities.nfc
           ? `Reader opened for ${suggestedVenue.name}. Hold your phone near the sticker when prompted.`
@@ -796,9 +793,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         name: 'Bytspot patch',
         hardwarePatch: { id: null },
       } as unknown as ApiVenue;
-      setQrScannerEntrySource('map');
-      setQrScannerVenue(synthetic);
-      setShowQrScannerSheet(true);
+      openMapQrScanner(synthetic);
       toast.success('Tap / Scan ready', {
         description: scanCapabilities.nfc
           ? 'Reader opened. Hold your phone near the Bytspot sticker when prompted.'
@@ -832,7 +827,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         : 'Opening My Access for your Tap / Scan flow.',
     });
     onOpenAccessWallet();
-  }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, peekVenue, peekVenueIsVerified, scanCapabilities]);
+  }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, openMapQrScanner, peekVenue, peekVenueIsVerified, resetQrScannerContext, scanCapabilities]);
 
   const premiumOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
   const premiumAvailablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
@@ -949,14 +944,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setPeekVenue(venue);
     setVenueDetailsVenue(null);
     if (hasHardwarePatchInstalled(venue) && (scanCapabilities.nfc || scanCapabilities.qr)) {
-      setQrScannerEntrySource('map');
-      setQrScannerVenue(venue);
-      setShowQrScannerSheet(true);
+      openMapQrScanner(venue);
       toast.success('Tap Zone ready', { description: `Verify access at ${venue.name}.` });
       return;
     }
     handleOpenVirtualPatch();
-  }, [handleOpenVirtualPatch, scanCapabilities]);
+  }, [handleOpenVirtualPatch, openMapQrScanner, scanCapabilities]);
 
   const handleDroppedPin = useCallback((lat: number, lng: number) => {
     triggerLightHaptic();

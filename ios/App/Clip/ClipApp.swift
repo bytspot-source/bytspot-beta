@@ -189,6 +189,46 @@ final class ClipInvocationModel: ObservableObject {
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
             flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001")
             return true
+        case "success_marine", "marine_success":
+            guard let service = services.first(where: { service in
+                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+                return text.contains("black-marine") || text.contains("marine") || text.contains("yacht") || text.contains("vessel")
+            }) else { return false }
+            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
+                ?? vendors(for: service).first
+            guard let vendor else { return false }
+            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001")
+            return true
+        case "success_gh_akwaaba", "success_fifa_matchday", "success_platinum_fifa":
+            let service = ClipLocalService(id: "platinum-fifa-matchday", title: "GH Akwaaba Pass", subtitle: "Premium FIFA entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
+            let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
+            guard let vendor = fallbacks.first else { return false }
+            vendorsByService[service.id] = fallbacks
+            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001")
+            return true
+        case "success_platinum_event", "platinum_event_success":
+            guard let service = services.first(where: { service in
+                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+                return text.contains("platinum-entry") || text.contains("event") || text.contains("entry") || text.contains("ticket") || text.contains("pass") || text.contains("fifa") || text.contains("matchday") || text.contains("nightlife") || text.contains("bottle") || text.contains("akwaaba")
+            }) else { return false }
+            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
+                ?? vendors(for: service).first
+            guard let vendor else { return false }
+            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            return true
+        case "success_platinum_nightlife", "platinum_nightlife_success", "success_platinum_bottle":
+            guard let service = services.first(where: { service in
+                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+                return text.contains("nightlife") || text.contains("bottle")
+            }) else { return false }
+            let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
+            let vendor = fallbacks.first ?? vendors(for: service).first
+            guard let vendor else { return false }
+            vendorsByService[service.id] = fallbacks
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            return true
         case "black_ride", "ride", "valet":
             openValetBoutiqueServices()
             return true

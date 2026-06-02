@@ -6,6 +6,7 @@ import PassKit
 import Contacts
 import AVFoundation
 import AVKit
+import SafariServices
 @_spi(STP) import StripeApplePay
 @_spi(STP) import StripeCore
 
@@ -117,6 +118,7 @@ extension ClipLocalService {
 
 private func impactLight() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
 private func impactMedium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+private func impactHeavy() { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
 
 private func openFullApp(url: URL?, showOverlay: Binding<Bool>) {
     guard let url else {
@@ -565,12 +567,21 @@ struct ClipVendorListView: View {
 
     /// View-layer ETA reframe. Aviation/jet/charter services swap the
     /// car-friendly "ETA X min" for the flight-board "Departing in X min".
-    /// All other categories keep the raw label.
+    /// Platinum event and valet/parking services explicitly name the destination.
     private func formatEtaLabel(_ raw: String, for service: ClipLocalService) -> String {
         let cat = (service.category ?? service.id).lowercased()
+        let compactEta = raw.uppercased().hasPrefix("ETA ") ? String(raw.dropFirst(4)) : raw
         let isAviation = cat.contains("aviation") || cat.contains("jet") || cat.contains("charter")
-        guard isAviation, raw.uppercased().hasPrefix("ETA ") else { return raw }
-        return "Departing in " + raw.dropFirst(4)
+        if isAviation, raw.uppercased().hasPrefix("ETA ") { return "Departing in " + compactEta }
+        if invocation.tier == .platinum {
+            if cat.contains("event") || cat.contains("entry") || cat.contains("ticket") || cat.contains("pass") || cat.contains("nightlife") || cat.contains("bottle") {
+                return "ETA to Stadium: \(compactEta)"
+            }
+            if cat.contains("park") || cat.contains("valet") || cat.contains("garage") {
+                return "ETA to Parking: \(compactEta)"
+            }
+        }
+        return raw
     }
 
     private var isBlackAviationService: Bool {
@@ -914,10 +925,54 @@ struct ClipSuccessView: View {
     @State private var rating = 5
     @State private var comment = ""
     @State private var feedbackSubmitted = false
+    @State private var showValetArrivalConfirmation = false
+    @State private var showDocksideValetConfirmation = false
+    @State private var showPlatinumDigitalPass = false
+    @State private var hasViewedPlatinumDigitalPass = false
+    @State private var didAutoOpenPlatinumPassForPreview = false
 
     private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
     private var hasGroundLogistics: Bool {
         vendor.includedHighlights.contains { $0.lowercased().contains("ground transport") || $0.lowercased().contains("chauffeur") }
+    }
+    private var isBlackAviationService: Bool {
+        guard invocation.tier == .black else { return false }
+        let text = [service.id, service.title, service.category ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("black-aviation") || text.contains("aviation") || text.contains("jet") || text.contains("charter")
+    }
+    private var isBlackMarineService: Bool {
+        guard invocation.tier == .black else { return false }
+        let text = [service.id, service.title, service.category ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("black-marine") || text.contains("yacht") || text.contains("marine") || text.contains("vessel")
+    }
+    private var isBlackLuxuryHoldService: Bool { isBlackAviationService || isBlackMarineService }
+    private var isPlatinumEventService: Bool {
+        guard invocation.tier == .platinum else { return false }
+        let text = [service.id, service.title, service.category ?? "", vendor.name]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("platinum-entry")
+            || text.contains("event")
+            || text.contains("entry")
+            || text.contains("ticket")
+            || text.contains("pass")
+            || text.contains("fifa")
+            || text.contains("matchday")
+            || text.contains("nightlife")
+            || text.contains("bottle")
+            || text.contains("vip")
+            || text.contains("akwaaba")
+    }
+    private var isPlatinumParkingOrValetService: Bool {
+        guard invocation.tier == .platinum else { return false }
+        let text = [service.id, service.title, service.category ?? "", vendor.name]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("parking") || text.contains("park") || text.contains("valet") || text.contains("garage")
     }
 
     var body: some View {
@@ -932,10 +987,11 @@ struct ClipSuccessView: View {
                     successHero
                     bookingCard
                     authorizationCard
+                    securityGuaranteeCard
                     countdownCard
-                    whatsIncluded
+                    if !isBlackLuxuryHoldService && !isPlatinumEventService { whatsIncluded }
                     primaryActions
-                    secondaryActions
+                    if !isBlackLuxuryHoldService { secondaryActions }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 22)
@@ -950,10 +1006,13 @@ struct ClipSuccessView: View {
         .onAppear {
             configureTimerState()
             presentFeedbackPrompt()
+            autoOpenPlatinumPassForPreviewIfNeeded()
         }
         .onChange(of: invocation.invocationURL) { _ in
+            didAutoOpenPlatinumPassForPreview = false
             configureTimerState()
             presentFeedbackPrompt()
+            autoOpenPlatinumPassForPreviewIfNeeded()
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             guard bookingContext.holdMinutes > 0, !isHoldExpired else { return }
@@ -969,6 +1028,30 @@ struct ClipSuccessView: View {
                 showFeedbackPrompt = false
                 showFeedbackSheet = false
             }
+        }
+        .sheet(isPresented: $showPlatinumDigitalPass) {
+            PlatinumDigitalPassSheet(ticketURL: platinumEventDigitalPassURL, eyebrow: platinumEventPassEyebrow, passTitle: platinumEventPassDisplayName, bookingRef: bookingRef, vendorName: vendor.name) {
+                impactMedium()
+                openFullApp(url: platinumEventPassHandoffURL(intent: "save_to_wallet"), showOverlay: $showOverlay)
+            }
+        }
+        .confirmationDialog("Coordinate Valet Arrival?", isPresented: $showValetArrivalConfirmation, titleVisibility: .visible) {
+            Button("Continue to Valet Arrival") {
+                impactHeavy()
+                openValetBoutiqueServices()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Valet coordination does not trigger additional charges. Logistics coordination is complimentary; your primary hold is only captured upon aircraft confirmation.")
+        }
+        .confirmationDialog("Coordinate Dockside Valet?", isPresented: $showDocksideValetConfirmation, titleVisibility: .visible) {
+            Button("Continue to Dockside Valet") {
+                impactHeavy()
+                openValetBoutiqueServices()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Dockside valet coordination does not trigger additional charges. Dockside coordination is complimentary; your primary hold is only captured upon vessel confirmation.")
         }
     }
 
@@ -996,12 +1079,26 @@ struct ClipSuccessView: View {
     }
 
     private func presentFeedbackPrompt() {
-        guard !feedbackSubmitted, !isHoldExpired else { return }
+        guard !isBlackLuxuryHoldService, !isPlatinumEventService, !feedbackSubmitted, !isHoldExpired else { return }
         showFeedbackPrompt = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
             guard !showFeedbackSheet, !feedbackSubmitted else { return }
             withAnimation(.easeOut(duration: 0.25)) { showFeedbackPrompt = false }
         }
+    }
+
+    private func autoOpenPlatinumPassForPreviewIfNeeded() {
+        #if DEBUG
+        guard isPlatinumEventService, !didAutoOpenPlatinumPassForPreview,
+              let url = invocation.invocationURL,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              (components.queryItems ?? []).contains(where: { ["autoOpenPass", "openPass"].contains($0.name) && $0.value != "0" }) else { return }
+        didAutoOpenPlatinumPassForPreview = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            hasViewedPlatinumDigitalPass = true
+            showPlatinumDigitalPass = true
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -1071,6 +1168,9 @@ struct ClipSuccessView: View {
     @ViewBuilder
     private var countdownCard: some View {
         if bookingContext.holdMinutes > 0 {
+            if isBlackLuxuryHoldService {
+                protectedHoldStatusCard
+            } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Request sent")
                     .font(.system(size: 12, weight: .black))
@@ -1086,8 +1186,9 @@ struct ClipSuccessView: View {
             }
             .padding(.horizontal, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else {
-            Text("Your booking is confirmed instantly. Use the route and valet actions below for arrival logistics.")
+            Text(instantSuccessLogisticsCopy)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundColor(.white.opacity(0.62))
                 .lineSpacing(2)
@@ -1096,26 +1197,293 @@ struct ClipSuccessView: View {
         }
     }
 
+    private var holdProgress: Double {
+        let total = max(Double(bookingContext.holdMinutes * 60), 1)
+        return min(max(Double(timeRemaining) / total, 0), 1)
+    }
+
+    private var isHoldNearingExpiration: Bool {
+        isBlackLuxuryHoldService && timeRemaining > 0 && timeRemaining <= 10 * 60
+    }
+
+    private var platinumEtaDestination: String {
+        isPlatinumParkingOrValetService ? "Parking" : "Stadium"
+    }
+
+    private var platinumEtaSummary: String {
+        let raw = vendor.etaLabel ?? "coordinating now"
+        let compactEta = raw.uppercased().hasPrefix("ETA ") ? String(raw.dropFirst(4)) : raw.lowercased()
+        return "ETA to \(platinumEtaDestination): \(compactEta)"
+    }
+
+    private var platinumEventPassDisplayName: String {
+        let serviceName = service.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if serviceName.lowercased().contains("akwaaba") { return "GH Akwaaba Pass" }
+        if serviceName.lowercased().contains("event access") { return "Platinum Event Pass" }
+        if !serviceName.isEmpty { return "\(serviceName) Pass" }
+        return "Platinum Event Pass"
+    }
+
+    private var platinumEventPassEyebrow: String {
+        service.title.lowercased().contains("akwaaba") ? "GH AKWAABA PASS" : "PLATINUM EVENT PASS"
+    }
+
+    private var instantSuccessLogisticsCopy: String {
+        if isPlatinumEventService {
+            return "Your \(platinumEventPassDisplayName) is ready. \(platinumEtaSummary). Use the digital pass and ride actions below for event arrival."
+        }
+        if isPlatinumParkingOrValetService {
+            return "Your valet parking is confirmed. \(platinumEtaSummary). Use route and valet actions below for arrival logistics."
+        }
+        return "Your booking is confirmed instantly. Use the route and valet actions below for arrival logistics."
+    }
+
+    private var confirmationSubject: String {
+        isBlackMarineService ? "vessel" : "aircraft"
+    }
+
+    private var protectedHoldWindowLabel: String {
+        isBlackMarineService ? "Vessel confirmation window" : "45-minute confirmation window"
+    }
+
+    private var conciergeStatusHelpText: String {
+        if isBlackMarineService {
+            return "Opens manual vessel status and Black Desk updates in the main app."
+        }
+        return "Opens manual flight status and Black Desk updates in the main app."
+    }
+
+    private func blackAviationConciergeHandoffURL(reason: String = "flight_monitoring") -> URL? {
+        blackConciergeHandoffURL(context: "black_aviation_hold", intent: reason)
+    }
+
+    private func blackMarineConciergeHandoffURL(reason: String = "vessel_monitoring") -> URL? {
+        blackConciergeHandoffURL(context: "black_marine_hold", intent: reason)
+    }
+
+    private func activeBlackConciergeHandoffURL() -> URL? {
+        if isBlackMarineService { return blackMarineConciergeHandoffURL() }
+        return blackAviationConciergeHandoffURL(reason: isHoldNearingExpiration ? "hold_expiring" : "concierge_status")
+    }
+
+    private func blackConciergeHandoffURL(context: String, intent: String) -> URL? {
+        guard let baseURL = invocation.mainAppHandoffURL,
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return invocation.mainAppHandoffURL
+        }
+        var items = components.queryItems ?? []
+        let extras = [
+            URLQueryItem(name: "context", value: context),
+            URLQueryItem(name: "support", value: isHoldNearingExpiration ? "urgent" : "active"),
+            URLQueryItem(name: "destination", value: "black_concierge"),
+            URLQueryItem(name: "view", value: "manual_status"),
+            URLQueryItem(name: "intent", value: intent),
+            URLQueryItem(name: "bookingRef", value: bookingRef),
+            URLQueryItem(name: "serviceId", value: service.id),
+            URLQueryItem(name: "vendorId", value: vendor.id)
+        ]
+        for item in extras {
+            items.removeAll { $0.name == item.name }
+            items.append(item)
+        }
+        components.queryItems = items
+        return components.url
+    }
+
+    private var platinumEventDigitalPassURL: URL {
+        if let directURL = platinumEventDirectTicketURL { return directURL }
+
+        var components = URLComponents(url: ClipPatchVerifier.baseURL.appendingPathComponent("events/platinum/digital-pass"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "patchId", value: invocation.patchId ?? invocation.patchContext?.patchId),
+            URLQueryItem(name: "bookingRef", value: bookingRef),
+            URLQueryItem(name: "serviceId", value: service.id),
+            URLQueryItem(name: "vendorId", value: vendor.id),
+            URLQueryItem(name: "vendor", value: vendor.name),
+            URLQueryItem(name: "tier", value: "platinum"),
+            URLQueryItem(name: "source", value: "app_clip"),
+            URLQueryItem(name: "intent", value: "web-view-first")
+        ].filter { !($0.value ?? "").isEmpty }
+        return components?.url ?? URL(string: "https://bytspot.app/pass")!
+    }
+
+    private var platinumEventDirectTicketURL: URL? {
+        guard let url = invocation.invocationURL,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let names = Set(["ticketUrl", "ticketURL", "digitalPassUrl", "digitalPassURL", "passUrl", "passURL"])
+        guard let raw = (components.queryItems ?? []).first(where: { names.contains($0.name) })?.value,
+              let directURL = URL(string: raw),
+              directURL.scheme?.lowercased() == "https" else { return nil }
+        return directURL
+    }
+
+    private func platinumEventPassHandoffURL(intent: String = "web-view-first") -> URL? {
+        guard let baseURL = invocation.mainAppHandoffURL,
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return invocation.mainAppHandoffURL
+        }
+        var items = components.queryItems ?? []
+        let isWebViewFirst = intent == "web-view-first"
+        let isWalletSave = intent == "save_to_wallet"
+        let extras = [
+            URLQueryItem(name: "context", value: "platinum_event_pass"),
+            URLQueryItem(name: "destination", value: isWalletSave ? "wallet" : "digital_pass"),
+            URLQueryItem(name: "view", value: "event_pass"),
+            URLQueryItem(name: "intent", value: intent),
+            URLQueryItem(name: "handoff", value: isWebViewFirst ? "0" : "1"),
+            URLQueryItem(name: "handoffMode", value: isWebViewFirst ? "web_view_first" : "explicit_wallet_save"),
+            URLQueryItem(name: "appStoreOverlay", value: isWebViewFirst ? "deferred" : "allowed"),
+            URLQueryItem(name: "persist", value: isWalletSave ? "wallet" : "deferred"),
+            URLQueryItem(name: "ticketUrl", value: platinumEventDigitalPassURL.absoluteString),
+            URLQueryItem(name: "bookingRef", value: bookingRef),
+            URLQueryItem(name: "serviceId", value: service.id),
+            URLQueryItem(name: "vendorId", value: vendor.id),
+            URLQueryItem(name: "vendor", value: vendor.name)
+        ]
+        for item in extras {
+            items.removeAll { $0.name == item.name }
+            items.append(item)
+        }
+        components.queryItems = items
+        return components.url
+    }
+
+    private var protectedHoldStatusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                ZStack {
+                    Circle().fill(ClipTheme.gold.opacity(0.16)).frame(width: 30, height: 30)
+                    Image(systemName: "shield.checkered")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(ClipTheme.gold)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PROTECTED HOLD ACTIVE")
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(ClipTheme.gold)
+                        .tracking(1.25)
+                    Text("\(protectedHoldWindowLabel) • \(timeString(from: timeRemaining)) remaining")
+                        .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.82))
+                }
+                Spacer()
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule()
+                        .fill(LinearGradient(colors: [ClipTheme.gold, ClipTheme.violet, ClipTheme.magenta.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(proxy.size.width * holdProgress, 8))
+                }
+            }
+            .frame(height: 4)
+
+            Text("\(vendor.name) has \(bookingContext.holdMinutes) minutes to confirm the \(confirmationSubject) window before the authorization is released automatically.")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundColor(.white.opacity(0.56))
+                .lineSpacing(2)
+        }
+        .padding(14)
+        .background(Color.black.opacity(0.72))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(ClipTheme.gold.opacity(0.18), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
     @ViewBuilder
     private var authorizationCard: some View {
         if bookingContext.isHighTicket {
             VStack(spacing: 10) {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.72))
-                Text("Funds Securely Authorized")
+                    .foregroundColor(isBlackLuxuryHoldService ? ClipTheme.gold : .white.opacity(0.72))
+                Text(isBlackLuxuryHoldService ? "Hold Authorization Active" : "Funds Securely Authorized")
                     .font(.system(size: 17, weight: .heavy))
                     .foregroundColor(.white)
-                Text("You will only be charged once the vendor confirms.")
+                Text(isBlackLuxuryHoldService ? "Funds are authorized only and captured upon \(confirmationSubject) confirmation." : "You will only be charged once the vendor confirms.")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white.opacity(0.68))
                     .multilineTextAlignment(.center)
+                if isBlackLuxuryHoldService {
+                    Divider().background(Color.white.opacity(0.10))
+                    Text(isBlackMarineService ? "Dockside coordination is complimentary; your primary hold is only captured upon vessel confirmation." : "Logistics coordination is complimentary; your primary hold is only captured upon aircraft confirmation.")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(.white.opacity(0.58))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                }
             }
             .padding(16)
             .frame(maxWidth: .infinity)
-            .background(ClipTheme.panel)
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .background(isBlackLuxuryHoldService ? ClipTheme.background.opacity(0.96) : ClipTheme.panel)
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(isBlackLuxuryHoldService ? ClipTheme.gold.opacity(0.24) : Color.white.opacity(0.08), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private var securityGuaranteeCard: some View {
+        if isBlackLuxuryHoldService {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "shield.checkered")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundColor(ClipTheme.gold)
+                    .frame(width: 34, height: 34)
+                    .background(ClipTheme.gold.opacity(0.12))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("BYTSPOT BLACK ELITE GUARANTEE")
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(ClipTheme.gold)
+                        .tracking(1.2)
+                    Button(action: { impactHeavy(); openFullApp(url: activeBlackConciergeHandoffURL(), showOverlay: $showOverlay) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: isHoldNearingExpiration ? "exclamationmark.message.fill" : "message.fill")
+                            Text(isHoldNearingExpiration ? "Contact Concierge" : "Live Black Concierge")
+                            Spacer()
+                            Text(isHoldNearingExpiration ? "Priority" : "Active")
+                                .font(.system(size: 10, weight: .black))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(ClipTheme.gold.opacity(0.16))
+                                .clipShape(Capsule())
+                        }
+                        .font(.system(size: 12.5, weight: .black))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                        .background(ClipTheme.gold.opacity(0.10))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(ClipTheme.gold.opacity(0.22), lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    Text("$1M Logistics Insurance + 24/7 Concierge")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundColor(.white)
+                    Text("Protection is active while your \(confirmationSubject) hold is pending. Concierge support remains available through confirmation or automatic release.")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.62))
+                        .lineSpacing(2)
+                    if !isHoldNearingExpiration {
+                        Text(conciergeStatusHelpText)
+                            .font(.system(size: 10.8, weight: .bold))
+                            .foregroundColor(.white.opacity(0.48))
+                    }
+                    if isHoldNearingExpiration {
+                        Text("Hold window is nearing release. Concierge opens with priority support.")
+                            .font(.system(size: 10.8, weight: .bold))
+                            .foregroundColor(ClipTheme.gold.opacity(0.78))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.black.opacity(0.86))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.gold.opacity(0.24), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: ClipTheme.gold.opacity(0.08), radius: 14, x: 0, y: 8)
         }
     }
 
@@ -1132,7 +1500,7 @@ struct ClipSuccessView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14, weight: .black))
-                            .foregroundColor(ClipTheme.emerald)
+                            .foregroundColor(isBlackAviationService ? ClipTheme.gold : ClipTheme.emerald)
                         Text(item)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white.opacity(0.88))
@@ -1151,13 +1519,13 @@ struct ClipSuccessView: View {
     private var successHero: some View {
         VStack(alignment: .leading, spacing: 14) {
             ZStack {
-                Circle().fill(ClipTheme.emerald.opacity(0.20)).frame(width: 110, height: 110)
-                Circle().fill(ClipTheme.emerald.opacity(0.35)).frame(width: 80, height: 80)
+                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.violet : ClipTheme.emerald).opacity(0.20)).frame(width: 110, height: 110)
+                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.magenta : ClipTheme.emerald).opacity(0.35)).frame(width: 80, height: 80)
                 Image(systemName: "checkmark")
                     .font(.system(size: 36, weight: .black))
                     .foregroundColor(.black)
                     .frame(width: 64, height: 64)
-                    .background(ClipTheme.emerald)
+                    .background(isBlackLuxuryHoldService ? ClipTheme.gold : ClipTheme.emerald)
                     .clipShape(Circle())
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -1166,12 +1534,12 @@ struct ClipSuccessView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(bookingContext.isHighTicket ? "STEP 4 · HOLD PLACED" : "STEP 4 · CONFIRMED")
                     .font(.system(size: 10.5, weight: .black))
-                    .foregroundColor(ClipTheme.emerald)
+                    .foregroundColor(isBlackLuxuryHoldService ? ClipTheme.gold : ClipTheme.emerald)
                     .tracking(1.4)
-                Text(bookingContext.isHighTicket ? "Hold Placed Successfully" : "You're set.")
+                Text(isBlackAviationService ? "Private Aviation Hold Secured" : isBlackMarineService ? "Yacht & Marine Hold Secured" : isPlatinumEventService ? "\(platinumEventPassDisplayName) Confirmed" : bookingContext.isHighTicket ? "Hold Placed Successfully" : "You're set.")
                     .font(.system(size: 32, weight: .heavy))
                     .foregroundColor(.white)
-                Text(bookingContext.isHighTicket ? "\(vendor.name) is reviewing your \(service.title.lowercased()) request." : "\(vendor.name) is preparing your \(service.title.lowercased()).")
+                Text(isBlackAviationService ? "The Bytspot Black aviation desk is aligning arrival access, ground movement, and outbound charter details with \(vendor.name)." : isBlackMarineService ? "The Bytspot Black marine desk is aligning dockside access, vessel timing, and arrival support with \(vendor.name)." : isPlatinumEventService ? "\(vendor.name) is preparing your digital pass, fast-track entry, and concierge arrival support." : bookingContext.isHighTicket ? "\(vendor.name) is reviewing your \(service.title.lowercased()) request." : "\(vendor.name) is preparing your \(service.title.lowercased()).")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white.opacity(0.78))
                     .lineSpacing(2)
@@ -1209,8 +1577,8 @@ struct ClipSuccessView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ClipTheme.panel)
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .background(isBlackLuxuryHoldService ? ClipTheme.background.opacity(0.94) : ClipTheme.panel)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(isBlackLuxuryHoldService ? ClipTheme.magenta.opacity(0.24) : Color.white.opacity(0.10), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -1224,47 +1592,187 @@ struct ClipSuccessView: View {
 
     private var primaryActions: some View {
         VStack(spacing: 10) {
-            switch bookingContext.logisticsMode {
-            case .inboundToUser:
-                Button(action: { impactMedium(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
-                    actionRow(icon: "house.fill", title: "Provide Property Access", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+            if isBlackAviationService {
+                blackAviationLogisticsActions
+            } else if isBlackMarineService {
+                blackMarineLogisticsActions
+            } else if isPlatinumEventService {
+                platinumEventLogisticsActions
+            } else {
+                defaultLogisticsActions
+                fullAppAction
+            }
+        }
+    }
+
+    private var fullAppAction: some View {
+        Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.app.fill")
+                Text("Get the full Bytspot app")
+                Spacer()
+                Image(systemName: "chevron.right")
+            }
+            .font(.system(size: 14, weight: .black))
+            .foregroundColor(.white)
+            .padding(.vertical, 14).padding(.horizontal, 15)
+            .background(Color.white.opacity(0.10))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }.buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var defaultLogisticsActions: some View {
+        switch bookingContext.logisticsMode {
+        case .inboundToUser:
+            Button(action: { impactMedium(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                actionRow(icon: "house.fill", title: "Provide Property Access", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+            }.buttonStyle(.plain)
+
+            Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                actionRow(icon: "map.fill", title: "Track Live ETA", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+            }.buttonStyle(.plain)
+
+        case .outboundToVenue:
+            Button(action: { impactMedium(); openInMaps() }) {
+                actionRow(icon: "location.north.line.fill", title: isPlatinumParkingOrValetService ? "ETA to Parking" : "View Live Route & Valet", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.cyan.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+            }.buttonStyle(.plain)
+
+            Button(action: { impactLight(); openBlackRide() }) {
+                actionRow(icon: hasGroundLogistics ? "car.fill" : "arrow.up.forward.app.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            }.buttonStyle(.plain)
+        }
+    }
+
+    private var blackAviationLogisticsActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "airplane.departure")
+                    .foregroundColor(ClipTheme.gold)
+                Text("BLACK AVIATION LOGISTICS")
+                    .font(.system(size: 10.5, weight: .black))
+                    .tracking(1.4)
+                    .foregroundColor(ClipTheme.gold)
+                Spacer()
+            }
+
+            logisticsSection(title: "Inbound Logistics", subtitle: "Valet staging, luggage handoff, and arrival support.", accent: ClipTheme.gold) {
+                Button(action: { impactHeavy(); openFullApp(url: blackAviationConciergeHandoffURL(), showOverlay: $showOverlay) }) {
+                    blackActionRow(icon: "airplane.arrival", title: "Track Live Flight Route", detail: "Concierge-managed flight monitoring and arrival updates", gradient: LinearGradient(colors: [Color.white.opacity(0.12), ClipTheme.gold.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
                 }.buttonStyle(.plain)
 
-                Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
-                    actionRow(icon: "map.fill", title: "Track Live ETA", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                Button(action: { impactHeavy(); showValetArrivalConfirmation = true }) {
+                    blackActionRow(icon: "car.side.and.exclamationmark.fill", title: "Valet Arrival", detail: "Stage chauffeur, luggage, and receiving valet", gradient: LinearGradient(colors: [Color.white.opacity(0.12), ClipTheme.gold.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
+                }.buttonStyle(.plain)
+            }
+
+            logisticsSection(title: "Outbound Logistics", subtitle: "Departure ride and tarmac timing.", accent: ClipTheme.magenta) {
+                Button(action: { impactHeavy(); openBlackRide() }) {
+                    blackActionRow(icon: "car.fill", title: "Request Black Ride", detail: "Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(LinearGradient(colors: [Color.black.opacity(0.96), ClipTheme.panel.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(ClipTheme.gold.opacity(0.26), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: ClipTheme.magenta.opacity(0.12), radius: 18, x: 0, y: 10)
+    }
+
+    private var blackMarineLogisticsActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "ferry.fill")
+                    .foregroundColor(ClipTheme.gold)
+                Text("BLACK MARINE LOGISTICS")
+                    .font(.system(size: 10.5, weight: .black))
+                    .tracking(1.4)
+                    .foregroundColor(ClipTheme.gold)
+                Spacer()
+            }
+
+            logisticsSection(title: "Dockside Logistics", subtitle: "Staging dockside support, luggage handoff, and marina arrival updates.", accent: ClipTheme.gold) {
+                Button(action: { impactHeavy(); openFullApp(url: blackMarineConciergeHandoffURL(), showOverlay: $showOverlay) }) {
+                    blackActionRow(icon: "ferry.fill", title: "Track Vessel Arrival", detail: "Concierge-managed vessel monitoring and arrival updates", gradient: LinearGradient(colors: [Color.white.opacity(0.12), ClipTheme.gold.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
                 }.buttonStyle(.plain)
 
-            case .outboundToVenue:
-                Button(action: { impactMedium(); openInMaps() }) {
-                    actionRow(icon: "location.north.line.fill", title: "View Live Route & Valet", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.cyan.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+                Button(action: { impactHeavy(); showDocksideValetConfirmation = true }) {
+                    blackActionRow(icon: "car.side.and.exclamationmark.fill", title: "Dockside Valet", detail: "Staging dockside support, luggage, and marina arrival", gradient: LinearGradient(colors: [Color.white.opacity(0.12), ClipTheme.gold.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
                 }.buttonStyle(.plain)
+            }
 
-                if hasGroundLogistics {
-                    Button(action: { impactLight(); openBlackRide() }) {
-                        actionRow(icon: "car.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    }.buttonStyle(.plain)
-                } else {
-                    Button(action: { impactLight(); openBlackRide() }) {
-                        actionRow(icon: "arrow.up.forward.app.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.28), ClipTheme.violet.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            logisticsSection(title: "Outbound Logistics", subtitle: "Departure ride and marina transfer timing.", accent: ClipTheme.magenta) {
+                Button(action: { impactHeavy(); openBlackRide() }) {
+                    blackActionRow(icon: "car.fill", title: "Request Black Ride", detail: "Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(LinearGradient(colors: [Color.black.opacity(0.96), ClipTheme.panel.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(ClipTheme.gold.opacity(0.26), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: ClipTheme.magenta.opacity(0.12), radius: 18, x: 0, y: 10)
+    }
+
+    private var platinumEventLogisticsActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "ticket.fill")
+                    .foregroundColor(ClipTheme.cyan)
+                Text("PLATINUM EVENT ACCESS")
+                    .font(.system(size: 10.5, weight: .black))
+                    .tracking(1.4)
+                    .foregroundColor(ClipTheme.cyan)
+                Spacer()
+            }
+
+            logisticsSection(title: "Digital Pass", subtitle: "Fast-track entry, VIP lounge access, and concierge arrival support.", accent: ClipTheme.cyan) {
+                Button(action: {
+                    impactMedium()
+                    hasViewedPlatinumDigitalPass = true
+                    showPlatinumDigitalPass = true
+                }) {
+                    platinumActionRow(icon: "qrcode.viewfinder", title: "View Digital Pass", detail: "\(platinumEventPassDisplayName), entry QR, and host notes", gradient: LinearGradient(colors: [ClipTheme.cyan.opacity(0.32), Color.white.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                }.buttonStyle(.plain)
+                if hasViewedPlatinumDigitalPass {
+                    Button(action: { impactMedium(); openFullApp(url: platinumEventPassHandoffURL(intent: "save_to_wallet"), showOverlay: $showOverlay) }) {
+                        platinumActionRow(icon: "wallet.pass.fill", title: "Save to Wallet", detail: "Persist this pass in the full Bytspot app", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.28), ClipTheme.cyan.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     }.buttonStyle(.plain)
                 }
             }
 
-            Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
-                HStack(spacing: 10) {
-                    Image(systemName: "arrow.down.app.fill")
-                    Text("Get the full Bytspot app")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                }
-                .font(.system(size: 14, weight: .black))
-                .foregroundColor(.white)
-                .padding(.vertical, 14).padding(.horizontal, 15)
-                .background(Color.white.opacity(0.10))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }.buttonStyle(.plain)
+            logisticsSection(title: "Arrival Logistics", subtitle: "\(platinumEtaSummary). Premium ride coordination for venue arrival and departure.", accent: ClipTheme.violet) {
+                Button(action: { impactMedium(); openBlackRide() }) {
+                    platinumActionRow(icon: "car.fill", title: "Request Platinum Ride", detail: "\(platinumEtaSummary) · Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.34), ClipTheme.cyan.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                }.buttonStyle(.plain)
+            }
         }
+        .padding(14)
+        .background(LinearGradient(colors: [ClipTheme.panel.opacity(0.96), ClipTheme.background.opacity(0.90)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(ClipTheme.cyan.opacity(0.26), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: ClipTheme.cyan.opacity(0.10), radius: 16, x: 0, y: 9)
+    }
+
+    private func logisticsSection<Content: View>(title: String, subtitle: String, accent: Color, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(accent)
+                    .tracking(1.15)
+                Text(subtitle)
+                    .font(.system(size: 12.2, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.68))
+                    .lineSpacing(2)
+            }
+            VStack(spacing: 8) { content() }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.045))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.20), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private var secondaryActions: some View {
@@ -1300,6 +1808,58 @@ struct ClipSuccessView: View {
         .background(background)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func blackActionRow(icon: String, title: String, detail: String, gradient: LinearGradient, foreground: Color) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .black))
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14.5, weight: .black))
+                Text(detail)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(foreground.opacity(0.68))
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 11, weight: .black))
+        }
+        .foregroundColor(foreground)
+        .padding(.vertical, 13)
+        .padding(.horizontal, 13)
+        .background(gradient)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func platinumActionRow(icon: String, title: String, detail: String, gradient: LinearGradient) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .black))
+                .foregroundColor(ClipTheme.cyan)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14.5, weight: .black))
+                    .foregroundColor(.white)
+                Text(detail)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(.white.opacity(0.66))
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 11, weight: .black))
+                .foregroundColor(.white.opacity(0.9))
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, 13)
+        .background(gradient)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ClipTheme.cyan.opacity(0.16), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func timeString(from seconds: Int) -> String {
@@ -1648,6 +2208,83 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
     private var supportedNetworks: [PKPaymentNetwork] {
         [.amex, .discover, .masterCard, .visa]
     }
+}
+
+private struct PlatinumDigitalPassSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let ticketURL: URL
+    let eyebrow: String
+    let passTitle: String
+    let bookingRef: String
+    let vendorName: String
+    let onSaveToWallet: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(eyebrow)
+                        .font(.system(size: 10.5, weight: .black))
+                        .tracking(1.3)
+                        .foregroundColor(ClipTheme.cyan)
+                    Text(passTitle)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                    Text("\(vendorName) · \(bookingRef)")
+                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.58))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white.opacity(0.74))
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(ClipTheme.background)
+
+            ClipSafariView(url: ticketURL)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Button(action: onSaveToWallet) {
+                HStack(spacing: 9) {
+                    Image(systemName: "wallet.pass.fill")
+                    Text("Save to Wallet in Bytspot")
+                    Spacer()
+                    Image(systemName: "arrow.down.app.fill")
+                }
+                .font(.system(size: 14, weight: .black))
+                .foregroundColor(.white)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 15)
+                .background(LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.32)], startPoint: .leading, endPoint: .trailing))
+                .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .background(ClipTheme.background)
+        }
+        .background(ClipTheme.background.ignoresSafeArea())
+    }
+}
+
+private struct ClipSafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.dismissButtonStyle = .close
+        controller.preferredControlTintColor = UIColor(red: 0.0, green: 0.749, blue: 1.0, alpha: 1.0)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
 

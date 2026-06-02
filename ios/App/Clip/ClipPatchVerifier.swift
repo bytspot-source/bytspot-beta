@@ -135,9 +135,9 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "platinum-parking", title: "Reserved Parking", subtitle: "Guaranteed spot at this venue. Skip the circling.", action: "Reserve Spot", iconName: "car.side.lock.fill", tintName: "cyan", priceLabel: "From $12", amountCents: 1_200, currency: "USD", source: "curated", heroImageURL: nil, category: "parking"),
                 ClipLocalService(id: "platinum-valet", title: "Valet Service", subtitle: "Hand off the keys. Retrieval in under 5 minutes.", action: "Book Valet", iconName: "key.fill", tintName: "cyan", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "valet"),
                 ClipLocalService(id: "platinum-dining", title: "Reserve a Table", subtitle: "Priority seating at top neighborhood restaurants.", action: "Reserve Table", iconName: "fork.knife", tintName: "violet", priceLabel: "From $65", amountCents: 6_500, currency: "USD", source: "curated", heroImageURL: nil, category: "dining"),
-                ClipLocalService(id: "platinum-entry", title: "Skip-the-Line Entry", subtitle: "Verified entry to events and nightlife venues.", action: "Buy Entry", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "entry"),
+                ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events"),
                 ClipLocalService(id: "platinum-rideshare", title: "Premium Rideshare", subtitle: "On-demand SUV and black-car pickup nearby.", action: "Request Ride", iconName: "car.side.fill", tintName: "cyan", priceLabel: "From $35", amountCents: 3_500, currency: "USD", source: "curated", heroImageURL: nil, category: "rideshare"),
-                ClipLocalService(id: "platinum-bottle", title: "Bottle Service", subtitle: "Reserved table and bottle package at partner venues.", action: "Reserve Table", iconName: "wineglass.fill", tintName: "violet", priceLabel: "From $250", amountCents: 25_000, currency: "USD", source: "curated", heroImageURL: nil, category: "nightlife"),
+                ClipLocalService(id: "platinum-bottle", title: "Nightlife Event Access", subtitle: "VIP table access, digital entry pass, and host-led arrival.", action: "Buy Pass", iconName: "wineglass.fill", tintName: "violet", priceLabel: "From $250", amountCents: 25_000, currency: "USD", source: "curated", heroImageURL: nil, category: "nightlife"),
                 ClipLocalService(id: "platinum-experience", title: "Local Experiences", subtitle: "Curated tours, tastings, and city experiences.", action: "Book Experience", iconName: "sparkles", tintName: "emerald", priceLabel: "From $85", amountCents: 8_500, currency: "USD", source: "curated", heroImageURL: nil, category: "experience")
             ]
         case .green:
@@ -200,6 +200,7 @@ struct ClipVendor: Identifiable, Equatable {
         // Black aviation pool prices exactly to $28,000 / $33,040 / $40,600.
         var base = max(service.amountCents ?? 5000, tier.minimumCents)
         let cat = (service.category ?? service.id).lowercased()
+        let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
         let etaPool = ["ETA 4 min", "ETA 7 min", "ETA 12 min"]
         let names: [(String, String, [String])]
         if cat.contains("aviation") || cat.contains("jet") || cat.contains("charter") {
@@ -296,35 +297,48 @@ struct ClipVendor: Identifiable, Equatable {
     private static func tieredFallbacks(for service: ClipLocalService, tier: BytspotTier) -> [ClipVendor] {
         let base = max(service.amountCents ?? tier.minimumCents, tier.minimumCents)
         let cat = (service.category ?? service.id).lowercased()
+        let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
         let etaPool: [String] = tier == .green
             ? ["Same day", "Tomorrow", "This week"]
             : ["ETA 6 min", "ETA 12 min", "ETA 20 min"]
         let pools: [(String, String, [String])]
         switch tier {
         case .platinum:
-            if cat.contains("park") {
+            if text.contains("park") {
                 pools = [
                     ("Atlanta Park Co.", "Reserved garage spots downtown", ["Guaranteed spot", "Covered parking", "EV chargers on level 3", "In/out privileges"]),
                     ("SafePark Valet", "Attended lot near venue", ["Attendant on duty", "Camera-monitored", "Walk to entry < 3 min", "Validated by venue"]),
                     ("CityHub Garage", "Mid-tier downtown garage", ["Hourly or flat rate", "Mobile-pay entry", "Indoor levels", "24/7 access"])
                 ]
-            } else if cat.contains("dining") || cat.contains("food") || cat.contains("table") {
+            } else if text.contains("dining") || text.contains("food") || text.contains("table") {
                 pools = [
                     ("Cellar 47", "Neighborhood wine bar", ["Priority booking", "Sommelier on staff", "Patio seating option", "Late-night menu"]),
                     ("The Brass Owl", "American bistro", ["Reserved table", "Locally-sourced menu", "Cocktail program", "Group of 6 capable"]),
                     ("Maru Izakaya", "Modern izakaya", ["Counter or table", "Tasting menu option", "Sake pairing", "Reservation hold"])
                 ]
-            } else if cat.contains("valet") || cat.contains("ride") || cat.contains("car") {
+            } else if text.contains("valet") || text.contains("ride") || text.contains("car") {
                 pools = [
                     ("CityValet", "Trusted city valet team", ["White-glove handoff", "5-min retrieval", "Detailing add-on", "Insurance covered"]),
                     ("Apex Rideshare", "Premium SUV rideshare", ["Black-car fleet", "Bottled water", "Live tracking", "Driver bio shown"]),
                     ("MetroDrive", "On-demand chauffeur", ["Door-to-door", "Flight tracking", "Child seat ready", "Receipt by email"])
                 ]
-            } else if cat.contains("event") || cat.contains("entry") || cat.contains("ticket") || cat.contains("nightlife") || cat.contains("bottle") {
+            } else if text.contains("fifa") || text.contains("matchday") || text.contains("akwaaba") {
                 pools = [
-                    ("Front Row Access", "Verified entry partner", ["Skip-the-line", "Wristband at gate", "Re-entry allowed", "Coat check"]),
-                    ("Velvet Rope", "Nightlife hospitality", ["Reserved table", "Bottle package", "Host on arrival", "Late-night extension"]),
-                    ("CityList Events", "Curated mid-tier ticketing", ["Verified seating", "Mobile entry", "Refund window", "Group pricing"])
+                    ("GH Akwaaba Pass", "Verified Event Access & Digital Passes", ["Fast-track entry", "VIP Lounge access", "Digital pass delivery", "On-site host support"]),
+                    ("Velvet Rope", "Premium Nightlife Access & Concierge", ["Fast-track entry", "VIP table access", "Digital pass delivery", "Host on arrival"]),
+                    ("AccessDesk Platinum", "Concierge Event Credentials", ["Digital pass delivery", "Entry support", "Venue arrival notes", "Group coordination"])
+                ]
+            } else if text.contains("nightlife") || text.contains("bottle") || text.contains("vip") {
+                pools = [
+                    ("Velvet Rope", "Premium Nightlife Access & Concierge", ["Fast-track entry", "VIP table access", "Digital pass delivery", "Host on arrival"]),
+                    ("GH Akwaaba Pass", "Verified Event Access & Digital Passes", ["Verified seating", "Mobile entry credentials", "Digital pass delivery", "Group pricing"]),
+                    ("Apex Nightlife Hosts", "VIP Table Access & Arrival Desk", ["Host-led arrival", "Table confirmation", "Digital pass delivery", "Late-night support"])
+                ]
+            } else if text.contains("event") || text.contains("entry") || text.contains("ticket") || text.contains("pass") {
+                pools = [
+                    ("GH Akwaaba Pass", "Verified Event Access & Digital Passes", ["Verified seating", "Mobile entry credentials", "Digital pass delivery", "Group pricing"]),
+                    ("Velvet Rope", "Premium Nightlife Access & Concierge", ["Fast-track entry", "VIP table access", "Digital pass delivery", "Host on arrival"]),
+                    ("AccessDesk Platinum", "Concierge Event Credentials", ["Digital pass delivery", "Entry support", "Venue arrival notes", "Group coordination"])
                 ]
             } else {
                 pools = [

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1200" role="img" aria-labelledby="title desc">
+  <title id="title">GH Akwaaba Pass FIFA Ticket Sale for Ghanaians</title>
+  <desc id="desc">Bytspot Platinum thumbnail for GH Akwaaba Pass FIFA ticket access.</desc>
+  <defs>
+    <radialGradient id="g1" cx="18%" cy="16%" r="72%">
+      <stop offset="0" stop-color="#00BFFF" stop-opacity="0.9"/>
+      <stop offset="0.42" stop-color="#2E1065"/>
+      <stop offset="1" stop-color="#080812"/>
+    </radialGradient>
+    <linearGradient id="ghana" x1="0" x2="1">
+      <stop offset="0" stop-color="#EF3340"/>
+      <stop offset="0.5" stop-color="#FCD116"/>
+      <stop offset="1" stop-color="#009739"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="18" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1800" height="1200" fill="#070710"/>
+  <rect x="54" y="54" width="1692" height="1092" rx="86" fill="url(#g1)"/>
+  <circle cx="1450" cy="260" r="260" fill="#A855F7" opacity="0.24" filter="url(#glow)"/>
+  <circle cx="260" cy="930" r="310" fill="#00BFFF" opacity="0.18" filter="url(#glow)"/>
+  <rect x="126" y="126" width="1548" height="948" rx="62" fill="#000" opacity="0.34"/>
+  <text x="150" y="230" fill="#00BFFF" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="42" font-weight="900" letter-spacing="11">BYTSPOT PLATINUM</text>
+  <text x="150" y="342" fill="#FFFFFF" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="104" font-weight="900">GH Akwaaba Pass</text>
+  <text x="150" y="444" fill="#FCD116" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="64" font-weight="900">FIFA Ticket Access</text>
+  <text x="150" y="532" fill="#FFFFFF" opacity="0.86" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="44" font-weight="700">For Ghanaians • Digital Pass • Concierge Entry</text>
+  <rect x="150" y="620" width="520" height="88" rx="44" fill="url(#ghana)"/>
+  <text x="198" y="678" fill="#080812" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="38" font-weight="900">FAST-TRACK ENTRY</text>
+  <g transform="translate(1130 554)">
+    <rect x="0" y="0" width="392" height="300" rx="38" fill="#FFFFFF" opacity="0.96"/>
+    <rect x="36" y="44" width="320" height="212" rx="22" fill="#0B0B10"/>
+    <circle cx="196" cy="150" r="76" fill="none" stroke="#00BFFF" stroke-width="16"/>
+    <path d="M196 78 L218 126 L270 132 L232 168 L242 220 L196 194 L150 220 L160 168 L122 132 L174 126 Z" fill="#FCD116"/>
+    <text x="75" y="286" fill="#0B0B10" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="28" font-weight="900">MATCHDAY PASS</text>
+  </g>
+  <text x="150" y="1010" fill="#FFFFFF" opacity="0.72" font-family="Avenir Next, Inter, Arial, sans-serif" font-size="34" font-weight="700">Tap the patch. View pass in the App Clip. Save to Wallet when ready.</text>
+</svg>

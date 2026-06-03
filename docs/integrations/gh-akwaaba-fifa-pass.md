@@ -42,6 +42,20 @@ Use `buildGhAkwaabaPassPatchUrl({ patchId, serviceId })`:
 https://bytspot.app/p/<PATCH_ID>?patch=<PATCH_ID>&venue=GH%20Akwaaba%20Pass&tier=platinum&service=<SERVICE_ID>
 ```
 
+Short Ghanaian FIFA sale link for marketing, NFC/QR testing, and App Clip Advanced Experience setup:
+
+```text
+https://bytspot.app/p/gh-akwaaba-fifa-ghana?tier=platinum&service=gh-akwaaba-fifa&venue=GH%20Akwaaba%20Pass
+```
+
+Thumbnail/header creative:
+
+```text
+https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png
+```
+
+Use this 1800×1200 PNG for the App Store Connect Advanced App Clip Experience header image.
+
 ## 4. App Clip search calls on tap
 
 Service catalog resolution:
@@ -65,3 +79,31 @@ context=platinum_event_pass&destination=digital_pass&view=event_pass&intent=view
 ```
 
 This surfaces the `View Digital Pass` and `Request Platinum Ride` logistics panel.
+
+## 6. App Clip card / ASDErrorDomain 507 checklist
+
+If iOS shows the App Clip card but opening fails with `ASDErrorDomain error 507`, verify:
+
+- App Store Connect has an Advanced App Clip Experience for the exact URL prefix `/p/gh-akwaaba-fifa-ghana`.
+- The header image uses `public/media/gh-akwaaba-fifa-ghana-thumbnail.png`.
+- `apple-app-site-association` includes `/p/*` and the compatibility `/patch` path.
+- `index.html` Smart App Banner default `app-argument` points to an AASA-matched `/p/...` URL, not bare `/patch`.
+- The Clip entitlement includes `appclips:bytspot.app` and `appclips:bytspot.com`.
+
+## 7. Simulator video hero preview
+
+The App Clip DEBUG build uses `ClipVendor.fallbacks` → `previewMedia(...)` to attach a sample looping video to the first fallback vendor. For GH Akwaaba/FIFA, the video poster now falls back to the GH Akwaaba thumbnail.
+
+Launch the checkout hero directly:
+
+```bash
+xcrun simctl launch <SIM_UDID> com.bytspot.app.Clip _XCAppClipURL \
+  'https://bytspot.app/p/gh-akwaaba-fifa-ghana?tier=platinum&service=gh-akwaaba-fifa&venue=GH%20Akwaaba%20Pass&step=checkout'
+```
+
+Expected visual state:
+
+- hero surface uses `ClipAutoLoopingPlayer`
+- video autoplays muted/looping in DEBUG
+- poster/thumbnail resolves to `https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png`
+- service title is `GH Akwaaba Pass`

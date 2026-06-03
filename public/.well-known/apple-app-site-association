@@ -10,6 +10,8 @@
         "components": [
           { "/": "/BYT*", "comment": "Root NTAG424 DNA production tag links, e.g. /BYT424-0301" },
           { "/": "/p/*", "comment": "Patch verify deep link" },
+          { "/": "/access/*", "comment": "Full-app handoff path emitted by App Clip mainAppHandoffURL" },
+          { "/": "/patch", "comment": "Compatibility path for older Smart App Banner defaults" },
           { "/": "/patch/*", "comment": "Patch verify deep link alias for NFC/App Clip demos" },
           { "/": "/t/*", "comment": "Production NFC tag serial deep link" },
           { "/": "/v/*", "comment": "Venue deep link" },

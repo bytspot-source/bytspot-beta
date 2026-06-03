@@ -113,6 +113,29 @@ struct ClipLocalService: Identifiable, Equatable {
     var category: String?
 
     static let fallbacks: [ClipLocalService] = ClipLocalService.fallbacks(for: .black)
+    static let ghAkwaabaFifaThumbnailURL = URL(string: "https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png")
+
+    static func explicitService(for url: URL, tier: BytspotTier) -> ClipLocalService? {
+        guard isGhAkwaabaFifaURL(url, tier: tier) else { return nil }
+        return platinumEventAccessService()
+    }
+
+    static func isGhAkwaabaFifaURL(_ url: URL, tier: BytspotTier) -> Bool {
+        guard tier == .platinum,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        let queryText = (components.queryItems ?? [])
+            .map { "\($0.name)=\($0.value ?? "")" }
+            .joined(separator: " ")
+            .lowercased()
+        let pathText = components.path.lowercased()
+        let combined = "\(pathText) \(queryText)"
+        return combined.contains("akwaaba") || combined.contains("fifa") || combined.contains("matchday") || combined.contains("ghana")
+    }
+
+    static func platinumEventAccessService() -> ClipLocalService {
+        fallbacks(for: .platinum).first(where: { $0.id == "platinum-entry" })
+            ?? ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
+    }
 
     /// Tier-specific service catalog rendered when the tRPC `vendors.search`
     /// endpoint returns no rows. Black mirrors the legacy ultra-luxury list;
@@ -263,31 +286,36 @@ struct ClipVendor: Identifiable, Equatable {
                 currency: service.currency,
                 rating: [4.9, 4.8, 4.7][idx % 3],
                 etaLabel: etaPool[idx % etaPool.count],
-                heroImageURL: nil,
+                heroImageURL: service.heroImageURL,
                 availability: idx == 0 ? "Available now" : (idx == 1 ? "Available tonight" : "Available this week"),
                 includedHighlights: entry.2,
                 serviceId: service.id,
-                media: Self.previewMedia(serviceId: service.id, index: idx)
+                media: Self.previewMedia(service: service, index: idx)
             )
         }
+    }
+
+    static func explicitVendor(for url: URL, service: ClipLocalService, tier: BytspotTier) -> ClipVendor? {
+        guard ClipLocalService.isGhAkwaabaFifaURL(url, tier: tier) else { return nil }
+        return fallbacks(for: service, tier: tier).first(where: { $0.name.lowercased().contains("akwaaba") })
     }
 
     /// DEBUG-only sample HLS poster + playback URL so the player surface can
     /// be visually verified in the simulator before the real Mux pipeline is wired up.
     /// Returns nil in Release builds so no third-party media leaks into production.
-    private static func previewMedia(serviceId: String, index: Int) -> ClipVendorMedia? {
+    private static func previewMedia(service: ClipLocalService, index: Int, posterFallback: URL? = nil) -> ClipVendorMedia? {
         #if DEBUG
         guard index == 0 else { return nil }
         return ClipVendorMedia(
             kind: .video,
-            posterURL: URL(string: "https://image.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb/thumbnail.jpg?width=720&time=2"),
+            posterURL: posterFallback ?? service.heroImageURL ?? URL(string: "https://image.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb/thumbnail.jpg?width=720&time=2"),
             videoPlaybackURL: URL(string: "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8"),
             durationMs: 12000,
             width: 1920,
             height: 1080
         )
         #else
-        _ = serviceId; _ = index
+        _ = service; _ = index; _ = posterFallback
         return nil
         #endif
     }
@@ -397,6 +425,8 @@ struct ClipVendor: Identifiable, Equatable {
         }
         return pools.enumerated().map { idx, entry in
             let multiplier = [1.0, 1.18, 1.45][idx % 3]
+            let isGhAkwaabaProduct = entry.0.lowercased().contains("akwaaba")
+            let productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL : service.heroImageURL
             return ClipVendor(
                 id: "\(service.id)-vendor-\(idx)",
                 name: entry.0,
@@ -405,11 +435,11 @@ struct ClipVendor: Identifiable, Equatable {
                 currency: service.currency,
                 rating: [4.9, 4.8, 4.7][idx % 3],
                 etaLabel: etaPool[idx % etaPool.count],
-                heroImageURL: nil,
+                heroImageURL: productHeroURL,
                 availability: idx == 0 ? "Available now" : (idx == 1 ? "Available tonight" : "Available this week"),
                 includedHighlights: entry.2,
                 serviceId: service.id,
-                media: Self.previewMedia(serviceId: service.id, index: idx)
+                media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL)
             )
         }
     }
@@ -680,7 +710,7 @@ struct ClipPatchVerifier {
         let hero = Self.url(vendor["heroImageUrl"]) ?? Self.url(row["heroImageUrl"]) ?? Self.url(vendor["imageUrl"])
         let availability = Self.string(row["availability"]) ?? Self.string(vendor["availability"]) ?? "Available now"
         let highlights = (row["highlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
-        let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero)
+        let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero ?? service.heroImageURL)
         return ClipVendor(
             id: Self.string(vendor["id"]) ?? Self.string(row["id"]) ?? "\(service.id)-vendor-\(index)",
             name: resolvedName,

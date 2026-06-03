@@ -16,9 +16,12 @@
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <link rel="apple-touch-icon" href="/icon-192.png" />
 
-      <!-- Smart App Banner — surfaces the full Bytspot app from Mobile Safari and
-           the App Clip card when iOS opens an NFC tag in Safari first. -->
-      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/patch" />
+      <meta name="description" content="Bytspot Tap & Scan access for parking, events, rides, and local services." />
+      <meta property="og:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
+      <!-- Smart App Banner — default app-argument must itself match AASA.
+           JS below rewrites this to the exact scanned URL, but iOS can read the
+           initial value before JS completes when showing the App Clip card. -->
+      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/p/app-clip?tier=platinum" />
     </head>
 
     <body>

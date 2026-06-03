@@ -40,14 +40,12 @@
 	<key>NSAppClip</key>
 	<dict>
 		<key>NSAppClipRequestEphemeralUserNotification</key>
-		<false/>
+		<true/>
 		<key>NSAppClipRequestLocationConfirmation</key>
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Bytspot uses your location to confirm you are at the venue patch.</string>
-	<key>NFCReaderUsageDescription</key>
-	<string>Bytspot reads the NFC patch at the venue entrance to verify your access.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct BytspotClipApp: App {
@@ -41,8 +42,17 @@ struct BytspotClipApp: App {
                         invocation.handle(url: url)
                     }
                     #endif
+                    try? await Task.sleep(nanoseconds: 750_000_000)
+                    await requestEphemeralNotificationAuthorizationIfNeeded()
                 }
         }
+    }
+
+    private func requestEphemeralNotificationAuthorizationIfNeeded() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
     }
 }
 
@@ -57,6 +67,13 @@ enum ClipVendorFilter: String, CaseIterable, Identifiable {
     case now = "Now"
     case tonight = "Tonight"
     case thisWeek = "This Week"
+    var id: String { rawValue }
+}
+
+enum ClipMatchdayEssential: String, CaseIterable, Identifiable {
+    case tickets
+    case souvenirs
+    case jerseys
     var id: String { rawValue }
 }
 
@@ -79,6 +96,9 @@ final class ClipInvocationModel: ObservableObject {
     @Published var loadingVendorsService: String?
     @Published var vendorFilter: ClipVendorFilter = .now
     @Published var guestCount: Int = 1
+    @Published var matchdayTicketQuantity: Int = 1
+    @Published var matchdaySouvenirQuantity: Int = 0
+    @Published var matchdayJerseyQuantity: Int = 0
 
     private let api = ClipPatchVerifier()
     private var loadTask: Task<Void, Never>?
@@ -90,19 +110,26 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     func handle(url: URL) {
+        loadTask?.cancel()
+        vendorTasks.values.forEach { $0.cancel() }
+        vendorTasks.removeAll()
+
         invocationURL = url
         flow = .catalog
         vendorFilter = .now
         guestCount = 1
+        resetMatchdayEssentials()
+        patchContext = nil
+        verificationState = .idle
+        contextError = nil
+        loadingVendorsService = nil
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         let items = components.queryItems ?? []
         let pathParts = Self.pathParts(from: components)
 
         venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
-            ?? venueSlug
         patchId = Self.queryValue(in: items, names: ["patch", "patchid", "p"])
             ?? Self.patchId(from: pathParts)
-            ?? patchId
         token = Self.queryValue(in: items, names: ["t", "token"])
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
@@ -111,8 +138,17 @@ final class ClipInvocationModel: ObservableObject {
         // entries never leak into a Green/Platinum invocation.
         services = ClipLocalService.fallbacks(for: detectedTier)
         vendorsByService.removeAll()
-
-        loadTask?.cancel()
+        if let explicitService = ClipLocalService.explicitService(for: url, tier: detectedTier) {
+            if let existingIndex = services.firstIndex(where: { $0.id == explicitService.id }) {
+                services.remove(at: existingIndex)
+            }
+            services.insert(explicitService, at: 0)
+            let fallbackVendors = ClipVendor.fallbacks(for: explicitService, tier: detectedTier)
+            vendorsByService[explicitService.id] = fallbackVendors
+            if let explicitVendor = ClipVendor.explicitVendor(for: url, service: explicitService, tier: detectedTier) {
+                flow = .checkout(service: explicitService, vendor: explicitVendor)
+            }
+        }
 
         #if DEBUG
         // Deep-link walkthrough hook used by scripts/clip-screencap-sweep.sh
@@ -201,9 +237,9 @@ final class ClipInvocationModel: ObservableObject {
             flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001")
             return true
         case "success_gh_akwaaba", "success_fifa_matchday", "success_platinum_fifa":
-            let service = ClipLocalService(id: "platinum-fifa-matchday", title: "GH Akwaaba Pass", subtitle: "Premium FIFA entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
+            let service = ClipLocalService.platinumEventAccessService()
             let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
-            guard let vendor = fallbacks.first else { return false }
+            guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("akwaaba") }) ?? fallbacks.first else { return false }
             vendorsByService[service.id] = fallbacks
             flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001")
             return true
@@ -272,6 +308,33 @@ final class ClipInvocationModel: ObservableObject {
 
     func incrementGuests() { guestCount = min(guestCount + 1, 12) }
     func decrementGuests() { guestCount = max(guestCount - 1, 1) }
+
+    func quantity(for essential: ClipMatchdayEssential) -> Int {
+        switch essential {
+        case .tickets: return matchdayTicketQuantity
+        case .souvenirs: return matchdaySouvenirQuantity
+        case .jerseys: return matchdayJerseyQuantity
+        }
+    }
+
+    func adjustMatchdayEssential(_ essential: ClipMatchdayEssential, delta: Int) {
+        switch essential {
+        case .tickets:
+            matchdayTicketQuantity = min(max(matchdayTicketQuantity + delta, 1), 12)
+            guestCount = matchdayTicketQuantity
+        case .souvenirs:
+            matchdaySouvenirQuantity = min(max(matchdaySouvenirQuantity + delta, 0), 20)
+        case .jerseys:
+            matchdayJerseyQuantity = min(max(matchdayJerseyQuantity + delta, 0), 20)
+        }
+    }
+
+    func resetMatchdayEssentials() {
+        matchdayTicketQuantity = 1
+        matchdaySouvenirQuantity = 0
+        matchdayJerseyQuantity = 0
+        guestCount = 1
+    }
 
     func prefetchVendors(for service: ClipLocalService) {
         if vendorsByService[service.id] != nil { return }

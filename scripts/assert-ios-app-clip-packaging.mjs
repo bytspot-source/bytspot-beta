@@ -7,6 +7,10 @@ const files = {
   scheme: path.join(root, 'ios/App/App.xcodeproj/xcshareddata/xcschemes/Clip.xcscheme'),
   plist: path.join(root, 'ios/App/Clip/Info.plist'),
   entitlements: path.join(root, 'ios/App/Clip/Clip.entitlements'),
+  aasa: path.join(root, 'public/.well-known/apple-app-site-association'),
+  index: path.join(root, 'index.html'),
+  ghThumbnail: path.join(root, 'public/media/gh-akwaaba-fifa-ghana-thumbnail.png'),
+  clipPatchVerifier: path.join(root, 'ios/App/Clip/ClipPatchVerifier.swift'),
 };
 
 const read = (label, file) => {
@@ -18,6 +22,10 @@ const project = read('Xcode project', files.project);
 const scheme = read('Clip shared scheme', files.scheme);
 const plist = read('Clip Info.plist', files.plist);
 const entitlements = read('Clip entitlements', files.entitlements);
+const aasa = read('AASA', files.aasa);
+const index = read('index.html', files.index);
+const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifier);
+const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plist);
 
 const checks = [
   ['Clip native target', project.includes('/* Clip */ = {') && project.includes('isa = PBXNativeTarget;')],
@@ -30,7 +38,20 @@ const checks = [
   ['Host depends on Clip target', project.includes('PBXTargetDependency') && project.includes('target = A13F010E2C0FF0010000001E /* Clip */;')],
   ['Clip shared scheme', scheme.includes('BlueprintName = "Clip"') && scheme.includes('BuildableName = "Clip.app"')],
   ['Clip Info.plist declares NSAppClip', plist.includes('<key>NSAppClip</key>')],
-  ['Clip associated domain entitlement', entitlements.includes('appclips:bytspot.app')],
+  ['Clip requests ephemeral notification capability', plistBool('NSAppClipRequestEphemeralUserNotification', true)],
+  ['Clip requests location confirmation capability', plistBool('NSAppClipRequestLocationConfirmation', true)],
+  ['Clip associated domain entitlement for bytspot.app', entitlements.includes('appclips:bytspot.app')],
+  ['Clip associated domain entitlement for bytspot.com', entitlements.includes('appclips:bytspot.com')],
+  ['Clip Apple Pay merchant entitlement', entitlements.includes('merchant.com.bytspot.app')],
+  ['Clip does not request Core NFC entitlement', !entitlements.includes('com.apple.developer.nfc.readersession.formats')],
+  ['Clip Info.plist does not request Core NFC usage', !plist.includes('NFCReaderUsageDescription')],
+  ['AASA supports exact /patch compatibility path', aasa.includes('"/": "/patch"')],
+  ['AASA supports /access full-app handoff path', aasa.includes('"/": "/access/*"')],
+  ['Smart App Banner default app-argument is AASA-matched', index.includes('app-argument=https://bytspot.app/p/app-clip?tier=platinum')],
+  ['GH Akwaaba FIFA thumbnail PNG exists', fs.existsSync(files.ghThumbnail)],
+  ['GH Akwaaba is not a standalone service tile', !clipPatchVerifier.includes('platinum-fifa-matchday') && !clipPatchVerifier.includes('ghAkwaabaFifaService')],
+  ['GH Akwaaba short-link targets Event Access vendor', clipPatchVerifier.includes('return platinumEventAccessService()') && clipPatchVerifier.includes('static func explicitVendor')],
+  ['GH Akwaaba vendor carries FIFA product hero', clipPatchVerifier.includes('productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

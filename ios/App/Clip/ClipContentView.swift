@@ -465,7 +465,7 @@ struct ClipVendorListView: View {
         return AnyView(HStack(spacing: 14) {
             ZStack {
                 LinearGradient(colors: [service.tintColor.opacity(0.75), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let url = vendor.displayPosterURL {
+                if let url = posterURL(for: vendor) {
                     AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                         .clipped()
                 }
@@ -512,6 +512,10 @@ struct ClipVendorListView: View {
         .background(ClipTheme.panel)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
+    }
+
+    private func posterURL(for vendor: ClipVendor) -> URL? {
+        vendor.displayPosterURL ?? service.heroImageURL
     }
 
     private func blackAviationVendorRow(_ vendor: ClipVendor) -> some View {
@@ -601,11 +605,17 @@ struct ClipCheckoutView: View {
     @State private var phoneNumber = ""
 
     private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
-    private var totalCents: Int { vendor.priceFromCents * max(invocation.guestCount, 1) }
+    private var totalCents: Int {
+        if isGhAkwaabaProduct { return matchdayEssentialsTotalCents }
+        return vendor.priceFromCents * max(invocation.guestCount, 1)
+    }
     private var totalLabel: String {
         let dollars = Double(totalCents) / 100.0
         if service.currency.uppercased() == "USD" { return String(format: "$%.0f", dollars) }
         return "\(service.currency.uppercased()) \(String(format: "%.0f", dollars))"
+    }
+    private var checkoutGuestCount: Int {
+        isGhAkwaabaProduct ? max(invocation.matchdayTicketQuantity, 1) : invocation.guestCount
     }
 
     var body: some View {
@@ -614,7 +624,7 @@ struct ClipCheckoutView: View {
                 header
                 vendorHero
                 includedCard
-                guestPicker
+                if isGhAkwaabaProduct { matchdayEssentialsPicker } else { guestPicker }
                 bookingDetailsCard
                 totalRow
                 applePayBlock
@@ -651,18 +661,80 @@ struct ClipCheckoutView: View {
 
     @ViewBuilder
     private var vendorHero: some View {
-        if vendor.media?.hasPlayableVideo == true {
+        if isGhAkwaabaProduct {
+            ghAkwaabaProductBanner
+        } else if vendor.media?.hasPlayableVideo == true {
             vendorHeroVideo
         } else {
             vendorHeroCompact
         }
     }
 
+    private var isGhAkwaabaProduct: Bool {
+        vendor.name.lowercased().contains("akwaaba")
+    }
+
+    private var matchdayEssentialsTotalCents: Int {
+        (invocation.matchdayTicketQuantity * matchdayPriceCents(.tickets))
+        + (invocation.matchdaySouvenirQuantity * matchdayPriceCents(.souvenirs))
+        + (invocation.matchdayJerseyQuantity * matchdayPriceCents(.jerseys))
+    }
+
+    private func matchdayPriceCents(_ item: ClipMatchdayEssential) -> Int {
+        switch item {
+        case .tickets: return max(vendor.priceFromCents, 5_000)
+        case .souvenirs: return 1_500
+        case .jerseys: return 7_500
+        }
+    }
+
+    private func matchdayItemName(_ item: ClipMatchdayEssential) -> String {
+        switch item {
+        case .tickets: return "Ticket Sales"
+        case .souvenirs: return "Souvenirs"
+        case .jerseys: return "Ghana Home Jersey"
+        }
+    }
+
+    private func matchdayPriceLabel(_ cents: Int) -> String {
+        let dollars = Double(cents) / 100.0
+        return service.currency.uppercased() == "USD" ? String(format: "$%.0f each", dollars) : "\(service.currency.uppercased()) \(String(format: "%.0f", dollars)) each"
+    }
+
+    private var ghAkwaabaProductBanner: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: [ClipTheme.violet.opacity(0.72), ClipTheme.cyan.opacity(0.32), Color.black.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            if vendor.media?.hasPlayableVideo == true {
+                ClipAutoLoopingPlayer(videoURL: vendor.media?.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
+            } else if let url = posterURL(for: vendor) {
+                AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .clipped()
+            }
+            LinearGradient(colors: [Color.black.opacity(0.22), Color.black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("FIFA TICKET SALE")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundColor(ClipTheme.cyan)
+                    .tracking(1.6)
+                Text("GH Akwaaba Pass")
+                    .font(.system(size: 25, weight: .heavy))
+                    .foregroundColor(.white)
+                Text("For Ghanaians · Digital event access")
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(.white.opacity(0.82))
+            }
+            .padding(14)
+        }
+        .frame(height: 132)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.cyan.opacity(0.30), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
     private var vendorHeroCompact: some View {
         HStack(spacing: 14) {
             ZStack {
                 LinearGradient(colors: [service.tintColor.opacity(0.78), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let url = vendor.displayPosterURL {
+                if let url = posterURL(for: vendor) {
                     AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }.clipped()
                 }
                 Image(systemName: service.iconName)
@@ -689,7 +761,7 @@ struct ClipCheckoutView: View {
         ZStack(alignment: .bottomLeading) {
             ClipAutoLoopingPlayer(
                 videoURL: vendor.media?.videoPlaybackURL,
-                posterURL: vendor.displayPosterURL,
+                posterURL: posterURL(for: vendor),
                 tint: service.tintColor
             )
             .aspectRatio(16.0/9.0, contentMode: .fit)
@@ -717,6 +789,10 @@ struct ClipCheckoutView: View {
         }
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func posterURL(for vendor: ClipVendor) -> URL? {
+        vendor.displayPosterURL ?? service.heroImageURL
     }
 
     private var includedCard: some View {
@@ -768,6 +844,67 @@ struct ClipCheckoutView: View {
         .background(ClipTheme.panel)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var matchdayEssentialsPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("MATCHDAY ESSENTIALS")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(ClipTheme.cyan)
+                    .tracking(1.3)
+                Spacer()
+                Text("Qty")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            ForEach(ClipMatchdayEssential.allCases) { item in
+                matchdayEssentialRow(item)
+            }
+        }
+        .padding(14)
+        .background(ClipTheme.panel)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.cyan.opacity(0.18), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func matchdayEssentialRow(_ item: ClipMatchdayEssential) -> some View {
+        let quantity = invocation.quantity(for: item)
+        let minimum = item == .tickets ? 1 : 0
+        let canSubtract = quantity > minimum
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(matchdayItemName(item))
+                    .font(.system(size: 14.5, weight: .heavy))
+                    .foregroundColor(.white)
+                Text(matchdayPriceLabel(matchdayPriceCents(item)))
+                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.62))
+            }
+            Spacer()
+            HStack(spacing: 10) {
+                Button(action: { impactLight(); invocation.adjustMatchdayEssential(item, delta: -1) }) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundColor(.white.opacity(canSubtract ? 1 : 0.35))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(canSubtract ? 0.12 : 0.06))
+                        .clipShape(Circle())
+                }.buttonStyle(.plain).disabled(!canSubtract)
+                Text("\(quantity)")
+                    .font(.system(size: 16, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white)
+                    .frame(minWidth: 22)
+                Button(action: { impactLight(); invocation.adjustMatchdayEssential(item, delta: 1) }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundColor(.black)
+                        .frame(width: 30, height: 30)
+                        .background(ClipTheme.cyan)
+                        .clipShape(Circle())
+                }.buttonStyle(.plain)
+            }
+        }
     }
 
     private var bookingDetailsCard: some View {
@@ -848,7 +985,7 @@ struct ClipCheckoutView: View {
                     service: service,
                     patchId: invocation.patchId ?? invocation.patchContext?.patchId,
                     vendorId: vendor.id,
-                    guestCount: invocation.guestCount,
+                    guestCount: checkoutGuestCount,
                     amountCentsOverride: totalCents,
                     lineLabel: "\(vendor.name) · \(service.title)"
                 )
@@ -930,6 +1067,7 @@ struct ClipSuccessView: View {
     @State private var showPlatinumDigitalPass = false
     @State private var hasViewedPlatinumDigitalPass = false
     @State private var didAutoOpenPlatinumPassForPreview = false
+    @State private var showShareSheet = false
 
     private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
     private var hasGroundLogistics: Bool {
@@ -991,6 +1129,7 @@ struct ClipSuccessView: View {
                     countdownCard
                     if !isBlackLuxuryHoldService && !isPlatinumEventService { whatsIncluded }
                     primaryActions
+                    shareAccessAction
                     if !isBlackLuxuryHoldService { secondaryActions }
                 }
                 .padding(.horizontal, 18)
@@ -1034,6 +1173,9 @@ struct ClipSuccessView: View {
                 impactMedium()
                 openFullApp(url: platinumEventPassHandoffURL(intent: "save_to_wallet"), showOverlay: $showOverlay)
             }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ClipShareSheet(items: shareAccessItems)
         }
         .confirmationDialog("Coordinate Valet Arrival?", isPresented: $showValetArrivalConfirmation, titleVisibility: .visible) {
             Button("Continue to Valet Arrival") {
@@ -1217,6 +1359,10 @@ struct ClipSuccessView: View {
     }
 
     private var platinumEventPassDisplayName: String {
+        let vendorName = vendor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if vendorName.lowercased().contains("akwaaba") { return "GH Akwaaba Pass" }
+        if !vendorName.isEmpty && vendorName.lowercased().contains("pass") { return vendorName }
+        if !vendorName.isEmpty && isPlatinumEventService { return "\(vendorName) Pass" }
         let serviceName = service.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if serviceName.lowercased().contains("akwaaba") { return "GH Akwaaba Pass" }
         if serviceName.lowercased().contains("event access") { return "Platinum Event Pass" }
@@ -1225,7 +1371,25 @@ struct ClipSuccessView: View {
     }
 
     private var platinumEventPassEyebrow: String {
-        service.title.lowercased().contains("akwaaba") ? "GH AKWAABA PASS" : "PLATINUM EVENT PASS"
+        vendor.name.lowercased().contains("akwaaba") ? "GH AKWAABA PASS" : "EVENT PASS"
+    }
+
+    private var shareAccessURL: URL {
+        if let url = invocation.invocationURL { return url }
+        if let url = invocation.mainAppHandoffURL { return url }
+        if let url = URL(string: "https://bytspot.app/p/\(bookingRef)?tier=\(invocation.tier.rawValue)") { return url }
+        return URL(string: "https://bytspot.app")!
+    }
+
+    private var shareAccessItems: [Any] {
+        let productName = isPlatinumEventService ? platinumEventPassDisplayName : service.title
+        return ["Bytspot access for \(productName) · booking \(bookingRef)", shareAccessURL]
+    }
+
+    private var successAccent: Color {
+        if isBlackLuxuryHoldService { return ClipTheme.gold }
+        if invocation.tier == .platinum { return ClipTheme.accent(for: .platinum) }
+        return ClipTheme.emerald
     }
 
     private var instantSuccessLogisticsCopy: String {
@@ -1519,13 +1683,13 @@ struct ClipSuccessView: View {
     private var successHero: some View {
         VStack(alignment: .leading, spacing: 14) {
             ZStack {
-                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.violet : ClipTheme.emerald).opacity(0.20)).frame(width: 110, height: 110)
-                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.magenta : ClipTheme.emerald).opacity(0.35)).frame(width: 80, height: 80)
+                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.violet : successAccent).opacity(0.20)).frame(width: 110, height: 110)
+                Circle().fill((isBlackLuxuryHoldService ? ClipTheme.magenta : successAccent).opacity(0.35)).frame(width: 80, height: 80)
                 Image(systemName: "checkmark")
                     .font(.system(size: 36, weight: .black))
                     .foregroundColor(.black)
                     .frame(width: 64, height: 64)
-                    .background(isBlackLuxuryHoldService ? ClipTheme.gold : ClipTheme.emerald)
+                    .background(successAccent)
                     .clipShape(Circle())
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -1534,7 +1698,7 @@ struct ClipSuccessView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(bookingContext.isHighTicket ? "STEP 4 · HOLD PLACED" : "STEP 4 · CONFIRMED")
                     .font(.system(size: 10.5, weight: .black))
-                    .foregroundColor(isBlackLuxuryHoldService ? ClipTheme.gold : ClipTheme.emerald)
+                    .foregroundColor(successAccent)
                     .tracking(1.4)
                 Text(isBlackAviationService ? "Private Aviation Hold Secured" : isBlackMarineService ? "Yacht & Marine Hold Secured" : isPlatinumEventService ? "\(platinumEventPassDisplayName) Confirmed" : bookingContext.isHighTicket ? "Hold Placed Successfully" : "You're set.")
                     .font(.system(size: 32, weight: .heavy))
@@ -1603,6 +1767,27 @@ struct ClipSuccessView: View {
                 fullAppAction
             }
         }
+    }
+
+    private var shareAccessAction: some View {
+        Button(action: { impactLight(); showShareSheet = true }) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.and.arrow.up")
+                Text("Share Access")
+                Spacer()
+                Text("iMessage, AirDrop")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(.white.opacity(0.52))
+            }
+            .font(.system(size: 13.5, weight: .black))
+            .foregroundColor(.white.opacity(0.88))
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(Color.white.opacity(0.06))
+            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var fullAppAction: some View {
@@ -1734,6 +1919,9 @@ struct ClipSuccessView: View {
                     showPlatinumDigitalPass = true
                 }) {
                     platinumActionRow(icon: "qrcode.viewfinder", title: "View Digital Pass", detail: "\(platinumEventPassDisplayName), entry QR, and host notes", gradient: LinearGradient(colors: [ClipTheme.cyan.opacity(0.32), Color.white.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                }.buttonStyle(.plain)
+                Button(action: { impactLight(); showShareSheet = true }) {
+                    platinumActionRow(icon: "square.and.arrow.up", title: "Share Access", detail: "Send this patch link via iMessage or AirDrop", gradient: LinearGradient(colors: [ClipTheme.cyan.opacity(0.20), ClipTheme.violet.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing))
                 }.buttonStyle(.plain)
                 if hasViewedPlatinumDigitalPass {
                     Button(action: { impactMedium(); openFullApp(url: platinumEventPassHandoffURL(intent: "save_to_wallet"), showOverlay: $showOverlay) }) {
@@ -2223,10 +2411,16 @@ private struct PlatinumDigitalPassSheet: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(eyebrow)
-                        .font(.system(size: 10.5, weight: .black))
-                        .tracking(1.3)
+                    Text("PLATINUM")
+                        .font(.system(size: 13, weight: .black))
+                        .tracking(1.4)
                         .foregroundColor(ClipTheme.cyan)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.90)
+                    Text(eyebrow)
+                        .font(.system(size: 10.2, weight: .black))
+                        .tracking(1.2)
+                        .foregroundColor(ClipTheme.violet.opacity(0.92))
                     Text(passTitle)
                         .font(.system(size: 18, weight: .heavy))
                         .foregroundColor(.white)
@@ -2285,6 +2479,16 @@ private struct ClipSafariView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+
+private struct ClipShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 

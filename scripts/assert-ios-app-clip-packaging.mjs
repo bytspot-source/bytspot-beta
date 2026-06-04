@@ -67,6 +67,9 @@ const checks = [
   ['GH Akwaaba is not a standalone service tile', !clipPatchVerifier.includes('platinum-fifa-matchday') && !clipPatchVerifier.includes('ghAkwaabaFifaService')],
   ['GH Akwaaba short-link targets Event Access vendor', clipPatchVerifier.includes('return platinumEventAccessService()') && clipPatchVerifier.includes('static func explicitVendor')],
   ['GH Akwaaba vendor carries FIFA product hero', clipPatchVerifier.includes('productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL')],
+  ['Clip parses dynamic checkout line items', clipPatchVerifier.includes('struct ClipLineItem') && clipPatchVerifier.includes('parseLineItems') && !clipApp.includes('ClipMatchdayEssential')],
+  ['Clip uses vendors.getByPatch for patch-bound metadata', clipPatchVerifier.includes('func getByPatch') && clipPatchVerifier.includes('vendors.getByPatch') && clipApp.includes('api.getByPatch')],
+  ['Clip refreshes preselected checkout with live data', clipApp.includes('refreshPreselectedCheckout') && clipApp.includes('flow = .checkout(service: liveService, vendor:')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

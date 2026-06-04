@@ -606,7 +606,7 @@ struct ClipCheckoutView: View {
 
     private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
     private var totalCents: Int {
-        if isGhAkwaabaProduct { return matchdayEssentialsTotalCents }
+        if hasLineItems { return lineItemsTotalCents }
         return vendor.priceFromCents * max(invocation.guestCount, 1)
     }
     private var totalLabel: String {
@@ -615,7 +615,7 @@ struct ClipCheckoutView: View {
         return "\(service.currency.uppercased()) \(String(format: "%.0f", dollars))"
     }
     private var checkoutGuestCount: Int {
-        isGhAkwaabaProduct ? max(invocation.matchdayTicketQuantity, 1) : invocation.guestCount
+        hasLineItems ? max(invocation.totalLineItemQuantity(checkoutLineItems), 1) : invocation.guestCount
     }
 
     var body: some View {
@@ -624,7 +624,7 @@ struct ClipCheckoutView: View {
                 header
                 vendorHero
                 includedCard
-                if isGhAkwaabaProduct { matchdayEssentialsPicker } else { guestPicker }
+                if hasLineItems { lineItemsPicker } else { guestPicker }
                 bookingDetailsCard
                 totalRow
                 applePayBlock
@@ -674,29 +674,19 @@ struct ClipCheckoutView: View {
         vendor.name.lowercased().contains("akwaaba")
     }
 
-    private var matchdayEssentialsTotalCents: Int {
-        (invocation.matchdayTicketQuantity * matchdayPriceCents(.tickets))
-        + (invocation.matchdaySouvenirQuantity * matchdayPriceCents(.souvenirs))
-        + (invocation.matchdayJerseyQuantity * matchdayPriceCents(.jerseys))
+    private var checkoutLineItems: [ClipLineItem] {
+        vendor.items?.filter { !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
     }
 
-    private func matchdayPriceCents(_ item: ClipMatchdayEssential) -> Int {
-        switch item {
-        case .tickets: return max(vendor.priceFromCents, 5_000)
-        case .souvenirs: return 1_500
-        case .jerseys: return 7_500
+    private var hasLineItems: Bool { !checkoutLineItems.isEmpty }
+
+    private var lineItemsTotalCents: Int {
+        checkoutLineItems.reduce(0) { total, item in
+            total + (invocation.quantity(for: item) * item.amountCents)
         }
     }
 
-    private func matchdayItemName(_ item: ClipMatchdayEssential) -> String {
-        switch item {
-        case .tickets: return "Ticket Sales"
-        case .souvenirs: return "Souvenirs"
-        case .jerseys: return "Ghana Home Jersey"
-        }
-    }
-
-    private func matchdayPriceLabel(_ cents: Int) -> String {
+    private func lineItemPriceLabel(_ cents: Int) -> String {
         let dollars = Double(cents) / 100.0
         return service.currency.uppercased() == "USD" ? String(format: "$%.0f each", dollars) : "\(service.currency.uppercased()) \(String(format: "%.0f", dollars)) each"
     }
@@ -846,10 +836,10 @@ struct ClipCheckoutView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private var matchdayEssentialsPicker: some View {
+    private var lineItemsPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("MATCHDAY ESSENTIALS")
+                Text(isGhAkwaabaProduct ? "MATCHDAY ESSENTIALS" : "SELECT ITEMS")
                     .font(.system(size: 11, weight: .black))
                     .foregroundColor(ClipTheme.cyan)
                     .tracking(1.3)
@@ -858,8 +848,8 @@ struct ClipCheckoutView: View {
                     .font(.system(size: 11, weight: .black))
                     .foregroundColor(.white.opacity(0.55))
             }
-            ForEach(ClipMatchdayEssential.allCases) { item in
-                matchdayEssentialRow(item)
+            ForEach(checkoutLineItems) { item in
+                lineItemRow(item)
             }
         }
         .padding(14)
@@ -868,22 +858,21 @@ struct ClipCheckoutView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private func matchdayEssentialRow(_ item: ClipMatchdayEssential) -> some View {
+    private func lineItemRow(_ item: ClipLineItem) -> some View {
         let quantity = invocation.quantity(for: item)
-        let minimum = item == .tickets ? 1 : 0
-        let canSubtract = quantity > minimum
+        let canSubtract = quantity > item.minQuantity
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(matchdayItemName(item))
+                Text(item.label)
                     .font(.system(size: 14.5, weight: .heavy))
                     .foregroundColor(.white)
-                Text(matchdayPriceLabel(matchdayPriceCents(item)))
+                Text(lineItemPriceLabel(item.amountCents))
                     .font(.system(size: 11.5, weight: .bold, design: .monospaced))
                     .foregroundColor(.white.opacity(0.62))
             }
             Spacer()
             HStack(spacing: 10) {
-                Button(action: { impactLight(); invocation.adjustMatchdayEssential(item, delta: -1) }) {
+                Button(action: { impactLight(); invocation.adjustLineItem(item, delta: -1) }) {
                     Image(systemName: "minus")
                         .font(.system(size: 12, weight: .black))
                         .foregroundColor(.white.opacity(canSubtract ? 1 : 0.35))
@@ -895,7 +884,7 @@ struct ClipCheckoutView: View {
                     .font(.system(size: 16, weight: .heavy, design: .monospaced))
                     .foregroundColor(.white)
                     .frame(minWidth: 22)
-                Button(action: { impactLight(); invocation.adjustMatchdayEssential(item, delta: 1) }) {
+                Button(action: { impactLight(); invocation.adjustLineItem(item, delta: 1) }) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .black))
                         .foregroundColor(.black)

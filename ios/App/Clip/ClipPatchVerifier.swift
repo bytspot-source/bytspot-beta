@@ -189,6 +189,23 @@ struct ClipVendorMedia: Equatable {
     var hasPlayableVideo: Bool { kind == .video && videoPlaybackURL != nil }
 }
 
+struct ClipLineItem: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let amountCents: Int
+    let defaultQuantity: Int
+    let minQuantity: Int
+    let maxQuantity: Int
+
+    static func ghAkwaabaDefaults(ticketCents: Int) -> [ClipLineItem] {
+        [
+            ClipLineItem(id: "tickets", label: "Ticket Sales", amountCents: max(ticketCents, 5_000), defaultQuantity: 1, minQuantity: 1, maxQuantity: 12),
+            ClipLineItem(id: "souvenirs", label: "Souvenirs", amountCents: 1_500, defaultQuantity: 0, minQuantity: 0, maxQuantity: 20),
+            ClipLineItem(id: "jerseys", label: "Ghana Home Jersey", amountCents: 7_500, defaultQuantity: 0, minQuantity: 0, maxQuantity: 20)
+        ]
+    }
+}
+
 struct ClipVendor: Identifiable, Equatable {
     let id: String
     let name: String
@@ -202,6 +219,7 @@ struct ClipVendor: Identifiable, Equatable {
     let includedHighlights: [String]
     let serviceId: String
     let media: ClipVendorMedia?
+    let items: [ClipLineItem]?
 
     var displayPosterURL: URL? { media?.posterURL ?? heroImageURL }
 
@@ -290,7 +308,8 @@ struct ClipVendor: Identifiable, Equatable {
                 availability: idx == 0 ? "Available now" : (idx == 1 ? "Available tonight" : "Available this week"),
                 includedHighlights: entry.2,
                 serviceId: service.id,
-                media: Self.previewMedia(service: service, index: idx)
+                media: Self.previewMedia(service: service, index: idx),
+                items: nil
             )
         }
     }
@@ -427,11 +446,12 @@ struct ClipVendor: Identifiable, Equatable {
             let multiplier = [1.0, 1.18, 1.45][idx % 3]
             let isGhAkwaabaProduct = entry.0.lowercased().contains("akwaaba")
             let productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL : service.heroImageURL
+            let priceCents = max(Int(Double(base) * multiplier), tier.minimumCents)
             return ClipVendor(
                 id: "\(service.id)-vendor-\(idx)",
                 name: entry.0,
                 tagline: entry.1,
-                priceFromCents: max(Int(Double(base) * multiplier), tier.minimumCents),
+                priceFromCents: priceCents,
                 currency: service.currency,
                 rating: [4.9, 4.8, 4.7][idx % 3],
                 etaLabel: etaPool[idx % etaPool.count],
@@ -439,10 +459,17 @@ struct ClipVendor: Identifiable, Equatable {
                 availability: idx == 0 ? "Available now" : (idx == 1 ? "Available tonight" : "Available this week"),
                 includedHighlights: entry.2,
                 serviceId: service.id,
-                media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL)
+                media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL),
+                items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : nil
             )
         }
     }
+}
+
+struct ClipPatchVendorPayload: Equatable {
+    let context: ClipPatchContext?
+    let service: ClipLocalService?
+    let vendor: ClipVendor?
 }
 
 struct ClipPaymentSecureResult: Equatable {
@@ -541,6 +568,19 @@ struct ClipPatchVerifier {
             normalizeVendor(row, service: service, index: index)
         }
         return mapped.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    func getByPatch(patchId: String, tier: BytspotTier = .black) async throws -> ClipPatchVendorPayload? {
+        let payload = try await getTRPC("vendors.getByPatch", input: ["patchId": patchId, "tier": tier.rawValue])
+        guard let root = payload as? [String: Any] else { return nil }
+        let serviceRow = Self.firstObject(root, names: ["service", "vendorService", "listing"])
+        let vendorRow = Self.firstObject(root, names: ["vendor", "provider", "merchant"])
+        let patchRow = Self.firstObject(root, names: ["patch", "virtualPatch"])
+        let mergedVendorRow = Self.mergeDictionaries(vendorRow, Self.firstObject(root, names: ["bookingOption", "offer"]))
+        let service = serviceRow.map { normalizeService($0, index: 0) }
+        let context = makeContext(root: root, patch: patchRow, vendor: vendorRow, service: serviceRow, patchId: patchId, tier: tier)
+        let vendor = service.flatMap { normalizeVendor(mergedVendorRow ?? root, service: $0, index: 0) }
+        return ClipPatchVendorPayload(context: context, service: service, vendor: vendor)
     }
 
     func verify(token: String?) async throws -> VerifyResult {
@@ -703,14 +743,17 @@ struct ClipPatchVerifier {
         let name = Self.string(vendor["displayName"]) ?? Self.string(vendor["name"]) ?? Self.string(row["title"])
         guard let resolvedName = name, !resolvedName.isEmpty else { return nil }
         let tagline = Self.string(vendor["tagline"]) ?? Self.string(row["description"]) ?? Self.string(row["serviceSubtitle"]) ?? service.subtitle
-        let priceCents = Self.int(row["priceCents"]) ?? Self.int(row["amountCents"]) ?? Self.int(vendor["priceFromCents"]) ?? service.amountCents ?? 5000
+        let priceCents = Self.int(row["priceCents"]) ?? Self.int(row["amountCents"]) ?? Self.int(row["priceFromCents"]) ?? Self.int(vendor["priceCents"]) ?? Self.int(vendor["amountCents"]) ?? Self.int(vendor["priceFromCents"]) ?? service.amountCents ?? 5000
         let currency = Self.string(row["currency"])?.uppercased() ?? service.currency
         let rating = Self.double(vendor["rating"]) ?? Self.double(row["rating"])
         let eta = Self.string(row["etaLabel"]) ?? Self.string(vendor["etaLabel"])
-        let hero = Self.url(vendor["heroImageUrl"]) ?? Self.url(row["heroImageUrl"]) ?? Self.url(vendor["imageUrl"])
+        let hero = Self.url(row["heroImageUrl"]) ?? Self.url(row["heroImageURL"]) ?? Self.url(row["imageUrl"]) ?? Self.url(row["thumbnailUrl"]) ?? Self.url(vendor["heroImageUrl"]) ?? Self.url(vendor["heroImageURL"]) ?? Self.url(vendor["imageUrl"]) ?? Self.url(vendor["thumbnailUrl"])
         let availability = Self.string(row["availability"]) ?? Self.string(vendor["availability"]) ?? "Available now"
-        let highlights = (row["highlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
+        let highlights = (row["includedHighlights"] as? [String]) ?? (row["highlights"] as? [String]) ?? (vendor["includedHighlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
         let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero ?? service.heroImageURL)
+        let parsedItems = Self.parseLineItems(primary: row["items"], fallbacks: [row["lineItems"], row["checkoutItems"], row["products"], vendor["items"], vendor["lineItems"], vendor["checkoutItems"]])
+        let resolvedItems = parsedItems ?? []
+        let isGhAkwaaba = resolvedName.lowercased().contains("akwaaba") || service.title.lowercased().contains("akwaaba")
         return ClipVendor(
             id: Self.string(vendor["id"]) ?? Self.string(row["id"]) ?? "\(service.id)-vendor-\(index)",
             name: resolvedName,
@@ -723,8 +766,62 @@ struct ClipPatchVerifier {
             availability: availability,
             includedHighlights: highlights,
             serviceId: service.id,
-            media: media
+            media: media,
+            items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems
         )
+    }
+
+    private static func parseLineItems(primary: Any?, fallbacks: [Any?]) -> [ClipLineItem]? {
+        let source = ([primary] + fallbacks).compactMap { $0 as? [[String: Any]] }.first
+        guard let source else { return nil }
+        let items = source.enumerated().compactMap { index, row -> ClipLineItem? in
+            let id = string(row["id"]) ?? string(row["sku"]) ?? string(row["key"]) ?? "item-\(index)"
+            guard let label = string(row["label"]) ?? string(row["title"]) ?? string(row["name"]),
+                  let amount = int(row["amountCents"]) ?? int(row["priceCents"]) ?? int(row["unitAmountCents"]) else { return nil }
+            return ClipLineItem(
+                id: id,
+                label: label,
+                amountCents: max(amount, 0),
+                defaultQuantity: max(int(row["defaultQuantity"]) ?? int(row["quantity"]) ?? 0, 0),
+                minQuantity: max(int(row["minQuantity"]) ?? 0, 0),
+                maxQuantity: max(int(row["maxQuantity"]) ?? 20, 1)
+            )
+        }
+        return items.isEmpty ? nil : items
+    }
+
+    private func makeContext(root: [String: Any], patch: [String: Any]?, vendor: [String: Any]?, service: [String: Any]?, patchId: String, tier: BytspotTier) -> ClipPatchContext {
+        let resolvedId = Self.string(patch?["id"]) ?? Self.string(patch?["uid"]) ?? patchId
+        let vendorName = Self.string(vendor?["displayName"]) ?? Self.string(vendor?["name"])
+        let serviceName = Self.string(service?["title"]) ?? Self.string(service?["name"])
+        let label = Self.string(patch?["label"]) ?? Self.string(patch?["name"])
+        let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
+        let serverTierRaw = Self.string(root["tier"]) ?? Self.string(patch?["tier"]) ?? Self.string(vendor?["tier"])
+        return ClipPatchContext(
+            patchId: resolvedId,
+            title: vendorName ?? label ?? "Bytspot Patch",
+            subtitle: serviceName ?? Self.string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle,
+            status: Self.string(patch?["status"]) ?? "active",
+            venueId: Self.string(vendor?["id"]) ?? Self.string(root["venueId"]),
+            serviceId: Self.string(service?["id"]),
+            tier: serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) } ?? tier,
+            latitude: Self.double(coords?["lat"]) ?? Self.double(coords?["latitude"]),
+            longitude: Self.double(coords?["lng"]) ?? Self.double(coords?["lon"]) ?? Self.double(coords?["longitude"])
+        )
+    }
+
+    private static func firstObject(_ root: [String: Any], names: [String]) -> [String: Any]? {
+        for name in names {
+            if let value = root[name] as? [String: Any] { return value }
+        }
+        return nil
+    }
+
+    private static func mergeDictionaries(_ first: [String: Any]?, _ second: [String: Any]?) -> [String: Any]? {
+        guard first != nil || second != nil else { return nil }
+        var result = first ?? [:]
+        for (key, value) in second ?? [:] where result[key] == nil { result[key] = value }
+        return result
     }
 
     /// Parse a `media` block off a tRPC `vendors.search` row. Shape mirrors the

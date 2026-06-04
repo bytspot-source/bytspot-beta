@@ -70,13 +70,6 @@ enum ClipVendorFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum ClipMatchdayEssential: String, CaseIterable, Identifiable {
-    case tickets
-    case souvenirs
-    case jerseys
-    var id: String { rawValue }
-}
-
 @MainActor
 final class ClipInvocationModel: ObservableObject {
     @Published var venueSlug: String?
@@ -96,9 +89,7 @@ final class ClipInvocationModel: ObservableObject {
     @Published var loadingVendorsService: String?
     @Published var vendorFilter: ClipVendorFilter = .now
     @Published var guestCount: Int = 1
-    @Published var matchdayTicketQuantity: Int = 1
-    @Published var matchdaySouvenirQuantity: Int = 0
-    @Published var matchdayJerseyQuantity: Int = 0
+    @Published var lineItemQuantities: [String: Int] = [:]
 
     private let api = ClipPatchVerifier()
     private var loadTask: Task<Void, Never>?
@@ -118,7 +109,7 @@ final class ClipInvocationModel: ObservableObject {
         flow = .catalog
         vendorFilter = .now
         guestCount = 1
-        resetMatchdayEssentials()
+        resetLineItems()
         patchContext = nil
         verificationState = .idle
         contextError = nil
@@ -309,37 +300,32 @@ final class ClipInvocationModel: ObservableObject {
     func incrementGuests() { guestCount = min(guestCount + 1, 12) }
     func decrementGuests() { guestCount = max(guestCount - 1, 1) }
 
-    func quantity(for essential: ClipMatchdayEssential) -> Int {
-        switch essential {
-        case .tickets: return matchdayTicketQuantity
-        case .souvenirs: return matchdaySouvenirQuantity
-        case .jerseys: return matchdayJerseyQuantity
-        }
+    func quantity(for item: ClipLineItem) -> Int {
+        lineItemQuantities[item.id] ?? item.defaultQuantity
     }
 
-    func adjustMatchdayEssential(_ essential: ClipMatchdayEssential, delta: Int) {
-        switch essential {
-        case .tickets:
-            matchdayTicketQuantity = min(max(matchdayTicketQuantity + delta, 1), 12)
-            guestCount = matchdayTicketQuantity
-        case .souvenirs:
-            matchdaySouvenirQuantity = min(max(matchdaySouvenirQuantity + delta, 0), 20)
-        case .jerseys:
-            matchdayJerseyQuantity = min(max(matchdayJerseyQuantity + delta, 0), 20)
-        }
+    func adjustLineItem(_ item: ClipLineItem, delta: Int) {
+        let next = min(max(quantity(for: item) + delta, item.minQuantity), item.maxQuantity)
+        lineItemQuantities[item.id] = next
+        guestCount = max(totalLineItemQuantity(), 1)
     }
 
-    func resetMatchdayEssentials() {
-        matchdayTicketQuantity = 1
-        matchdaySouvenirQuantity = 0
-        matchdayJerseyQuantity = 0
+    func totalLineItemQuantity(_ items: [ClipLineItem]? = nil) -> Int {
+        let source = items ?? lineItemQuantities.map { ClipLineItem(id: $0.key, label: $0.key, amountCents: 0, defaultQuantity: $0.value, minQuantity: 0, maxQuantity: 999) }
+        return source.reduce(0) { $0 + quantity(for: $1) }
+    }
+
+    func resetLineItems() {
+        lineItemQuantities.removeAll()
         guestCount = 1
     }
 
-    func prefetchVendors(for service: ClipLocalService) {
-        if vendorsByService[service.id] != nil { return }
+    func prefetchVendors(for service: ClipLocalService, force: Bool = false) {
+        if vendorsByService[service.id] != nil && !force { return }
         if vendorTasks[service.id] != nil { return }
-        vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+        if vendorsByService[service.id] == nil || force {
+            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
+        }
         loadingVendorsService = service.id
         let patchId = self.patchId
         let tier = self.tier
@@ -348,6 +334,7 @@ final class ClipInvocationModel: ObservableObject {
             guard let self else { return }
             if !live.isEmpty {
                 self.vendorsByService[service.id] = live
+                self.refreshFlow(service: service, liveVendors: live)
             }
             if self.loadingVendorsService == service.id { self.loadingVendorsService = nil }
             self.vendorTasks[service.id] = nil
@@ -371,8 +358,19 @@ final class ClipInvocationModel: ObservableObject {
         let activeTier = tier
         services = ClipLocalService.fallbacks(for: activeTier)
 
-        let resolvedContext = try? await api.resolvePatch(patchId: patchId, tier: activeTier)
-        let resolvedServices = (try? await api.searchServices(patchId: patchId, tier: activeTier)) ?? []
+        let patchPayload = try? await api.getByPatch(patchId: patchId, tier: activeTier)
+        let resolvedContext: ClipPatchContext?
+        if let context = patchPayload?.context {
+            resolvedContext = context
+        } else {
+            resolvedContext = try? await api.resolvePatch(patchId: patchId, tier: activeTier)
+        }
+        let searchedServices = (try? await api.searchServices(patchId: patchId, tier: activeTier)) ?? []
+        var resolvedServices = searchedServices
+        if let service = patchPayload?.service {
+            resolvedServices.removeAll { $0.id == service.id }
+            resolvedServices.insert(service, at: 0)
+        }
         if Task.isCancelled { return }
 
         patchContext = resolvedContext
@@ -401,8 +399,39 @@ final class ClipInvocationModel: ObservableObject {
         if let first = services.first {
             prefetchVendors(for: first)
         }
+        await refreshPreselectedCheckout(patchPayload: patchPayload)
         if let token, !token.isEmpty {
             await verify(token: token)
+        }
+    }
+
+    private func refreshPreselectedCheckout(patchPayload: ClipPatchVendorPayload?) async {
+        guard case .checkout(let currentService, let currentVendor) = flow else { return }
+        let liveService = patchPayload?.service ?? services.first(where: { $0.id == currentService.id }) ?? currentService
+        if let liveVendor = patchPayload?.vendor {
+            vendorsByService[liveService.id] = [liveVendor]
+            flow = .checkout(service: liveService, vendor: liveVendor)
+            return
+        }
+        let liveVendors = (try? await api.searchVendors(service: liveService, patchId: patchId, tier: tier)) ?? []
+        guard !liveVendors.isEmpty else { return }
+        vendorsByService[liveService.id] = liveVendors
+        let selected = liveVendors.first(where: { $0.id == currentVendor.id })
+            ?? liveVendors.first(where: { $0.name.caseInsensitiveCompare(currentVendor.name) == .orderedSame })
+            ?? liveVendors.first
+        if let selected {
+            flow = .checkout(service: liveService, vendor: selected)
+        }
+    }
+
+    private func refreshFlow(service: ClipLocalService, liveVendors: [ClipVendor]) {
+        guard case .checkout(let currentService, let currentVendor) = flow,
+              currentService.id == service.id else { return }
+        let selected = liveVendors.first(where: { $0.id == currentVendor.id })
+            ?? liveVendors.first(where: { $0.name.caseInsensitiveCompare(currentVendor.name) == .orderedSame })
+            ?? liveVendors.first
+        if let selected {
+            flow = .checkout(service: service, vendor: selected)
         }
     }
 

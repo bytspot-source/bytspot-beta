@@ -208,6 +208,17 @@ final class ClipInvocationModel: ObservableObject {
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
             flow = .checkout(service: service, vendor: vendor)
             return true
+        case "checkout_broni", "broni_checkout", "broni_home_taste":
+            let catalog = services + ClipLocalService.fallbacks(for: .platinum)
+            guard let service = catalog.first(where: { service in
+                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+                return text.contains("dining") || text.contains("food") || text.contains("table")
+            }) else { return false }
+            let fallbacks = ClipVendor.fallbacks(for: service, tier: .platinum)
+            guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("broni") }) else { return false }
+            vendorsByService[service.id] = fallbacks
+            flow = .checkout(service: service, vendor: vendor)
+            return true
         case "success":
             guard let service = services.first else { return false }
             let vendor = ClipVendor.fallbacks(for: service, tier: tier).first

@@ -204,6 +204,15 @@ struct ClipLineItem: Identifiable, Equatable {
             ClipLineItem(id: "jerseys", label: "Ghana Home Jersey", amountCents: 7_500, defaultQuantity: 0, minQuantity: 0, maxQuantity: 20)
         ]
     }
+
+    static let broniHomeTasteFavorites: [ClipLineItem] = [
+        ClipLineItem(id: "broni-jollof-chicken", label: "Jollof Rice with Chicken", amountCents: 1_500, defaultQuantity: 1, minQuantity: 0, maxQuantity: 12),
+        ClipLineItem(id: "broni-white-rice-stew", label: "White Rice with Stew", amountCents: 1_700, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12),
+        ClipLineItem(id: "broni-waakye", label: "Waakye", amountCents: 1_600, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12),
+        ClipLineItem(id: "broni-plantain-beans", label: "Fried Plantain and Beans", amountCents: 1_200, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12),
+        ClipLineItem(id: "broni-banku-tilapia", label: "Banku and Fried Fish/Tilapia", amountCents: 2_200, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12),
+        ClipLineItem(id: "broni-fufu", label: "Fufu", amountCents: 2_000, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12)
+    ]
 }
 
 struct ClipVendor: Identifiable, Equatable {
@@ -359,8 +368,8 @@ struct ClipVendor: Identifiable, Equatable {
                 ]
             } else if text.contains("dining") || text.contains("food") || text.contains("table") {
                 pools = [
+                    ("Broni Home Taste", "Authentic Ghanaian Home Cooking", ["Matchday favorites", "Fresh Ghanaian dishes", "Pickup or delivery", "Family-style portions"]),
                     ("Cellar 47", "Neighborhood wine bar", ["Priority booking", "Sommelier on staff", "Patio seating option", "Late-night menu"]),
-                    ("The Brass Owl", "American bistro", ["Reserved table", "Locally-sourced menu", "Cocktail program", "Group of 6 capable"]),
                     ("Maru Izakaya", "Modern izakaya", ["Counter or table", "Tasting menu option", "Sake pairing", "Reservation hold"])
                 ]
             } else if text.contains("valet") || text.contains("ride") || text.contains("car") {
@@ -445,6 +454,7 @@ struct ClipVendor: Identifiable, Equatable {
         return pools.enumerated().map { idx, entry in
             let multiplier = [1.0, 1.18, 1.45][idx % 3]
             let isGhAkwaabaProduct = entry.0.lowercased().contains("akwaaba")
+            let isBroniHomeTaste = entry.0.lowercased().contains("broni home taste")
             let productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL : service.heroImageURL
             let priceCents = max(Int(Double(base) * multiplier), tier.minimumCents)
             return ClipVendor(
@@ -460,7 +470,7 @@ struct ClipVendor: Identifiable, Equatable {
                 includedHighlights: entry.2,
                 serviceId: service.id,
                 media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL),
-                items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : nil
+                items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : isBroniHomeTaste ? ClipLineItem.broniHomeTasteFavorites : nil
             )
         }
     }

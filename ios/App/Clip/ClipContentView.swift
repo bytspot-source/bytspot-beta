@@ -680,6 +680,12 @@ struct ClipCheckoutView: View {
 
     private var hasLineItems: Bool { !checkoutLineItems.isEmpty }
 
+    private var lineItemsSectionTitle: String {
+        if isGhAkwaabaProduct { return "MATCHDAY ESSENTIALS" }
+        if vendor.name.lowercased().contains("broni") { return "MATCHDAY FAVORITES" }
+        return "SELECT ITEMS"
+    }
+
     private var lineItemsTotalCents: Int {
         checkoutLineItems.reduce(0) { total, item in
             total + (invocation.quantity(for: item) * item.amountCents)
@@ -839,7 +845,7 @@ struct ClipCheckoutView: View {
     private var lineItemsPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(isGhAkwaabaProduct ? "MATCHDAY ESSENTIALS" : "SELECT ITEMS")
+                Text(lineItemsSectionTitle)
                     .font(.system(size: 11, weight: .black))
                     .foregroundColor(ClipTheme.cyan)
                     .tracking(1.3)

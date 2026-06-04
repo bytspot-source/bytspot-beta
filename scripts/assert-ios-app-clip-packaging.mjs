@@ -70,6 +70,7 @@ const checks = [
   ['Clip parses dynamic checkout line items', clipPatchVerifier.includes('struct ClipLineItem') && clipPatchVerifier.includes('parseLineItems') && !clipApp.includes('ClipMatchdayEssential')],
   ['Clip uses vendors.getByPatch for patch-bound metadata', clipPatchVerifier.includes('func getByPatch') && clipPatchVerifier.includes('vendors.getByPatch') && clipApp.includes('api.getByPatch')],
   ['Clip refreshes preselected checkout with live data', clipApp.includes('refreshPreselectedCheckout') && clipApp.includes('flow = .checkout(service: liveService, vendor:')],
+  ['Broni Home Taste has curated Platinum dining line items', clipPatchVerifier.includes('Broni Home Taste') && clipPatchVerifier.includes('broniHomeTasteFavorites') && clipPatchVerifier.includes('Jollof Rice with Chicken') && clipPatchVerifier.includes('Banku and Fried Fish/Tilapia') && !clipPatchVerifier.includes('Omotuo') && !clipPatchVerifier.includes('Acheke')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

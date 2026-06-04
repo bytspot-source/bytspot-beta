@@ -69,22 +69,27 @@ final class NativeBridgeStore: ObservableObject {
         bridgeViewController.loadViewIfNeeded()
     }
 
-    func open(_ route: BytspotHybridRoute, force: Bool = false) {
+    func open(_ route: BytspotHybridRoute, force: Bool = false, handoffURL: URL? = nil) {
         if currentRoute != route { currentRoute = route }
         bridgeViewController.loadViewIfNeeded()
         guard let webView = bridgeViewController.webView else { return }
         guard force || lastInjectedRoute != route else { return }
         lastInjectedRoute = route
-        let detail: [String: String] = ["tab": route.reactTab, "focus": route.focus ?? ""]
+        let detail: [String: String] = ["tab": route.reactTab, "focus": route.focus ?? "", "url": handoffURL?.absoluteString ?? ""]
         let detailJSON = jsonObject(detail)
         let tabJSON = jsonString(route.reactTab)
         let focusJSON = jsonString(route.focus ?? "")
+        let handoffJSON = jsonString(handoffURL?.absoluteString ?? "")
         let script = """
         (function () {
           try {
             window.history.replaceState({}, '', '/');
             localStorage.setItem('bytspot_native_tab', \(tabJSON));
             localStorage.setItem('bytspot_native_focus', \(focusJSON));
+            if (\(handoffJSON)) {
+              localStorage.setItem('bytspot_native_handoff_url', \(handoffJSON));
+              window.dispatchEvent(new CustomEvent('bytspot:native-handoff', { detail: \(detailJSON) }));
+            }
             window.dispatchEvent(new CustomEvent('bytspot:native-tab', { detail: \(detailJSON) }));
           } catch (error) { console.warn('native tab route failed', error); }
         })();
@@ -109,7 +114,7 @@ final class NativeBridgeStore: ObservableObject {
         else { target = nil; route = nil }
         guard let target, let route else { return false }
         requestedTab = target
-        open(route)
+        open(route, force: true, handoffURL: url)
         if route == .profile || route == .access { requestedHybridRoute = route }
         return true
     }

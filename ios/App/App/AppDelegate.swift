@@ -59,7 +59,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     private func presentNativePatchExperience(for url: URL) -> Bool {
-        guard let route = NativePatchRoute(url: url) else { return false }
+        guard shouldPresentNativePatchExperience(for: url),
+              let route = NativePatchRoute(url: url) else { return false }
         DispatchQueue.main.async { [weak self] in
             let host = UIHostingController(rootView: NativePatchExperienceView(route: route))
             host.modalPresentationStyle = .fullScreen
@@ -68,6 +69,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             presenter?.present(host, animated: true)
         }
         return true
+    }
+
+    private func shouldPresentNativePatchExperience(for url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        if Self.isCapacitorWebHost(components.host) { return false }
+        if components.scheme?.lowercased() == "bytspot" { return false }
+        let queryItems = components.queryItems ?? []
+        return queryItems.contains { item in
+            ["native", "nativeSurface", "swiftSurface"].contains(item.name)
+                && ["1", "true", "yes"].contains((item.value ?? "").lowercased())
+        }
+    }
+
+    private static func isCapacitorWebHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return ["bytspot.com", "www.bytspot.com", "beta.bytspot.com"].contains(host)
     }
 
 }

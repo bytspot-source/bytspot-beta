@@ -16,12 +16,8 @@
 		</array>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:bytspot.app</string>
-		<string>appclips:bytspot.app</string>
 			<string>applinks:bytspot.com</string>
-			<string>appclips:bytspot.com</string>
-			<string>applinks:bytspot-beta-app.onrender.com</string>
-			<string>appclips:bytspot-beta-app.onrender.com</string>
+			<string>applinks:beta.bytspot.com</string>
 	</array>
 </dict>
 </plist>

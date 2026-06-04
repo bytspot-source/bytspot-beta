@@ -4,8 +4,7 @@
     "details": [
       {
         "appIDs": [
-          "MK4J6M36S8.com.bytspot.app",
-          "MK4J6M36S8.com.bytspot.app.Clip"
+          "MK4J6M36S8.com.bytspot.app"
         ],
         "components": [
           { "/": "/BYT*", "comment": "Root NTAG424 DNA production tag links, e.g. /BYT424-0301" },

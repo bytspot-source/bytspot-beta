@@ -713,17 +713,30 @@ export default function App() {
     };
 
     const handleNativeTab = (event: Event) => {
-      const detail = (event as CustomEvent<{ tab?: string; focus?: string }>).detail ?? {};
+      const detail = (event as CustomEvent<{ tab?: string; focus?: string; url?: string }>).detail ?? {};
       applyNativeTabRoute(detail.tab, detail.focus);
+      if (detail.url) handleDeepLink(detail.url);
+    };
+
+    const handleNativeHandoff = (event: Event) => {
+      const detail = (event as CustomEvent<{ url?: string }>).detail ?? {};
+      if (detail.url) handleDeepLink(detail.url);
     };
 
     window.addEventListener('bytspot:native-tab', handleNativeTab as EventListener);
+    window.addEventListener('bytspot:native-handoff', handleNativeHandoff as EventListener);
     applyNativeTabRoute(localStorage.getItem('bytspot_native_tab'), localStorage.getItem('bytspot_native_focus'));
 
     // Pick up patch deep-links present at first paint (web universal link
     // landing or App Clip → full-app handoff via SKOverlay).
     if (typeof window !== 'undefined') {
-      handleDeepLink(window.location.href);
+      const nativeHandoffURL = localStorage.getItem('bytspot_native_handoff_url');
+      if (nativeHandoffURL) {
+        localStorage.removeItem('bytspot_native_handoff_url');
+        handleDeepLink(nativeHandoffURL);
+      } else {
+        handleDeepLink(window.location.href);
+      }
     }
 
     (async () => {
@@ -767,6 +780,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener('bytspot:native-tab', handleNativeTab as EventListener);
+      window.removeEventListener('bytspot:native-handoff', handleNativeHandoff as EventListener);
     };
   }, [routePatchTap]);
 

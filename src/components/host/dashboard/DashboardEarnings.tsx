@@ -79,7 +79,7 @@ export function DashboardEarnings({ isDarkMode, access, reviewState }: Dashboard
   const bookedDeltaCents = totals.thisMonthBookedCents - totals.lastMonthBookedCents;
   const bookedDeltaLabel = bookedDeltaCents === 0 ? 'Flat vs last month' : `${bookedDeltaCents > 0 ? '+' : '-'}${formatCents(Math.abs(bookedDeltaCents))} vs last month`;
   const recentTransactions = useMemo(
-    () => data.bookings.filter((booking) => booking.status === 'completed' || booking.status === 'confirmed' || booking.status === 'in_progress').slice(0, 6),
+    () => data.bookings.filter((booking) => booking.status === 'completed' || booking.status === 'funds_authorized' || booking.status === 'confirmed' || booking.status === 'in_progress').slice(0, 6),
     [data.bookings],
   );
   const tone = {

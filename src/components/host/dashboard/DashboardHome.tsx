@@ -42,7 +42,7 @@ function formatCents(cents: number): string {
 }
 
 function isLiveBooking(booking: DashboardBookingSummary): boolean {
-  return booking.status === 'confirmed' || booking.status === 'in_progress';
+  return booking.status === 'funds_authorized' || booking.status === 'confirmed' || booking.status === 'in_progress';
 }
 
 function isUpcomingBooking(booking: DashboardBookingSummary, now = new Date()): boolean {
@@ -172,7 +172,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
       detail: data.loading
         ? 'Loading services'
         : totalListings === 0
-          ? 'Publish your first marketplace service'
+          ? 'Publish your first service in My Services'
           : `${activeListings}/${totalListings} in Station Mode`,
       icon: ShieldCheck,
       tone: 'from-violet-400/22 to-fuchsia-500/10',
@@ -181,7 +181,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
       testId: 'guest-rating',
       title: 'Guest rating',
       value: dash,
-      detail: data.bookings.length > 0 ? 'Review aggregation connects when backend ratings ship' : 'Tracking activates after the first guest review',
+      detail: data.bookings.length > 0 ? 'Review insights activate as guests rate completed bookings' : 'Tracking activates after the first guest review',
       icon: Star,
       tone: 'from-amber-300/22 to-orange-500/10',
     },
@@ -209,7 +209,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
         },
         {
           title: totalListings === 0 ? 'Publish your first service' : 'Refine service health',
-          detail: totalListings === 0 ? 'Add a marketplace service so guests can book.' : 'Update pricing, photos, and availability windows.',
+          detail: totalListings === 0 ? 'Add a Provider service so guests can book.' : 'Update pricing, photos, and availability windows.',
           icon: MapPin,
           target: 'listings',
         },
@@ -345,7 +345,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
           <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-[22px] text-white" style={{ fontWeight: 800 }}>Earnings momentum</h2>
-              <p className="mt-1 text-[14px] text-slate-100">Daily revenue from confirmed marketplace bookings.</p>
+                <p className="mt-1 text-[14px] text-slate-100">Daily revenue from confirmed Provider bookings.</p>
             </div>
             <div className="rounded-2xl border border-slate-500 bg-slate-700 px-4 py-2 text-right">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-50" style={{ fontWeight: 800 }}>This month</p>
@@ -423,9 +423,9 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <motion.section className="rounded-[28px] border-2 border-slate-500 bg-slate-800 p-5 shadow-xl shadow-black/45 lg:p-6" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.38 }}>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Live bookings</h2>
+            <h2 className="text-[20px] text-white" style={{ fontWeight: 800 }}>Active bookings</h2>
             <span className="inline-flex items-center gap-2 rounded-full border border-slate-500 bg-slate-700 px-3 py-1.5 text-[12px] text-slate-100" style={{ fontWeight: 800 }}>
-		              <span className={`h-2 w-2 rounded-full ${activeBookingCount > 0 ? 'bg-emerald-300' : 'bg-slate-300'}`} /> {activeBookingCount > 0 ? 'Live' : 'Idle'}
+              <span className={`h-2 w-2 rounded-full ${activeBookingCount > 0 ? 'bg-emerald-300' : 'bg-slate-300'}`} /> {activeBookingCount > 0 ? 'Active' : 'Quiet'}
             </span>
           </div>
 	          {activeBookingCount > 0 ? (
@@ -448,7 +448,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
                 <Inbox className="h-6 w-6 text-slate-100" strokeWidth={2.5} />
 	              </div>
 	              <p className="text-[15px] text-white" style={{ fontWeight: 800 }}>No bookings in progress</p>
-		              <p className="max-w-sm text-[13px] leading-5 text-slate-100">Confirmed marketplace bookings will appear here in real time once guests check in.</p>
+              <p className="max-w-sm text-[13px] leading-5 text-slate-100">Confirmed Provider bookings will appear here once guests check in.</p>
 	              {onNavigate && (
 	                <button
 	                  type="button"

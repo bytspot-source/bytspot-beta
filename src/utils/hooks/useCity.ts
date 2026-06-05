@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { canUseAutomaticBrowserGeolocation, hasBrowserGeolocation } from '../nativeLocationPolicy';
 
 export interface CityState {
   /** Human-friendly city name, e.g. "Atlanta" or "Miami" */
@@ -83,9 +84,14 @@ export function useCity(): CityState {
   useEffect(() => {
     if (resolvedRef.current) return; // already have a cached result
 
-    if (!navigator.geolocation) {
+    if (!hasBrowserGeolocation()) {
       setLoading(false);
       setError('Geolocation not supported');
+      return;
+    }
+
+    if (!canUseAutomaticBrowserGeolocation()) {
+      setLoading(false);
       return;
     }
 

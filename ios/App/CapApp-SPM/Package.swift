@@ -12,15 +12,15 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.0"),
-        .package(name: "CapacitorCommunityAppleSignIn", path: "../../../node_modules/@capacitor-community/apple-sign-in"),
-        .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
-        .package(name: "CapacitorHaptics", path: "../../../node_modules/@capacitor/haptics"),
-        .package(name: "CapacitorPushNotifications", path: "../../../node_modules/@capacitor/push-notifications"),
-        .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
-        .package(name: "CapacitorStatusBar", path: "../../../node_modules/@capacitor/status-bar"),
-        .package(name: "CapawesomeCapacitorBadge", path: "../../../node_modules/@capawesome/capacitor-badge"),
-        .package(name: "CapgoCapacitorNfc", path: "../../../node_modules/@capgo/capacitor-nfc"),
-        .package(name: "CapgoCapacitorSpeechRecognition", path: "../../../node_modules/@capgo/capacitor-speech-recognition")
+        .package(name: "CapacitorCommunityAppleSignIn", path: "..\..\..\node_modules\@capacitor-community\apple-sign-in"),
+        .package(name: "CapacitorApp", path: "..\..\..\node_modules\@capacitor\app"),
+        .package(name: "CapacitorHaptics", path: "..\..\..\node_modules\@capacitor\haptics"),
+        .package(name: "CapacitorPushNotifications", path: "..\..\..\node_modules\@capacitor\push-notifications"),
+        .package(name: "CapacitorShare", path: "..\..\..\node_modules\@capacitor\share"),
+        .package(name: "CapacitorStatusBar", path: "..\..\..\node_modules\@capacitor\status-bar"),
+        .package(name: "CapawesomeCapacitorBadge", path: "..\..\..\node_modules\@capawesome\capacitor-badge"),
+        .package(name: "CapgoCapacitorNfc", path: "..\..\..\node_modules\@capgo\capacitor-nfc"),
+        .package(name: "CapgoCapacitorSpeechRecognition", path: "..\..\..\node_modules\@capgo\capacitor-speech-recognition")
     ],
     targets: [
         .target(

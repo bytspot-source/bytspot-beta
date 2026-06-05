@@ -35,6 +35,7 @@ function formatBookingPrice(b: DashboardBookingSummary): string {
 
 const STATUS_BADGE: Record<DashboardBookingSummary['status'], { label: string; classes: string }> = {
   pending: { label: 'Pending', classes: 'border-amber-300/30 bg-amber-400/15 text-amber-100' },
+  funds_authorized: { label: 'Hold authorized', classes: 'border-violet-300/30 bg-violet-400/15 text-violet-100' },
   confirmed: { label: 'Confirmed', classes: 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100' },
   in_progress: { label: 'In progress', classes: 'border-purple-300/30 bg-purple-400/15 text-purple-100' },
   completed: { label: 'Completed', classes: 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100' },
@@ -67,10 +68,10 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
       : 'Plan the operating month';
 
   const guidanceBody = access.role === 'staff'
-    ? 'Tap a date to preview that day\'s arrivals once bookings sync. Until the live booking feed is enabled, use this view to confirm which services are available for staff to deliver.'
+    ? 'Tap a date to preview that day\'s arrivals and confirm which Station Mode services are available for staff to deliver.'
     : access.role === 'manager'
-      ? 'Tap a date to review confirmed arrivals, capacity, and patch handoffs. Until the live booking feed is enabled, treat this view as the planning surface for upcoming weeks.'
-      : 'Tap a date to review confirmed arrivals, capacity, and revenue. Until the live booking feed is enabled, treat this view as the planning surface — service availability already reflects what guests can book.';
+      ? 'Tap a date to review confirmed arrivals, capacity, and patch handoffs for upcoming weeks.'
+      : 'Tap a date to review confirmed arrivals, capacity, revenue, and Station Mode service availability.';
 
   const guidanceChecklist = access.role === 'staff'
     ? [
@@ -349,7 +350,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-500 bg-slate-700">
               <CalendarIcon className="h-7 w-7 text-slate-100" strokeWidth={2.5} />
             </div>
-            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Sign in to view the live schedule</p>
+            <p className="text-[15px] text-white" style={{ fontWeight: 700 }}>Sign in to view your Provider schedule</p>
             <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               Calendar entries follow your published services and confirmed bookings. Sign in to see real availability for this date.
             </p>
@@ -424,7 +425,7 @@ export function DashboardCalendar({ isDarkMode, access }: DashboardCalendarProps
             <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-slate-100" style={{ fontWeight: 500 }}>
               {data.bookings.length > 0
                 ? `Confirmed bookings on this date will appear here. Pick a date with markers to see the ${data.bookings.length} ${data.bookings.length === 1 ? 'booking' : 'bookings'} already on your schedule.`
-                : `Confirmed bookings on this date will appear here with arrival times and listing details once guests confirm. Your ${activeServiceCount} active ${activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.`}
+                : `Confirmed bookings on this date will appear here with arrival times and service details once guests confirm. Your ${activeServiceCount} active ${activeServiceCount === 1 ? 'service is' : 'services are'} available for guests to book.`}
             </p>
           </div>
         )}

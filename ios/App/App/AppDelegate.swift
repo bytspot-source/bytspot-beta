@@ -6,11 +6,13 @@ import SwiftUI
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
-    private lazy var nativeBridgeStore = NativeBridgeStore()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let appWindow = UIWindow(frame: UIScreen.main.bounds)
-        let root = UIHostingController(rootView: BytspotNativeShellView(bridgeStore: nativeBridgeStore))
+        // App Store release invariant: the downloaded app must open directly into
+        // the bundled React app through Capacitor. Do not wire BytspotNativeShellView
+        // here unless a separate native-shell build lane is created.
+        let root = CAPBridgeViewController()
         root.view.backgroundColor = .black
         appWindow.rootViewController = root
         appWindow.makeKeyAndVisible()
@@ -43,48 +45,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
-        if presentNativePatchExperience(for: url) { return true }
-        let handledByBridge = ApplicationDelegateProxy.shared.application(app, open: url, options: options)
-        return nativeBridgeStore.handleExternalURL(url) || handledByBridge
+        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
         // Called when the app was launched with an activity, including Universal Links.
         // Feel free to add additional processing here, but if you want the App API to support
         // tracking app url opens, make sure to keep this call
-        if let url = userActivity.webpageURL, presentNativePatchExperience(for: url) { return true }
-        let handledByBridge = ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
-        if let url = userActivity.webpageURL, nativeBridgeStore.handleExternalURL(url) { return true }
-        return handledByBridge
-    }
-
-    private func presentNativePatchExperience(for url: URL) -> Bool {
-        guard shouldPresentNativePatchExperience(for: url),
-              let route = NativePatchRoute(url: url) else { return false }
-        DispatchQueue.main.async { [weak self] in
-            let host = UIHostingController(rootView: NativePatchExperienceView(route: route))
-            host.modalPresentationStyle = .fullScreen
-            host.view.backgroundColor = .black
-            let presenter = self?.window?.rootViewController?.topMostPresentedViewController
-            presenter?.present(host, animated: true)
-        }
-        return true
-    }
-
-    private func shouldPresentNativePatchExperience(for url: URL) -> Bool {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
-        if Self.isCapacitorWebHost(components.host) { return false }
-        if components.scheme?.lowercased() == "bytspot" { return false }
-        let queryItems = components.queryItems ?? []
-        return queryItems.contains { item in
-            ["native", "nativeSurface", "swiftSurface"].contains(item.name)
-                && ["1", "true", "yes"].contains((item.value ?? "").lowercased())
-        }
-    }
-
-    private static func isCapacitorWebHost(_ host: String?) -> Bool {
-        guard let host = host?.lowercased() else { return false }
-        return ["bytspot.com", "www.bytspot.com", "beta.bytspot.com"].contains(host)
+        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
 }

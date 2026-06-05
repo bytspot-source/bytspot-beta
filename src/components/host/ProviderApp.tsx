@@ -9,7 +9,7 @@ import { ProviderOnboarding } from './ProviderOnboarding';
 import { ProviderDashboardLayout, type DashboardView } from './dashboard/ProviderDashboardLayout';
 import { DashboardHome } from './dashboard/DashboardHome';
 import { DashboardListings } from './dashboard/DashboardListings';
-import { DashboardBookings } from './dashboard/DashboardBookings';
+import { ProviderConsole } from './dashboard/ProviderConsole';
 import { DashboardEarnings } from './dashboard/DashboardEarnings';
 import { DashboardReviews } from './dashboard/DashboardReviews';
 import { DashboardCalendar } from './dashboard/DashboardCalendar';
@@ -147,7 +147,7 @@ export function ProviderApp({ isDarkMode, onBackToMain, initialScreen = 'landing
       case 'listings':
         return <DashboardListings isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'bookings':
-        return <DashboardBookings isDarkMode={isDarkMode} access={dashboardAccess} />;
+        return <ProviderConsole isDarkMode={isDarkMode} access={dashboardAccess} />;
       case 'earnings':
         return <DashboardEarnings isDarkMode={isDarkMode} access={dashboardAccess} reviewState={providerReviewState} />;
       case 'reviews':

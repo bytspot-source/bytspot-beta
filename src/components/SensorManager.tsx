@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { canUseAutomaticBrowserGeolocation } from '../utils/nativeLocationPolicy';
 
 export interface SensorData {
   // Location data
@@ -148,8 +149,9 @@ export class SensorManager {
   }
   
   private startSensors(): void {
-    // Start GPS
-    if (this.settings.gpsEnabled && 'geolocation' in navigator) {
+    // Start GPS. Native iOS hybrid screens must not auto-start browser
+    // geolocation because WKWebView prompts as "localhost".
+    if (this.settings.gpsEnabled && canUseAutomaticBrowserGeolocation()) {
       try {
         this.watchId = navigator.geolocation.watchPosition(
           this.handleLocationUpdate.bind(this),

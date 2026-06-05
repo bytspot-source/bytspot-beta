@@ -5,6 +5,7 @@ import { useRef, useEffect, useState } from 'react';
 import { trpc } from '../utils/trpc';
 import type { WeatherSnapshot } from '../utils/hooks/useWeather';
 import { describeWeatherCode } from '../utils/hooks/useWeather';
+import { canUseAutomaticBrowserGeolocation } from '../utils/nativeLocationPolicy';
 import {
   getPersonalizedCategories,
   getUserPreferences,
@@ -33,10 +34,12 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
   const headerRef = useRef<HTMLDivElement>(null);
 
   // 1. GPS geolocation on mount — stored as LOCATION context (Tier 2 fallback only).
+  //    Native iOS suppresses automatic browser geolocation so WKWebView does
+  //    not show a confusing "localhost" permission prompt on app launch.
   //    A user's cultural identity (cuisineAffinities / culturalIdentity in prefs)
   //    always takes priority over GPS in resolveCulturalContext().
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
+    if (!canUseAutomaticBrowserGeolocation()) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {

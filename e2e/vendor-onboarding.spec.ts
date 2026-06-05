@@ -100,6 +100,15 @@ async function installVendorOnboardingMocks(
     window.__BYT_E2E_TRPC_CALLS__ = [];
     window.__BYT_E2E_VENDOR_SERVICES__ = (services ?? [service]) as typeof window.__BYT_E2E_VENDOR_SERVICES__;
     window.__BYT_E2E_VENDOR_PATCHES__ = (patches ?? []) as typeof window.__BYT_E2E_VENDOR_PATCHES__;
+    const bookingRows = (bookings ?? []) as BookingFixture[];
+    const now = Date.now();
+    const openRows = bookingRows.filter((booking) => ['REQUESTED', 'HOLD_AUTHORIZED', 'COUNTER_OFFERED'].includes(String(booking.requestStatus ?? booking.request?.status ?? '')));
+    const expiredRows = openRows.filter((booking) => {
+      const expiresAt = new Date(String(booking.request?.expiresAt ?? booking.requestExpiresAt ?? '')).getTime();
+      return Number.isFinite(expiresAt) && expiresAt <= now;
+    });
+    const incomingRows = openRows.filter((booking) => !expiredRows.includes(booking));
+    const activeRows = bookingRows.filter((booking) => !booking.requestStatus || String(booking.requestStatus) === 'ACCEPTED');
     const syncWithBackendRole = {
       ...sync,
       providerRole,
@@ -109,6 +118,10 @@ async function installVendorOnboardingMocks(
     window.__BYT_E2E_TRPC_MOCKS__ = {
       'vendors.syncOnboarding': syncWithBackendRole,
       'vendors.listBookings': { bookings: bookings ?? [] },
+      'vendors.listIncomingRequests': { vendor: sync.vendor, providerRole, requests: incomingRows },
+      'vendors.listActiveBookings': { vendor: sync.vendor, providerRole, bookings: activeRows },
+      'vendors.listNotifications': { vendor: sync.vendor, providerRole, notifications: [], unreadCount: incomingRows.length },
+      'vendors.syncNotifications': { vendor: sync.vendor, providerRole, expiredRequests: { expiredCount: expiredRows.length }, expirationWarnings: { checked: incomingRows.length, warningsCreated: 0 }, unreadCount: incomingRows.length },
       'vendors.startOnboarding': {
         url: connectUrl,
         expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
@@ -234,6 +247,31 @@ async function installVendorOnboardingMocks(
           };
           window.__BYT_E2E_VENDOR_SERVICES__ = [updated];
           return { result: { data: { service: updated } } };
+        }
+        if (procedure.includes('vendors.acceptRequest')) {
+          const inputRecord = asRecord(jsonInput);
+          const bookingRows = (bookings ?? []) as BookingFixture[];
+          const current = bookingRows.find((booking) => booking.id === inputRecord.bookingId) ?? bookingRows[0];
+          return { result: { data: { request: { ...current, status: 'confirmed', requestStatus: 'ACCEPTED', request: { ...(asRecord(current?.request)), status: 'ACCEPTED' } }, providerRole } } };
+        }
+        if (procedure.includes('vendors.declineRequest')) {
+          const inputRecord = asRecord(jsonInput);
+          const bookingRows = (bookings ?? []) as BookingFixture[];
+          const current = bookingRows.find((booking) => booking.id === inputRecord.bookingId) ?? bookingRows[0];
+          return { result: { data: { request: { ...current, status: 'canceled', requestStatus: 'DECLINED', request: { ...(asRecord(current?.request)), status: 'DECLINED' } }, providerRole } } };
+        }
+        if (procedure.includes('vendors.counterOffer')) {
+          const inputRecord = asRecord(jsonInput);
+          const bookingRows = (bookings ?? []) as BookingFixture[];
+          const current = bookingRows.find((booking) => booking.id === inputRecord.bookingId) ?? bookingRows[0];
+          const request = { ...(asRecord(current?.request)), status: 'COUNTER_OFFERED', counterOfferCents: inputRecord.amountCents, counterOfferCurrency: inputRecord.currency, counterOfferMessage: inputRecord.message };
+          return { result: { data: { request: { ...current, requestStatus: 'COUNTER_OFFERED', request }, providerRole } } };
+        }
+        if (procedure.includes('vendors.completeBooking')) {
+          const inputRecord = asRecord(jsonInput);
+          const bookingRows = (bookings ?? []) as BookingFixture[];
+          const current = bookingRows.find((booking) => booking.id === inputRecord.bookingId) ?? bookingRows[0];
+          return { result: { data: { booking: { ...current, status: 'completed', requestStatus: 'COMPLETED', request: { ...(asRecord(current?.request)), status: 'COMPLETED' } }, providerRole, paymentCapture: { status: 'succeeded' } } } };
         }
         if (procedure.includes('vendors.updateBookingStatus')) {
           const inputRecord = asRecord(jsonInput);
@@ -373,6 +411,93 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-booking-checkin-booking-staff-checkin')).toHaveText('Checked In');
   });
 
+  test('renders Provider Console incoming requests with luxury tier and unread wiring', async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 900 });
+    const now = Date.now();
+    const bookings = [
+      {
+        id: 'booking-black-request', status: 'funds_authorized', requestStatus: 'HOLD_AUTHORIZED', tier: 'BLACK',
+        startsAt: new Date(now + 45 * 60_000).toISOString(),
+        request: { status: 'HOLD_AUTHORIZED', expiresAt: new Date(now + 12 * 60_000).toISOString(), guestNotes: 'Meet at private curb.', logisticsMode: 'Black curbside' },
+        priceCents: 42000, currency: 'USD', guestName: 'Sovereign Guest', patchLabel: 'Black Gate',
+        serviceId: 'svc-1', serviceTitle: 'Black Car Arrival', payment: { status: 'funds_authorized' },
+        cashFlow: { grossCents: 42000, platformFeeCents: 3360, providerPayoutEstimateCents: 38640, commissionBps: 800 },
+      },
+      {
+        id: 'booking-active-console', status: 'confirmed', requestStatus: 'ACCEPTED', tier: 'PLATINUM',
+        startsAt: new Date(now + 90 * 60_000).toISOString(), priceCents: 25000, currency: 'USD', guestName: 'Platinum Guest', patchLabel: 'North Door',
+        serviceId: 'svc-1', serviceTitle: 'Platinum Escort', payment: { status: 'accepted' },
+        cashFlow: { grossCents: 25000, platformFeeCents: 2000, providerPayoutEstimateCents: 23000, commissionBps: 800 },
+      },
+      {
+        id: 'booking-expired-console', status: 'funds_authorized', requestStatus: 'HOLD_AUTHORIZED', tier: 'GREEN',
+        startsAt: new Date(now - 30 * 60_000).toISOString(), request: { status: 'HOLD_AUTHORIZED', expiresAt: new Date(now - 60_000).toISOString() },
+        priceCents: 9000, currency: 'USD', guestName: 'Expired Guest', patchLabel: 'Green Gate', serviceId: 'svc-1', serviceTitle: 'Expired Green Arrival',
+      },
+    ];
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, { role: 'owner', businessMode: 'standard' }, { bookings });
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: 'Bookings', exact: true }).click();
+    await expect(page.getByTestId('provider-console-shell')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('provider-console-incoming')).toContainText('Black Car Arrival');
+    await expect(page.getByTestId('provider-console-auto-refresh')).toContainText('Auto-refresh');
+    await expect(page.getByTestId('provider-console-incoming')).toContainText('Black');
+    await expect(page.getByTestId('provider-console-incoming')).toContainText('HOLD_AUTHORIZED');
+    await expect(page.getByTestId('provider-console-incoming')).not.toContainText('Expired Green Arrival');
+    await expect(page.getByTestId('provider-bookings-list')).toContainText('Platinum Escort');
+    await expect(page.getByTestId('provider-console-shell')).toContainText('Unread');
+
+    await page.getByTestId('provider-request-detail-booking-black-request').click();
+    await expect(page.getByTestId('provider-request-detail-panel')).toContainText('Meet at private curb.');
+    await expect(page.getByTestId('provider-request-detail-panel')).toContainText('Black curbside');
+    await page.getByTestId('provider-request-counter-amount').fill('450');
+    await page.getByTestId('provider-request-counter-message').fill('Includes dedicated security handoff.');
+    await page.getByTestId('provider-request-counter').click();
+    await expect(page.getByTestId('provider-console-action-message')).toContainText('Counter offer sent');
+    await page.getByTestId('provider-request-accept').click();
+    await expect(page.getByTestId('provider-console-action-message')).toContainText('Request accepted');
+    await expect(page.getByTestId('provider-bookings-list')).toContainText('Black Car Arrival');
+
+    await page.getByTestId('provider-booking-detail-booking-active-console').click();
+    await page.getByTestId('provider-booking-complete-capture').click();
+    await expect(page.getByTestId('provider-console-action-message')).toContainText('Booking completed');
+
+    const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []);
+    expect(calls.some((call) => call.procedure.includes('vendors.counterOffer') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).amountCents === 45000)).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.acceptRequest'))).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.completeBooking'))).toBeTruthy();
+  });
+
+  test('keeps Provider Console responsive on mobile and iPad viewports', async ({ page }) => {
+    const bookings = [
+      {
+        id: 'booking-responsive-request', status: 'funds_authorized', requestStatus: 'HOLD_AUTHORIZED', tier: 'GREEN',
+        startsAt: new Date(Date.now() + 35 * 60_000).toISOString(),
+        request: { status: 'HOLD_AUTHORIZED', expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), guestNotes: 'Quiet entrance preferred.', logisticsMode: 'Green curbside' },
+        priceCents: 12000, currency: 'USD', guestName: 'Mobile Guest', patchLabel: 'Green Gate',
+        serviceId: 'svc-1', serviceTitle: 'Green Arrival', payment: { status: 'funds_authorized' },
+      },
+    ];
+
+    for (const viewport of [{ width: 393, height: 852 }, { width: 820, height: 1180 }]) {
+      await page.setViewportSize(viewport);
+      await installVendorOnboardingMocks(page, payoutsEnabledSync, { role: 'owner', businessMode: 'standard' }, { bookings });
+      await page.goto('/provider/connect/return');
+      if (viewport.width < 1024) {
+        await page.getByRole('button', { name: 'Open provider navigation' }).click();
+      }
+      await page.getByRole('button', { name: 'Bookings', exact: true }).click();
+
+      await expect(page.getByTestId('provider-console-shell')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('provider-console-incoming')).toContainText('Green Arrival');
+      await page.getByTestId('provider-request-detail-booking-responsive-request').click();
+      await expect(page.getByTestId('provider-request-detail-panel')).toContainText('Quiet entrance preferred.');
+      const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(hasHorizontalOverflow).toBeFalsy();
+    }
+  });
+
   test('lets owners edit Station Mode provider service metadata from My Services', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installVendorOnboardingMocks(page, payoutsEnabledSync);
@@ -412,7 +537,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('service-create-title-input').fill('Downtown Garage Parking');
     await page.getByTestId('service-create-description-input').fill('Secure covered parking near the venue');
     await page.getByTestId('service-create-category-input').selectOption('Parking');
-    await page.getByTestId('service-create-price-input').fill('25.00');
+    await page.getByTestId('service-create-price-input').fill('50.00');
     await page.getByTestId('service-create-duration-input').fill('60');
     await page.getByTestId('service-create-max-guests-input').fill('1');
     await page.getByTestId('service-create-status-select').selectOption('active');
@@ -421,9 +546,9 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-service-create-modal')).toBeHidden();
     await expect(page.getByTestId('provider-services-panel')).toContainText('Downtown Garage Parking');
     await expect(page.getByTestId('provider-services-panel')).toContainText('Parking');
-    await expect(page.getByTestId('provider-services-panel')).toContainText('$25.00');
+    await expect(page.getByTestId('provider-services-panel')).toContainText('$50.00');
     const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
-    expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 2500)).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 5000)).toBeTruthy();
   });
 
   test('shows legally safe Georgia Compliance Hub guidance', async ({ page }) => {
@@ -557,7 +682,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(select).toBeEnabled();
     // Confirm the live service is offered as an option.
     await expect(select.locator('option', { hasText: 'VIP Arrival' })).toHaveCount(1);
-    await select.selectOption({ label: 'VIP Arrival' });
+    await select.selectOption('svc-1');
 
     // Preview URL must update with the &service= query param the moment the
     // service is selected, before the patch is even established.
@@ -597,7 +722,7 @@ test.describe('Provider calendar empty-state ladder', () => {
     await openCalendar(page);
 
     await expect(page.getByTestId('provider-calendar-empty-unauth')).toBeVisible();
-    await expect(page.getByTestId('provider-calendar-empty-unauth')).toContainText('Sign in to view the live schedule');
+    await expect(page.getByTestId('provider-calendar-empty-unauth')).toContainText('Sign in to view your Provider schedule');
     await expect(page.getByTestId('provider-calendar-bookings-list')).toHaveCount(0);
     await expect(page.getByTestId('provider-calendar-empty-no-services')).toHaveCount(0);
     await expect(page.getByTestId('provider-calendar-empty-no-bookings')).toHaveCount(0);

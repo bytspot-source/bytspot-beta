@@ -9,6 +9,7 @@ import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
 import { loadVirtualPatchContext } from '../virtualPatch';
+import { canUseAutomaticBrowserGeolocation } from '../nativeLocationPolicy';
 
 const FALLBACK_VENUES: ApiVenue[] = [];
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
@@ -222,7 +223,7 @@ export function useVenues(): UseVenuesResult {
 
   // ── GPS location ──────────────────────────────────────────────
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!canUseAutomaticBrowserGeolocation()) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };

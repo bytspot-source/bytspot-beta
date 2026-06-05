@@ -15,7 +15,7 @@ type BookingFilter = 'all' | 'active' | 'upcoming' | 'completed';
 const STATUS_GUIDANCE: Record<BookingFilter, { headline: string; body: string; checklist: string[] }> = {
   all: {
     headline: 'All bookings overview',
-    body: 'See every live backend booking across your services. Switch filters to focus on the next operational step.',
+    body: 'See every booking across your Provider services. Switch filters to focus on the next operational step.',
     checklist: ['Triage active bookings first.', 'Confirm service and patch assignments.', 'Review payout estimates after each handoff.'],
   },
   active: {
@@ -54,7 +54,7 @@ function isUpcoming(booking: DashboardBookingSummary, now = new Date()): boolean
 
 function matchesFilter(booking: DashboardBookingSummary, filter: BookingFilter): boolean {
   if (filter === 'all') return true;
-  if (filter === 'active') return booking.status === 'confirmed' || booking.status === 'in_progress';
+  if (filter === 'active') return booking.status === 'funds_authorized' || booking.status === 'confirmed' || booking.status === 'in_progress';
   if (filter === 'completed') return booking.status === 'completed';
   return isUpcoming(booking);
 }
@@ -108,13 +108,13 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
     }
   };
   const emptyMessage = data.loading
-    ? 'Loading bookings from the provider backend…'
+    ? 'Loading bookings from your Provider workspace…'
     : !data.authenticated
       ? 'Sign in to load bookings tied to your services.'
       : data.totalServices === 0
-        ? 'Publish your first marketplace service so guests can request bookings.'
+        ? 'Publish your first service from My Services so guests can request bookings.'
         : filter === 'all'
-          ? 'New marketplace bookings will surface here automatically.'
+          ? 'New Provider bookings will surface here automatically.'
           : `No ${filter} bookings yet. They will appear here as guests confirm.`;
 
   const filters: Array<{ id: BookingFilter; label: string; count: number }> = [
@@ -128,7 +128,7 @@ export function DashboardBookings({ isDarkMode, access }: DashboardBookingsProps
     <div className={`space-y-6 ${tone.page}`}>
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={springConfig}>
         <h1 className={`mb-2 text-[34px] ${tone.strong}`} style={{ fontWeight: 700 }}>Bookings</h1>
-        <p className={`text-[17px] ${tone.body}`} style={{ fontWeight: 500 }}>Manage live reservations and service handoffs</p>
+        <p className={`text-[17px] ${tone.body}`} style={{ fontWeight: 500 }}>Manage reservations and service handoffs</p>
       </motion.div>
 
       <motion.div className={`rounded-[22px] border p-5 shadow-xl ${tone.panel}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...springConfig, delay: 0.05 }} data-testid="provider-bookings-guidance">

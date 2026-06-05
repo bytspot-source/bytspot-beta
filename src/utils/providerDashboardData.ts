@@ -38,6 +38,7 @@ export type DashboardVendorSummary = {
 
 export type DashboardBookingStatus =
   | 'pending'
+  | 'funds_authorized'
   | 'confirmed'
   | 'in_progress'
   | 'completed'
@@ -144,6 +145,7 @@ function mapService(raw: any): DashboardServiceSummary {
 
 const VALID_BOOKING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set([
   'pending',
+  'funds_authorized',
   'confirmed',
   'in_progress',
   'completed',
@@ -153,6 +155,7 @@ const VALID_BOOKING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set([
 function normalizeBookingStatus(raw: unknown): DashboardBookingStatus {
   const value = typeof raw === 'string' ? raw.toLowerCase() : '';
   if (value === 'paid') return 'confirmed';
+  if (value === 'requires_capture') return 'funds_authorized';
   if (value === 'canceled') return 'cancelled';
   if (value === 'refunded' || value === 'disputed') return 'cancelled';
   return (VALID_BOOKING_STATUSES.has(value as DashboardBookingStatus)
@@ -214,7 +217,7 @@ function mapPatch(raw: any): DashboardPatchSummary | null {
 }
 
 const PAID_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set(['completed']);
-const PENDING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set(['confirmed', 'in_progress']);
+const PENDING_STATUSES: ReadonlySet<DashboardBookingStatus> = new Set(['funds_authorized', 'confirmed', 'in_progress']);
 
 function safeBookingDate(value: string): Date | null {
   const d = new Date(value);

@@ -74,7 +74,7 @@ import {
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
-import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
+import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
@@ -203,7 +203,7 @@ function getHomeServiceFocusId(card: DiscoverCard): string {
   return card.vendorServiceId ?? String(card.id);
 }
 
-function extractPatchDeepLink(url: string): { patchId: string; venueName?: string; tier?: BytspotPatchTier | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null } | null {
+function extractPatchDeepLink(url: string): { patchId: string; venueName?: string; tier?: BytspotPatchTier | null; serviceId?: string | null; tagUseMode?: BytspotTagUseMode | null; tagIntent?: BytspotTagIntent | null; referralCode?: string | null; groupSize?: number | null } | null {
   try {
     const parsed = new URL(url);
     const pathFromName = parsed.protocol === 'bytspot:' && parsed.hostname
@@ -226,6 +226,7 @@ function extractPatchDeepLink(url: string): { patchId: string; venueName?: strin
       patchId,
       venueName: parsed.searchParams.get('venue') || undefined,
       tier: detectBytspotPatchTierFromUrl(parsed, patchId),
+      serviceId: parsed.searchParams.get('service') ?? parsed.searchParams.get('serviceId') ?? null,
       tagUseMode: detectBytspotTagUseModeFromUrl(parsed) ?? (isRootTag ? 'everyday' : null),
       tagIntent: detectBytspotTagIntentFromUrl(parsed),
       referralCode: parsed.searchParams.get('referralCode') ?? parsed.searchParams.get('referral') ?? parsed.searchParams.get('ref') ?? parsed.searchParams.get('r') ?? null,
@@ -233,6 +234,26 @@ function extractPatchDeepLink(url: string): { patchId: string; venueName?: strin
     };
   } catch {
     return null;
+  }
+}
+
+async function resolveCustomerPatchDeepLinkContext(patchId: string, fallbackTier?: BytspotPatchTier | null): Promise<{ venueName?: string; tier?: BytspotPatchTier | null; serviceId?: string | null }> {
+  try {
+    const payload = await trpc.vendors.getByPatch.query({ patchId, tier: fallbackTier ?? undefined });
+    const service = payload?.service ?? payload?.vendorService ?? payload?.listing ?? null;
+    const vendor = payload?.vendor ?? payload?.provider ?? service?.vendor ?? null;
+    const patch = payload?.patch ?? payload?.virtualPatch ?? null;
+    const venueName = [vendor?.displayName, vendor?.name, payload?.venueName, patch?.venueName, patch?.label]
+      .find((value) => typeof value === 'string' && value.trim()) as string | undefined;
+    const tier = normalizeBytspotPatchTier(
+      service?.tier ?? service?.serviceTier ?? payload?.tier ?? payload?.serviceTier ?? patch?.tier ?? patch?.serviceTier ?? vendor?.tier ?? vendor?.serviceTier,
+      fallbackTier ?? null,
+    );
+    const serviceId = [service?.id, service?.vendorServiceId, payload?.serviceId]
+      .find((value) => typeof value === 'string' && value.trim()) as string | undefined;
+    return { venueName, tier, serviceId: serviceId ?? null };
+  } catch {
+    return { tier: fallbackTier ?? null };
   }
 }
 
@@ -432,7 +453,7 @@ export default function App() {
     setActiveTab('profile');
   }, []);
 
-  const routePatchTap = useCallback(async (patchId: string, venueName?: string, tier?: BytspotPatchTier | null, tagUseMode?: BytspotTagUseMode | null, tagIntent?: BytspotTagIntent | null, referralCode?: string | null, groupSize?: number | null) => {
+  const routePatchTap = useCallback(async (patchId: string, venueName?: string, tier?: BytspotPatchTier | null, tagUseMode?: BytspotTagUseMode | null, tagIntent?: BytspotTagIntent | null, referralCode?: string | null, groupSize?: number | null, serviceId?: string | null) => {
     const authToken = localStorage.getItem('bytspot_auth_token');
     const isLoggedInConsumerOrVendor = Boolean(authToken && authToken !== 'guest_session');
 
@@ -450,6 +471,10 @@ export default function App() {
       localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
       localStorage.setItem('bytspot_user_name', 'Guest');
     }
+    const resolved = await resolveCustomerPatchDeepLinkContext(patchId, tier);
+    const resolvedVenueName = venueName ?? resolved.venueName;
+    const resolvedTier = resolved.tier ?? tier ?? null;
+    const resolvedServiceId = serviceId ?? resolved.serviceId ?? null;
     const existingPatchContext = loadVirtualPatchContext();
     const now = new Date().toISOString();
     saveVirtualPatchContext({
@@ -458,8 +483,8 @@ export default function App() {
       mode: 'patch-invoked',
       initiatedAt: existingPatchContext?.patchId === patchId ? existingPatchContext.initiatedAt ?? now : now,
       patchId,
-      venueName: venueName ?? existingPatchContext?.venueName ?? null,
-      tier: tier ?? existingPatchContext?.tier ?? null,
+      venueName: resolvedVenueName ?? existingPatchContext?.venueName ?? null,
+      tier: resolvedTier ?? existingPatchContext?.tier ?? null,
       tagUseMode: tagUseMode ?? existingPatchContext?.tagUseMode ?? null,
       tagIntent: tagIntent ?? existingPatchContext?.tagIntent ?? null,
       referralCode: referralCode ?? existingPatchContext?.referralCode ?? null,
@@ -469,8 +494,8 @@ export default function App() {
     localStorage.setItem('bytspot_intro_seen', 'true');
     setCurrentScreen('main');
     setActiveTab('map');
-    setPendingPatchScan({ patchId, venueName, tier: tier ?? null, tagUseMode: tagUseMode ?? null, tagIntent: tagIntent ?? null, referralCode: referralCode ?? null, groupSize: groupSize ?? null, source: 'app-clip' });
-    window.history.replaceState({}, '', consumerPatchPath(patchId, tier));
+    setPendingPatchScan({ patchId, venueName: resolvedVenueName, tier: resolvedTier, tagUseMode: tagUseMode ?? null, tagIntent: tagIntent ?? null, referralCode: referralCode ?? null, groupSize: groupSize ?? null, source: 'app-clip' });
+    window.history.replaceState({}, '', consumerPatchPath(patchId, resolvedTier, { venueName: resolvedVenueName, serviceId: resolvedServiceId }));
   }, [openProviderPatchManager]);
 
   useEffect(() => {
@@ -686,7 +711,7 @@ export default function App() {
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
         const patchDeepLink = extractPatchDeepLink(url);
         if (patchDeepLink) {
-          void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName, patchDeepLink.tier, patchDeepLink.tagUseMode, patchDeepLink.tagIntent, patchDeepLink.referralCode, patchDeepLink.groupSize);
+          void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName, patchDeepLink.tier, patchDeepLink.tagUseMode, patchDeepLink.tagIntent, patchDeepLink.referralCode, patchDeepLink.groupSize, patchDeepLink.serviceId);
           return;
         }
 

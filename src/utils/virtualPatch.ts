@@ -349,7 +349,7 @@ export function parseScannedPatchPayload(rawValue: string, fallbackPatchId?: str
   try {
     const url = new URL(trimmed);
     const pathParts = url.pathname.split('/').filter(Boolean);
-    const explicitPatchFromPath = ['p', 'patch', 'verify'].includes(pathParts[0] ?? '')
+    const explicitPatchFromPath = ['p', 'patch', 'access', 'verify'].includes(pathParts[0] ?? '')
       ? pathParts[1]
       : pathParts[0] === 't' && isValidTagId(pathParts[1])
         ? pathParts[1]

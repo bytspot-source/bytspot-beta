@@ -298,6 +298,13 @@ test('parseScannedPatchPayload: supports /patch URLs for App Clip NFC demos', ()
   assert.equal(parsed.token, null);
 });
 
+test('parseScannedPatchPayload: supports legacy /access URLs as customer patch links', () => {
+  const parsed = parseScannedPatchPayload('https://bytspot.app/access/cmq25sgxw0004kdy8njdxie5u?tier=platinum');
+  assert.equal(parsed.patchId, 'cmq25sgxw0004kdy8njdxie5u');
+  assert.equal(parsed.tier, 'platinum');
+  assert.equal(parsed.token, null);
+});
+
 test('parseScannedPatchPayload: supports production /t serial URLs for pre-encoded tags', () => {
   const parsed = parseScannedPatchPayload('https://bytspot.app/t/BYT424-0001');
   assert.equal(parsed.patchId, 'BYT424-0001');

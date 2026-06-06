@@ -170,7 +170,7 @@ test('Provider creates patch → Admin approves → Provider sees approved state
   await expect(page.getByTestId('provider-patches-card').first()).toContainText(createdPatch.id);
 
   await page.goto(`/p/${createdPatch.id}?patch=${createdPatch.id}&venue=${encodeURIComponent(VENDOR_NAME)}&service=${SERVICE_ID}`);
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/access/${createdPatch.id}`);
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/p/${createdPatch.id}`);
   await expect(page.getByTestId('app-clip-local-services-panel')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Available Local Services')).toBeVisible();
 });

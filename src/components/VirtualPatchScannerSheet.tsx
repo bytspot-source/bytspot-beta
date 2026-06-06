@@ -99,6 +99,8 @@ const DEMO_VENUE_SERVICES = [
 type PremiumVendor = {
   id: string;
   name: string;
+  serviceId?: string | null;
+  serviceTitle?: string | null;
   category: string;
   photo: string;
   rating: string;
@@ -110,10 +112,52 @@ type PremiumVendor = {
   availabilityWindow: string;
   preview: string;
   services: string[];
+  priceCents?: number | null;
+  includedHighlights?: string[];
+  items?: PremiumLineItem[];
   contactOptions: string[];
   bookingCapability: boolean;
   source: 'live' | 'fallback';
 };
+
+type PremiumLineItem = {
+  id: string;
+  label: string;
+  amountCents: number;
+  defaultQuantity: number;
+  minQuantity: number;
+  maxQuantity: number;
+};
+
+type AppClipTierProfile = {
+  tier: BytspotPatchTier;
+  eyebrow: string;
+  subtitle: string;
+  icon: string;
+  accentText: string;
+  heroBg: string;
+  primaryGradient: string;
+  totalLabel: string;
+  secureBadge: string;
+  includedTitle: string;
+  trustTitle: string;
+  trustBody: string;
+  applePayCta: string;
+  primaryCta: string;
+  defaultServiceTitle: string;
+  defaultCategory: string;
+  defaultPriceCents: number;
+  defaultHighlights: string[];
+};
+
+const BRONI_HOME_TASTE_FAVORITES: PremiumLineItem[] = [
+  { id: 'broni-jollof-chicken', label: 'Jollof Rice with Chicken', amountCents: 1500, defaultQuantity: 1, minQuantity: 0, maxQuantity: 12 },
+  { id: 'broni-white-rice-stew', label: 'White Rice with Stew', amountCents: 1700, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12 },
+  { id: 'broni-waakye', label: 'Waakye', amountCents: 1600, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12 },
+  { id: 'broni-plantain-beans', label: 'Fried Plantain and Beans', amountCents: 1200, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12 },
+  { id: 'broni-banku-tilapia', label: 'Banku and Fried Fish/Tilapia', amountCents: 2200, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12 },
+  { id: 'broni-fufu', label: 'Fufu', amountCents: 2000, defaultQuantity: 0, minQuantity: 0, maxQuantity: 12 },
+];
 
 const FALLBACK_PREMIUM_VENDORS: PremiumVendor[] = [
   {
@@ -264,6 +308,15 @@ function getPublicVenueName(value?: string | null): string {
   return trimmed;
 }
 
+function isBroniHomeTaste(value?: string | null): boolean {
+  return /\bobroni home taste\b|\bbroni home taste\b/i.test(value ?? '');
+}
+
+function formatCents(cents: number, suffix = ''): string {
+  const dollars = Math.max(cents, 0) / 100;
+  return `$${Number.isInteger(dollars) ? dollars.toFixed(0) : dollars.toFixed(2)}${suffix}`;
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -341,6 +394,144 @@ function canUseApplePaySession(): boolean {
   }
 }
 
+function parsePremiumLineItems(row: any): PremiumLineItem[] | undefined {
+  const source = [row?.items, row?.lineItems, row?.metadata?.items, row?.metadata?.lineItems]
+    .find((value) => Array.isArray(value)) as any[] | undefined;
+  const items = source?.map((item, index) => {
+    const label = item?.label ?? item?.title ?? item?.name;
+    const amountCents = Number(item?.amountCents ?? item?.priceCents ?? item?.unitAmountCents);
+    if (typeof label !== 'string' || !Number.isFinite(amountCents)) return null;
+    return {
+      id: String(item?.id ?? item?.sku ?? item?.key ?? `item-${index}`),
+      label,
+      amountCents: Math.max(Math.round(amountCents), 0),
+      defaultQuantity: Math.max(Number(item?.defaultQuantity ?? item?.quantity ?? 0) || 0, 0),
+      minQuantity: Math.max(Number(item?.minQuantity ?? 0) || 0, 0),
+      maxQuantity: Math.max(Number(item?.maxQuantity ?? 20) || 20, 1),
+    } satisfies PremiumLineItem;
+  }).filter((item): item is PremiumLineItem => Boolean(item));
+  return items?.length ? items : undefined;
+}
+
+function broniFallbackVendor(venueName = 'Broni Home Taste'): PremiumVendor {
+  return {
+    id: 'broni-home-taste-app-clip',
+    name: venueName,
+    serviceTitle: 'Reserve table',
+    category: 'Dining',
+    photo: '🍽️',
+    rating: '4.9',
+    distance: 'Nearby',
+    eta: 'Ready now',
+    availability: 'Available now',
+    isOpen: true,
+    capacity: 'Family-style portions',
+    availabilityWindow: 'Pickup or delivery',
+    preview: 'Authentic Ghanaian Home Cooking',
+    services: ['Reserve table'],
+    priceCents: 1500,
+    includedHighlights: ['Matchday favorites', 'Fresh Ghanaian dishes', 'Pickup or delivery', 'Family-style portions'],
+    items: BRONI_HOME_TASTE_FAVORITES,
+    contactOptions: ['In-app request', 'Call now'],
+    bookingCapability: true,
+    source: 'fallback',
+  };
+}
+
+function appClipTierProfile(tier: BytspotPatchTier = 'platinum'): AppClipTierProfile {
+  switch (tier) {
+    case 'black':
+      return {
+        tier,
+        eyebrow: 'BYTSPOT BLACK',
+        subtitle: 'Curated ultra-luxury experiences. Verified by tap.',
+        icon: '♛',
+        accentText: 'text-amber-100',
+        heroBg: 'bg-[radial-gradient(circle_at_top_left,rgba(217,119,6,0.28),transparent_34%),linear-gradient(145deg,rgba(11,11,16,0.99),rgba(88,28,135,0.62)_52%,rgba(2,6,23,0.99))]',
+        primaryGradient: 'bg-gradient-to-r from-amber-200 via-fuchsia-400 to-purple-600 text-slate-950',
+        totalLabel: 'Hold amount',
+        secureBadge: 'Secure Hold',
+        includedTitle: 'ELITE GUARANTEE',
+        trustTitle: 'Bytspot Black Elite Guarantee',
+        trustBody: '45-minute protected hold, concierge review, and live coordination before capture. You are only charged once the vendor confirms.',
+        applePayCta: 'Authorize Secure Hold',
+        primaryCta: 'Place Secure Hold',
+        defaultServiceTitle: 'Concierge & Lifestyle',
+        defaultCategory: 'Concierge',
+        defaultPriceCents: 50000,
+        defaultHighlights: ['Dedicated lifestyle manager', '24/7 Black Concierge', 'Protected hold window', 'Receipts on demand'],
+      };
+    case 'green':
+      return {
+        tier,
+        eyebrow: 'BYTSPOT GREEN',
+        subtitle: 'Neighborhood services from your community. Tap to support.',
+        icon: '☘',
+        accentText: 'text-emerald-100',
+        heroBg: 'bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.25),transparent_34%),linear-gradient(145deg,rgba(6,78,59,0.90),rgba(15,23,42,0.98)_58%,rgba(2,6,23,0.99))]',
+        primaryGradient: 'bg-gradient-to-r from-emerald-300 via-cyan-400 to-teal-500 text-slate-950',
+        totalLabel: 'Total',
+        secureBadge: 'Community Pay',
+        includedTitle: 'LOCAL SUPPORT',
+        trustTitle: 'Community order request',
+        trustBody: 'Simple pickup, delivery, or appointment request with a verified neighborhood provider. Continue as guest and save later.',
+        applePayCta: 'Pay with Apple Pay',
+        primaryCta: 'Request Local Order',
+        defaultServiceTitle: 'Local Provider',
+        defaultCategory: 'Local Services',
+        defaultPriceCents: 500,
+        defaultHighlights: ['Local provider', 'Pickup or delivery', 'Flexible scheduling', 'Community-supported'],
+      };
+    case 'platinum':
+    default:
+      return {
+        tier: 'platinum',
+        eyebrow: 'BYTSPOT PLATINUM',
+        subtitle: 'Trusted local providers. Reserve and verify with one tap.',
+        icon: '✦',
+        accentText: 'text-cyan-100',
+        heroBg: 'bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.26),transparent_34%),linear-gradient(145deg,rgba(15,23,42,0.98),rgba(88,28,135,0.72)_56%,rgba(2,6,23,0.98))]',
+        primaryGradient: 'bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white',
+        totalLabel: 'Total',
+        secureBadge: 'Apple Pay Secure',
+        includedTitle: 'WHAT\'S INCLUDED',
+        trustTitle: 'Fast local reservation',
+        trustBody: 'Instant App Clip-style booking with verified patch context, live service records, and optional full-app handoff after confirmation.',
+        applePayCta: 'Book with Apple Pay',
+        primaryCta: 'Book & Charge Now',
+        defaultServiceTitle: 'Reserve Service',
+        defaultCategory: 'Premium Local',
+        defaultPriceCents: 5000,
+        defaultHighlights: ['Verified provider', 'Live availability', 'Apple Pay Secure', 'Priority support'],
+      };
+  }
+}
+
+function appClipFallbackVendor(tier: BytspotPatchTier, venueName: string): PremiumVendor {
+  const profile = appClipTierProfile(tier);
+  return {
+    id: `app-clip-${tier}-fallback`,
+    name: venueName && venueName !== 'Venue Services' ? venueName : profile.defaultServiceTitle,
+    serviceTitle: profile.defaultServiceTitle,
+    category: profile.defaultCategory,
+    photo: profile.icon,
+    rating: tier === 'green' ? 'Local' : 'New',
+    distance: 'Nearby',
+    eta: tier === 'green' ? 'Same day' : 'Ready now',
+    availability: 'Available now',
+    isOpen: true,
+    capacity: tier === 'black' ? 'Concierge standing by' : 'Live availability',
+    availabilityWindow: tier === 'black' ? '45-minute protected hold' : tier === 'green' ? 'Pickup or delivery' : 'Today',
+    preview: profile.subtitle,
+    services: [profile.defaultServiceTitle],
+    priceCents: profile.defaultPriceCents,
+    includedHighlights: profile.defaultHighlights,
+    contactOptions: tier === 'black' ? ['Live Black Concierge', 'In-app request'] : ['In-app request'],
+    bookingCapability: true,
+    source: 'fallback',
+  };
+}
+
 function normalizeVendorServices(rows: any[]): PremiumVendor[] {
   const grouped = new Map<string, any[]>();
   for (const row of rows) {
@@ -356,14 +547,19 @@ function normalizeVendorServices(rows: any[]): PremiumVendor[] {
       .map((service) => String(service?.title ?? service?.name ?? 'Premium service'))
       .filter(Boolean)
       .slice(0, 4);
+    const vendorName = String(first?.vendor?.displayName ?? first?.vendorName ?? 'Premium Provider');
     const descriptions = services
       .map((service) => String(service?.description ?? '').trim())
       .filter(Boolean);
     const availability = resolveAvailability(first);
     const canBook = availability.isOpen && services.some((service) => String(service?.status ?? 'active') === 'active');
+    const parsedItems = parsePremiumLineItems(first);
+    const priceCents = Number(first?.priceCents ?? first?.amountCents ?? 0);
     return {
       id: key,
-      name: String(first?.vendor?.displayName ?? first?.vendorName ?? 'Premium Provider'),
+      name: vendorName,
+      serviceId: typeof first?.id === 'string' ? first.id : null,
+      serviceTitle: serviceNames[0] ?? null,
       category,
       photo: iconForVendorCategory(category),
       rating: first?.vendor?.rating ? String(first.vendor.rating) : first?.rating ? String(first.rating) : 'New',
@@ -375,6 +571,9 @@ function normalizeVendorServices(rows: any[]): PremiumVendor[] {
       availabilityWindow: String(first?.availabilityWindow ?? first?.vendor?.availabilityWindow ?? 'Availability window updates live'),
       preview: serviceNames.length > 0 ? serviceNames.slice(0, 3).join(' • ') : descriptions.slice(0, 2).join(' • ') || category,
       services: serviceNames.length > 0 ? serviceNames : ['Request service'],
+      priceCents: Number.isFinite(priceCents) && priceCents > 0 ? Math.round(priceCents) : null,
+      includedHighlights: isBroniHomeTaste(vendorName) ? ['Matchday favorites', 'Fresh Ghanaian dishes', 'Pickup or delivery', 'Family-style portions'] : undefined,
+      items: parsedItems ?? (isBroniHomeTaste(vendorName) ? BRONI_HOME_TASTE_FAVORITES : undefined),
       contactOptions: first?.vendor?.phone || first?.phone ? ['In-app request', 'Call now'] : ['In-app request'],
       bookingCapability: canBook,
       source: 'live' as const,
@@ -477,6 +676,7 @@ export function VirtualPatchScannerSheet({
   const [bookingForm, setBookingForm] = useState<BookingFormState>(() => defaultBookingForm());
   const [applePayMessage, setApplePayMessage] = useState('');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [appClipLineItemQuantities, setAppClipLineItemQuantities] = useState<Record<string, number>>({});
   const [authPromptIntent, setAuthPromptIntent] = useState<AuthPromptIntent | null>(null);
   const [authPromptError, setAuthPromptError] = useState('');
   const [authPromptLoading, setAuthPromptLoading] = useState(false);
@@ -510,13 +710,22 @@ export function VirtualPatchScannerSheet({
     [isNativeApp],
   );
   const publicVenueName = useMemo(() => getPublicVenueName(venueName), [venueName]);
+  const urlPatchTier = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return normalizeBytspotPatchTier(new URL(window.location.href).searchParams.get('tier'));
+    } catch {
+      return null;
+    }
+  }, [fallbackPatchId, isOpen]);
+  const effectivePatchTier = fallbackTier ?? urlPatchTier;
   const showDemoVenueServices = useMemo(
     () => isReviewOrDemoVenueName(venueName),
     [venueName],
   );
   const showPatchLocalServices = useMemo(
-    () => appClipEntry || showDemoVenueServices,
-    [appClipEntry, showDemoVenueServices],
+    () => appClipEntry || Boolean(effectivePatchTier) || showDemoVenueServices,
+    [appClipEntry, effectivePatchTier, showDemoVenueServices],
   );
   const selectedPremiumVendor = useMemo(
     () => premiumVendors.find((vendor) => vendor.id === selectedPremiumVendorId) ?? null,
@@ -526,6 +735,29 @@ export function VirtualPatchScannerSheet({
     () => premiumVendors.filter((vendor) => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isHiddenLocalServiceSurface(vendor))),
     [premiumVendors],
   );
+  const appClipTier = useMemo(() => effectivePatchTier ?? 'platinum', [effectivePatchTier]);
+  const appClipProfile = useMemo(() => appClipTierProfile(appClipTier), [appClipTier]);
+  const usesAppClipNativePanel = appClipEntry || Boolean(effectivePatchTier);
+  const appClipPrimaryVendor = useMemo(() => {
+    if (!usesAppClipNativePanel) return null;
+    const broni = visiblePremiumVendors.find((vendor) => isBroniHomeTaste(vendor.name))
+      ?? (isBroniHomeTaste(publicVenueName) ? broniFallbackVendor(publicVenueName) : null);
+    const primary = broni ?? visiblePremiumVendors[0] ?? appClipFallbackVendor(appClipTier, publicVenueName);
+    const primaryPriceCents = primary.priceCents ?? appClipProfile.defaultPriceCents;
+    return {
+      ...primary,
+      serviceTitle: primary.serviceTitle ?? primary.services[0] ?? appClipProfile.defaultServiceTitle,
+      items: broni ? (primary.items?.length ? primary.items : BRONI_HOME_TASTE_FAVORITES) : primary.items,
+      includedHighlights: primary.includedHighlights?.length ? primary.includedHighlights : appClipProfile.defaultHighlights,
+      priceCents: broni ? primaryPriceCents : Math.max(primaryPriceCents, appClipProfile.defaultPriceCents),
+    };
+  }, [appClipProfile.defaultHighlights, appClipProfile.defaultPriceCents, appClipProfile.defaultServiceTitle, appClipTier, publicVenueName, usesAppClipNativePanel, visiblePremiumVendors]);
+  const appClipCheckoutItems = useMemo(() => appClipPrimaryVendor?.items ?? [], [appClipPrimaryVendor]);
+  const appClipHasLineItems = appClipCheckoutItems.length > 0;
+  const appClipCheckoutTotalCents = useMemo(() => {
+    const itemTotal = appClipCheckoutItems.reduce((total, item) => total + (appClipLineItemQuantities[item.id] ?? item.defaultQuantity) * item.amountCents, 0);
+    return itemTotal > 0 ? itemTotal : appClipPrimaryVendor?.priceCents ?? 0;
+  }, [appClipCheckoutItems, appClipLineItemQuantities, appClipPrimaryVendor?.priceCents]);
   const selectedServices = useMemo(
     () => DEMO_VENUE_SERVICES.filter((service) => selectedServiceIds.includes(service.id)),
     [selectedServiceIds],
@@ -793,6 +1025,7 @@ export function VirtualPatchScannerSheet({
       setBookingForm(defaultBookingForm());
       setApplePayMessage('');
       setSelectedServiceIds([]);
+      setAppClipLineItemQuantities({});
       setAuthPromptIntent(null);
       setAuthPromptError('');
       setAuthPromptLoading(false);
@@ -807,7 +1040,22 @@ export function VirtualPatchScannerSheet({
   }, [isOpen, ageGate, appClipEntry]);
 
   useEffect(() => {
-    if (!isOpen || !showPatchLocalServices || demoVenueServicesView !== 'nearby') return;
+    if (!isOpen || appClipCheckoutItems.length === 0) return;
+    setAppClipLineItemQuantities((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const item of appClipCheckoutItems) {
+        if (next[item.id] === undefined) {
+          next[item.id] = item.defaultQuantity;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [appClipCheckoutItems, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !showPatchLocalServices || (!appClipEntry && demoVenueServicesView !== 'nearby')) return;
     let cancelled = false;
     setPremiumVendorsLoading(true);
     setPremiumVendorsError('');
@@ -834,7 +1082,7 @@ export function VirtualPatchScannerSheet({
         if (!cancelled) setPremiumVendorsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [demoVenueServicesView, fallbackPatchId, isOpen, showPatchLocalServices]);
+  }, [appClipEntry, demoVenueServicesView, fallbackPatchId, isOpen, showPatchLocalServices]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1285,6 +1533,28 @@ export function VirtualPatchScannerSheet({
     setDemoVenueServicesView('detail');
     setSelectedBookingService(null);
   }, [persistVirtualServiceRequest, publicVenueName, venueId]);
+
+  const adjustAppClipLineItem = useCallback((item: PremiumLineItem, delta: number) => {
+    void impactLight();
+    setAppClipLineItemQuantities((current) => {
+      const currentValue = current[item.id] ?? item.defaultQuantity;
+      const nextValue = Math.min(Math.max(currentValue + delta, item.minQuantity), item.maxQuantity);
+      return { ...current, [item.id]: nextValue };
+    });
+  }, []);
+
+  const handleAppClipNativeBooking = useCallback((vendor: PremiumVendor) => {
+    const serviceName = vendor.serviceTitle ?? vendor.services[0] ?? 'Reserve table';
+    completeBookingRequest(vendor, serviceName, defaultBookingForm(vendor.contactOptions), 'guest');
+  }, [completeBookingRequest]);
+
+  const handleAppClipNativeApplePay = useCallback((vendor: PremiumVendor) => {
+    void impactLight();
+    setApplePayMessage('Apple Pay Secure is native in the iOS App Clip. This web preview keeps the same checkout shape and can continue as a guest request.');
+    toast.info('Apple Pay Secure', { description: 'Open on iPhone as an App Clip for the native Apple Pay sheet, or continue here as a guest request.' });
+    setSelectedPremiumVendorId(vendor.id);
+    setSelectedBookingService(vendor.serviceTitle ?? vendor.services[0] ?? 'Reserve table');
+  }, []);
 
   const resumeAuthPromptIntent = useCallback((mode: 'guest' | 'signed-in') => {
     if (!authPromptIntent) return;
@@ -1856,6 +2126,80 @@ export function VirtualPatchScannerSheet({
                         <button onClick={() => handlePremiumVendorAction('Call Provider', selectedPremiumVendor.name)} className="rounded-[16px] border border-cyan-200/30 bg-cyan-300/18 px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 950 }}>Call Now</button>
                       </div>
                     </>
+                  ) : appClipPrimaryVendor ? (
+                    <div data-testid="app-clip-native-checkout-panel" className="space-y-4">
+                      <div className={`relative overflow-hidden rounded-[24px] border border-cyan-100/25 ${appClipProfile.heroBg} p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_44px_rgba(0,0,0,0.34)]`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className={`text-[11px] uppercase tracking-[0.22em] ${appClipProfile.accentText}`} style={{ fontWeight: 950 }}>{appClipProfile.eyebrow}</p>
+                            <h4 className="mt-1 text-[26px] leading-7 text-white" style={{ fontWeight: 950 }}>{appClipPrimaryVendor.serviceTitle ?? appClipProfile.defaultServiceTitle}</h4>
+                            <p className="mt-1 text-[14px] leading-5 text-slate-100" style={{ fontWeight: 850 }}>{appClipPrimaryVendor.name}</p>
+                            <p className={`mt-1 text-[12.5px] leading-5 ${appClipProfile.accentText}`} style={{ fontWeight: 760 }}>{appClipPrimaryVendor.preview || appClipProfile.subtitle}</p>
+                          </div>
+                          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-[22px] border border-white/18 bg-white/12 text-[28px] shadow-[0_0_28px_rgba(34,211,238,0.18)]">{isBroniHomeTaste(appClipPrimaryVendor.name) ? '🍽️' : appClipPrimaryVendor.photo || appClipProfile.icon}</div>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          {(appClipPrimaryVendor.includedHighlights ?? []).slice(0, 4).map((item) => (
+                            <div key={item} className="rounded-[14px] border border-white/12 bg-white/8 px-3 py-2 text-[11.5px] leading-4 text-slate-100" style={{ fontWeight: 800 }}>✓ {item}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {appClipHasLineItems ? (
+                        <div className="rounded-[22px] border border-cyan-200/20 bg-slate-950/70 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className={`text-[11px] uppercase tracking-[0.18em] ${appClipProfile.accentText}`} style={{ fontWeight: 950 }}>MATCHDAY FAVORITES</p>
+                            <p className="text-[11px] text-slate-300" style={{ fontWeight: 850 }}>Qty</p>
+                          </div>
+                          <div className="space-y-2.5">
+                            {appClipCheckoutItems.map((item) => {
+                              const quantity = appClipLineItemQuantities[item.id] ?? item.defaultQuantity;
+                              return (
+                                <div key={item.id} data-testid="app-clip-line-item-row" className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.06] p-3">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[14px] text-white" style={{ fontWeight: 900 }}>{item.label}</p>
+                                    <p className="mt-0.5 text-[11.5px] text-slate-300" style={{ fontWeight: 760 }}>{formatCents(item.amountCents, ' each')}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => adjustAppClipLineItem(item, -1)} disabled={quantity <= item.minQuantity} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white disabled:text-white/35" style={{ fontWeight: 950 }}>−</button>
+                                    <span className="min-w-5 text-center text-[15px] text-white" style={{ fontWeight: 950 }}>{quantity}</span>
+                                    <button type="button" onClick={() => adjustAppClipLineItem(item, 1)} disabled={quantity >= item.maxQuantity} className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-300 text-slate-950 disabled:bg-white/15 disabled:text-white/35" style={{ fontWeight: 950 }}>+</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div data-testid="app-clip-tier-trust-card" className="rounded-[22px] border border-white/14 bg-slate-950/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                          <p className={`text-[11px] uppercase tracking-[0.18em] ${appClipProfile.accentText}`} style={{ fontWeight: 950 }}>{appClipProfile.includedTitle}</p>
+                          <h5 className="mt-1 text-[18px] leading-6 text-white" style={{ fontWeight: 950 }}>{appClipProfile.trustTitle}</h5>
+                          <p className="mt-1.5 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{appClipProfile.trustBody}</p>
+                          <div className="mt-3 grid grid-cols-1 gap-2">
+                            {(appClipPrimaryVendor.includedHighlights ?? appClipProfile.defaultHighlights).slice(0, 4).map((item) => (
+                              <div key={item} className="rounded-[14px] border border-white/10 bg-white/[0.06] px-3 py-2 text-[12px] leading-4 text-slate-100" style={{ fontWeight: 820 }}>✓ {item}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="rounded-[22px] border border-white/14 bg-white/[0.07] p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[12px] uppercase tracking-[0.16em] text-slate-300" style={{ fontWeight: 900 }}>{appClipProfile.totalLabel}</p>
+                            <p className="mt-0.5 text-[30px] leading-none text-white" style={{ fontWeight: 950 }}>{formatCents(appClipCheckoutTotalCents)}</p>
+                          </div>
+                          <span className="rounded-full border border-emerald-200/30 bg-emerald-300/14 px-3 py-1.5 text-[11px] text-emerald-100" style={{ fontWeight: 950 }}>{appClipProfile.secureBadge}</span>
+                        </div>
+                        <button type="button" onClick={() => handleAppClipNativeApplePay(appClipPrimaryVendor)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-[17px] border border-white/18 bg-black px-4 py-3.5 text-[15px] text-white shadow-[0_16px_32px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.16)]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif', fontWeight: 950 }}>
+                          {appClipProfile.applePayCta}
+                        </button>
+                        <button type="button" onClick={() => handleAppClipNativeBooking(appClipPrimaryVendor)} className={`mt-2.5 w-full rounded-[17px] px-4 py-3 text-[14px] shadow-[0_14px_30px_rgba(168,85,247,0.28)] ${appClipProfile.primaryGradient}`} style={{ fontWeight: 950 }}>{appClipProfile.primaryCta}</button>
+                        {applePayMessage && <p className="mt-2 rounded-[14px] border border-cyan-200/20 bg-cyan-300/10 px-3 py-2 text-[11.5px] leading-5 text-cyan-100" style={{ fontWeight: 760 }}>{applePayMessage}</p>}
+                      </div>
+
+                      <button type="button" onClick={() => { void impactLight(); setHasConsented(true); }} className="w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-3 text-[12.5px] text-cyan-100" style={{ fontWeight: 850 }}>Tap Patch to Verify</button>
+                    </div>
                   ) : (
                     <>
                       <div className="text-center">

@@ -15,9 +15,17 @@ export function providerPatchPath(patchId: string): string {
   return `/vendor/station/${encodeURIComponent(patchId)}`;
 }
 
-export function consumerPatchPath(patchId: string, tier?: BytspotPatchTier | null): string {
-  const path = `/access/${encodeURIComponent(patchId)}`;
-  return tier ? `${path}?tier=${encodeURIComponent(tier)}` : path;
+export function consumerPatchPath(
+  patchId: string,
+  tier?: BytspotPatchTier | null,
+  options: { venueName?: string | null; serviceId?: string | null } = {},
+): string {
+  const path = `/p/${encodeURIComponent(patchId)}`;
+  const params = new URLSearchParams({ patch: patchId });
+  if (options.venueName?.trim()) params.set('venue', options.venueName.trim());
+  if (tier) params.set('tier', tier);
+  if (options.serviceId?.trim()) params.set('service', options.serviceId.trim());
+  return `${path}?${params.toString()}`;
 }
 
 export function readProviderPatchIdFromPath(pathname: string): string | null {

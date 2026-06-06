@@ -31,9 +31,9 @@ test.use({
 
 async function installVirtualPatchDemoMocks(
   page: import('@playwright/test').Page,
-  options: { qrFallback?: boolean; iosWebFallback?: boolean; scannerUnavailable?: boolean } = {},
+  options: { qrFallback?: boolean; iosWebFallback?: boolean; scannerUnavailable?: boolean; broniPatch?: boolean } = {},
 ) {
-  await page.addInitScript(({ mockVenues, coords, patchId, patchUid, tokenJti, verifiedAt, qrFallback, iosWebFallback, scannerUnavailable }) => {
+  await page.addInitScript(({ mockVenues, coords, patchId, patchUid, tokenJti, verifiedAt, qrFallback, iosWebFallback, scannerUnavailable, broniPatch }) => {
     if (iosWebFallback) {
       Object.defineProperty(navigator, 'userAgent', {
         configurable: true,
@@ -174,7 +174,28 @@ async function installVirtualPatchDemoMocks(
         if (procedure.includes('social.venueCheckins')) return { result: { data: { items: [] } } };
         if (procedure.includes('venues.getBySlug')) return { result: { data: { crowd: { history: [] } } } };
         if (procedure.includes('venues.getSimilar')) return { result: { data: { similar: [] } } };
+        if (procedure.includes('vendors.getByPatch') && broniPatch) {
+          return { result: { data: {
+            patch: { id: patchId, status: 'bound', bindingType: 'service', bindingId: 'svc-broni-reserve', label: 'Broni Home Taste · Reserve table' },
+            vendor: { id: 'vendor-broni', displayName: 'Broni Home Taste', onboardingStatus: 'active' },
+            service: { id: 'svc-broni-reserve', title: 'Reserve table', category: 'Dining', tier: 'PLATINUM', priceCents: 1500, status: 'active' },
+          } } };
+        }
         if (procedure.includes('vendors.search')) {
+          if (broniPatch) {
+            return { result: { data: { services: [{
+              id: 'svc-broni-reserve',
+              title: 'Reserve table',
+              description: 'Authentic Ghanaian Home Cooking',
+              category: 'Dining',
+              tier: 'PLATINUM',
+              priceCents: 1500,
+              durationMins: 15,
+              status: 'active',
+              openNow: true,
+              vendor: { id: 'vendor-broni', displayName: 'Broni Home Taste', rating: 4.9 },
+            }] } } };
+          }
           return { result: { data: { services: [
             {
               id: 'svc-chef-board',
@@ -250,6 +271,7 @@ async function installVirtualPatchDemoMocks(
     qrFallback: options.qrFallback ?? false,
     iosWebFallback: options.iosWebFallback ?? false,
     scannerUnavailable: options.scannerUnavailable ?? false,
+    broniPatch: options.broniPatch ?? false,
   });
 }
 
@@ -278,10 +300,25 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 
 async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
   await page.goto(`/patch/${PATCH_ID}?venue=${encodeURIComponent(MOCK_VENUES[0].name)}`);
-  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   const verifyButton = page.getByRole('button', { name: 'Tap Patch to Verify' });
   await expect(verifyButton).toBeVisible({ timeout: 15_000 });
   return verifyButton;
+}
+
+async function expectNativeTierPanel(page: import('@playwright/test').Page, expected: {
+  eyebrow: string;
+  service: string;
+  trust?: string;
+  cta: string;
+}) {
+  const panel = page.getByTestId('app-clip-native-checkout-panel');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await expect(panel).toContainText(expected.eyebrow);
+  await expect(panel).toContainText(expected.service);
+  if (expected.trust) await expect(panel).toContainText(expected.trust);
+  await expect(panel.getByRole('button', { name: expected.cta })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Tap Patch to Verify' })).toBeVisible();
 }
 
 test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ page }) => {
@@ -289,8 +326,7 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
 
   await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
-  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
-  await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   await expect(page.getByText('Services are ready now. Start the reader only when the venue asks for verified access.')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Browse Services' }).first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Tap Patch to Verify' })).toBeVisible({ timeout: 10_000 });
@@ -302,12 +338,62 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
   await expect(page.getByText('Concierge Help').first()).toBeVisible({ timeout: 10_000 });
 });
 
+test('Black access link opens native-style elite hold panel', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page);
+
+  await page.goto(`/access/${PATCH_ID}?tier=black`);
+
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
+  await expectNativeTierPanel(page, {
+    eyebrow: 'BYTSPOT BLACK',
+    service: 'Chef tasting board',
+    trust: 'Bytspot Black Elite Guarantee',
+    cta: 'Place Secure Hold',
+  });
+  await expect(page.getByTestId('app-clip-native-checkout-panel')).toContainText('Secure Hold');
+  await expect(page.getByTestId('app-clip-native-checkout-panel')).toContainText('Hold amount');
+});
+
+test('Green access link opens native-style community order panel', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page);
+
+  await page.goto(`/access/${PATCH_ID}?tier=green`);
+
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
+  await expectNativeTierPanel(page, {
+    eyebrow: 'BYTSPOT GREEN',
+    service: 'Chef tasting board',
+    trust: 'Community order request',
+    cta: 'Request Local Order',
+  });
+  await expect(page.getByTestId('app-clip-native-checkout-panel')).toContainText('Community Pay');
+});
+
+test('Broni access link opens native-style Platinum dining checkout', async ({ page }) => {
+  await installVirtualPatchDemoMocks(page, { broniPatch: true });
+
+  await page.goto(`/access/${PATCH_ID}?tier=platinum`);
+
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
+  const panel = page.getByTestId('app-clip-native-checkout-panel');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await expect(panel).toContainText('BYTSPOT PLATINUM');
+  await expect(panel).toContainText('Broni Home Taste');
+  await expect(panel).toContainText('Reserve table');
+  await expect(panel).toContainText('MATCHDAY FAVORITES');
+  await expect(panel).toContainText('Jollof Rice with Chicken');
+  await expect(panel).toContainText('Banku and Fried Fish/Tilapia');
+  await expect(panel).toContainText('Apple Pay Secure');
+  await expect(panel.getByRole('button', { name: 'Book with Apple Pay' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Book & Charge Now' })).toBeVisible();
+});
+
 test('App Clip booking exposes Apple Pay Secure in the hybrid flow', async ({ page }) => {
   await installVirtualPatchDemoMocks(page);
 
   await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
-  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   await robustClick(page.getByRole('button', { name: 'Browse Services' }).first());
   await expect(page.getByRole('heading', { name: 'Available Local Services' })).toBeVisible({ timeout: 10_000 });
 
@@ -332,7 +418,7 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
 
   await page.goto(`/patch/${PATCH_ID}?venue=Demo%20Venue`);
 
-  await expect(page).toHaveURL(new RegExp(`/access/${PATCH_ID}$`), { timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
   await robustClick(page.getByRole('button', { name: 'Tap Patch to Verify' }));
 

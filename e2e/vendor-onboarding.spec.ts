@@ -27,6 +27,8 @@ const PROVIDER_SERVICE = {
   title: 'VIP Arrival',
   description: 'Door-to-table escort with patch verified access',
   category: 'Transportation',
+  tier: 'platinum',
+  serviceTier: 'platinum',
   priceCents: 15000,
   currency: 'USD',
   durationMins: 90,
@@ -164,6 +166,7 @@ async function installVendorOnboardingMocks(
     const asNumber = (value: unknown, fallback: number): number => typeof value === 'number' ? value : fallback;
     const asString = (value: unknown, fallback: string): string => typeof value === 'string' ? value : fallback;
     const asBoolean = (value: unknown, fallback: boolean): boolean => typeof value === 'boolean' ? value : fallback;
+    const asTier = (value: unknown, fallback: string): string => value === 'black' || value === 'platinum' || value === 'green' ? value : fallback;
 
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, init) => {
@@ -187,6 +190,8 @@ async function installVendorOnboardingMocks(
             title: asString(inputRecord.title, 'New Service'),
             description: typeof inputRecord.description === 'string' ? inputRecord.description : null,
             category: asString(inputRecord.category, 'General'),
+            tier: asTier(inputRecord.tier, service.tier ?? 'platinum'),
+            serviceTier: asTier(inputRecord.serviceTier ?? inputRecord.tier, service.serviceTier ?? service.tier ?? 'platinum'),
             priceCents,
             durationMins: typeof inputRecord.durationMins === 'number' ? inputRecord.durationMins : null,
             maxGuests: typeof inputRecord.maxGuests === 'number' ? inputRecord.maxGuests : null,
@@ -233,6 +238,8 @@ async function installVendorOnboardingMocks(
             title: asString(inputRecord.title, current.title),
             description: typeof inputRecord.description === 'string' ? inputRecord.description : current.description,
             category: asString(inputRecord.category, current.category),
+            tier: asTier(inputRecord.tier, current.tier ?? 'platinum'),
+            serviceTier: asTier(inputRecord.serviceTier ?? inputRecord.tier, current.serviceTier ?? current.tier ?? 'platinum'),
             priceCents: nextPriceCents,
             durationMins: typeof inputRecord.durationMins === 'number' ? inputRecord.durationMins : current.durationMins,
             maxGuests: typeof inputRecord.maxGuests === 'number' ? inputRecord.maxGuests : current.maxGuests,
@@ -549,6 +556,7 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-services-panel')).toContainText('$50.00');
     const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
     expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 5000)).toBeTruthy();
+    expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).tier === 'platinum')).toBeTruthy();
   });
 
   test('shows legally safe Georgia Compliance Hub guidance', async ({ page }) => {

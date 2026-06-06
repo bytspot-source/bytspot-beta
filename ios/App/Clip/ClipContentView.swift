@@ -1107,6 +1107,16 @@ struct ClipSuccessView: View {
             .lowercased()
         return text.contains("parking") || text.contains("park") || text.contains("valet") || text.contains("garage")
     }
+    private var isPlatinumDiningService: Bool {
+        guard invocation.tier == .platinum else { return false }
+        let text = [service.id, service.title, service.category ?? "", vendor.name, vendor.tagline]
+            .joined(separator: " ")
+            .lowercased()
+        return text.contains("dining") || text.contains("food") || text.contains("table") || text.contains("restaurant") || text.contains("broni")
+    }
+    private var hidesPropertyAccessAction: Bool {
+        isPlatinumDiningService || (service.category ?? "").lowercased().contains("dining")
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1200,6 +1210,21 @@ struct ClipSuccessView: View {
         }
     }
 
+    private var holdRemainingOverrideForPreview: Int? {
+        #if DEBUG
+        guard let url = invocation.invocationURL,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let rawValue = (components.queryItems ?? []).first(where: { item in
+                  ["holdRemaining", "holdRemainingSeconds", "remainingSeconds"].contains(item.name)
+              })?.value,
+              let seconds = Int(rawValue) else { return nil }
+        let maxSeconds = max(bookingContext.holdMinutes * 60, 0)
+        return min(max(seconds, 0), maxSeconds)
+        #else
+        return nil
+        #endif
+    }
+
     private func configureTimerState() {
         guard bookingContext.holdMinutes > 0 else {
             timeRemaining = 0
@@ -1209,6 +1234,9 @@ struct ClipSuccessView: View {
         if forcedExpiredForPreview {
             timeRemaining = 0
             isHoldExpired = true
+        } else if let override = holdRemainingOverrideForPreview {
+            timeRemaining = override
+            isHoldExpired = override <= 0
         } else if timeRemaining <= 0 {
             timeRemaining = bookingContext.holdMinutes * 60
             isHoldExpired = false
@@ -1393,6 +1421,9 @@ struct ClipSuccessView: View {
         }
         if isPlatinumParkingOrValetService {
             return "Your valet parking is confirmed. \(platinumEtaSummary). Use route and valet actions below for arrival logistics."
+        }
+        if isPlatinumDiningService {
+            return "Your order is confirmed instantly. Track live status or open Bytspot for pickup and delivery details."
         }
         return "Your booking is confirmed instantly. Use the route and valet actions below for arrival logistics."
     }
@@ -1806,9 +1837,11 @@ struct ClipSuccessView: View {
     private var defaultLogisticsActions: some View {
         switch bookingContext.logisticsMode {
         case .inboundToUser:
-            Button(action: { impactMedium(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
-                actionRow(icon: "house.fill", title: "Provide Property Access", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
-            }.buttonStyle(.plain)
+            if !hidesPropertyAccessAction {
+                Button(action: { impactMedium(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                    actionRow(icon: "house.fill", title: "Provide Property Access", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.gold.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
+                }.buttonStyle(.plain)
+            }
 
             Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
                 actionRow(icon: "map.fill", title: "Track Live ETA", foreground: .white, background: LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.08)], startPoint: .leading, endPoint: .trailing))

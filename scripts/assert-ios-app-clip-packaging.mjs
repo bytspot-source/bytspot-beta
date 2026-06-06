@@ -11,6 +11,7 @@ const files = {
   appDelegate: path.join(root, 'ios/App/App/AppDelegate.swift'),
   nativeShell: path.join(root, 'ios/App/App/NativeShellView.swift'),
   clipApp: path.join(root, 'ios/App/Clip/ClipApp.swift'),
+  clipContentView: path.join(root, 'ios/App/Clip/ClipContentView.swift'),
   aasa: path.join(root, 'public/.well-known/apple-app-site-association'),
   index: path.join(root, 'index.html'),
   ghThumbnail: path.join(root, 'public/media/gh-akwaaba-fifa-ghana-thumbnail.png'),
@@ -30,6 +31,7 @@ const appEntitlements = read('App entitlements', files.appEntitlements);
 const appDelegate = read('AppDelegate.swift', files.appDelegate);
 const nativeShell = read('NativeShellView.swift', files.nativeShell);
 const clipApp = read('ClipApp.swift', files.clipApp);
+const clipContentView = read('ClipContentView.swift', files.clipContentView);
 const aasa = read('AASA', files.aasa);
 const index = read('index.html', files.index);
 const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifier);
@@ -69,8 +71,11 @@ const checks = [
   ['GH Akwaaba vendor carries FIFA product hero', clipPatchVerifier.includes('productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL')],
   ['Clip parses dynamic checkout line items', clipPatchVerifier.includes('struct ClipLineItem') && clipPatchVerifier.includes('parseLineItems') && !clipApp.includes('ClipMatchdayEssential')],
   ['Clip uses vendors.getByPatch for patch-bound metadata', clipPatchVerifier.includes('func getByPatch') && clipPatchVerifier.includes('vendors.getByPatch') && clipApp.includes('api.getByPatch')],
+  ['Clip accepts service tier aliases from backend payloads', clipPatchVerifier.includes('service?["tier"]') && clipPatchVerifier.includes('service?["serviceTier"]') && clipPatchVerifier.includes('root["serviceTier"]')],
   ['Clip refreshes preselected checkout with live data', clipApp.includes('refreshPreselectedCheckout') && clipApp.includes('flow = .checkout(service: liveService, vendor:')],
   ['Broni Home Taste has curated Platinum dining line items', clipPatchVerifier.includes('Broni Home Taste') && clipPatchVerifier.includes('broniHomeTasteFavorites') && clipPatchVerifier.includes('Jollof Rice with Chicken') && clipPatchVerifier.includes('Banku and Fried Fish/Tilapia') && !clipPatchVerifier.includes('Omotuo') && !clipPatchVerifier.includes('Acheke')],
+  ['Black hold near-expiration QA hook is DEBUG-only', clipContentView.includes('holdRemainingOverrideForPreview') && clipContentView.includes('holdRemainingSeconds') && clipContentView.includes('#if DEBUG') && clipContentView.includes('Contact Concierge')],
+  ['Dining success hides property-access CTA', clipContentView.includes('isPlatinumDiningService') && clipContentView.includes('hidesPropertyAccessAction') && clipContentView.includes('if !hidesPropertyAccessAction') && clipContentView.includes('Your order is confirmed instantly')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

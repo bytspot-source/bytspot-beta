@@ -454,7 +454,7 @@ struct ClipVendor: Identifiable, Equatable {
         return pools.enumerated().map { idx, entry in
             let multiplier = [1.0, 1.18, 1.45][idx % 3]
             let isGhAkwaabaProduct = entry.0.lowercased().contains("akwaaba")
-            let isBroniHomeTaste = entry.0.lowercased().contains("broni home taste")
+            let isBroniHomeTaste = entry.0.lowercased().contains("broni home taste") || entry.0.lowercased().contains("obroni home taste")
             let productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL : service.heroImageURL
             let priceCents = max(Int(Double(base) * multiplier), tier.minimumCents)
             return ClipVendor(
@@ -543,7 +543,10 @@ struct ClipPatchVerifier {
         let lon = Self.double(coords?["lng"]) ?? Self.double(coords?["lon"]) ?? Self.double(coords?["longitude"]) ?? Self.double(vendor?["lng"]) ?? Self.double(vendor?["longitude"])
         // Server tier (if surfaced) wins over the URL-derived tier so a
         // re-tiered patch reflects backend authority on the next resolve.
-        let serverTierRaw = string(root["tier"]) ?? string(patch?["tier"]) ?? string(vendor?["tier"])
+        let serverTierRaw = string(root["tier"]) ?? string(root["serviceTier"])
+            ?? string(patch?["tier"]) ?? string(patch?["serviceTier"])
+            ?? string(service?["tier"]) ?? string(service?["serviceTier"])
+            ?? string(vendor?["tier"]) ?? string(vendor?["serviceTier"])
         let serverTier = serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) }
         return ClipPatchContext(
             patchId: resolvedId,
@@ -806,7 +809,10 @@ struct ClipPatchVerifier {
         let serviceName = Self.string(service?["title"]) ?? Self.string(service?["name"])
         let label = Self.string(patch?["label"]) ?? Self.string(patch?["name"])
         let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
-        let serverTierRaw = Self.string(root["tier"]) ?? Self.string(patch?["tier"]) ?? Self.string(vendor?["tier"])
+        let serverTierRaw = Self.string(root["tier"]) ?? Self.string(root["serviceTier"])
+            ?? Self.string(patch?["tier"]) ?? Self.string(patch?["serviceTier"])
+            ?? Self.string(service?["tier"]) ?? Self.string(service?["serviceTier"])
+            ?? Self.string(vendor?["tier"]) ?? Self.string(vendor?["serviceTier"])
         return ClipPatchContext(
             patchId: resolvedId,
             title: vendorName ?? label ?? "Bytspot Patch",

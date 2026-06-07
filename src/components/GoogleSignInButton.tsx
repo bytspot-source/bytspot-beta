@@ -32,7 +32,7 @@ function getGoogleClientId(): string {
 }
 
 function getNativeGoogleClientId(): string {
-  return String(import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  return String(import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID || window.__BYT_GOOGLE_CLIENT_ID__ || import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
 }
 
 function parseOrigins(value: unknown): string[] {

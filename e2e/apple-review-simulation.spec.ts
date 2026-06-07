@@ -126,10 +126,10 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByText('QR Backup Scanner')).toBeVisible({ timeout: 15_000 });
     const appClipServices = page.getByTestId('app-clip-local-services-panel');
     await expect(appClipServices).toBeVisible({ timeout: 15_000 });
-    await expect(appClipServices).toContainText('Available Local Services');
-    await expect(appClipServices).toContainText(/Private Chef|Mobile Massage|Patch Verified/i);
+    await expect(appClipServices).toContainText(/Private Chef|Mobile Massage|Patch Verified|Apple Pay Secure/i);
+    await expect(appClipServices).toContainText(/Tap Patch to Verify|Book with Apple Pay|Book & Charge Now/i);
     await expect(appClipServices).not.toContainText(/Valet/i);
-    await expect(page.getByText(/Provider|Vendor|Admin|Dashboard|Internal Ops/i)).toHaveCount(0);
+    await expect(page.getByText(/Become a Provider|Provider Dashboard|Vendor|Admin|Dashboard|Internal Ops/i)).toHaveCount(0);
   });
 
   for (const path of ['/provider', '/vendor', '/host', '/admin', '/admin/approvals'] as const) {

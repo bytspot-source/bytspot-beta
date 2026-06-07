@@ -32,7 +32,7 @@ type TierDefinition = {
   label: string;
   shortLabel: string;
   tagline: string;
-  priceFloorCents: number;
+  suggestedStartingPriceCents: number;
   categories: string[];
   Icon: typeof Sparkles;
   accent: { light: string; dark: string };
@@ -45,7 +45,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Black',
     shortLabel: 'Black',
     tagline: 'Ultra-luxury — verified concierge tier.',
-    priceFloorCents: 45000,
+    suggestedStartingPriceCents: 45000,
     categories: ['Aviation', 'Marine', 'Dining', 'Chauffeur', 'Wellness', 'Concierge', 'Events'],
     Icon: Sparkles,
     accent: {
@@ -62,7 +62,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Platinum',
     shortLabel: 'Platinum',
     tagline: 'Premium service — vetted city operators.',
-    priceFloorCents: 5000,
+    suggestedStartingPriceCents: 5000,
     categories: ['Catering', 'Wellness', 'Transportation', 'Hospitality', 'Events', 'Parking', 'General'],
     Icon: BadgeCheck,
     accent: {
@@ -79,7 +79,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Green',
     shortLabel: 'Green',
     tagline: 'Cottage industry — neighborhood makers & local services.',
-    priceFloorCents: 500,
+    suggestedStartingPriceCents: 500,
     categories: ['Baked Goods', 'Handmade Crafts', 'Local Services', 'Farm Stand', 'Tutoring', 'Wellness', 'General'],
     Icon: Leaf,
     accent: {
@@ -101,8 +101,8 @@ function isServiceTier(value: unknown): value is ServiceTier {
 
 function inferTier(service: { tier?: string | null; priceCents: number; category?: string | null }): ServiceTier {
   if (isServiceTier(service.tier)) return service.tier;
-  if (service.priceCents >= TIER_DEFINITIONS.black.priceFloorCents) return 'black';
-  if (service.priceCents >= TIER_DEFINITIONS.platinum.priceFloorCents) return 'platinum';
+  if (service.priceCents >= TIER_DEFINITIONS.black.suggestedStartingPriceCents) return 'black';
+  if (service.priceCents >= TIER_DEFINITIONS.platinum.suggestedStartingPriceCents) return 'platinum';
   return 'green';
 }
 
@@ -151,7 +151,7 @@ const EMPTY_SERVICE_FORM: EditForm = {
   includedHighlights: [],
   highlightDraft: '',
   category: 'Catering',
-  priceDollars: '50.00',
+  priceDollars: '15.00',
   durationMins: '60',
   maxGuests: '1',
   status: 'draft',
@@ -201,13 +201,8 @@ function serviceToForm(service: VendorService): EditForm {
 function applyTierToForm(form: EditForm, tier: ServiceTier): EditForm {
   const categories = TIER_DEFINITIONS[tier].categories;
   const nextCategory = categories.includes(form.category) ? form.category : categories[0];
-  const floorDollars = TIER_DEFINITIONS[tier].priceFloorCents / 100;
-  const currentPrice = Number(form.priceDollars);
-  const nextPrice = Number.isFinite(currentPrice) && currentPrice >= floorDollars
-    ? form.priceDollars
-    : floorDollars.toFixed(2);
   const nextEtaLabel = tierShowsEtaField(tier) ? form.etaLabel : '';
-  return { ...form, tier, category: nextCategory, priceDollars: nextPrice, etaLabel: nextEtaLabel };
+  return { ...form, tier, category: nextCategory, etaLabel: nextEtaLabel };
 }
 
 function addHighlight(form: EditForm): EditForm {
@@ -357,7 +352,6 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     const duration = form.durationMins.trim() ? Number(form.durationMins) : null;
     const maxGuests = form.maxGuests.trim() ? Number(form.maxGuests) : null;
     const tierDef = TIER_DEFINITIONS[form.tier];
-    const floorDollars = tierDef.priceFloorCents / 100;
     const tagline = form.tagline.trim();
     const etaLabel = tierShowsEtaField(form.tier) ? form.etaLabel.trim() : '';
     const highlights = form.includedHighlights
@@ -370,7 +364,6 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     if (etaLabel.length > ETA_LABEL_MAX_CHARS) return { error: `ETA label must be ${ETA_LABEL_MAX_CHARS} characters or fewer.` };
     if (highlights.some((h) => h.length > HIGHLIGHT_MAX_CHARS)) return { error: `Each highlight must be ${HIGHLIGHT_MAX_CHARS} characters or fewer.` };
     if (!Number.isFinite(price) || price <= 0) return { error: 'Service price must be greater than $0.' };
-    if (Math.round(price * 100) < tierDef.priceFloorCents) return { error: `${tierDef.label} requires a minimum price of $${floorDollars.toLocaleString('en-US', { minimumFractionDigits: 2 })}.` };
     if (duration !== null && (!Number.isFinite(duration) || duration < 15)) return { error: 'Duration must be blank or at least 15 minutes.' };
     if (maxGuests !== null && (!Number.isFinite(maxGuests) || maxGuests < 1)) return { error: 'Max guests must be blank or at least 1.' };
     return {
@@ -774,7 +767,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                           style={{ fontWeight: 700 }}
                         >
                           <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em]"><TierIcon className="h-3.5 w-3.5" strokeWidth={2.5} />{def.shortLabel}</span>
-                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>From ${(def.priceFloorCents / 100).toLocaleString('en-US')}</span>
+                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>Suggested ${(def.suggestedStartingPriceCents / 100).toLocaleString('en-US')}</span>
                         </button>
                       );
                     })}
@@ -868,7 +861,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 <div className="grid grid-cols-2 gap-3">
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Category<select data-testid="service-create-category-input" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[createForm.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Status<select data-testid="service-create-status-select" value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option></select></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price (min ${(TIER_DEFINITIONS[createForm.tier].priceFloorCents / 100).toLocaleString('en-US')})<input data-testid="service-create-price-input" type="number" min={(TIER_DEFINITIONS[createForm.tier].priceFloorCents / 100).toString()} step="0.01" value={createForm.priceDollars} onChange={(e) => setCreateForm({ ...createForm, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price — owner editable<input data-testid="service-create-price-input" type="number" min="0.01" step="0.01" value={createForm.priceDollars} onChange={(e) => setCreateForm({ ...createForm, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Duration (min)<input data-testid="service-create-duration-input" type="number" min="15" step="5" value={createForm.durationMins} onChange={(e) => setCreateForm({ ...createForm, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Max guests<input data-testid="service-create-max-guests-input" type="number" min="1" step="1" value={createForm.maxGuests} onChange={(e) => setCreateForm({ ...createForm, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
                 </div>
@@ -951,7 +944,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                           style={{ fontWeight: 700 }}
                         >
                           <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em]"><TierIcon className="h-3.5 w-3.5" strokeWidth={2.5} />{def.shortLabel}</span>
-                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>From ${(def.priceFloorCents / 100).toLocaleString('en-US')}</span>
+                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>Suggested ${(def.suggestedStartingPriceCents / 100).toLocaleString('en-US')}</span>
                         </button>
                       );
                     })}
@@ -1065,11 +1058,11 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    Price (min ${(TIER_DEFINITIONS[editForm.tier].priceFloorCents / 100).toLocaleString('en-US')})
+                    Price — owner editable
                     <input
                       data-testid="service-price-input"
                       type="number"
-                      min={(TIER_DEFINITIONS[editForm.tier].priceFloorCents / 100).toString()}
+                      min="0.01"
                       step="0.01"
                       value={editForm.priceDollars}
                       onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })}

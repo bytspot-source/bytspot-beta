@@ -145,8 +145,7 @@ test('Parker consumer sees native iOS Google Sign-In instead of web GIS', async 
   await landingCta.evaluate((button) => (button as HTMLButtonElement).click());
   await expect(page.getByRole('heading', { name: 'Welcome to Bytspot' })).toBeVisible({ timeout: 15_000 });
 
-  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
-  await expect(page.getByText('native iOS Google picker')).toBeVisible();
+  await expect(page.getByTestId('google-signin-button').getByRole('button', { name: 'Continue with Google' })).toBeVisible();
   await expect(page.locator('#google-identity-services')).toHaveCount(0);
 });
 

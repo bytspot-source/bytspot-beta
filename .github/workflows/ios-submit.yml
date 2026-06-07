@@ -1,0 +1,47 @@
+name: iOS → Submit for Review
+
+# Manual-only. Takes the latest (or specified) TestFlight build of
+# com.bytspot.app, attaches it to the pending App Store version, fills in
+# export-compliance + IDFA submission answers, and submits for App Review.
+# No binary is built or signed in this workflow — submission re-uses the
+# IPA that the `iOS → TestFlight` workflow already uploaded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: 'TestFlight build number to submit (leave blank to use the latest)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ios-submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      LANG: en_US.UTF-8
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Fastlane → Submit for Review
+        working-directory: ios/App
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SUBMIT_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: bundle exec fastlane submit

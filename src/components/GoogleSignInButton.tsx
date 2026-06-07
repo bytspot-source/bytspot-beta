@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { SocialLogin } from '@capgo/capacitor-social-login';
 
 type GoogleCredentialResponse = { credential?: string };
 type GoogleButtonState = 'loading' | 'ready' | 'unavailable';
+type SocialLoginError = Error & { code?: string };
 
 declare global {
   interface Window {
@@ -23,9 +25,14 @@ declare global {
 const GOOGLE_SCRIPT_ID = 'google-identity-services';
 const DEFAULT_GOOGLE_AUTHORIZED_ORIGINS = ['https://bytspot.app', 'https://www.bytspot.app'];
 let googleScriptPromise: Promise<void> | null = null;
+let nativeGoogleInitPromise: Promise<void> | null = null;
 
 function getGoogleClientId(): string {
   return String(window.__BYT_GOOGLE_CLIENT_ID__ || import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+}
+
+function getNativeGoogleClientId(): string {
+  return String(import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
 }
 
 function parseOrigins(value: unknown): string[] {
@@ -34,6 +41,34 @@ function parseOrigins(value: unknown): string[] {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+async function signInWithNativeGoogle(): Promise<string> {
+  const iOSClientId = getNativeGoogleClientId();
+  const webClientId = getGoogleClientId();
+  if (!iOSClientId) throw new Error('Google Sign-In is not configured for this iOS build.');
+
+  nativeGoogleInitPromise ??= SocialLogin.initialize({
+    google: {
+      iOSClientId,
+      ...(webClientId ? { webClientId, iOSServerClientId: webClientId } : {}),
+      mode: 'online',
+    },
+  });
+  await nativeGoogleInitPromise;
+
+  const response = await SocialLogin.login({
+    provider: 'google',
+    options: {
+      scopes: ['profile', 'email'],
+      prompt: 'select_account',
+    },
+  });
+
+  const result = response.result;
+  const idToken = result.responseType === 'online' ? result.idToken : null;
+  if (!idToken) throw new Error('Google did not return a sign-in credential. Please try again.');
+  return idToken;
 }
 
 function googleOriginAllowed(): boolean {
@@ -111,6 +146,7 @@ export function GoogleSignInButton({
   const onErrorRef = useRef(onError);
   const [buttonState, setButtonState] = useState<GoogleButtonState>('loading');
   const [unavailableMessage, setUnavailableMessage] = useState('');
+  const [nativeLoading, setNativeLoading] = useState(false);
   const clientId = getGoogleClientId();
   const isNativeApp = Capacitor.isNativePlatform();
 
@@ -118,7 +154,11 @@ export function GoogleSignInButton({
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   useEffect(() => {
-    if (isNativeApp) return;
+    if (isNativeApp) {
+      setButtonState('ready');
+      setUnavailableMessage('');
+      return;
+    }
 
     if (!clientId) {
       setButtonState('unavailable');
@@ -182,7 +222,46 @@ export function GoogleSignInButton({
     };
   }, [clientId, isNativeApp]);
 
-  if (isNativeApp) return null;
+  const handleNativeClick = async () => {
+    if (disabled || nativeLoading) return;
+    setNativeLoading(true);
+    try {
+      const idToken = await signInWithNativeGoogle();
+      await onCredential(idToken);
+    } catch (error: unknown) {
+      const socialError = error as SocialLoginError;
+      const message = socialError?.code === 'USER_CANCELLED'
+        ? 'Google Sign-In was cancelled.'
+        : error instanceof Error
+        ? error.message
+        : 'Google Sign-In is not available in this build. Confirm the native Google plugin and iOS URL scheme are included.';
+      onError?.(message);
+    } finally {
+      setNativeLoading(false);
+    }
+  };
+
+  if (isNativeApp) {
+    return (
+      <div className="relative w-full" data-testid="google-signin-button">
+        <button
+          type="button"
+          aria-label={label}
+          aria-describedby={fallbackId}
+          disabled={disabled || nativeLoading}
+          onClick={handleNativeClick}
+          className="flex h-12 min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/20 bg-white px-4 text-[17px] text-black shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif', fontWeight: 600 }}
+        >
+          <GoogleLogoMark />
+          <span>{nativeLoading ? 'Connecting Google…' : label}</span>
+        </button>
+        <span id={fallbackId} style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}>
+          Continue with Google creates or signs in to your Bytspot account without filling out the email form.
+        </span>
+      </div>
+    );
+  }
 
   const handleUnavailableClick = () => {
     onError?.(unavailableMessage || 'Google Sign-In is unavailable. Continue with email or try again later.');

@@ -1725,15 +1725,18 @@ export function VirtualPatchScannerSheet({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[1005] bg-black/70 backdrop-blur-[3px] flex items-end justify-center p-3"
+          className="fixed inset-0 z-[1005] bg-black/70 backdrop-blur-[3px] flex items-end justify-center px-3 pt-4 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] sm:items-center sm:p-6"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-sm max-h-[calc(100vh-24px)] overflow-y-auto rounded-[28px] border backdrop-blur-2xl shadow-2xl"
+            className="w-full max-w-[min(92vw,440px)] max-h-[calc(100dvh_-_2rem_-_env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain rounded-[30px] border backdrop-blur-2xl shadow-2xl sm:max-h-[min(820px,calc(100dvh_-_3rem))]"
             style={{
+              width: '100%',
+              maxWidth: 'min(92vw, 440px)',
+              maxHeight: 'calc(100dvh - 2rem - env(safe-area-inset-bottom))',
               background: 'linear-gradient(145deg, rgba(13,16,23,0.94), rgba(15,23,42,0.86))',
               borderColor: 'rgba(103,232,249,0.25)',
               boxShadow: '0 0 42px rgba(34,211,238,0.18), 0 24px 70px rgba(0,0,0,0.58)',
@@ -1744,8 +1747,8 @@ export function VirtualPatchScannerSheet({
             transition={{ type: 'spring', stiffness: 320, damping: 30 }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="p-5 pb-4">
-              <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="space-y-4 p-5 pb-5 sm:p-6">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-300/10 border border-cyan-300/30 text-cyan-100 text-[11px] mb-2 shadow-[0_0_18px_rgba(34,211,238,0.12)]" style={{ fontWeight: 850 }}>
                     {activeMethod === 'nfc' ? <Zap className="w-3.5 h-3.5" strokeWidth={2.4} /> : <QrCode className="w-3.5 h-3.5" strokeWidth={2.4} />}
@@ -1805,7 +1808,7 @@ export function VirtualPatchScannerSheet({
               )}
 
               {showPatchLocalServices && hasAffirmedAge && !hasConsented && (
-                <div className="mb-4 select-none rounded-[24px] border border-cyan-100/30 bg-[linear-gradient(145deg,rgba(8,47,73,0.92),rgba(17,24,39,0.99)_54%,rgba(88,28,135,0.78))] p-4 text-white shadow-[0_18px_44px_rgba(0,0,0,0.35),0_0_30px_rgba(168,85,247,0.22)] ring-1 ring-white/10">
+                <div className="select-none rounded-[24px] border border-cyan-100/30 bg-[linear-gradient(145deg,rgba(8,47,73,0.92),rgba(17,24,39,0.99)_54%,rgba(88,28,135,0.78))] p-4 text-white shadow-[0_18px_44px_rgba(0,0,0,0.35),0_0_30px_rgba(168,85,247,0.22)] ring-1 ring-white/10 sm:p-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/18 bg-white/10 shadow-[0_0_30px_rgba(217,70,239,0.24)]">
                       <ShieldCheck className="h-6 w-6 text-cyan-100" strokeWidth={2.6} />
@@ -1827,7 +1830,8 @@ export function VirtualPatchScannerSheet({
                       }
                       setHasConsented(true);
                     }}
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-4 text-white shadow-[0_18px_42px_rgba(168,85,247,0.35)]"
+                    className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-[clamp(0.875rem,3.8vw,1rem)] text-white shadow-[0_18px_42px_rgba(168,85,247,0.35)]"
+                    style={{ minHeight: 52, paddingTop: '0.875rem', paddingBottom: '0.875rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     {appClipEntry ? <ShieldCheck className="h-4 w-4" strokeWidth={2.8} /> : <Zap className="h-4 w-4" strokeWidth={2.8} />}
@@ -1837,8 +1841,8 @@ export function VirtualPatchScannerSheet({
                     <button
                       type="button"
                       onClick={() => { void impactLight(); setHasConsented(true); }}
-                      className="mt-3 w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-3 text-[12.5px] text-cyan-100"
-                      style={{ fontWeight: 850 }}
+                      className="mt-3 min-h-[48px] w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-[clamp(0.75rem,3.3vw,0.875rem)] text-[12.5px] text-cyan-100"
+                      style={{ fontWeight: 850, minHeight: 48, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     >
                       Tap Patch to Verify
                     </button>
@@ -1959,7 +1963,7 @@ export function VirtualPatchScannerSheet({
               )}
 
               {showPatchLocalServices && (
-                <div data-testid={appClipEntry ? 'app-clip-local-services-panel' : 'virtual-patch-services-panel'} className="mb-4 select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-[18px] text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10">
+                <div data-testid={appClipEntry ? 'app-clip-local-services-panel' : 'virtual-patch-services-panel'} className="select-none rounded-[26px] border border-cyan-100/25 bg-[linear-gradient(145deg,rgba(15,23,42,0.99),rgba(30,41,59,0.98)_48%,rgba(88,28,135,0.82))] p-4 text-white shadow-[0_20px_55px_rgba(0,0,0,0.40),0_0_36px_rgba(168,85,247,0.22)] ring-1 ring-cyan-100/10 sm:p-5">
                   {demoVenueServicesView === 'nearby' ? (
                     <>
                       {!appClipEntry && <button onClick={() => setDemoVenueServicesView('cards')} className="mb-3.5 text-[12px] text-cyan-100" style={{ fontWeight: 900 }}>← Back to venue services</button>}
@@ -2172,18 +2176,15 @@ export function VirtualPatchScannerSheet({
                         </div>
                       ) : (
                         <div data-testid="app-clip-tier-trust-card" className="rounded-[22px] border border-white/14 bg-slate-950/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                          <p className={`text-[11px] uppercase tracking-[0.18em] ${appClipProfile.accentText}`} style={{ fontWeight: 950 }}>{appClipProfile.includedTitle}</p>
-                          <h5 className="mt-1 text-[18px] leading-6 text-white" style={{ fontWeight: 950 }}>{appClipProfile.trustTitle}</h5>
-                          <p className="mt-1.5 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>{appClipProfile.trustBody}</p>
-                          <div className="mt-3 grid grid-cols-1 gap-2">
-                            {(appClipPrimaryVendor.includedHighlights ?? appClipProfile.defaultHighlights).slice(0, 4).map((item) => (
-                              <div key={item} className="rounded-[14px] border border-white/10 bg-white/[0.06] px-3 py-2 text-[12px] leading-4 text-slate-100" style={{ fontWeight: 820 }}>✓ {item}</div>
-                            ))}
-                          </div>
+                          <p className={`text-[11px] uppercase tracking-[0.18em] ${appClipProfile.accentText}`} style={{ fontWeight: 950 }}>Verified access</p>
+                          <h5 className="mt-1 text-[18px] leading-6 text-white" style={{ fontWeight: 950 }}>Ready for checkout</h5>
+                          <p className="mt-1.5 text-[12.5px] leading-5 text-slate-200" style={{ fontWeight: 760 }}>
+                            Your patch context is attached, with secure payment and full-app handoff available after confirmation.
+                          </p>
                         </div>
                       )}
 
-                      <div className="rounded-[22px] border border-white/14 bg-white/[0.07] p-4">
+                      <div className="rounded-[22px] border border-white/14 bg-white/[0.07] p-4 sm:p-5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-[12px] uppercase tracking-[0.16em] text-slate-300" style={{ fontWeight: 900 }}>{appClipProfile.totalLabel}</p>
@@ -2191,14 +2192,14 @@ export function VirtualPatchScannerSheet({
                           </div>
                           <span className="rounded-full border border-emerald-200/30 bg-emerald-300/14 px-3 py-1.5 text-[11px] text-emerald-100" style={{ fontWeight: 950 }}>{appClipProfile.secureBadge}</span>
                         </div>
-                        <button type="button" onClick={() => handleAppClipNativeApplePay(appClipPrimaryVendor)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-[17px] border border-white/18 bg-black px-4 py-3.5 text-[15px] text-white shadow-[0_16px_32px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.16)]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif', fontWeight: 950 }}>
+                        <button type="button" onClick={() => handleAppClipNativeApplePay(appClipPrimaryVendor)} className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[17px] border border-white/18 bg-black px-4 py-[clamp(0.875rem,3.6vw,1rem)] text-[15px] text-white shadow-[0_16px_32px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.16)]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif', fontWeight: 950, minHeight: 52, paddingTop: '0.875rem', paddingBottom: '0.875rem' }}>
                           {appClipProfile.applePayCta}
                         </button>
-                        <button type="button" onClick={() => handleAppClipNativeBooking(appClipPrimaryVendor)} className={`mt-2.5 w-full rounded-[17px] px-4 py-3 text-[14px] shadow-[0_14px_30px_rgba(168,85,247,0.28)] ${appClipProfile.primaryGradient}`} style={{ fontWeight: 950 }}>{appClipProfile.primaryCta}</button>
+                        <button type="button" onClick={() => handleAppClipNativeBooking(appClipPrimaryVendor)} className={`mt-2.5 min-h-[48px] w-full rounded-[17px] px-4 py-[clamp(0.75rem,3.2vw,0.875rem)] text-[14px] shadow-[0_14px_30px_rgba(168,85,247,0.28)] ${appClipProfile.primaryGradient}`} style={{ fontWeight: 950, minHeight: 48, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}>{appClipProfile.primaryCta}</button>
                         {applePayMessage && <p className="mt-2 rounded-[14px] border border-cyan-200/20 bg-cyan-300/10 px-3 py-2 text-[11.5px] leading-5 text-cyan-100" style={{ fontWeight: 760 }}>{applePayMessage}</p>}
                       </div>
 
-                      <button type="button" onClick={() => { void impactLight(); setHasConsented(true); }} className="w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-3 text-[12.5px] text-cyan-100" style={{ fontWeight: 850 }}>Tap Patch to Verify</button>
+                      <button type="button" onClick={() => { void impactLight(); setHasConsented(true); }} className="min-h-[48px] w-full rounded-[16px] border border-white/15 bg-white/8 px-4 py-[clamp(0.75rem,3.2vw,0.875rem)] text-[12.5px] text-cyan-100" style={{ fontWeight: 850, minHeight: 48, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}>Tap Patch to Verify</button>
                     </div>
                   ) : (
                     <>
@@ -2318,11 +2319,11 @@ export function VirtualPatchScannerSheet({
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.45fr)] gap-3">
                 <motion.button
                   onClick={handleClose}
-                  className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 text-white/80 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  style={{ flex: '0.9 1 0', minWidth: 0 }}
+                  className="min-h-[50px] rounded-[18px] bg-white/10 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white/80 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] border border-white/20"
+                  style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                   whileTap={{ scale: 0.97 }}
                 >
                   <span className="whitespace-nowrap text-[14px]" style={{ color: 'rgba(255,255,255,0.86)', fontWeight: 720 }}>{status === 'success' ? 'Done' : 'Close'}</span>
@@ -2331,8 +2332,8 @@ export function VirtualPatchScannerSheet({
                 {status === 'success' ? (
                   <motion.button
                     onClick={handleContinue}
-                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>{onOpenAccessWallet ? 'Continue in My Access' : 'Verified'}</span>
@@ -2340,8 +2341,8 @@ export function VirtualPatchScannerSheet({
                 ) : status === 'unsupported' ? (
                   <motion.button
                     onClick={handleContinue}
-                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>{onOpenAccessWallet ? 'Continue in My Access' : 'Use Web Access'}</span>
@@ -2349,8 +2350,8 @@ export function VirtualPatchScannerSheet({
                 ) : status === 'error' ? (
                   <motion.button
                     onClick={handleRetry}
-                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 875 }}>Retry scan</span>
@@ -2358,8 +2359,8 @@ export function VirtualPatchScannerSheet({
                 ) : !hasConsented && hasAffirmedAge && appClipEntry && showPatchLocalServices && demoVenueServicesView === 'cards' ? (
                   <motion.button
                     onClick={() => { void impactLight(); setDemoVenueServicesView('nearby'); setSelectedPremiumVendorId(null); }}
-                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 900 }}>Browse Services</span>
@@ -2367,8 +2368,8 @@ export function VirtualPatchScannerSheet({
                 ) : !hasConsented && hasAffirmedAge && showPatchLocalServices && demoVenueServicesView === 'cards' ? (
                   <motion.button
                     onClick={() => { void impactLight(); setHasConsented(true); }}
-                    className="px-4 py-3.5 rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    style={{ flex: '1.55 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] bg-gradient-to-r from-fuchsia-500 via-purple-600 to-cyan-500 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-white shadow-[0_16px_36px_rgba(168,85,247,0.32),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ color: '#fff', fontSize: '14px', fontWeight: 900 }}>Start Reader</span>
@@ -2376,14 +2377,14 @@ export function VirtualPatchScannerSheet({
                 ) : !hasConsented && hasAffirmedAge && appClipEntry && showPatchLocalServices ? (
                   <motion.button
                     onClick={() => { void impactLight(); setHasConsented(true); }}
-                    className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 text-cyan-100 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                    style={{ flex: '1.25 1 0', minWidth: 0 }}
+                    className="min-h-[50px] rounded-[18px] border border-white/20 bg-white/10 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] text-cyan-100 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                    style={{ minHeight: 50, paddingTop: '0.75rem', paddingBottom: '0.75rem' }}
                     whileTap={{ scale: 0.97 }}
                   >
                     <span className="whitespace-nowrap" style={{ fontSize: '14px', fontWeight: 875 }}>Tap Patch to Verify</span>
                   </motion.button>
                 ) : (
-                  <div className="px-4 py-3.5 rounded-[18px] bg-white/10 border border-white/20 flex items-center justify-center gap-2 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ flex: '1.1 1 0', minWidth: 0, color: 'rgba(255,255,255,0.78)' }}>
+                  <div className="flex min-h-[50px] items-center justify-center gap-2 rounded-[18px] border border-white/20 bg-white/10 px-4 py-[clamp(0.75rem,3.4vw,0.875rem)] backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ color: 'rgba(255,255,255,0.78)' }}>
                     <LoaderCircle className="w-4 h-4 animate-spin" strokeWidth={2.4} />
                     <span className="whitespace-nowrap text-[14px]" style={{ color: 'rgba(255,255,255,0.82)', fontWeight: 720 }}>{status === 'verifying' ? 'Verifying…' : activeMethod === 'nfc' ? 'Listening for tap…' : 'Scanner live'}</span>
                   </div>

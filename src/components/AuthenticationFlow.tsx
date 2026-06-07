@@ -138,7 +138,7 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
         </div>
       </div>
 
-      <div className="relative mx-auto flex min-h-[100dvh] max-w-[393px] flex-col justify-start px-6 py-6 sm:justify-center sm:py-10">
+      <div className="relative mx-auto flex min-h-[100dvh] max-w-[393px] flex-col justify-start px-6 pt-6 pb-[calc(8.5rem_+_env(safe-area-inset-bottom))] sm:justify-center sm:pt-10 sm:pb-[calc(7rem_+_env(safe-area-inset-bottom))]">
 
         {/* Logo + heading */}
         <motion.div

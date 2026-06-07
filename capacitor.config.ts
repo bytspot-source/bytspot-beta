@@ -39,6 +39,17 @@ const config: CapacitorConfig = {
       backgroundColor: '#000000',
     },
 
+    // ── Native Google Sign-In only ──
+    SocialLogin: {
+      providers: {
+        google: true,
+        facebook: false,
+        apple: false,
+        twitter: false,
+      },
+      logLevel: 1,
+    },
+
     // ── Splash Screen ──
     SplashScreen: {
       launchShowDuration: 2000,

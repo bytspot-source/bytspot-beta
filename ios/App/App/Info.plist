@@ -1,99 +1,104 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"[]>
 <plist version="1.0">
-<dict>
+  <dict>
     <key>CAPACITOR_DEBUG</key>
-	<string>$(CAPACITOR_DEBUG)</string>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleDisplayName</key>
-        <string>Bytspot</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.bytspot.app</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>bytspot</string>
-			</array>
-		</dict>
-	</array>
-	<key>BytspotApplePayMerchantID</key>
-	<string>merchant.com.bytspot.app</string>
-	<key>BytspotStripePublishableKey</key>
-	<string>$(STRIPE_PUBLISHABLE_KEY)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>armv7</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
-		<key>UISupportedInterfaceOrientations~ipad</key>
-		<array>
-			<string>UIInterfaceOrientationPortrait</string>
-			<string>UIInterfaceOrientationPortraitUpsideDown</string>
-			<string>UIInterfaceOrientationLandscapeLeft</string>
-			<string>UIInterfaceOrientationLandscapeRight</string>
-		</array>
-	<key>UIViewControllerBasedStatusBarAppearance</key>
-	<true/>
-
-	<!-- ── Export Compliance (no custom encryption) ── -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-
-	<!-- ── Privacy Usage Descriptions (required by App Store Review) ── -->
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
-		<key>NFCReaderUsageDescription</key>
-		<string>Bytspot uses NFC to verify venue patch stickers for fast, secure entry and access verification.</string>
-		<key>NSMicrophoneUsageDescription</key>
-		<string>Bytspot uses the microphone only when you tap voice search or voice concierge so you can speak parking, venue, and event requests instead of typing.</string>
-		<key>NSSpeechRecognitionUsageDescription</key>
-		<string>Bytspot uses speech recognition only after you start voice input to convert your spoken parking, venue, and event requests into text.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Bytspot accesses your photo library so you can choose images for your posts and profile.</string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>Bytspot sends you alerts when your saved spots are packed or when events near you are starting.</string>
-
-	<!-- ── App Transport Security ── -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<false/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>bytspot-api.onrender.com</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<false/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
-		</dict>
-	</dict>
-</dict>
+    <string>$(CAPACITOR_DEBUG)</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Bytspot</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLName</key>
+        <string>com.bytspot.app</string>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>bytspot</string>
+        </array>
+      </dict>
+      <dict>
+        <key>CFBundleURLName</key>
+        <string>Google Sign-In</string>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>com.googleusercontent.apps.1072854345575-k53vikb7jdcprf3ii8mcfhhg23hoj45p</string>
+        </array>
+      </dict>
+    </array>
+    <key>BytspotApplePayMerchantID</key>
+    <string>merchant.com.bytspot.app</string>
+    <key>BytspotStripePublishableKey</key>
+    <string>$(STRIPE_PUBLISHABLE_KEY)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true />
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+      <string>armv7</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationPortraitUpsideDown</string>
+      <string>UIInterfaceOrientationLandscapeLeft</string>
+      <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true />
+    <!-- â”€â”€ Export Compliance (no custom encryption) â”€â”€ -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false />
+    <!-- â”€â”€ Privacy Usage Descriptions (required by App Store Review) â”€â”€ -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
+    <key>NFCReaderUsageDescription</key>
+    <string>Bytspot uses NFC to verify venue patch stickers for fast, secure entry and access verification.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Bytspot uses the microphone only when you tap voice search or voice concierge so you can speak parking, venue, and event requests instead of typing.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Bytspot uses speech recognition only after you start voice input to convert your spoken parking, venue, and event requests into text.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Bytspot accesses your photo library so you can choose images for your posts and profile.</string>
+    <key>NSUserNotificationsUsageDescription</key>
+    <string>Bytspot sends you alerts when your saved spots are packed or when events near you are starting.</string>
+    <!-- â”€â”€ App Transport Security â”€â”€ -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsArbitraryLoads</key>
+      <false />
+      <key>NSExceptionDomains</key>
+      <dict>
+        <key>bytspot-api.onrender.com</key>
+        <dict>
+          <key>NSExceptionAllowsInsecureHTTPLoads</key>
+          <false />
+          <key>NSIncludesSubdomains</key>
+          <true />
+        </dict>
+      </dict>
+    </dict>
+  </dict>
 </plist>

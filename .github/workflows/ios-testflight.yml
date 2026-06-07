@@ -45,8 +45,8 @@ jobs:
         # Note: type-check is skipped in CI because tRPC types require
         # the sibling bytspot-api repo. vite build catches real errors.
 
-      - name: Build web assets
-        run: npm run build
+      - name: Build app-store web assets
+        run: npm run build:app-store
 
       # ── 3. Capacitor sync ───────────────────────────────────────
       - name: Sync Capacitor → iOS

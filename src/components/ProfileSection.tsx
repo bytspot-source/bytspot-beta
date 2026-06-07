@@ -1577,7 +1577,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       </motion.div>
 
       {/* Menu Sections */}
-      <div className="px-4 space-y-6">
+      <div className="px-4 space-y-6" style={{ paddingBottom: 'calc(7.75rem + env(safe-area-inset-bottom))' }}>
         {menuSections.map((section, sectionIndex) => (
           <motion.div
             key={section.title}
@@ -1634,7 +1634,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
         {/* Logout Button */}
         <motion.div
-          className="pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          className="pb-0"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springConfig, delay: 0.3 }}
@@ -1658,7 +1658,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         </motion.div>
 
         {/* App Version */}
-        <div className="text-center pb-4">
+        <div className="text-center pb-0">
           <p className="text-[12px] text-slate-300" style={{ fontWeight: 600 }}>
             Bytspot v1.0.0
           </p>

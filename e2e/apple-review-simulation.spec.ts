@@ -118,6 +118,18 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByText('Become a Provider')).toHaveCount(0);
     await expect(page.getByText('Provider Dashboard')).toHaveCount(0);
     await expect(page.getByText('Valet Driver App')).toHaveCount(0);
+
+    const profileLayout = await page.evaluate(() => {
+      const scrollPane = [...document.querySelectorAll('div')].find((el) => el.scrollHeight > el.clientHeight + 50);
+      if (scrollPane) scrollPane.scrollTop = scrollPane.scrollHeight;
+      const logout = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Log Out'));
+      const nav = document.querySelector('nav[aria-label="Main navigation"]');
+      return {
+        logoutBottom: logout?.getBoundingClientRect().bottom ?? 0,
+        navTop: nav?.getBoundingClientRect().top ?? 0,
+      };
+    });
+    expect(profileLayout.logoutBottom).toBeLessThan(profileLayout.navTop - 16);
   });
 
   test('App Clip or NFC deep link opens Parker map tap/scan flow without internal routes', async ({ page }) => {
@@ -129,7 +141,27 @@ test.describe('Apple Review simulation', () => {
     await expect(appClipServices).toContainText(/Private Chef|Mobile Massage|Patch Verified|Apple Pay Secure/i);
     await expect(appClipServices).toContainText(/Tap Patch to Verify|Book with Apple Pay|Book & Charge Now/i);
     await expect(appClipServices).not.toContainText(/Valet/i);
+    await expect(appClipServices.getByText('✓ Verified provider')).toHaveCount(1);
+    await expect(appClipServices.getByText('✓ Apple Pay Secure')).toHaveCount(1);
     await expect(page.getByText(/Become a Provider|Provider Dashboard|Vendor|Admin|Dashboard|Internal Ops/i)).toHaveCount(0);
+
+    const patchLayout = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="app-clip-local-services-panel"]');
+      const sheet = panel?.parentElement?.parentElement;
+      const browse = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Browse Services'));
+      const verify = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Tap Patch to Verify'));
+      return {
+        sheetWidth: sheet?.getBoundingClientRect().width ?? 0,
+        sheetHeight: sheet?.getBoundingClientRect().height ?? 0,
+        viewportHeight: window.innerHeight,
+        browseHeight: browse?.getBoundingClientRect().height ?? 0,
+        verifyHeight: verify?.getBoundingClientRect().height ?? 0,
+      };
+    });
+    expect(patchLayout.sheetWidth).toBeLessThanOrEqual(440);
+    expect(patchLayout.sheetHeight).toBeLessThanOrEqual(patchLayout.viewportHeight);
+    expect(patchLayout.browseHeight).toBeGreaterThanOrEqual(48);
+    expect(patchLayout.verifyHeight).toBeGreaterThanOrEqual(48);
   });
 
   for (const path of ['/provider', '/vendor', '/host', '/admin', '/admin/approvals'] as const) {

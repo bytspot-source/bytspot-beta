@@ -524,8 +524,12 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('service-price-input').fill('175.00');
     await page.getByTestId('service-duration-input').fill('120');
     await page.getByTestId('service-max-guests-input').fill('6');
+    await expect(page.getByTestId('save-service-button')).toBeDisabled();
+    await expect(page.getByTestId('service-edit-lifecycle-readiness')).toContainText('Draft only');
+    await page.getByTestId('service-eta-label-input').fill('ETA 12 min');
     await expect(page.getByTestId('service-edit-review')).toContainText('VIP Arrival Plus');
     await expect(page.getByTestId('service-edit-review')).toContainText('$175.00');
+    await expect(page.getByTestId('service-edit-lifecycle-readiness')).toContainText('Ready to publish live');
     await page.getByTestId('save-service-button').click();
 
     await expect(page.getByTestId('provider-service-edit-modal')).toBeHidden();
@@ -554,8 +558,13 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('service-create-duration-input').fill('60');
     await page.getByTestId('service-create-max-guests-input').fill('1');
     await page.getByTestId('service-create-status-select').selectOption('active');
+    await expect(page.getByTestId('create-service-button')).toBeDisabled();
+    await expect(page.getByTestId('service-create-lifecycle-readiness')).toContainText('Draft only');
+    await page.getByTestId('service-create-eta-label-input').fill('ETA 6 min');
     await expect(page.getByTestId('service-create-review')).toContainText('Downtown Garage Parking');
     await expect(page.getByTestId('service-create-review')).toContainText('$50.00');
+    await expect(page.getByTestId('service-create-customer-preview')).toContainText('ETA 6 min');
+    await expect(page.getByTestId('service-create-lifecycle-readiness')).toContainText('Ready to publish live');
     await page.getByTestId('create-service-button').click();
 
     await expect(page.getByTestId('provider-service-create-modal')).toBeHidden();
@@ -580,10 +589,12 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('service-create-title-input').fill('Mobile Spa Setup');
     await page.getByTestId('service-create-description-input').fill('A clear mobile-friendly wellness service setup.');
     await page.getByTestId('service-create-price-input').fill('75.00');
-    await page.getByTestId('service-create-progress').getByRole('button', { name: /review/i }).click();
+    await page.getByTestId('service-create-eta-label-input').fill('ETA 10 min');
+    await page.getByTestId('service-create-review').scrollIntoViewIfNeeded();
 
     await expect(page.getByTestId('service-create-review')).toBeVisible();
     await expect(page.getByTestId('service-create-review')).toContainText('Mobile Spa Setup');
+    await expect(page.getByTestId('service-create-customer-preview')).toContainText('ETA 10 min');
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(hasHorizontalOverflow).toBeFalsy();
   });

@@ -225,17 +225,32 @@ function hasVendorAuthToken(): boolean {
   return Boolean(token && token !== 'guest_session' && token !== 'beta_guest');
 }
 
-function serviceFormProgress(form: EditForm) {
+type SetupCheck = { label: string; done: boolean; helper: string; requiredForActive?: boolean };
+
+function getServiceSetupChecks(form: EditForm, patchLabel?: string | null): SetupCheck[] {
   const price = Number(form.priceDollars);
   const duration = form.durationMins.trim() ? Number(form.durationMins) : null;
   const guests = form.maxGuests.trim() ? Number(form.maxGuests) : null;
-  const items = [
-    { label: 'Tier chosen', done: Boolean(form.tier) },
-    { label: 'Service card copy', done: form.title.trim().length >= 2 && form.description.trim().length >= 8 },
-    { label: 'Customer cues', done: Boolean(form.category) && (!tierShowsEtaField(form.tier) || form.etaLabel.trim().length > 0) },
-    { label: 'Booking rules', done: Number.isFinite(price) && price > 0 && (duration === null || duration >= 15) && (guests === null || guests >= 1) },
-    { label: 'Review ready', done: form.status === 'draft' || form.includedHighlights.length > 0 || form.patchRequired },
+  const tierDef = TIER_DEFINITIONS[form.tier];
+  return [
+    { label: 'Service card copy', done: form.title.trim().length >= 2 && form.description.trim().length >= 8, helper: 'Add a clear name and customer-facing description.', requiredForActive: true },
+    { label: 'Tier + category', done: Boolean(form.tier) && tierDef.categories.includes(form.category), helper: 'Choose where this service appears in booking.', requiredForActive: true },
+    { label: 'Dispatch label', done: !tierShowsEtaField(form.tier) || form.etaLabel.trim().length > 0, helper: 'Show the ETA/dispatch cue customers will see before checkout.', requiredForActive: tierShowsEtaField(form.tier) },
+    { label: 'Price + duration', done: Number.isFinite(price) && price > 0 && duration !== null && duration >= 15, helper: 'Publish needs a price and service time.', requiredForActive: true },
+    { label: 'Guest capacity', done: guests !== null && Number.isFinite(guests) && guests >= 1, helper: 'Set capacity so staff know the fulfillment limit.', requiredForActive: true },
+    { label: 'Feature chips', done: form.includedHighlights.length > 0 || form.tagline.trim().length > 0, helper: 'Optional chips/tagline help customers decide faster.' },
+    { label: 'Patch requirement', done: !form.patchRequired || Boolean(patchLabel), helper: form.patchRequired ? 'Link a physical patch before publishing live.' : 'Patch verification is optional for this service.', requiredForActive: form.patchRequired },
   ];
+}
+
+function getServicePublishReadiness(form: EditForm, patchLabel?: string | null) {
+  const checks = getServiceSetupChecks(form, patchLabel);
+  const missingRequired = checks.filter((item) => item.requiredForActive && !item.done);
+  return { checks, missingRequired, canPublish: missingRequired.length === 0 };
+}
+
+function serviceFormProgress(form: EditForm, patchLabel?: string | null) {
+  const items = getServiceSetupChecks(form, patchLabel);
   const complete = items.filter((item) => item.done).length;
   return { items, complete, total: items.length, percent: Math.round((complete / items.length) * 100) };
 }
@@ -259,6 +274,15 @@ function reviewRowsForForm(form: EditForm, patchLabel?: string | null) {
   ];
 }
 
+function customerPreviewRowsForForm(form: EditForm) {
+  return [
+    { label: 'Service card title', value: form.title.trim() || 'Untitled service' },
+    { label: 'Card tagline', value: form.tagline.trim() || 'No tagline yet — add one to clarify the value.' },
+    { label: 'Dispatch label', value: tierShowsEtaField(form.tier) ? form.etaLabel.trim() || 'Add ETA/dispatch label' : 'Hidden for Green services' },
+    { label: 'Checkout chips', value: form.includedHighlights.length ? form.includedHighlights.join(' · ') : 'No chips yet — checkout will rely on description only.' },
+  ];
+}
+
 export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {
   const [services, setServices] = useState<VendorService[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,7 +294,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const [saving, setSaving] = useState(false);
   const [hasVendorSession, setHasVendorSession] = useState(hasVendorAuthToken);
   const [serviceReviewSideBySide, setServiceReviewSideBySide] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false,
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 820px)').matches : false,
   );
 
   const activeServices = useMemo(() => services.filter((service) => service.status === 'active'), [services]);
@@ -286,7 +310,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const media = window.matchMedia('(min-width: 1024px)');
+    const media = window.matchMedia('(min-width: 820px)');
     const sync = () => setServiceReviewSideBySide(media.matches);
     sync();
     media.addEventListener('change', sync);
@@ -424,6 +448,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     };
   };
 
+  const ensureCanPublish = (form: EditForm, patchLabel?: string | null) => {
+    const readiness = getServicePublishReadiness(form, patchLabel);
+    if (readiness.canPublish) return null;
+    return `Finish before publishing live: ${readiness.missingRequired.map((item) => item.label).join(', ')}.`;
+  };
+
   const createService = async (statusOverride?: 'active' | 'draft') => {
     if (saving) return;
     if (providerSignInRequired) {
@@ -436,6 +466,10 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     }
     const validated = validateForm(createForm);
     if ('error' in validated) return setMessage(validated.error);
+    if ((statusOverride ?? createForm.status) === 'active') {
+      const publishError = ensureCanPublish(createForm);
+      if (publishError) return setMessage(publishError);
+    }
 
     setSaving(true);
     setMessage(null);
@@ -466,7 +500,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     }
   };
 
-  const saveService = async () => {
+  const saveService = async (statusOverride?: 'active' | 'draft') => {
     if (!editingService || !editForm || saving) return;
     if (!canEditServices) {
       setMessage('This role is view-only for Provider services. Ask an Owner or Manager to make catalog changes.');
@@ -474,6 +508,11 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     }
     const validated = validateForm(editForm);
     if ('error' in validated) return setMessage(validated.error);
+    const nextStatus = statusOverride ?? editForm.status;
+    if (nextStatus === 'active') {
+      const publishError = ensureCanPublish(editForm, editingService.patch?.label || editingService.patch?.uid || null);
+      if (publishError) return setMessage(publishError);
+    }
 
     setSaving(true);
     setMessage(null);
@@ -491,7 +530,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
         durationMins: validated.durationMins,
         maxGuests: validated.maxGuests,
         patchRequired: editForm.patchRequired,
-        status: editForm.status,
+        status: nextStatus,
       });
       const updated = result.service as VendorService;
       setServices((prev) => prev.map((service) => (service.id === updated.id ? updated : service)));
@@ -557,11 +596,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     allowArchived?: boolean;
   }) => {
     const reviewId = `service-${mode}-review`;
-    const progress = serviceFormProgress(form);
+    const progress = serviceFormProgress(form, patchLabel);
+    const readiness = getServicePublishReadiness(form, patchLabel);
     const tierDef = TIER_DEFINITIONS[form.tier];
     const fieldId = (name: string) => mode === 'create' ? `service-create-${name}` : `service-${name}`;
     const highlightPrefix = mode === 'create' ? 'service-create' : 'service-edit';
-    const sectionClass = `rounded-2xl border p-4 sm:p-5 ${tone.metric}`;
+    const sectionClass = `rounded-2xl border p-4 ${tone.metric}`;
     const sectionTitle = (step: string, title: string, helper: string) => (
       <div className="mb-4 flex items-start gap-3">
         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] ${isDarkMode ? 'bg-cyan-400/15 text-cyan-100 ring-1 ring-cyan-300/50' : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-200'}`} style={{ fontWeight: 900 }}>{step}</span>
@@ -574,7 +614,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
     return (
       <div
-        className="flex gap-4"
+        className="flex gap-3"
         style={{ flexDirection: serviceReviewSideBySide ? 'row' : 'column', alignItems: serviceReviewSideBySide ? 'flex-start' : 'stretch' }}
       >
         <div className="min-w-0 flex-1 space-y-4">
@@ -591,14 +631,23 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
             <div className={`mt-4 h-2 overflow-hidden rounded-full ${isDarkMode ? 'bg-slate-900/60' : 'bg-slate-200'}`}>
               <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500" style={{ width: `${progress.percent}%` }} />
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-5">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {progress.items.map((item) => (
-                <span key={item.label} className={`inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] ${item.done ? (isDarkMode ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : tone.chip}`} style={{ fontWeight: 750 }}>
-                  <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${item.done ? '' : 'opacity-40'}`} strokeWidth={2.4} />
-                  <span className="min-w-0 truncate">{item.label}</span>
-                </span>
+                <div key={item.label} className={`min-h-[58px] rounded-xl border px-2.5 py-2 text-[11px] ${item.done ? (isDarkMode ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : tone.chip}`}>
+                  <span className="flex items-center gap-1.5" style={{ fontWeight: 800 }}>
+                    <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${item.done ? '' : 'opacity-40'}`} strokeWidth={2.4} />
+                    <span className="min-w-0 truncate">{item.label}</span>
+                    {item.requiredForActive && <span className="ml-auto text-[9px] uppercase tracking-[0.12em] opacity-70">Live</span>}
+                  </span>
+                  <span className="mt-1 block leading-4 opacity-80">{item.done ? 'Ready' : item.helper}</span>
+                </div>
               ))}
             </div>
+            {!readiness.canPublish && (
+              <div className={`mt-3 rounded-xl border px-3 py-2 text-[12px] leading-5 ${isDarkMode ? 'border-amber-300/40 bg-amber-400/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`} data-testid={`service-${mode}-publish-missing`}>
+                <span style={{ fontWeight: 850 }}>Missing before Publish Live:</span> {readiness.missingRequired.map((item) => item.label).join(', ')}.
+              </div>
+            )}
           </div>
 
           <section className={sectionClass}>
@@ -635,33 +684,35 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
           </section>
 
           <section className={sectionClass}>
-            {sectionTitle('2', 'Customer Cues + Chips', 'Use short labels only: one dispatch cue, one category, and optional checkout bullets.')}
+            {sectionTitle('2', 'End-customer cues', 'Write the tagline and feature chips exactly as customers will scan them in booking.')}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}><span className="flex items-center justify-between">Tagline<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.tagline.length}/{TAGLINE_MAX_CHARS}</span></span><input data-testid={fieldId('tagline-input')} placeholder="Fast, verified, and ready for guests" value={form.tagline} maxLength={TAGLINE_MAX_CHARS} onChange={(e) => setForm({ ...form, tagline: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
               {tierShowsEtaField(form.tier) && <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}><span className="flex items-center justify-between">ETA label<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.etaLabel.length}/{ETA_LABEL_MAX_CHARS}</span></span><input data-testid={fieldId('eta-label-input')} placeholder={form.tier === 'black' ? 'Wheels-up in 90 min' : 'ETA 7 min'} value={form.etaLabel} maxLength={ETA_LABEL_MAX_CHARS} onChange={(e) => setForm({ ...form, etaLabel: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>}
             </div>
             <div className="mt-4" data-testid={`${highlightPrefix}-highlights`}>
-              <p className={`flex items-center justify-between text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Checkout bullets<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.includedHighlights.length}/{HIGHLIGHTS_MAX}</span></p>
+              <p className={`flex items-center justify-between text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Feature chips / checkout bullets<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.includedHighlights.length}/{HIGHLIGHTS_MAX}</span></p>
               {form.includedHighlights.length > 0 && <div className="mt-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-xl border border-dashed border-inherit p-2">{form.includedHighlights.map((highlight, idx) => <span key={`${idx}-${highlight}`} data-testid={`${highlightPrefix}-highlight-chip-${idx}`} className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] normal-case tracking-normal ${tone.chip}`} style={{ fontWeight: 650 }}><span className="min-w-0 truncate">{highlight}</span><button type="button" data-testid={`${highlightPrefix}-highlight-remove-${idx}`} onClick={() => setForm(removeHighlight(form, idx))} className="rounded-full p-0.5 transition hover:bg-black/10" aria-label={`Remove ${highlight}`}><X className="h-3 w-3" strokeWidth={2.5} /></button></span>)}</div>}
               {form.includedHighlights.length < HIGHLIGHTS_MAX && <div className="mt-2 flex flex-col gap-2 sm:flex-row"><input data-testid={`${highlightPrefix}-highlight-input`} placeholder="Catering included" value={form.highlightDraft} maxLength={HIGHLIGHT_MAX_CHARS} onChange={(e) => setForm({ ...form, highlightDraft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); setForm(addHighlight(form)); } }} className={`min-w-0 flex-1 rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /><button type="button" data-testid={`${highlightPrefix}-highlight-add`} onClick={() => setForm(addHighlight(form))} disabled={!form.highlightDraft.trim()} className={`inline-flex justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 750 }}><Plus className="h-4 w-4" strokeWidth={2.5} />Add bullet</button></div>}
-              <p className={`mt-2 text-[12px] leading-5 ${tone.subtle}`}>These become simple checkout bullets. Add only what affects the customer's decision.</p>
+              <p className={`mt-2 text-[12px] leading-5 ${tone.subtle}`}>These appear as compact chips/bullets in checkout. Use plain outcomes like “Catering included,” “Up to 4 guests,” or “Patch verified.”</p>
             </div>
           </section>
 
           <section className={sectionClass}>
-            {sectionTitle('3', 'Booking Rules', 'Set what happens after the customer taps Book.')}
+            {sectionTitle('3', 'Booking Rules', 'Set the operational rules that decide whether this can go live.')}
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Category<select data-testid={fieldId('category-input')} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[form.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Visibility<select data-testid={fieldId('status-select')} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option>{allowArchived && <option value="archived">Archived</option>}</select></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Service category<span className={`mt-1 block text-[11px] normal-case tracking-normal ${tone.subtle}`}>Controls where customers discover this service.</span><select data-testid={fieldId('category-input')} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[form.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Lifecycle state<span className={`mt-1 block text-[11px] normal-case tracking-normal ${tone.subtle}`}>Draft is private. Active appears in booking.</span><select data-testid={fieldId('status-select')} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option>{allowArchived && <option value="archived">Archived</option>}</select></label>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Price<input data-testid={fieldId('price-input')} type="number" min="0.01" step="0.01" value={form.priceDollars} onChange={(e) => setForm({ ...form, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Duration<input data-testid={fieldId('duration-input')} type="number" min="15" step="5" value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Max guests<input data-testid={fieldId('max-guests-input')} type="number" min="1" step="1" value={form.maxGuests} onChange={(e) => setForm({ ...form, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Customer price<input data-testid={fieldId('price-input')} type="number" min="0.01" step="0.01" value={form.priceDollars} onChange={(e) => setForm({ ...form, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Service duration<input data-testid={fieldId('duration-input')} type="number" min="15" step="5" value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Guest capacity<input data-testid={fieldId('max-guests-input')} type="number" min="1" step="1" value={form.maxGuests} onChange={(e) => setForm({ ...form, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
             </div>
-            <label className={`mt-4 flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid={fieldId('patch-required-checkbox')} type="checkbox" checked={form.patchRequired} onChange={(e) => setForm({ ...form, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Require patch tap/scan</span><br /><span className={tone.subtle}>{patchLabel ? `Connected patch: ${patchLabel}` : 'Optional. Turn on only when guests must verify at a physical patch.'}</span></span></label>
-            <div className={`mt-3 rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload comes later. This setup keeps the service card bookable first.</span></div>
-            {form.status === 'active' && form.patchRequired && !patchLabel && <p className={`mt-3 rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Active with required patch: publish is allowed, but link the patch before physical fulfillment.</p>}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className={`flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid={fieldId('patch-required-checkbox')} type="checkbox" checked={form.patchRequired} onChange={(e) => setForm({ ...form, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Patch verification required</span><br /><span className={tone.subtle}>{patchLabel ? `Connected patch: ${patchLabel}` : 'Optional. If required, link a physical patch before publishing live.'}</span></span></label>
+              <div className={`rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload comes later. This setup keeps the service card bookable first.</span></div>
+            </div>
+            {form.patchRequired && !patchLabel && <p className={`mt-3 rounded-xl border px-3 py-2 text-[12px] leading-5 ${isDarkMode ? 'border-amber-300/40 bg-amber-400/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Patch required: save as draft first, link the patch, then publish live.</p>}
           </section>
         </div>
 
@@ -669,7 +720,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
           id={reviewId}
           data-testid={reviewId}
           className={`max-h-[min(72dvh,680px)] w-full shrink-0 overflow-y-auto rounded-2xl border p-4 ${tone.metric}`}
-          style={{ width: serviceReviewSideBySide ? 360 : '100%', position: serviceReviewSideBySide ? 'sticky' : 'static', top: 0 }}
+          style={{ width: serviceReviewSideBySide ? 320 : '100%', position: serviceReviewSideBySide ? 'sticky' : 'static', top: 0 }}
         >
           <div className="flex items-start justify-between gap-3">
             <div><p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 800 }}>Review before saving</p><h4 className={`mt-1 text-[18px] leading-6 ${tone.strong}`} style={{ fontWeight: 850 }}>{form.title.trim() || 'Untitled service'}</h4></div>
@@ -679,7 +730,17 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
           <div className="mt-4 space-y-2">
             {reviewRowsForForm(form, patchLabel).map((row) => <div key={row.label} className={`rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-slate-500/70 bg-slate-900/20' : 'border-slate-200 bg-white/70'}`}><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>{row.label}</p><p className={`mt-1 break-words text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 700 }}>{row.value}</p></div>)}
           </div>
-          {form.includedHighlights.length > 0 && <div className="mt-4"><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>Configured chips</p><div className="mt-2 flex flex-wrap gap-1.5">{form.includedHighlights.map((highlight) => <span key={highlight} className={`max-w-full truncate rounded-full border px-2.5 py-1 text-[11px] ${tone.chip}`}>{highlight}</span>)}</div></div>}
+          <div className="mt-4 rounded-xl border border-dashed border-inherit p-3" data-testid={`service-${mode}-customer-preview`}>
+            <p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 800 }}>End-customer preview</p>
+            <div className="mt-2 space-y-2">
+              {customerPreviewRowsForForm(form).map((row) => <div key={row.label}><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 700 }}>{row.label}</p><p className={`mt-0.5 break-words text-[12px] leading-5 ${tone.strong}`}>{row.value}</p></div>)}
+            </div>
+            {form.includedHighlights.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{form.includedHighlights.map((highlight) => <span key={highlight} className={`max-w-full truncate rounded-full border px-2.5 py-1 text-[11px] ${tone.chip}`}>{highlight}</span>)}</div>}
+          </div>
+          <div className={`mt-4 rounded-xl border p-3 text-[12px] leading-5 ${readiness.canPublish ? (isDarkMode ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-900') : (isDarkMode ? 'border-amber-300/40 bg-amber-400/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900')}`} data-testid={`service-${mode}-lifecycle-readiness`}>
+            <p style={{ fontWeight: 850 }}>{readiness.canPublish ? 'Ready to publish live' : 'Draft only until these are fixed'}</p>
+            {!readiness.canPublish && <ul className="mt-2 list-disc space-y-1 pl-4">{readiness.missingRequired.map((item) => <li key={item.label}>{item.label}: {item.helper}</li>)}</ul>}
+          </div>
         </aside>
       </div>
     );
@@ -946,10 +1007,18 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                 {renderServiceSetupForm({ form: createForm, setForm: setCreateForm, mode: 'create' })}
               </div>
-              <div className={`flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end ${tone.footer}`}>
+              <div
+                className={`flex gap-2 border-t px-4 py-3 ${tone.footer}`}
+                style={{
+                  flexDirection: serviceReviewSideBySide ? 'row' : 'column-reverse',
+                  alignItems: serviceReviewSideBySide ? 'center' : 'stretch',
+                  justifyContent: serviceReviewSideBySide ? 'flex-end' : 'stretch',
+                  paddingBottom: 'max(env(safe-area-inset-bottom), 0.75rem)',
+                }}
+              >
                 <button type="button" onClick={() => setCreatingService(false)} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`} style={{ fontWeight: 600 }}>Cancel</button>
                 <button type="button" data-testid="save-draft-service-button" onClick={() => createService('draft')} disabled={saving} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-60 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Save as Draft</button>
-                <button type="button" data-testid="create-service-button" onClick={() => createService('active')} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Publish Live</button>
+                <button type="button" data-testid="create-service-button" onClick={() => createService('active')} disabled={saving || !getServicePublishReadiness(createForm).canPublish} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }} title={getServicePublishReadiness(createForm).canPublish ? 'Publish this service live' : 'Complete missing live requirements first'}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Publish Live</button>
               </div>
             </motion.div>
           </motion.div>
@@ -1008,28 +1077,54 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 })}
               </div>
 
-              <div className={`flex flex-col gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-between ${tone.footer}`}>
-                <button type="button" onClick={archiveService} disabled={saving || access.role !== 'owner'} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>Archive</button>
-                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-                <button
-                  type="button"
-                  onClick={() => setEditingService(null)}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`}
-                  style={{ fontWeight: 600 }}
+              <div
+                className={`flex gap-2 border-t px-4 py-3 ${tone.footer}`}
+                style={{
+                  flexDirection: serviceReviewSideBySide ? 'row' : 'column-reverse',
+                  alignItems: serviceReviewSideBySide ? 'center' : 'stretch',
+                  justifyContent: serviceReviewSideBySide ? 'space-between' : 'stretch',
+                  paddingBottom: 'max(env(safe-area-inset-bottom), 0.75rem)',
+                }}
+              >
+                <button type="button" onClick={archiveService} disabled={saving || access.role !== 'owner'} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>Archive</button>
+                <div
+                  className="flex gap-2"
+                  style={{
+                    flexDirection: serviceReviewSideBySide ? 'row' : 'column-reverse',
+                    alignItems: serviceReviewSideBySide ? 'center' : 'stretch',
+                  }}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  data-testid="save-service-button"
-                  onClick={saveService}
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ fontWeight: 700 }}
-                >
-                  {saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />}
-                  Save Service
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingService(null)}
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`}
+                    style={{ fontWeight: 600 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-service-draft-button"
+                    onClick={() => saveService('draft')}
+                    disabled={saving}
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-60 ${tone.secondaryBtn}`}
+                    style={{ fontWeight: 700 }}
+                  >
+                    {saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />}
+                    Save as Draft
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-service-button"
+                    onClick={() => saveService('active')}
+                    disabled={saving || !getServicePublishReadiness(editForm, editingService.patch?.label || editingService.patch?.uid || null).canPublish}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ fontWeight: 700 }}
+                    title={getServicePublishReadiness(editForm, editingService.patch?.label || editingService.patch?.uid || null).canPublish ? 'Publish this service live' : 'Complete missing live requirements first'}
+                  >
+                    {saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />}
+                    Publish Live
+                  </button>
                 </div>
               </div>
             </motion.div>

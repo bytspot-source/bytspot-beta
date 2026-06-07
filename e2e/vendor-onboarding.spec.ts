@@ -516,12 +516,16 @@ test.describe('Vendor Stripe Connect onboarding', () => {
 
     await page.getByTestId('provider-service-edit-svc-1').click();
     await expect(page.getByTestId('provider-service-edit-modal')).toBeVisible();
+    await expect(page.getByTestId('service-edit-progress')).toContainText('Setup progress');
+    await expect(page.getByTestId('service-edit-review')).toContainText('Review before saving');
     await page.getByTestId('service-title-input').fill('VIP Arrival Plus');
     await page.getByTestId('service-description-input').fill('Updated provider handoff');
     await page.getByTestId('service-category-input').selectOption('Catering');
     await page.getByTestId('service-price-input').fill('175.00');
     await page.getByTestId('service-duration-input').fill('120');
     await page.getByTestId('service-max-guests-input').fill('6');
+    await expect(page.getByTestId('service-edit-review')).toContainText('VIP Arrival Plus');
+    await expect(page.getByTestId('service-edit-review')).toContainText('$175.00');
     await page.getByTestId('save-service-button').click();
 
     await expect(page.getByTestId('provider-service-edit-modal')).toBeHidden();
@@ -541,6 +545,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
     await page.getByTestId('provider-service-add').click();
     await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
+    await expect(page.getByTestId('service-create-progress')).toContainText('Setup progress');
+    await expect(page.getByTestId('service-create-review')).toContainText('Review before saving');
     await page.getByTestId('service-create-title-input').fill('Downtown Garage Parking');
     await page.getByTestId('service-create-description-input').fill('Secure covered parking near the venue');
     await page.getByTestId('service-create-category-input').selectOption('Parking');
@@ -548,6 +554,8 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await page.getByTestId('service-create-duration-input').fill('60');
     await page.getByTestId('service-create-max-guests-input').fill('1');
     await page.getByTestId('service-create-status-select').selectOption('active');
+    await expect(page.getByTestId('service-create-review')).toContainText('Downtown Garage Parking');
+    await expect(page.getByTestId('service-create-review')).toContainText('$50.00');
     await page.getByTestId('create-service-button').click();
 
     await expect(page.getByTestId('provider-service-create-modal')).toBeHidden();
@@ -557,6 +565,27 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     const calls = await page.evaluate(() => window.__BYT_E2E_TRPC_CALLS__ ?? []) as TrpcCall[];
     expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).priceCents === 5000)).toBeTruthy();
     expect(calls.some((call) => call.procedure.includes('vendors.createService') && typeof call.input === 'object' && call.input !== null && (call.input as Record<string, unknown>).tier === 'platinum')).toBeTruthy();
+  });
+
+  test('keeps Provider service setup linear and reviewable on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installVendorOnboardingMocks(page, payoutsEnabledSync, undefined, { services: [] });
+    await page.goto('/provider/connect/return');
+
+    await page.getByRole('button', { name: /open provider navigation/i }).click();
+    await page.getByRole('button', { name: 'My Services' }).click();
+    await expect(page.getByTestId('provider-services-panel')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('provider-service-add').click();
+    await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
+    await page.getByTestId('service-create-title-input').fill('Mobile Spa Setup');
+    await page.getByTestId('service-create-description-input').fill('A clear mobile-friendly wellness service setup.');
+    await page.getByTestId('service-create-price-input').fill('75.00');
+    await page.getByTestId('service-create-progress').getByRole('button', { name: /review/i }).click();
+
+    await expect(page.getByTestId('service-create-review')).toBeVisible();
+    await expect(page.getByTestId('service-create-review')).toContainText('Mobile Spa Setup');
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(hasHorizontalOverflow).toBeFalsy();
   });
 
   test('shows legally safe Georgia Compliance Hub guidance', async ({ page }) => {

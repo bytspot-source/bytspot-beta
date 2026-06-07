@@ -5,9 +5,11 @@ import {
   ArrowUpRight,
   BadgeCheck,
   CalendarClock,
+  CheckCircle2,
   CreditCard,
   DollarSign,
   Edit3,
+  Eye,
   Leaf,
   Plus,
   RefreshCw,
@@ -223,6 +225,40 @@ function hasVendorAuthToken(): boolean {
   return Boolean(token && token !== 'guest_session' && token !== 'beta_guest');
 }
 
+function serviceFormProgress(form: EditForm) {
+  const price = Number(form.priceDollars);
+  const duration = form.durationMins.trim() ? Number(form.durationMins) : null;
+  const guests = form.maxGuests.trim() ? Number(form.maxGuests) : null;
+  const items = [
+    { label: 'Tier chosen', done: Boolean(form.tier) },
+    { label: 'Service card copy', done: form.title.trim().length >= 2 && form.description.trim().length >= 8 },
+    { label: 'Customer cues', done: Boolean(form.category) && (!tierShowsEtaField(form.tier) || form.etaLabel.trim().length > 0) },
+    { label: 'Booking rules', done: Number.isFinite(price) && price > 0 && (duration === null || duration >= 15) && (guests === null || guests >= 1) },
+    { label: 'Review ready', done: form.status === 'draft' || form.includedHighlights.length > 0 || form.patchRequired },
+  ];
+  const complete = items.filter((item) => item.done).length;
+  return { items, complete, total: items.length, percent: Math.round((complete / items.length) * 100) };
+}
+
+function formatFormPrice(form: EditForm) {
+  const value = Number(form.priceDollars);
+  return Number.isFinite(value) && value > 0 ? formatCents(Math.round(value * 100)) : 'Set price';
+}
+
+function reviewRowsForForm(form: EditForm, patchLabel?: string | null) {
+  const tier = TIER_DEFINITIONS[form.tier];
+  return [
+    { label: 'Customer card', value: form.title.trim() || 'Name needed' },
+    { label: 'Tier + category', value: `${tier.shortLabel} · ${form.category}` },
+    { label: 'Price + time', value: `${formatFormPrice(form)} · ${form.durationMins || 'Flexible'} min` },
+    { label: 'Capacity', value: form.maxGuests ? `${form.maxGuests} guest${form.maxGuests === '1' ? '' : 's'}` : 'Flexible guests' },
+    { label: 'Dispatch cue', value: tierShowsEtaField(form.tier) ? form.etaLabel.trim() || 'Add ETA label' : 'Not shown for Green' },
+    { label: 'Checkout bullets', value: form.includedHighlights.length ? `${form.includedHighlights.length} configured` : 'Optional, but recommended' },
+    { label: 'Patch flow', value: form.patchRequired ? patchLabel || 'Patch required after save' : 'Patch optional' },
+    { label: 'Outcome', value: form.status === 'active' ? 'Customers can book after save' : 'Saved as draft until published' },
+  ];
+}
+
 export function DashboardListings({ isDarkMode, access }: DashboardListingsProps) {
   const [services, setServices] = useState<VendorService[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +269,9 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const [createForm, setCreateForm] = useState<EditForm>(EMPTY_SERVICE_FORM);
   const [saving, setSaving] = useState(false);
   const [hasVendorSession, setHasVendorSession] = useState(hasVendorAuthToken);
+  const [serviceReviewSideBySide, setServiceReviewSideBySide] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false,
+  );
 
   const activeServices = useMemo(() => services.filter((service) => service.status === 'active'), [services]);
   const draftServices = useMemo(() => services.filter((service) => service.status === 'draft'), [services]);
@@ -244,6 +283,15 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   );
   const providerSignInRequired = !hasVendorSession || message?.startsWith('Provider sign-in required');
   const canCreateServices = (access.role === 'owner' || access.role === 'manager') && !providerSignInRequired;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setServiceReviewSideBySide(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
   const canEditServices = (access.role === 'owner' || access.role === 'manager') && !providerSignInRequired;
 
   const tone = {
@@ -491,6 +539,152 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
         { label: 'Patch required', value: String(patchRequiredServices.length), helper: 'Physical verification outstanding', Icon: ShieldCheck },
       ];
 
+  const scrollToReview = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  const renderServiceSetupForm = ({
+    form,
+    setForm,
+    mode,
+    patchLabel,
+    allowArchived = false,
+  }: {
+    form: EditForm;
+    setForm: (next: EditForm) => void;
+    mode: 'create' | 'edit';
+    patchLabel?: string | null;
+    allowArchived?: boolean;
+  }) => {
+    const reviewId = `service-${mode}-review`;
+    const progress = serviceFormProgress(form);
+    const tierDef = TIER_DEFINITIONS[form.tier];
+    const fieldId = (name: string) => mode === 'create' ? `service-create-${name}` : `service-${name}`;
+    const highlightPrefix = mode === 'create' ? 'service-create' : 'service-edit';
+    const sectionClass = `rounded-2xl border p-4 sm:p-5 ${tone.metric}`;
+    const sectionTitle = (step: string, title: string, helper: string) => (
+      <div className="mb-4 flex items-start gap-3">
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] ${isDarkMode ? 'bg-cyan-400/15 text-cyan-100 ring-1 ring-cyan-300/50' : 'bg-cyan-50 text-cyan-800 ring-1 ring-cyan-200'}`} style={{ fontWeight: 900 }}>{step}</span>
+        <div className="min-w-0">
+          <h4 className={`text-[15px] leading-5 ${tone.strong}`} style={{ fontWeight: 850 }}>{title}</h4>
+          <p className={`mt-0.5 text-[12px] leading-5 ${tone.subtle}`}>{helper}</p>
+        </div>
+      </div>
+    );
+
+    return (
+      <div
+        className="flex gap-4"
+        style={{ flexDirection: serviceReviewSideBySide ? 'row' : 'column', alignItems: serviceReviewSideBySide ? 'flex-start' : 'stretch' }}
+      >
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className={sectionClass} data-testid={`service-${mode}-progress`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 800 }}>Setup progress</p>
+                <p className={`mt-1 text-[13px] ${tone.body}`}>Complete the cards from top to bottom, then review before saving.</p>
+              </div>
+              <button type="button" onClick={() => scrollToReview(reviewId)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[12px] transition ${tone.secondaryBtn}`} style={{ fontWeight: 800 }}>
+                <Eye className="h-4 w-4" strokeWidth={2.25} /> Review
+              </button>
+            </div>
+            <div className={`mt-4 h-2 overflow-hidden rounded-full ${isDarkMode ? 'bg-slate-900/60' : 'bg-slate-200'}`}>
+              <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500" style={{ width: `${progress.percent}%` }} />
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-5">
+              {progress.items.map((item) => (
+                <span key={item.label} className={`inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] ${item.done ? (isDarkMode ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : tone.chip}`} style={{ fontWeight: 750 }}>
+                  <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${item.done ? '' : 'opacity-40'}`} strokeWidth={2.4} />
+                  <span className="min-w-0 truncate">{item.label}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <section className={sectionClass}>
+            {sectionTitle('1', 'Service Card', 'This is the customer-facing card headline and explanation.')}
+            <div data-testid={`service-${mode}-tier-picker`}>
+              <p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Service tier</p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {TIER_ORDER.map((tierId) => {
+                  const def = TIER_DEFINITIONS[tierId];
+                  const TierIcon = def.Icon;
+                  const selected = form.tier === tierId;
+                  return (
+                    <button
+                      key={tierId}
+                      type="button"
+                      data-testid={`service-${mode}-tier-${tierId}`}
+                      aria-pressed={selected}
+                      onClick={() => setForm(applyTierToForm(form, tierId))}
+                      className={`flex min-h-[76px] items-start gap-2 rounded-xl border p-3 text-left transition ${selected ? (isDarkMode ? def.accent.dark : def.accent.light) + ' ring-2 ring-cyan-300/60' : tone.secondaryBtn}`}
+                      style={{ fontWeight: 750 }}
+                    >
+                      <TierIcon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
+                      <span className="min-w-0"><span className="block text-[12px] uppercase tracking-[0.12em]">{def.shortLabel}</span><span className={`mt-1 block text-[11px] leading-4 ${selected ? '' : tone.subtle}`}>From ${(def.suggestedStartingPriceCents / 100).toLocaleString('en-US')}</span></span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={`mt-2 text-[12px] leading-5 ${tone.subtle}`}>{tierDef.tagline}</p>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Service name<input data-testid={fieldId('title-input')} placeholder="Private Chef Dinner" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Description<textarea data-testid={fieldId('description-input')} placeholder="What will the guest receive? Keep it plain and specific." value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className={`mt-1.5 w-full resize-none rounded-xl border px-3.5 py-2.5 text-[14px] normal-case leading-6 tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+            </div>
+          </section>
+
+          <section className={sectionClass}>
+            {sectionTitle('2', 'Customer Cues + Chips', 'Use short labels only: one dispatch cue, one category, and optional checkout bullets.')}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}><span className="flex items-center justify-between">Tagline<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.tagline.length}/{TAGLINE_MAX_CHARS}</span></span><input data-testid={fieldId('tagline-input')} placeholder="Fast, verified, and ready for guests" value={form.tagline} maxLength={TAGLINE_MAX_CHARS} onChange={(e) => setForm({ ...form, tagline: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              {tierShowsEtaField(form.tier) && <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}><span className="flex items-center justify-between">ETA label<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.etaLabel.length}/{ETA_LABEL_MAX_CHARS}</span></span><input data-testid={fieldId('eta-label-input')} placeholder={form.tier === 'black' ? 'Wheels-up in 90 min' : 'ETA 7 min'} value={form.etaLabel} maxLength={ETA_LABEL_MAX_CHARS} onChange={(e) => setForm({ ...form, etaLabel: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>}
+            </div>
+            <div className="mt-4" data-testid={`${highlightPrefix}-highlights`}>
+              <p className={`flex items-center justify-between text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Checkout bullets<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`}>{form.includedHighlights.length}/{HIGHLIGHTS_MAX}</span></p>
+              {form.includedHighlights.length > 0 && <div className="mt-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-xl border border-dashed border-inherit p-2">{form.includedHighlights.map((highlight, idx) => <span key={`${idx}-${highlight}`} data-testid={`${highlightPrefix}-highlight-chip-${idx}`} className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] normal-case tracking-normal ${tone.chip}`} style={{ fontWeight: 650 }}><span className="min-w-0 truncate">{highlight}</span><button type="button" data-testid={`${highlightPrefix}-highlight-remove-${idx}`} onClick={() => setForm(removeHighlight(form, idx))} className="rounded-full p-0.5 transition hover:bg-black/10" aria-label={`Remove ${highlight}`}><X className="h-3 w-3" strokeWidth={2.5} /></button></span>)}</div>}
+              {form.includedHighlights.length < HIGHLIGHTS_MAX && <div className="mt-2 flex flex-col gap-2 sm:flex-row"><input data-testid={`${highlightPrefix}-highlight-input`} placeholder="Catering included" value={form.highlightDraft} maxLength={HIGHLIGHT_MAX_CHARS} onChange={(e) => setForm({ ...form, highlightDraft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); setForm(addHighlight(form)); } }} className={`min-w-0 flex-1 rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /><button type="button" data-testid={`${highlightPrefix}-highlight-add`} onClick={() => setForm(addHighlight(form))} disabled={!form.highlightDraft.trim()} className={`inline-flex justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 750 }}><Plus className="h-4 w-4" strokeWidth={2.5} />Add bullet</button></div>}
+              <p className={`mt-2 text-[12px] leading-5 ${tone.subtle}`}>These become simple checkout bullets. Add only what affects the customer's decision.</p>
+            </div>
+          </section>
+
+          <section className={sectionClass}>
+            {sectionTitle('3', 'Booking Rules', 'Set what happens after the customer taps Book.')}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Category<select data-testid={fieldId('category-input')} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[form.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Visibility<select data-testid={fieldId('status-select')} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option>{allowArchived && <option value="archived">Archived</option>}</select></label>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Price<input data-testid={fieldId('price-input')} type="number" min="0.01" step="0.01" value={form.priceDollars} onChange={(e) => setForm({ ...form, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Duration<input data-testid={fieldId('duration-input')} type="number" min="15" step="5" value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+              <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 700 }}>Max guests<input data-testid={fieldId('max-guests-input')} type="number" min="1" step="1" value={form.maxGuests} onChange={(e) => setForm({ ...form, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
+            </div>
+            <label className={`mt-4 flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid={fieldId('patch-required-checkbox')} type="checkbox" checked={form.patchRequired} onChange={(e) => setForm({ ...form, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Require patch tap/scan</span><br /><span className={tone.subtle}>{patchLabel ? `Connected patch: ${patchLabel}` : 'Optional. Turn on only when guests must verify at a physical patch.'}</span></span></label>
+            <div className={`mt-3 rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload comes later. This setup keeps the service card bookable first.</span></div>
+            {form.status === 'active' && form.patchRequired && !patchLabel && <p className={`mt-3 rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Active with required patch: publish is allowed, but link the patch before physical fulfillment.</p>}
+          </section>
+        </div>
+
+        <aside
+          id={reviewId}
+          data-testid={reviewId}
+          className={`max-h-[min(72dvh,680px)] w-full shrink-0 overflow-y-auto rounded-2xl border p-4 ${tone.metric}`}
+          style={{ width: serviceReviewSideBySide ? 360 : '100%', position: serviceReviewSideBySide ? 'sticky' : 'static', top: 0 }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div><p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 800 }}>Review before saving</p><h4 className={`mt-1 text-[18px] leading-6 ${tone.strong}`} style={{ fontWeight: 850 }}>{form.title.trim() || 'Untitled service'}</h4></div>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${isDarkMode ? tierDef.badge.dark : tierDef.badge.light}`} style={{ fontWeight: 850 }}>{tierDef.shortLabel}</span>
+          </div>
+          <p className={`mt-3 text-[12px] leading-5 ${tone.subtle}`}>Audit what customers and staff will see without leaving this viewport.</p>
+          <div className="mt-4 space-y-2">
+            {reviewRowsForForm(form, patchLabel).map((row) => <div key={row.label} className={`rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-slate-500/70 bg-slate-900/20' : 'border-slate-200 bg-white/70'}`}><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>{row.label}</p><p className={`mt-1 break-words text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 700 }}>{row.value}</p></div>)}
+          </div>
+          {form.includedHighlights.length > 0 && <div className="mt-4"><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>Configured chips</p><div className="mt-2 flex flex-wrap gap-1.5">{form.includedHighlights.map((highlight) => <span key={highlight} className={`max-w-full truncate rounded-full border px-2.5 py-1 text-[11px] ${tone.chip}`}>{highlight}</span>)}</div></div>}
+        </aside>
+      </div>
+    );
+  };
+
   return (
     <div className={`space-y-6 ${tone.page}`} data-testid="provider-services-panel">
       <motion.section
@@ -500,8 +694,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
         transition={springConfig}
       >
         <div className={`pointer-events-none absolute inset-0 ${tone.heroAccent}`} aria-hidden />
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
-          <div className="max-w-2xl">
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 max-w-2xl">
             <div
               className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${tone.eyebrow}`}
               style={{ fontWeight: 700 }}
@@ -519,12 +713,12 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               {activeServices.length} Station Mode • {draftServices.length} Draft. Manage the services that power customer booking, patch verification, and staff handoffs.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:justify-end">
             <button
               type="button"
               onClick={() => void loadServices()}
               disabled={loading}
-              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:opacity-60 ${tone.secondaryBtn}`}
+              className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:opacity-60 ${tone.secondaryBtn}`}
               style={{ fontWeight: 600 }}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2.25} />
@@ -534,7 +728,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               type="button"
               onClick={openCreate}
               disabled={!canCreateServices}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ fontWeight: 700 }}
               title={access.role === 'staff' ? 'Managers and Owners can create services' : providerSignInRequired ? 'Sign in with the Provider business account that owns this workspace' : 'Create a new service'}
               data-testid="provider-service-add"
@@ -584,10 +778,15 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         {loading ? (
           <div className={`rounded-2xl border p-6 text-[14px] ${tone.card} ${tone.body}`}>
             <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading Provider services…</span>
+          </div>
+        ) : services.length === 0 ? (
+          <div className={`rounded-2xl border p-6 text-[14px] leading-6 xl:col-span-2 ${tone.card} ${tone.body}`}>
+            <p className={tone.strong} style={{ fontWeight: 800 }}>No services configured yet.</p>
+            <p className="mt-1">Create one clear service card first. You can keep it as a draft while you review pricing, category, and patch requirements.</p>
           </div>
         ) : (
           services.map((service, index) => {
@@ -615,8 +814,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 transition={{ ...springConfig, delay: 0.12 + index * 0.06 }}
               >
                 <div className="flex flex-1 flex-col gap-5 p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3.5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3.5">
                       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${tone.cardAvatar}`}>
                         <Tag className="h-5 w-5" strokeWidth={2.25} />
                       </span>
@@ -636,7 +835,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                         </h2>
                       </div>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex shrink-0 flex-row flex-wrap items-start gap-1.5 sm:flex-col sm:items-end">
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${isDarkMode ? tierDef.badge.dark : tierDef.badge.light}`}
                         style={{ fontWeight: 800, letterSpacing: '0.16em' }}
@@ -661,7 +860,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                     {service.description || 'Add a clear description so customers understand the service before checkout.'}
                   </p>
 
-                  <div className="grid grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                     <div className={`rounded-xl border p-3 ${tone.metric}`}>
                       <p className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price</p>
                       <p className={`mt-1.5 text-[17px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
@@ -685,23 +884,23 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                  <div className="flex flex-wrap items-stretch gap-2 text-[12px] sm:items-center">
+                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                       <Tag className={`h-3 w-3 ${isDarkMode ? 'text-violet-300' : 'text-violet-700'}`} strokeWidth={2.25} />
-                      {category}
+                      <span className="min-w-0 truncate">{category}</span>
                     </span>
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                       <CalendarClock className="h-3 w-3" strokeWidth={2.25} />
-                      Updated {updatedLabel}
+                      <span className="min-w-0 truncate">Updated {updatedLabel}</span>
                     </span>
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                       <ShieldCheck className={`h-3 w-3 ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} strokeWidth={2.25} />
-                      {service.patch?.label || service.patch?.uid || (service.patchRequired ? 'Patch required' : 'Patch optional')}
+                      <span className="min-w-0 truncate">{service.patch?.label || service.patch?.uid || (service.patchRequired ? 'Patch required' : 'Patch optional')}</span>
                     </span>
                     {commissionPct && access.canSeeFinancials && (
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
+                      <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone.chip}`}>
                         <ArrowUpRight className="h-3 w-3" strokeWidth={2.25} />
-                        Commission {commissionPct}
+                        <span className="min-w-0 truncate">Commission {commissionPct}</span>
                       </span>
                     )}
                   </div>
@@ -729,150 +928,28 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       <AnimatePresence>
         {creatingService && (
           <motion.div
-              className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 sm:items-center ${tone.modalBackdrop}`}
+              className={`fixed inset-0 z-[9999] isolate flex items-stretch justify-center px-3 py-3 sm:items-center sm:px-4 sm:py-6 ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             data-testid="provider-service-create-modal"
           >
-            <motion.div className={`relative w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`} initial={{ y: 32, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 32, scale: 0.97 }} transition={springConfig}>
+            <motion.div className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border ${tone.modal}`} initial={{ y: 32, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 32, scale: 0.97 }} transition={springConfig}>
               <div className="flex items-start justify-between gap-3 border-b border-inherit p-6 pb-5">
                 <div>
                   <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create New Service</p>
                   <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Set up a bookable service</h3>
-                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Save as draft while you refine details, or publish live when customers can book.</p>
+                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Follow the three cards, review the summary, then save or publish.</p>
                 </div>
                 <button type="button" onClick={() => setCreatingService(false)} className={`rounded-full border p-2 transition ${tone.secondaryBtn}`} aria-label="Close create dialog"><X className="h-4 w-4" strokeWidth={2.25} /></button>
               </div>
-              <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6 pt-5">
-                <div data-testid="service-create-tier-picker">
-                  <p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Service Tier</p>
-                  <div className="mt-1.5 grid grid-cols-3 gap-2">
-                    {TIER_ORDER.map((tierId) => {
-                      const def = TIER_DEFINITIONS[tierId];
-                      const TierIcon = def.Icon;
-                      const selected = createForm.tier === tierId;
-                      return (
-                        <button
-                          key={tierId}
-                          type="button"
-                          data-testid={`service-create-tier-${tierId}`}
-                          aria-pressed={selected}
-                          onClick={() => setCreateForm((prev) => applyTierToForm(prev, tierId))}
-                          className={`flex flex-col items-start gap-1 rounded-xl border p-2.5 text-left transition ${
-                            selected
-                              ? (isDarkMode ? def.accent.dark : def.accent.light) + ' ring-2 ring-offset-1 ring-offset-transparent'
-                              : tone.secondaryBtn
-                          }`}
-                          style={{ fontWeight: 700 }}
-                        >
-                          <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em]"><TierIcon className="h-3.5 w-3.5" strokeWidth={2.5} />{def.shortLabel}</span>
-                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>Suggested ${(def.suggestedStartingPriceCents / 100).toLocaleString('en-US')}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className={`mt-1.5 text-[11px] ${tone.subtle}`}>{TIER_DEFINITIONS[createForm.tier].tagline}</p>
-                </div>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Service Name<input data-testid="service-create-title-input" placeholder="Private Chef Dinner" value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                  <span className="flex items-center justify-between">Tagline<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{createForm.tagline.length}/{TAGLINE_MAX_CHARS}</span></span>
-                  <input
-                    data-testid="service-create-tagline-input"
-                    placeholder="Ultra-long-range fleet · Wheels-up in 90 min"
-                    value={createForm.tagline}
-                    maxLength={TAGLINE_MAX_CHARS}
-                    onChange={(e) => setCreateForm({ ...createForm, tagline: e.target.value })}
-                    className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                  />
-                </label>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Description<textarea data-testid="service-create-description-input" value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} rows={3} className={`mt-1.5 w-full resize-none rounded-xl border px-3.5 py-2.5 text-[14px] normal-case leading-6 tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                {tierShowsEtaField(createForm.tier) && (
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    <span className="flex items-center justify-between">ETA / Dispatch label<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{createForm.etaLabel.length}/{ETA_LABEL_MAX_CHARS}</span></span>
-                    <input
-                      data-testid="service-create-eta-label-input"
-                      placeholder={createForm.tier === 'black' ? 'Wheels-up in 90 min' : 'ETA 7 min'}
-                      value={createForm.etaLabel}
-                      maxLength={ETA_LABEL_MAX_CHARS}
-                      onChange={(e) => setCreateForm({ ...createForm, etaLabel: e.target.value })}
-                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                    />
-                  </label>
-                )}
-                <div data-testid="service-create-highlights">
-                  <p className={`flex items-center justify-between text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    What's Included
-                    <span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{createForm.includedHighlights.length}/{HIGHLIGHTS_MAX}</span>
-                  </p>
-                  {createForm.includedHighlights.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {createForm.includedHighlights.map((highlight, idx) => (
-                        <span
-                          key={`${idx}-${highlight}`}
-                          data-testid={`service-create-highlight-chip-${idx}`}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] normal-case tracking-normal ${tone.chip}`}
-                          style={{ fontWeight: 600 }}
-                        >
-                          {highlight}
-                          <button
-                            type="button"
-                            data-testid={`service-create-highlight-remove-${idx}`}
-                            onClick={() => setCreateForm(removeHighlight(createForm, idx))}
-                            className="rounded-full p-0.5 transition hover:bg-black/10"
-                            aria-label={`Remove ${highlight}`}
-                          >
-                            <X className="h-3 w-3" strokeWidth={2.5} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {createForm.includedHighlights.length < HIGHLIGHTS_MAX && (
-                    <div className="mt-1.5 flex gap-2">
-                      <input
-                        data-testid="service-create-highlight-input"
-                        placeholder="Heavy-jet cabin, catering included…"
-                        value={createForm.highlightDraft}
-                        maxLength={HIGHLIGHT_MAX_CHARS}
-                        onChange={(e) => setCreateForm({ ...createForm, highlightDraft: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ',') {
-                            e.preventDefault();
-                            setCreateForm(addHighlight(createForm));
-                          }
-                        }}
-                        className={`flex-1 rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                      />
-                      <button
-                        type="button"
-                        data-testid="service-create-highlight-add"
-                        onClick={() => setCreateForm(addHighlight(createForm))}
-                        disabled={!createForm.highlightDraft.trim()}
-                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`}
-                        style={{ fontWeight: 700 }}
-                      >
-                        <Plus className="h-4 w-4" strokeWidth={2.5} /> Add
-                      </button>
-                    </div>
-                  )}
-                  <p className={`mt-1.5 text-[11px] ${tone.subtle}`}>Customers see these as bullets in the App Clip checkout. Press Enter or comma to add.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Category<select data-testid="service-create-category-input" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[createForm.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Status<select data-testid="service-create-status-select" value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option></select></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Price — owner editable<input data-testid="service-create-price-input" type="number" min="0.01" step="0.01" value={createForm.priceDollars} onChange={(e) => setCreateForm({ ...createForm, priceDollars: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Duration (min)<input data-testid="service-create-duration-input" type="number" min="15" step="5" value={createForm.durationMins} onChange={(e) => setCreateForm({ ...createForm, durationMins: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Max guests<input data-testid="service-create-max-guests-input" type="number" min="1" step="1" value={createForm.maxGuests} onChange={(e) => setCreateForm({ ...createForm, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                </div>
-                <label className={`flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid="service-create-patch-required-checkbox" type="checkbox" checked={createForm.patchRequired} onChange={(e) => setCreateForm({ ...createForm, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Patch Linking optional — Link Physical Patch</span><br /><span className={tone.subtle}>Use when guests must tap or scan a patch before arrival/check-in. Link patches from the Patches tab after saving.</span></span></label>
-                <div className={`rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload placeholder — add images after media storage is connected.</span></div>
-                {createForm.status === 'active' && createForm.patchRequired && <p className={`rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Warning: this service can go active now, but it should be linked to a patch before physical fulfillment starts.</p>}
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {renderServiceSetupForm({ form: createForm, setForm: setCreateForm, mode: 'create' })}
               </div>
-              <div className={`flex flex-wrap items-center justify-end gap-2 border-t p-4 ${tone.footer}`}>
-                <button type="button" onClick={() => setCreatingService(false)} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`} style={{ fontWeight: 600 }}>Cancel</button>
-                <button type="button" data-testid="save-draft-service-button" onClick={() => createService('draft')} disabled={saving} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-60 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Save as Draft</button>
-                <button type="button" data-testid="create-service-button" onClick={() => createService('active')} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Publish Live</button>
+              <div className={`flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end ${tone.footer}`}>
+                <button type="button" onClick={() => setCreatingService(false)} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition ${tone.secondaryBtn}`} style={{ fontWeight: 600 }}>Cancel</button>
+                <button type="button" data-testid="save-draft-service-button" onClick={() => createService('draft')} disabled={saving} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-60 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Save as Draft</button>
+                <button type="button" data-testid="create-service-button" onClick={() => createService('active')} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-cyan-500/20 transition hover:from-cyan-300 hover:to-violet-400 disabled:cursor-not-allowed disabled:opacity-60" style={{ fontWeight: 700 }}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Save className="h-4 w-4" strokeWidth={2.5} />} Publish Live</button>
               </div>
             </motion.div>
           </motion.div>
@@ -880,14 +957,14 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
 
         {editingService && editForm && (
           <motion.div
-          className={`fixed inset-0 z-[9999] isolate flex items-end justify-center px-4 pb-4 sm:items-center ${tone.modalBackdrop}`}
+          className={`fixed inset-0 z-[9999] isolate flex items-stretch justify-center px-3 py-3 sm:items-center sm:px-4 sm:py-6 ${tone.modalBackdrop}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             data-testid="provider-service-edit-modal"
           >
             <motion.div
-              className={`relative w-full max-w-lg overflow-hidden rounded-2xl border ${tone.modal}`}
+              className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border ${tone.modal}`}
               initial={{ y: 32, scale: 0.97 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 32, scale: 0.97 }}
@@ -908,7 +985,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                     {editingService.title}
                   </h3>
                   <p className={`mt-1 text-[12px] ${tone.subtle}`}>
-                    Updates flow into Discover and the booking sheet immediately.
+                    Review the customer card, chips, and booking rules before saving.
                   </p>
                 </div>
                 <button
@@ -921,176 +998,19 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
                 </button>
               </div>
 
-              <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6 pt-5">
-                <div data-testid="service-edit-tier-picker">
-                  <p className={`text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Service Tier</p>
-                  <div className="mt-1.5 grid grid-cols-3 gap-2">
-                    {TIER_ORDER.map((tierId) => {
-                      const def = TIER_DEFINITIONS[tierId];
-                      const TierIcon = def.Icon;
-                      const selected = editForm.tier === tierId;
-                      return (
-                        <button
-                          key={tierId}
-                          type="button"
-                          data-testid={`service-edit-tier-${tierId}`}
-                          aria-pressed={selected}
-                          onClick={() => setEditForm((prev) => (prev ? applyTierToForm(prev, tierId) : prev))}
-                          className={`flex flex-col items-start gap-1 rounded-xl border p-2.5 text-left transition ${
-                            selected
-                              ? (isDarkMode ? def.accent.dark : def.accent.light) + ' ring-2 ring-offset-1 ring-offset-transparent'
-                              : tone.secondaryBtn
-                          }`}
-                          style={{ fontWeight: 700 }}
-                        >
-                          <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em]"><TierIcon className="h-3.5 w-3.5" strokeWidth={2.5} />{def.shortLabel}</span>
-                          <span className={`text-[10px] leading-tight ${selected ? '' : tone.subtle}`} style={{ fontWeight: 500 }}>Suggested ${(def.suggestedStartingPriceCents / 100).toLocaleString('en-US')}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className={`mt-1.5 text-[11px] ${tone.subtle}`}>{TIER_DEFINITIONS[editForm.tier].tagline}</p>
-                </div>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                  Title
-                  <input
-                    data-testid="service-title-input"
-                    value={editForm.title}
-                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                    className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                  />
-                </label>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                  <span className="flex items-center justify-between">Tagline<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{editForm.tagline.length}/{TAGLINE_MAX_CHARS}</span></span>
-                  <input
-                    data-testid="service-tagline-input"
-                    placeholder="Ultra-long-range fleet · Wheels-up in 90 min"
-                    value={editForm.tagline}
-                    maxLength={TAGLINE_MAX_CHARS}
-                    onChange={(e) => setEditForm({ ...editForm, tagline: e.target.value })}
-                    className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                  />
-                </label>
-                <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                  Description
-                  <textarea
-                    data-testid="service-description-input"
-                    value={editForm.description}
-                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                    rows={3}
-                    className={`mt-1.5 w-full resize-none rounded-xl border px-3.5 py-2.5 text-[14px] normal-case leading-6 tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                  />
-                </label>
-                {tierShowsEtaField(editForm.tier) && (
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    <span className="flex items-center justify-between">ETA / Dispatch label<span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{editForm.etaLabel.length}/{ETA_LABEL_MAX_CHARS}</span></span>
-                    <input
-                      data-testid="service-eta-label-input"
-                      placeholder={editForm.tier === 'black' ? 'Wheels-up in 90 min' : 'ETA 7 min'}
-                      value={editForm.etaLabel}
-                      maxLength={ETA_LABEL_MAX_CHARS}
-                      onChange={(e) => setEditForm({ ...editForm, etaLabel: e.target.value })}
-                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                    />
-                  </label>
-                )}
-                <div data-testid="service-edit-highlights">
-                  <p className={`flex items-center justify-between text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    What's Included
-                    <span className={`text-[10px] normal-case tracking-normal ${tone.subtle}`} style={{ fontWeight: 500 }}>{editForm.includedHighlights.length}/{HIGHLIGHTS_MAX}</span>
-                  </p>
-                  {editForm.includedHighlights.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {editForm.includedHighlights.map((highlight, idx) => (
-                        <span
-                          key={`${idx}-${highlight}`}
-                          data-testid={`service-edit-highlight-chip-${idx}`}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] normal-case tracking-normal ${tone.chip}`}
-                          style={{ fontWeight: 600 }}
-                        >
-                          {highlight}
-                          <button
-                            type="button"
-                            data-testid={`service-edit-highlight-remove-${idx}`}
-                            onClick={() => setEditForm(removeHighlight(editForm, idx))}
-                            className="rounded-full p-0.5 transition hover:bg-black/10"
-                            aria-label={`Remove ${highlight}`}
-                          >
-                            <X className="h-3 w-3" strokeWidth={2.5} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {editForm.includedHighlights.length < HIGHLIGHTS_MAX && (
-                    <div className="mt-1.5 flex gap-2">
-                      <input
-                        data-testid="service-edit-highlight-input"
-                        placeholder="Heavy-jet cabin, catering included…"
-                        value={editForm.highlightDraft}
-                        maxLength={HIGHLIGHT_MAX_CHARS}
-                        onChange={(e) => setEditForm({ ...editForm, highlightDraft: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ',') {
-                            e.preventDefault();
-                            setEditForm(addHighlight(editForm));
-                          }
-                        }}
-                        className={`flex-1 rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                      />
-                      <button
-                        type="button"
-                        data-testid="service-edit-highlight-add"
-                        onClick={() => setEditForm(addHighlight(editForm))}
-                        disabled={!editForm.highlightDraft.trim()}
-                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`}
-                        style={{ fontWeight: 700 }}
-                      >
-                        <Plus className="h-4 w-4" strokeWidth={2.5} /> Add
-                      </button>
-                    </div>
-                  )}
-                  <p className={`mt-1.5 text-[11px] ${tone.subtle}`}>Customers see these as bullets in the App Clip checkout. Press Enter or comma to add.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Category<select data-testid="service-category-input" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}>{TIER_DEFINITIONS[editForm.tier].categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Status<select data-testid="service-status-select" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value as EditForm['status'] })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    Price — owner editable
-                    <input
-                      data-testid="service-price-input"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={editForm.priceDollars}
-                      onChange={(e) => setEditForm({ ...editForm, priceDollars: e.target.value })}
-                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                    />
-                  </label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>
-                    Duration (min)
-                    <input
-                      data-testid="service-duration-input"
-                      type="number"
-                      min="15"
-                      step="5"
-                      value={editForm.durationMins}
-                      onChange={(e) => setEditForm({ ...editForm, durationMins: e.target.value })}
-                      className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`}
-                    />
-                  </label>
-                  <label className={`block text-[11px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 600 }}>Max guests<input data-testid="service-max-guests-input" type="number" min="1" step="1" value={editForm.maxGuests} onChange={(e) => setEditForm({ ...editForm, maxGuests: e.target.value })} className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-[14px] normal-case tracking-normal outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 ${tone.input}`} /></label>
-                </div>
-                <label className={`flex items-start gap-3 rounded-xl border p-3 text-[12px] leading-5 ${tone.metric}`} style={{ fontWeight: 700 }}><input data-testid="service-patch-required-checkbox" type="checkbox" checked={editForm.patchRequired} onChange={(e) => setEditForm({ ...editForm, patchRequired: e.target.checked })} className="mt-1" /><span><span className={tone.strong}>Patch Linking optional — Link Physical Patch</span><br /><span className={tone.subtle}>Connected patch: {editingService.patch?.label || editingService.patch?.uid || 'none yet — link one from Patches.'}</span></span></label>
-                <div className={`rounded-xl border border-dashed p-3 text-[12px] leading-5 ${tone.metric}`}><span className={tone.strong}>Photos</span><br /><span className={tone.subtle}>Photo upload placeholder — add images after media storage is connected.</span></div>
-                {editForm.status === 'active' && editForm.patchRequired && !editingService.patch && <p className={`rounded-xl border px-3 py-2 text-[12px] leading-5 ${tone.metric}`}>Activation warning: guests can book this active service, but staff should link at least one patch before physical check-in.</p>}
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {renderServiceSetupForm({
+                  form: editForm,
+                  setForm: setEditForm,
+                  mode: 'edit',
+                  allowArchived: true,
+                  patchLabel: editingService.patch?.label || editingService.patch?.uid || null,
+                })}
               </div>
 
-              <div className={`flex flex-wrap items-center justify-between gap-2 border-t p-4 ${tone.footer}`}>
+              <div className={`flex flex-col gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-between ${tone.footer}`}>
                 <button type="button" onClick={archiveService} disabled={saving || access.role !== 'owner'} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50 ${tone.secondaryBtn}`} style={{ fontWeight: 700 }}>Archive</button>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={() => setEditingService(null)}

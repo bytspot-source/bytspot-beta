@@ -164,7 +164,7 @@ final class ClipInvocationModel: ObservableObject {
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
         components.scheme = "https"
-        components.host = "bytspot.com"
+        components.host = "bytspot.app"
         if let resolvedPatchId, !resolvedPatchId.isEmpty {
             components.path = "/access/\(resolvedPatchId)"
         } else {

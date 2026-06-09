@@ -19,9 +19,9 @@
       <meta name="description" content="Bytspot Tap & Scan access for parking, events, rides, and local services." />
       <meta property="og:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
       <!-- Smart App Banner — default app-argument must itself match AASA.
-           JS below rewrites this to the exact scanned URL, but iOS can read the
-           initial value before JS completes when showing the App Clip card. -->
-      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/p/app-clip?tier=platinum" />
+           JS below canonicalizes scanned BYT/patch links onto /p/app-clip so iOS
+           never reads a bare /patch argument before showing the App Clip card. -->
+      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/p/app-clip?patchId=BYT424&amp;tier=platinum" />
     </head>
 
     <body>
@@ -36,9 +36,25 @@
           }
           var banner = document.querySelector('meta[name="apple-itunes-app"]');
           if (banner) {
-            var currentUrl = window.location.href;
-            var preservedArgument = currentUrl.indexOf('http') === 0 ? currentUrl : 'https://bytspot.app' + window.location.pathname + window.location.search + window.location.hash;
-            banner.setAttribute('content', 'app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + preservedArgument);
+            var canonicalArgument = 'https://bytspot.app/p/app-clip?patchId=BYT424&tier=platinum';
+            try {
+              var current = new URL(window.location.href);
+              var patchId = current.searchParams.get('patchId') || current.searchParams.get('patch') || current.searchParams.get('p');
+              var pathParts = current.pathname.split('/').filter(Boolean);
+              if (!patchId && pathParts[0] && pathParts[0].toUpperCase().indexOf('BYT') === 0) patchId = pathParts[0];
+              if (!patchId && (pathParts[0] === 'p' || pathParts[0] === 'patch' || pathParts[0] === 't') && pathParts[1]) patchId = pathParts[1];
+              if (patchId) {
+                var next = new URL('https://bytspot.app/p/app-clip');
+                next.searchParams.set('patchId', patchId);
+                current.searchParams.forEach(function (value, key) {
+                  if (key !== 'patchId' && key !== 'patch' && key !== 'p') next.searchParams.set(key, value);
+                });
+                canonicalArgument = next.toString();
+              } else if (current.pathname.indexOf('/p/') === 0 || current.pathname.toUpperCase().indexOf('/BYT') === 0) {
+                canonicalArgument = current.toString();
+              }
+            } catch (_) {}
+            banner.setAttribute('content', 'app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + canonicalArgument);
           }
         })();
       </script>

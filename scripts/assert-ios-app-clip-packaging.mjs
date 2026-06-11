@@ -13,6 +13,8 @@ const files = {
   clipApp: path.join(root, 'ios/App/Clip/ClipApp.swift'),
   clipContentView: path.join(root, 'ios/App/Clip/ClipContentView.swift'),
   aasa: path.join(root, 'public/.well-known/apple-app-site-association'),
+  rootAasa: path.join(root, 'public/apple-app-site-association'),
+  headers: path.join(root, 'public/_headers'),
   index: path.join(root, 'index.html'),
   ghThumbnail: path.join(root, 'public/media/gh-akwaaba-fifa-ghana-thumbnail.png'),
   clipPatchVerifier: path.join(root, 'ios/App/Clip/ClipPatchVerifier.swift'),
@@ -33,10 +35,13 @@ const nativeShell = read('NativeShellView.swift', files.nativeShell);
 const clipApp = read('ClipApp.swift', files.clipApp);
 const clipContentView = read('ClipContentView.swift', files.clipContentView);
 const aasa = read('AASA', files.aasa);
+const rootAasa = read('Root AASA alias', files.rootAasa);
+const headers = read('AASA headers', files.headers);
 const index = read('index.html', files.index);
 const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifier);
 const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plist);
 const aasaJson = JSON.parse(aasa);
+const rootAasaJson = JSON.parse(rootAasa);
 const applinkIDs = new Set((aasaJson.applinks?.details ?? []).flatMap((detail) => detail.appIDs ?? []));
 const appclipIDs = new Set(aasaJson.appclips?.apps ?? []);
 
@@ -60,11 +65,15 @@ const checks = [
   ['Clip Info.plist does not request Core NFC usage', !plist.includes('NFCReaderUsageDescription')],
   ['AASA supports exact /patch compatibility path', aasa.includes('"/": "/patch"')],
   ['AASA supports /access full-app handoff path', aasa.includes('"/": "/access/*"')],
+  ['AASA supports BYT424 serialized patchId query links', aasa.includes('"/": "/BYT424"') && aasa.includes('"patchId": "BYT424-*"')],
+  ['Root AASA alias mirrors well-known AASA', JSON.stringify(rootAasaJson) === JSON.stringify(aasaJson)],
+  ['AASA headers force application/json for both Apple lookup paths', headers.includes('/.well-known/apple-app-site-association') && headers.includes('/apple-app-site-association') && (headers.match(/Content-Type: application\/json/g) ?? []).length >= 2],
   ['AASA applinks target Main App and appclips target Clip', applinkIDs.has('MK4J6M36S8.com.bytspot.app') && !applinkIDs.has('MK4J6M36S8.com.bytspot.app.Clip') && appclipIDs.has('MK4J6M36S8.com.bytspot.app.Clip')],
   ['App Clip handoff enters Main App applinks domain', clipApp.includes('components.host = "bytspot.app"') && clipApp.includes('URLQueryItem(name: "source", value: "app_clip")')],
   ['Main App launches full-screen Capacitor root', appDelegate.includes('let root = CAPBridgeViewController()') && !appDelegate.includes('UIHostingController(rootView: BytspotNativeShellView') && !appDelegate.includes('presentNativePatchExperience(for:')],
   ['Native shell preserves handoff URL for React webview', nativeShell.includes('bytspot_native_handoff_url') && nativeShell.includes('bytspot:native-handoff')],
   ['Smart App Banner default app-argument is canonical and AASA-matched', index.includes('app-argument=https://bytspot.app/p/app-clip?patchId=BYT424&amp;tier=platinum') && !index.includes('app-argument=https://bytspot.app/patch"')],
+  ['Share metadata advertises BYT424 Platinum App Clip campaign', index.includes('property="og:title" content="Bytspot Platinum Access"') && index.includes('property="og:url" content="https://bytspot.app/BYT424?patchId=BYT424-0301&amp;tier=platinum"') && index.includes('name="twitter:card" content="summary_large_image"')],
   ['GH Akwaaba FIFA thumbnail PNG exists', fs.existsSync(files.ghThumbnail)],
   ['GH Akwaaba is not a standalone service tile', !clipPatchVerifier.includes('platinum-fifa-matchday') && !clipPatchVerifier.includes('ghAkwaabaFifaService')],
   ['GH Akwaaba short-link targets Event Access vendor', clipPatchVerifier.includes('return platinumEventAccessService()') && clipPatchVerifier.includes('static func explicitVendor')],

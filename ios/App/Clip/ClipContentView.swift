@@ -176,10 +176,20 @@ struct ClipCatalogView: View {
 
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
+    // Partner-card parity vocabulary — must match NativeMapExploreView's static literals.
+    // Locked by BytspotAviationFallbackTests.assertPartnerCardParity().
+    static let partnerCardVerifiedLabel = "Verified Partner"
+    static let partnerCardServiceSectionLabel = "Book at this venue"
+    static let partnerCardPatchPairedLabel = "Patch paired"
+    static let partnerCardInstallNudgeLabel = "Open full Bytspot app with this patch"
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
+                partnerCardChromeHeader
                 catalogHeader
+                membershipGateBanner
+                serviceSectionEyebrow
                 if invocation.isLoadingServices {
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(0..<4, id: \.self) { _ in skeletonTile }
@@ -249,16 +259,22 @@ struct ClipCatalogView: View {
                 LinearGradient(colors: [.clear, Color.black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
                 VStack {
                     HStack {
-                        if service.source == "live" {
-                            Text("LIVE")
+                        Text(service.source == "live" ? "LIVE" : "MEMBER SERVICE")
                                 .font(.system(size: 9, weight: .black))
                                 .tracking(0.8)
-                                .foregroundColor(.black)
+                                .foregroundColor(invocation.hasPremiumMembershipAccess ? .black : .white)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(ClipTheme.emerald)
+                                .background(invocation.hasPremiumMembershipAccess ? ClipTheme.emerald : ClipTheme.violet.opacity(0.86))
                                 .clipShape(Capsule())
-                        }
                         Spacer()
+                        if !invocation.hasPremiumMembershipAccess {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(.white)
+                                .padding(6)
+                                .background(Color.black.opacity(0.50))
+                                .clipShape(Circle())
+                        }
                     }
                     Spacer()
                     HStack {
@@ -340,11 +356,57 @@ struct ClipCatalogView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
+    private var partnerCardChromeHeader: some View {
+        let accent = ClipTheme.accent(for: invocation.tier)
+        return HStack(spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 14, weight: .black))
+                .foregroundColor(ClipTheme.cyan)
+            Text(Self.partnerCardVerifiedLabel)
+                .font(.system(size: 12, weight: .black))
+                .tracking(0.6)
+                .textCase(.uppercase)
+                .foregroundColor(.white.opacity(0.92))
+            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                Circle().fill(accent).frame(width: 8, height: 8)
+                Text(invocation.tier.rawValue.uppercased())
+                    .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                    .tracking(1.2)
+                    .foregroundColor(.white.opacity(0.92))
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.06))
+            .overlay(Capsule().stroke(accent.opacity(0.34), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(LinearGradient(colors: [ClipTheme.cyan.opacity(0.06), Color.white.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ClipTheme.cyan.opacity(0.20), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier("clip-catalog-partner-card-chrome")
+    }
+
+    private var serviceSectionEyebrow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(ClipTheme.emerald)
+            Text("\(Self.partnerCardPatchPairedLabel.uppercased()) · \(Self.partnerCardServiceSectionLabel.uppercased())")
+                .font(.system(size: 10.5, weight: .black))
+                .tracking(1.4)
+                .foregroundColor(ClipTheme.cyan.opacity(0.86))
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
+        .accessibilityIdentifier("clip-catalog-service-section-eyebrow")
+    }
+
     private var upsellFooter: some View {
         Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.app.fill")
-                Text("Open full Bytspot app with this patch")
+                Text(Self.partnerCardInstallNudgeLabel)
                 Spacer()
                 Image(systemName: "chevron.right")
             }
@@ -357,11 +419,30 @@ struct ClipCatalogView: View {
         }
         .buttonStyle(.plain)
         .padding(.top, 4)
+        .accessibilityIdentifier("clip-catalog-install-nudge")
+    }
+
+    @ViewBuilder private var membershipGateBanner: some View {
+        if !invocation.hasPremiumMembershipAccess {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.shield.fill").foregroundColor(ClipTheme.cyan)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Premium membership required")
+                        .font(.system(size: 13, weight: .black)).foregroundColor(.white)
+                    Text("App Clip catalog and vendor lists are gated service feeds. Open the full app to upgrade or verify access.")
+                        .font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.66))
+                }
+            }
+            .padding(12)
+            .background(ClipTheme.violet.opacity(0.12))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ClipTheme.cyan.opacity(0.20), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 
     private var eyebrow: String {
         if case .verified = invocation.verificationState { return "VERIFIED ACCESS" }
-        return invocation.services.first?.source == "live" ? "LIVE NEAR YOU" : invocation.tier.eyebrow
+        return invocation.services.first?.source == "live" ? "LIVE SERVICES FEED" : invocation.tier.eyebrow
     }
     private var venueTitle: String { invocation.patchContext?.title ?? formattedSlug(invocation.venueSlug) ?? "Bytspot Patch" }
     private var venueSubtitle: String { invocation.patchContext?.subtitle ?? invocation.tier.defaultSubtitle }
@@ -404,7 +485,7 @@ struct ClipVendorListView: View {
                 }
                 .buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("STEP 2 · CHOOSE")
+                    Text("SERVICES FEED · CHOOSE")
                         .font(.system(size: 10.5, weight: .black))
                         .foregroundColor(ClipTheme.cyan)
                         .tracking(1.4)
@@ -444,7 +525,9 @@ struct ClipVendorListView: View {
     @ViewBuilder private var vendorList: some View {
         let vendors = invocation.vendors(for: service)
         let isLoading = invocation.loadingVendorsService == service.id && vendors.isEmpty
-        if isLoading {
+        if !invocation.hasPremiumMembershipAccess {
+            premiumVendorGate
+        } else if isLoading {
             VStack(spacing: 10) { ForEach(0..<3, id: \.self) { _ in vendorSkeleton } }
         } else {
             VStack(spacing: 10) {
@@ -462,30 +545,37 @@ struct ClipVendorListView: View {
         if isBlackAviationService {
             return AnyView(blackAviationVendorRow(vendor))
         }
-        return AnyView(HStack(spacing: 14) {
-            ZStack {
+        return AnyView(VStack(alignment: .leading, spacing: 11) {
+            ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [service.tintColor.opacity(0.75), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let url = posterURL(for: vendor) {
                     AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                         .clipped()
                 }
-                if vendor.media?.hasPlayableVideo == true {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 22, weight: .black))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.45), radius: 4, x: 0, y: 1)
-                } else {
-                    Image(systemName: service.iconName)
-                        .font(.system(size: 22, weight: .black))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
+                LinearGradient(colors: [.clear, Color.black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Text("SERVICES").clipChip(color: Color.black.opacity(0.60), foreground: .white)
+                        Spacer()
+                        Text("MEMBER SERVICE").clipChip(color: service.tintColor, foreground: .black)
+                    }
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: vendor.media?.hasPlayableVideo == true ? "play.circle.fill" : service.iconName)
+                            .font(.system(size: 19, weight: .black))
+                            .foregroundColor(.white)
+                        Text(vendor.name).font(.system(size: 20, weight: .heavy)).foregroundColor(.white).lineLimit(2)
+                    }
+                    Text("\(vendor.priceFromLabel) • \(vendor.availability)")
+                        .font(.system(size: 12.5, weight: .black, design: .monospaced))
+                        .foregroundColor(service.tintColor)
                 }
+                .padding(12)
             }
-            .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .frame(height: 184)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(vendor.name).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
                 Text(vendor.tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.70)).lineLimit(2)
                 HStack(spacing: 8) {
                     if let rating = vendor.rating {
@@ -494,24 +584,44 @@ struct ClipVendorListView: View {
                             .foregroundColor(ClipTheme.gold)
                     }
                     if let eta = vendor.etaLabel {
-                        // Aviation reframes "ETA X min" as "Departing in X min" so
-                        // the row reads like a flight board rather than a ride ETA.
                         Text(formatEtaLabel(eta, for: service))
                             .font(.system(size: 10.5, weight: .black))
                             .foregroundColor(.white.opacity(0.7))
                     }
-                    Spacer()
-                    Text(vendor.priceFromLabel)
-                        .font(.system(size: 12.5, weight: .black, design: .monospaced))
-                        .foregroundColor(service.tintColor)
                 }.padding(.top, 2)
             }
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(.white.opacity(0.55))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 7)], alignment: .leading, spacing: 7) {
+                ForEach(vendor.includedHighlights.prefix(4), id: \.self) { highlight in
+                    Text(highlight).clipChip(color: Color.white.opacity(0.08), foreground: .white.opacity(0.86))
+                }
+            }
         }
         .padding(12)
         .background(ClipTheme.panel)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
+    }
+
+    private var premiumVendorGate: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundColor(ClipTheme.cyan)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Premium membership required")
+                        .font(.system(size: 16, weight: .heavy)).foregroundColor(.white)
+                    Text(invocation.membershipGateMessage)
+                        .font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.68))
+                }
+            }
+            Text("Broni Home Taste, GH Akwaaba Pass, and all App Clip vendor listings live under the gated Services feed.")
+                .font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.72))
+        }
+        .padding(14)
+        .background(ClipTheme.violet.opacity(0.12))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(ClipTheme.cyan.opacity(0.22), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private func posterURL(for vendor: ClipVendor) -> URL? {
@@ -2602,5 +2712,16 @@ final class ClipLoopingPlayerContainerView: UIView {
 
     deinit {
         teardown()
+    }
+}
+
+private extension Text {
+    func clipChip(color: Color, foreground: Color) -> some View {
+        self.font(.system(size: 10, weight: .black))
+            .foregroundColor(foreground)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(color)
+            .clipShape(Capsule())
     }
 }

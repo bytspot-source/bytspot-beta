@@ -53,6 +53,7 @@ enum BytspotAviationFallbackTests {
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-P"), patchId: "BYT424-0301-P") == .platinum)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-G"), patchId: "BYT424-0301-G") == .green)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301?tier=platinum"), patchId: "BYT424-0301") == .platinum)
+        precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum"), patchId: "BYT-BRONI-P") == .platinum)
 
         guard let service = ClipLocalService.fallbacks(for: .black).first(where: { $0.id == "black-aviation" }) else {
             preconditionFailure(
@@ -97,6 +98,71 @@ enum BytspotAviationFallbackTests {
                 "Expected \(expected.highlights), got \(actual.includedHighlights)."
             )
         }
+
+        runPhase3LuxuryFlowContract()
+        assertPartnerCardParity()
+    }
+
+    private static func runPhase3LuxuryFlowContract() {
+        assertTierCatalogIsolation()
+        assertGhAkwaabaContract()
+        assertBroniHomeTasteContract()
+    }
+
+    /// Locks the cross-target partner-card vocabulary so the Clip catalog mirrors
+    /// the App's partner peek card chrome. The literals here MUST match the
+    /// `NativeMapExploreView.partnerCard*` static constants under the App target
+    /// (locked by `NativeMapParitySelfTests`).
+    private static func assertPartnerCardParity() {
+        precondition(ClipCatalogView.partnerCardVerifiedLabel == "Verified Partner", "BytspotAviationFallbackTests: Clip partner-card verified label drifted from App parity contract.")
+        precondition(ClipCatalogView.partnerCardServiceSectionLabel == "Book at this venue", "BytspotAviationFallbackTests: Clip partner-card service section label drifted from App parity contract.")
+        precondition(ClipCatalogView.partnerCardPatchPairedLabel == "Patch paired", "BytspotAviationFallbackTests: Clip 'Patch paired' literal drifted from physidigital vocabulary contract.")
+        precondition(ClipCatalogView.partnerCardInstallNudgeLabel == "Open full Bytspot app with this patch", "BytspotAviationFallbackTests: Clip install-nudge copy drifted from upsell parity contract.")
+    }
+
+    private static func assertTierCatalogIsolation() {
+        let black = ClipLocalService.fallbacks(for: .black).map { $0.id }
+        let platinum = ClipLocalService.fallbacks(for: .platinum).map { $0.id }
+        let green = ClipLocalService.fallbacks(for: .green).map { $0.id }
+
+        precondition(black.contains("black-aviation") && black.contains("black-marine"), "Phase3 App Clip: Black aviation/marine catalog drifted.")
+        precondition(platinum.contains("platinum-entry") && platinum.contains("platinum-dining"), "Phase3 App Clip: Platinum event/dining catalog drifted.")
+        precondition(platinum.allSatisfy { !$0.hasPrefix("black-") }, "Phase3 App Clip: Black service leaked into Platinum catalog.")
+        precondition(green.allSatisfy { $0.hasPrefix("green-") }, "Phase3 App Clip: Green catalog contains non-Green service ids.")
+    }
+
+    private static func assertGhAkwaabaContract() {
+        guard let url = URL(string: "https://bytspot.app/p/gh-akwaaba-fifa-ghana?tier=platinum&service=gh-akwaaba-fifa&venue=GH%20Akwaaba%20Pass") else {
+            preconditionFailure("Phase3 App Clip: GH Akwaaba URL fixture is invalid.")
+        }
+        precondition(ClipLocalService.isGhAkwaabaFifaURL(url, tier: .platinum), "Phase3 App Clip: GH Akwaaba short-link detection drifted.")
+        guard let service = ClipLocalService.explicitService(for: url, tier: .platinum) else {
+            preconditionFailure("Phase3 App Clip: GH Akwaaba must resolve to explicit Platinum Event Access service.")
+        }
+        precondition(service.id == "platinum-entry", "Phase3 App Clip: GH Akwaaba must stay under platinum-entry, got \(service.id).")
+        guard let vendor = ClipVendor.explicitVendor(for: url, service: service, tier: .platinum) else {
+            preconditionFailure("Phase3 App Clip: GH Akwaaba explicit vendor missing from Platinum Event Access fallbacks.")
+        }
+        precondition(vendor.name == "GH Akwaaba Pass", "Phase3 App Clip: expected GH Akwaaba Pass vendor, got \(vendor.name).")
+        precondition(vendor.heroImageURL == ClipLocalService.ghAkwaabaFifaThumbnailURL, "Phase3 App Clip: GH Akwaaba product hero thumbnail drifted.")
+        let itemIds = vendor.items?.map { $0.id } ?? []
+        precondition(itemIds == ["tickets", "souvenirs", "jerseys"], "Phase3 App Clip: GH Akwaaba line items drifted: \(itemIds).")
+    }
+
+    private static func assertBroniHomeTasteContract() {
+        guard let service = ClipLocalService.fallbacks(for: .platinum).first(where: { $0.id == "platinum-dining" }) else {
+            preconditionFailure("Phase3 App Clip: Platinum dining service missing.")
+        }
+        let vendors = ClipVendor.fallbacks(for: service, tier: .platinum)
+        guard let broni = vendors.first(where: { $0.name == "Broni Home Taste" }) else {
+            preconditionFailure("Phase3 App Clip: Broni Home Taste vendor missing from Platinum dining fallbacks.")
+        }
+        guard let items = broni.items else {
+            preconditionFailure("Phase3 App Clip: Broni Home Taste must expose curated dining line items.")
+        }
+        precondition(items == ClipLineItem.broniHomeTasteFavorites, "Phase3 App Clip: Broni Home Taste line item table drifted.")
+        precondition(items.first?.label == "Jollof Rice with Chicken", "Phase3 App Clip: Broni first favorite must stay Jollof Rice with Chicken.")
+        precondition(items.contains { $0.label == "Banku and Fried Fish/Tilapia" }, "Phase3 App Clip: Broni fish/tilapia favorite missing.")
     }
 }
 #endif

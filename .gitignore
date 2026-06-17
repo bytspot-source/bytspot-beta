@@ -72,3 +72,8 @@ yarn-error.log*
 
 # Sweetpad / xcode-build-server local configuration contains absolute paths.
 /ios/App/buildServer.json
+
+# Isolated local GEM_HOME used to run the xcodeproj wiring scripts
+# (scripts/add_unit_test_target.rb, scripts/add_app_clip_target.rb) without
+# touching the system Ruby. Throwaway — never commit the vendored gems.
+/ios/App/.gem/

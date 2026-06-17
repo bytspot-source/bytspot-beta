@@ -10,11 +10,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let appWindow = UIWindow(frame: UIScreen.main.bounds)
         // App Store release invariant: the downloaded app must open directly into
-        // the bundled React app through Capacitor. Do not wire BytspotNativeShellView
-        // here unless a separate native-shell build lane is created.
-        let root = CAPBridgeViewController()
-        root.view.backgroundColor = .black
-        appWindow.rootViewController = root
+        // the bundled React app through Capacitor. The SwiftUI root remains an
+        // explicit simulator/dev opt-in until native parity gates are green.
+        if NativeMigrationConfig.isNativeRootEnabled {
+            appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
+        } else {
+            let root = CAPBridgeViewController()
+            root.view.backgroundColor = .black
+            appWindow.rootViewController = root
+        }
         appWindow.makeKeyAndVisible()
         window = appWindow
         return true
@@ -45,6 +49,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
+        if NativeMigrationConfig.isNativeRootEnabled {
+            NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
+            return true
+        }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 
@@ -52,6 +60,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Called when the app was launched with an activity, including Universal Links.
         // Feel free to add additional processing here, but if you want the App API to support
         // tracking app url opens, make sure to keep this call
+        if NativeMigrationConfig.isNativeRootEnabled, let url = userActivity.webpageURL {
+            NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
+            return true
+        }
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
@@ -75,6 +87,14 @@ enum BytspotTier: String, Equatable, CaseIterable {
         }
     }
 
+    var displayName: String {
+        switch self {
+        case .black: return "Black"
+        case .platinum: return "Platinum"
+        case .green: return "Green"
+        }
+    }
+
     var minimumCents: Int {
         switch self {
         case .black: return 45_000
@@ -94,7 +114,7 @@ enum BytspotTier: String, Equatable, CaseIterable {
     static func detect(url: URL?, patchId: String?) -> BytspotTier {
         if let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             let items = components.queryItems ?? []
-            if let raw = items.first(where: { $0.name.lowercased() == "tier" })?.value,
+            if let raw = items.first(where: { ["tier", "scanner"].contains($0.name.lowercased()) })?.value,
                let tier = BytspotTier(rawValue: raw.lowercased()) {
                 return tier
             }
@@ -117,9 +137,9 @@ enum BytspotTier: String, Equatable, CaseIterable {
             }
         }
         if let patchId = patchId?.uppercased() {
-            if patchId.hasPrefix("BLACK-") || patchId.hasPrefix("BYT-B-") { return .black }
-            if patchId.hasPrefix("PLATINUM-") || patchId.hasPrefix("BYT-P-") { return .platinum }
-            if patchId.hasPrefix("GREEN-") || patchId.hasPrefix("BYT-G-") { return .green }
+            if patchId.hasPrefix("BLACK-") || patchId.hasPrefix("BYT-B-") || patchId.hasSuffix("-B") || patchId.hasSuffix(".B") || patchId.hasSuffix("_B") || patchId.hasSuffix("-BLACK") { return .black }
+            if patchId.hasPrefix("PLATINUM-") || patchId.hasPrefix("BYT-P-") || patchId.hasSuffix("-P") || patchId.hasSuffix(".P") || patchId.hasSuffix("_P") || patchId.hasSuffix("-PLATINUM") { return .platinum }
+            if patchId.hasPrefix("GREEN-") || patchId.hasPrefix("BYT-G-") || patchId.hasSuffix("-G") || patchId.hasSuffix(".G") || patchId.hasSuffix("_G") || patchId.hasSuffix("-GREEN") { return .green }
         }
         return .black
     }

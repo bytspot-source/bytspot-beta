@@ -1,0 +1,144 @@
+{
+  "$schema": "bytspot.native-trust-contract/v1",
+  "version": 1,
+  "description": "Single source of truth for the native (Swift/Kotlin) physidigital trust gates. Generated from React source; do not hand-edit.",
+  "generatedFrom": {
+    "virtualPatch": "src/utils/virtualPatch.ts",
+    "mapSection": "src/components/MapSection.tsx",
+    "mapParking": "src/utils/mapParking.ts",
+    "patchTiers": "src/utils/patchTiers.ts",
+    "mapTypes": "src/components/map/mapTypes.ts"
+  },
+  "trustLadder": [
+    {
+      "level": 0,
+      "id": "anonymous",
+      "mapsToWebTrustLevel": null,
+      "gate": null
+    },
+    {
+      "level": 1,
+      "id": "static-discovery",
+      "mapsToWebTrustLevel": "static-discovery",
+      "gate": "qr-or-url-seen"
+    },
+    {
+      "level": 2,
+      "id": "proximate",
+      "mapsToWebTrustLevel": null,
+      "gate": {
+        "withinMeters": 120,
+        "exitMeters": 135,
+        "hysteresisMeters": 15,
+        "accuracyFloorMeters": 65,
+        "preStageMeters": 250,
+        "discoveryMeters": 600
+      }
+    },
+    {
+      "level": 3,
+      "id": "signed-token",
+      "mapsToWebTrustLevel": null,
+      "gate": "server-rotating-token-verified"
+    },
+    {
+      "level": 4,
+      "id": "nfc-counter-verified",
+      "mapsToWebTrustLevel": "nfc-counter-verified",
+      "gate": "hardware-read-counter"
+    }
+  ],
+  "capabilities": {
+    "viewVenue": 0,
+    "saveToWallet": 1,
+    "initiateDirectScan": 2,
+    "createCheckoutHold": 3,
+    "burnOneTimeAccess": 4
+  },
+  "enforcement": {
+    "directScan": {
+      "action": "openHybrid(.access)",
+      "requiresCapability": "initiateDirectScan",
+      "loadBearing": true
+    }
+  },
+  "invariants": {
+    "noIrreversibleCapabilityAtOrBelowLevel": 2,
+    "irreversibleCapabilities": [
+      "createCheckoutHold",
+      "burnOneTimeAccess"
+    ]
+  },
+  "checkout": {
+    "holdWindowMs": 2700000,
+    "decisions": [
+      "create",
+      "reuse_active",
+      "blocked_one_time"
+    ],
+    "membershipModes": [
+      "black_everyday_membership",
+      "one_time",
+      "standard"
+    ]
+  },
+  "tiers": {
+    "order": [
+      "black",
+      "platinum",
+      "green"
+    ],
+    "minCents": {
+      "black": 45000,
+      "platinum": 5000,
+      "green": 500
+    },
+    "resolutionPriority": [
+      "backend-registry",
+      "url-tier",
+      "tier-coded-tag",
+      "service-price",
+      "fallback"
+    ]
+  },
+  "parking": {
+    "dedupeDegrees": 0.00027,
+    "dedupeApproxMeters": 30
+  },
+  "webTrustLevels": [
+    "static-discovery",
+    "nfc-counter-verified"
+  ],
+  "mapModes": [
+    "default",
+    "nearby",
+    "partnered",
+    "station",
+    "request",
+    "ride",
+    "navigation",
+    "traffic"
+  ],
+  "mapFunctions": {
+    "all": [
+      "trending-hotspots",
+      "live-venue-data",
+      "smart-parking",
+      "ai-navigation",
+      "spot-radar",
+      "route",
+      "traffic-intelligence"
+    ],
+    "free": [
+      "smart-parking",
+      "live-venue-data",
+      "trending-hotspots"
+    ],
+    "premium": [
+      "ai-navigation",
+      "spot-radar",
+      "traffic-intelligence"
+    ],
+    "premiumEntitlement": "insider-premium"
+  }
+}

@@ -7,28 +7,46 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1D765AAFA6F2C3ED2D7774D1 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 561F60551ECB3B73349A69A9 /* Foundation.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
-		7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
-		A13F02062C0FF00100000046 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A13F02052C0FF00100000045 /* GoogleService-Info.plist */; };
-		A13F01062C0FF00100000016 /* ClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01012C0FF00100000011 /* ClipApp.swift */; };
-		A13F01072C0FF00100000017 /* ClipContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01022C0FF00100000012 /* ClipContentView.swift */; };
-		A13F01082C0FF00100000018 /* ClipPatchVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */; };
-		A13F01202C0FF00100000030 /* BytspotAviationFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01212C0FF00100000031 /* BytspotAviationFallbackTests.swift */; };
-		A13F01092C0FF00100000019 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
-		A13F010A2C0FF0010000001A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
-		A13F010B2C0FF0010000001B /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
-		A13F010C2C0FF0010000001C /* Clip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = A13F01002C0FF00100000010 /* Clip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00002C0FF00100000001 /* NativeShellView.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
+		A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00002C0FF00100000001 /* NativeShellView.swift */; };
+		A13F01062C0FF00100000016 /* ClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01012C0FF00100000011 /* ClipApp.swift */; };
+		A13F01072C0FF00100000017 /* ClipContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01022C0FF00100000012 /* ClipContentView.swift */; };
+		A13F01082C0FF00100000018 /* ClipPatchVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */; };
+		A13F01092C0FF00100000019 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
+		A13F010A2C0FF0010000001A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
+		A13F010B2C0FF0010000001B /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
+		A13F010C2C0FF0010000001C /* Clip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = A13F01002C0FF00100000010 /* Clip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A13F01202C0FF00100000030 /* BytspotAviationFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01212C0FF00100000031 /* BytspotAviationFallbackTests.swift */; };
+		A13F02062C0FF00100000046 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A13F02052C0FF00100000045 /* GoogleService-Info.plist */; };
+		A13F03012C0FF00100000051 /* NativeMigrationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03002C0FF00100000051 /* NativeMigrationCore.swift */; };
+		A13F03032C0FF00100000053 /* BytspotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03022C0FF00100000053 /* BytspotAPIClient.swift */; };
+		A13F03052C0FF00100000055 /* BytspotNativeAppRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */; };
+		A13F03072C0FF00100000057 /* BytspotNativeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03062C0FF00100000057 /* BytspotNativeRouting.swift */; };
+		A13F03092C0FF00100000059 /* BytspotNativeAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */; };
+		A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */; };
+		A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */; };
+		A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */; };
+		A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */; };
+		B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */; };
 /* End PBXBuildFile section */
 
-	/* Begin PBXContainerItemProxy section */
+/* Begin PBXContainerItemProxy section */
+		57D296812CDE70A6ACE5EE9B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 504EC3031FED79650016851F;
+			remoteInfo = App;
+		};
 		A13F01132C0FF00100000023 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
@@ -36,9 +54,9 @@
 			remoteGlobalIDString = A13F010E2C0FF0010000001E;
 			remoteInfo = Clip;
 		};
-	/* End PBXContainerItemProxy section */
+/* End PBXContainerItemProxy section */
 
-	/* Begin PBXCopyFilesBuildPhase section */
+/* Begin PBXCopyFilesBuildPhase section */
 		A13F01122C0FF00100000022 /* Embed App Clips */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -50,31 +68,51 @@
 			name = "Embed App Clips";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-	/* End PBXCopyFilesBuildPhase section */
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		A13F01002C0FF00100000010 /* Clip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clip.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A13F01012C0FF00100000011 /* ClipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipApp.swift; sourceTree = "<group>"; };
-		A13F01022C0FF00100000012 /* ClipContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipContentView.swift; sourceTree = "<group>"; };
-		A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipPatchVerifier.swift; sourceTree = "<group>"; };
-		A13F01212C0FF00100000031 /* BytspotAviationFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotAviationFallbackTests.swift; sourceTree = "<group>"; };
-		A13F01042C0FF00100000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A13F01052C0FF00100000015 /* Clip.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Clip.entitlements; sourceTree = "<group>"; };
-		A13F00002C0FF00100000001 /* NativeShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellView.swift; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A13F02052C0FF00100000045 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		561F60551ECB3B73349A69A9 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		7C0A6D49BE752D3410BBCCE3 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BytspotTrustEngineTests.swift; sourceTree = "<group>"; };
+		A13F00002C0FF00100000001 /* NativeShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellView.swift; sourceTree = "<group>"; };
+		A13F01002C0FF00100000010 /* Clip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A13F01012C0FF00100000011 /* ClipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipApp.swift; sourceTree = "<group>"; };
+		A13F01022C0FF00100000012 /* ClipContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipContentView.swift; sourceTree = "<group>"; };
+		A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipPatchVerifier.swift; sourceTree = "<group>"; };
+		A13F01042C0FF00100000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A13F01052C0FF00100000015 /* Clip.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Clip.entitlements; sourceTree = "<group>"; };
+		A13F01212C0FF00100000031 /* BytspotAviationFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotAviationFallbackTests.swift; sourceTree = "<group>"; };
+		A13F02052C0FF00100000045 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		A13F03002C0FF00100000051 /* NativeMigrationCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMigrationCore.swift; sourceTree = "<group>"; };
+		A13F03022C0FF00100000053 /* BytspotAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotAPIClient.swift; sourceTree = "<group>"; };
+		A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotNativeAppRoot.swift; sourceTree = "<group>"; };
+		A13F03062C0FF00100000057 /* BytspotNativeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotNativeRouting.swift; sourceTree = "<group>"; };
+		A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotNativeAuth.swift; sourceTree = "<group>"; };
+		A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthSeamSelfTests.swift; sourceTree = "<group>"; };
+		A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchRouteSelfTests.swift; sourceTree = "<group>"; };
+		A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchBookingSelfTests.swift; sourceTree = "<group>"; };
+		A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchSpecialFlowSelfTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0BFFA9C6BFAAB7964AEF9064 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D765AAFA6F2C3ED2D7774D1 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3011FED79650016851F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -95,6 +133,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		4158BC1531A6BE6401E01B29 /* AppTests */ = {
+			isa = PBXGroup;
+			children = (
+				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
+			);
+			name = AppTests;
+			path = AppTests;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
@@ -102,6 +149,8 @@
 				504EC3061FED79650016851F /* App */,
 				A13F010D2C0FF0010000001D /* Clip */,
 				504EC3051FED79650016851F /* Products */,
+				4158BC1531A6BE6401E01B29 /* AppTests */,
+				D224444A68FBEDA3A8927CBC /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -110,6 +159,7 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				A13F01002C0FF00100000010 /* Clip.app */,
+				7C0A6D49BE752D3410BBCCE3 /* AppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -120,6 +170,15 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A13F00002C0FF00100000001 /* NativeShellView.swift */,
+				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
+				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
+				A13F03022C0FF00100000053 /* BytspotAPIClient.swift */,
+				A13F03062C0FF00100000057 /* BytspotNativeRouting.swift */,
+				A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */,
+				A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */,
+				A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */,
+				A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */,
+				A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -129,6 +188,14 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		934BB938F216FB5775D89C2D /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				561F60551ECB3B73349A69A9 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		A13F010D2C0FF0010000001D /* Clip */ = {
@@ -142,6 +209,14 @@
 				A13F01052C0FF00100000015 /* Clip.entitlements */,
 			);
 			path = Clip;
+			sourceTree = "<group>";
+		};
+		D224444A68FBEDA3A8927CBC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				934BB938F216FB5775D89C2D /* iOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -169,6 +244,24 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		77135510BD9EA986C68ED6FA /* AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB9BF22AC0B82719C7C1F87E /* Build configuration list for PBXNativeTarget "AppTests" */;
+			buildPhases = (
+				9564EB1F3041BBC86B5F9D60 /* Sources */,
+				0BFFA9C6BFAAB7964AEF9064 /* Frameworks */,
+				3B117CFD54106E06D5C701BF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6F6F60ADEF8CFE746D4FF095 /* PBXTargetDependency */,
+			);
+			name = AppTests;
+			productName = AppTests;
+			productReference = 7C0A6D49BE752D3410BBCCE3 /* AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		A13F010E2C0FF0010000001E /* Clip */ = {
 			isa = PBXNativeTarget;
@@ -204,10 +297,10 @@
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
 					};
-				A13F010E2C0FF0010000001E = {
-					CreatedOnToolsVersion = 16.0;
-					ProvisioningStyle = Automatic;
-				};
+					A13F010E2C0FF0010000001E = {
+						CreatedOnToolsVersion = 16.0;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -221,7 +314,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
-				7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */,
+				7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -229,11 +322,19 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				A13F010E2C0FF0010000001E /* Clip */,
+				77135510BD9EA986C68ED6FA /* AppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		3B117CFD54106E06D5C701BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -266,6 +367,23 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */,
+				A13F03052C0FF00100000055 /* BytspotNativeAppRoot.swift in Sources */,
+				A13F03012C0FF00100000051 /* NativeMigrationCore.swift in Sources */,
+				A13F03032C0FF00100000053 /* BytspotAPIClient.swift in Sources */,
+				A13F03072C0FF00100000057 /* BytspotNativeRouting.swift in Sources */,
+				A13F03092C0FF00100000059 /* BytspotNativeAuth.swift in Sources */,
+				A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */,
+				A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */,
+				A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */,
+				A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9564EB1F3041BBC86B5F9D60 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -282,13 +400,19 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
-	/* Begin PBXTargetDependency section */
+/* Begin PBXTargetDependency section */
+		6F6F60ADEF8CFE746D4FF095 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = App;
+			target = 504EC3031FED79650016851F /* App */;
+			targetProxy = 57D296812CDE70A6ACE5EE9B /* PBXContainerItemProxy */;
+		};
 		A13F01142C0FF00100000024 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A13F010E2C0FF0010000001E /* Clip */;
 			targetProxy = A13F01132C0FF00100000023 /* PBXContainerItemProxy */;
 		};
-	/* End PBXTargetDependency section */
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -424,16 +548,17 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
-					CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-					MARKETING_VERSION = 1.1.6;
+				MARKETING_VERSION = 1.1.6;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -447,21 +572,47 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
-					CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-					MARKETING_VERSION = 1.1.6;
+				MARKETING_VERSION = 1.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9C015C9B2D13305B6D8E4DDE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.AppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/App";
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -472,7 +623,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Clip/Clip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Clip/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -494,7 +645,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Clip/Clip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Clip/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -509,6 +660,31 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		B7BB3A0D0B63A3E6AD756494 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.AppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/App";
+			};
+			name = Debug;
 		};
 /* End XCBuildConfiguration section */
 
@@ -540,6 +716,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		BB9BF22AC0B82719C7C1F87E /* Build configuration list for PBXNativeTarget "AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9C015C9B2D13305B6D8E4DDE /* Release */,
+				B7BB3A0D0B63A3E6AD756494 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -549,8 +734,8 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
-	/* Begin XCRemoteSwiftPackageReference section */
-		7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
+/* Begin XCRemoteSwiftPackageReference section */
+		7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stripe/stripe-ios.git";
 			requirement = {
@@ -558,7 +743,7 @@
 				minimumVersion = 24.0.0;
 			};
 		};
-	/* End XCRemoteSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
@@ -568,7 +753,7 @@
 		};
 		7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */;
 			productName = StripeApplePay;
 		};
 /* End XCSwiftPackageProductDependency section */

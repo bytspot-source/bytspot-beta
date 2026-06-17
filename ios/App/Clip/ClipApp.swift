@@ -95,6 +95,12 @@ final class ClipInvocationModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var vendorTasks: [String: Task<Void, Never>] = [:]
 
+    var hasPremiumMembershipAccess: Bool { tier == .black || tier == .platinum }
+
+    var membershipGateMessage: String {
+        hasPremiumMembershipAccess ? "Premium membership verified for service booking." : "Premium membership required to browse and book App Clip service vendors."
+    }
+
     func handle(activity: NSUserActivity) {
         guard let url = activity.webpageURL else { return }
         handle(url: url)
@@ -277,11 +283,19 @@ final class ClipInvocationModel: ObservableObject {
     #endif
 
     func selectService(_ service: ClipLocalService) {
+        guard hasPremiumMembershipAccess else {
+            contextError = membershipGateMessage
+            return
+        }
         flow = .vendors(service: service)
         prefetchVendors(for: service)
     }
 
     func selectVendor(_ vendor: ClipVendor, service: ClipLocalService) {
+        guard hasPremiumMembershipAccess else {
+            contextError = membershipGateMessage
+            return
+        }
         guestCount = max(guestCount, 1)
         flow = .checkout(service: service, vendor: vendor)
     }

@@ -63,6 +63,11 @@ enum BytspotHybridRoute: String, Identifiable {
 /// Locked by `NativeMapParitySelfTests`.
 let nativePatchScanBridgeChannel = "bytspotNativePatchScanned"
 
+private func nativeLaunchArgument(_ name: String) -> String? {
+    let prefix = "--\(name)="
+    return ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix(prefix) }).map { String($0.dropFirst(prefix.count)) }.flatMap { $0.isEmpty ? nil : $0 }
+}
+
 /// DEBUG-only env hook that injects a synthetic JS-bridge post into the
 /// Capacitor webView so we can validate the full round-trip
 /// (JS → WKScriptMessageHandler → NativeIncomingURLCenter → notifyPatchScanned
@@ -244,9 +249,11 @@ struct BytspotNativeShellView: View {
     /// Functions sheet can gate premium rows.
     @EnvironmentObject private var membershipStore: NativeMembershipStore
 
+    private static let previewTabDefaultsKey = "bytspot_native_preview_tab"
+
     private static var previewInitialTab: BytspotNativeTab {
         guard NativeMigrationConfig.isNativeRootEnabled,
-              let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_TAB"]?.lowercased(),
+              let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_TAB"] ?? UserDefaults.standard.string(forKey: previewTabDefaultsKey) ?? nativeLaunchArgument("byt-native-preview-tab"))?.lowercased(),
               let tab = BytspotNativeTab(rawValue: raw) else { return .home }
         return tab
     }
@@ -1745,6 +1752,8 @@ private struct NativeDiscoverView: View {
     @State private var showIntroCard = true
     @State private var savedCardIDs: Set<String> = []
     @State private var skippedCardIDs: Set<String> = []
+    @State private var detailVenue: NativeVenueSummary?
+    @State private var didApplyDetailPreview = false
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
 
@@ -1773,6 +1782,8 @@ private struct NativeDiscoverView: View {
     static let visibleSectionOrder = ["filters", "feed"]
     static let filterRowCount = 3
     static let introCardDeckIndex = 0
+    static let detailEnvironmentKey = "BYT_NATIVE_DISCOVER_DETAIL"
+    static let detailDefaultsKey = "bytspot_native_discover_detail"
 
     static let curatedCards: [DiscoverCardSpec] = NativeTabContentSnapshot.fallback.discoverCards.map(Self.spec(from:))
 
@@ -1786,6 +1797,19 @@ private struct NativeDiscoverView: View {
             .padding(.bottom, 12)
         }
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore) }
+        .onAppear { applyDetailPreviewIfRequested() }
+        .task { applyDetailPreviewIfRequested() }
+        .onChange(of: tabContentStore.snapshot.discoverCards.count) { _ in applyDetailPreviewIfRequested() }
+        .sheet(item: $detailVenue) { venue in
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid)
+            if #available(iOS 16.0, *) {
+                detail
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            } else {
+                detail
+            }
+        }
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-discover-depth")
     }
@@ -1875,7 +1899,7 @@ private struct NativeDiscoverView: View {
                     NativeDiscoverFeatureCard(
                         card: card,
                         isSaved: savedCardIDs.contains(card.id),
-                        openDetails: { openHybrid(.discover) },
+                        openDetails: { detailVenue = venueForDetail(card) },
                         toggleFavorite: { toggleSaved(card.id) },
                         skipCard: { skip(card.id) }
                     )
@@ -1904,8 +1928,37 @@ private struct NativeDiscoverView: View {
         }
     }
 
+    private func applyDetailPreviewIfRequested() {
+        guard !didApplyDetailPreview, detailVenue == nil, let token = Self.previewDetailToken else { return }
+        let lower = token.lowercased()
+        let lookup = rankedCards + Self.curatedCards
+        let card = lookup.first { card in
+            card.id.lowercased() == lower || card.title.lowercased().contains(lower) || lower.contains(card.title.lowercased())
+        } ?? (lower == "service" ? lookup.first(where: { $0.type == "service" }) : nil)
+        guard let card else { return }
+        didApplyDetailPreview = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { detailVenue = venueForDetail(card) }
+    }
+
+    private static var previewDetailToken: String? {
+        (ProcessInfo.processInfo.environment[detailEnvironmentKey] ?? UserDefaults.standard.string(forKey: detailDefaultsKey) ?? nativeLaunchArgument("byt-native-discover-detail")).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     private static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
         DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+    }
+
+    private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
+        let candidates = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
+        return Self.venueForDetail(card, venues: candidates)
+    }
+
+    private static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
+        if let direct = candidates.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
+        let parsedRating = Double(card.rating)
+        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
+        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
     }
 
     private func filterValue(for label: String) -> String? {
@@ -2335,6 +2388,350 @@ private struct NativeSpecialDiscoverCard: View {
     }
 }
 
+struct NativeVenueDetailAction: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let kind: NativeVenueActionKind
+}
+
+enum NativeVenueActionKind: Equatable {
+    case device
+    case local
+    case capability(BytspotTrustCapability)
+    case authedWrite(endpoint: String, idempotent: Bool)
+    case handoff
+}
+
+enum NativeVenueDetailContract {
+    static let surfaceCapability: BytspotTrustCapability = .viewVenue
+    static let checkinEndpoint = "venues.checkin"
+    static let checkinIdempotent = true
+    static let actions: [NativeVenueDetailAction] = [
+        NativeVenueDetailAction(id: "navigate", title: "Navigate", systemImage: "arrow.triangle.turn.up.right.circle.fill", kind: .device),
+        NativeVenueDetailAction(id: "call", title: "Call", systemImage: "phone.fill", kind: .device),
+        NativeVenueDetailAction(id: "share", title: "Share", systemImage: "square.and.arrow.up.fill", kind: .device),
+        NativeVenueDetailAction(id: "save", title: "Save", systemImage: "heart.fill", kind: .local),
+        NativeVenueDetailAction(id: "getTickets", title: "Get Tickets", systemImage: "ticket.fill", kind: .capability(.saveToWallet)),
+        NativeVenueDetailAction(id: "checkIn", title: "Check In", systemImage: "checkmark.seal.fill", kind: .authedWrite(endpoint: checkinEndpoint, idempotent: checkinIdempotent)),
+        NativeVenueDetailAction(id: "concierge", title: "Concierge", systemImage: "sparkles", kind: .handoff),
+        NativeVenueDetailAction(id: "bookRide", title: "Book Ride", systemImage: "car.fill", kind: .capability(.createCheckoutHold))
+    ]
+    static var actionIDs: [String] { actions.map(\.id) }
+}
+
+enum NativeVenueDetailPresentation {
+    static func actionTitle(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
+        guard action.id == "getTickets" else { return action.title }
+        if isDiningVenue(venue) { return "View Menu" }
+        if isEventOrPassVenue(venue) { return venue.name.localizedCaseInsensitiveContains("pass") ? "View Pass" : "Get Tickets" }
+        if venue.discoverType == "parking" { return "Reserve" }
+        return action.title
+    }
+
+    static func actionSystemImage(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
+        guard action.id == "getTickets" else { return action.systemImage }
+        if isDiningVenue(venue) { return "menucard.fill" }
+        if venue.discoverType == "parking" { return "parkingsign.circle.fill" }
+        return action.systemImage
+    }
+
+    static func headerBadgeTitle(for venue: NativeVenueSummary) -> String? {
+        guard let patchId = venue.verifiedPatchId?.trimmingCharacters(in: .whitespacesAndNewlines), !patchId.isEmpty else { return nil }
+        if patchId == "DISCOVER-VERIFIED" { return venue.category.lowercased().contains("service") ? "MEMBER SERVICE" : nil }
+        return "VERIFIED PATCH"
+    }
+
+    static func detailSection(for venue: NativeVenueSummary) -> NativeVenueDetailSection? {
+        if isDiningVenue(venue) {
+            return NativeVenueDetailSection(
+                title: "Dining highlights",
+                subtitle: venue.name.localizedCaseInsensitiveContains("broni") ? "Ghanaian comfort food built for pickup, delivery, and matchday groups." : "Menu, pickup, and table options for this dining spot.",
+                systemImage: "fork.knife",
+                highlights: venue.name.localizedCaseInsensitiveContains("broni") ? ["Jollof + chicken", "Banku + tilapia", "Family-style portions", "Pickup or delivery"] : ["Menu preview", "Pickup options", "Group plans", "Ask Concierge"]
+            )
+        }
+        if isEventOrPassVenue(venue) {
+            return NativeVenueDetailSection(
+                title: "Pass access",
+                subtitle: venue.name.localizedCaseInsensitiveContains("akwaaba") ? "Premium matchday access with digital pass delivery and host support." : "Ticketing, arrival, and access details for this event.",
+                systemImage: "ticket.fill",
+                highlights: venue.name.localizedCaseInsensitiveContains("akwaaba") ? ["Digital pass", "Fast-track entry", "VIP lounge", "On-site host"] : ["Tickets", "Entry details", "Arrival help", "Share pass"]
+            )
+        }
+        if venue.discoverType == "parking" {
+            return NativeVenueDetailSection(title: "Parking details", subtitle: "Availability, pricing, and arrival support before you route.", systemImage: "parkingsign.circle.fill", highlights: ["Reserve ahead", "Price shown", "Walk time", "Covered options"])
+        }
+        return nil
+    }
+
+    static func isDiningVenue(_ venue: NativeVenueSummary) -> Bool {
+        let text = searchableText(for: venue)
+        return venue.discoverType == "dining" || venue.discoverType == "coffee" || text.contains("food") || text.contains("dining") || text.contains("cooking") || text.contains("pickup") || text.contains("delivery") || text.contains("taste")
+    }
+
+    static func isEventOrPassVenue(_ venue: NativeVenueSummary) -> Bool {
+        let text = searchableText(for: venue)
+        return venue.discoverType == "entertainment" || text.contains("pass") || text.contains("ticket") || text.contains("event") || text.contains("matchday") || text.contains("fifa")
+    }
+
+    private static func searchableText(for venue: NativeVenueSummary) -> String {
+        "\(venue.name) \(venue.category) \(venue.address) \(venue.crowd?.label ?? "")".lowercased()
+    }
+}
+
+struct NativeVenueDetailSection: Equatable {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let highlights: [String]
+}
+
+struct NativeVenueOpenStatus: Equatable {
+    let label: String
+    let isOpen: Bool
+    let detail: String
+}
+
+enum NativeVenueHours {
+    struct Hours { let open: Int; let close: Int; let days: Set<Int> }
+    private static let allDays = Set(0...6)
+    private static let categoryHours: [String: Hours] = [
+        "bar": Hours(open: 17, close: 26, days: allDays),
+        "nightlife": Hours(open: 20, close: 26, days: [3, 4, 5, 6]),
+        "restaurant": Hours(open: 11, close: 22, days: allDays),
+        "dining": Hours(open: 11, close: 22, days: allDays),
+        "coffee": Hours(open: 7, close: 19, days: allDays),
+        "shopping": Hours(open: 10, close: 21, days: allDays),
+        "entertainment": Hours(open: 12, close: 24, days: allDays),
+        "fitness": Hours(open: 6, close: 22, days: allDays),
+        "service": Hours(open: 9, close: 21, days: allDays),
+        "parking": Hours(open: 0, close: 24, days: allDays),
+        "default": Hours(open: 10, close: 22, days: allDays)
+    ]
+
+    static func openStatus(category: String, date: Date = Date()) -> NativeVenueOpenStatus {
+        let components = Calendar.current.dateComponents([.hour, .minute, .weekday], from: date)
+        return openStatus(category: category, hour: components.hour ?? 0, minute: components.minute ?? 0, weekday: max((components.weekday ?? 1) - 1, 0))
+    }
+
+    static func openStatus(category: String, hour: Int, minute: Int, weekday: Int) -> NativeVenueOpenStatus {
+        let hours = hours(for: category)
+        guard hours.days.contains(weekday) else { return NativeVenueOpenStatus(label: "Opens \(timeLabel(hours.open))", isOpen: false, detail: hoursDetail(hours)) }
+        let now = hour * 60 + minute
+        let open = hours.open * 60
+        let close = hours.close * 60
+        let normalizedClose = (hours.close > 24 ? hours.close - 24 : hours.close) * 60
+        let isOpen = hours.close > 24 ? now >= open || now < normalizedClose : now >= open && now < close
+        if !isOpen { return NativeVenueOpenStatus(label: "Opens \(timeLabel(hours.open))", isOpen: false, detail: hoursDetail(hours)) }
+        let minutesUntilClose = hours.close > 24 && now < normalizedClose ? normalizedClose - now : close - now
+        if minutesUntilClose > 0 && minutesUntilClose <= 60 { return NativeVenueOpenStatus(label: "Closes in \(minutesUntilClose)m", isOpen: true, detail: hoursDetail(hours)) }
+        return NativeVenueOpenStatus(label: "Open Now", isOpen: true, detail: hoursDetail(hours))
+    }
+
+    static func hours(for category: String) -> Hours {
+        let normalized = category.lowercased()
+        return categoryHours.first(where: { normalized.contains($0.key) })?.value ?? categoryHours[normalized] ?? categoryHours["default"]!
+    }
+
+    static func hoursDetail(_ hours: Hours) -> String { "Daily · \(timeLabel(hours.open))–\(timeLabel(hours.close))" }
+
+    private static func timeLabel(_ value: Int) -> String {
+        let hour = value >= 24 ? value - 24 : value
+        if hour == 0 { return "12am" }
+        if hour == 12 { return "12pm" }
+        return hour > 12 ? "\(hour - 12)pm" : "\(hour)am"
+    }
+}
+
+private struct NativeVenueDetailView: View {
+    let venue: NativeVenueSummary
+    let openHybrid: (BytspotHybridRoute) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var isSaved = false
+    @State private var didCheckIn = false
+    @State private var statusMessage: String?
+
+    private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
+    private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
+    private var ratingText: String { venue.rating.map { String(format: "%.1f", $0) } ?? "4.9" }
+    private var crowdText: String { venue.crowd.map { "\($0.label)" + ($0.waitMins.map { " · \($0)m wait" } ?? "") } ?? "Live crowd pending" }
+    private var entryText: String { venue.parking.priceLabel == "—" ? "Free entry" : venue.parking.priceLabel }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                hero
+                metricsRow
+                actionGrid
+                if let statusMessage { statusBanner(statusMessage) }
+                infoSection
+                if let section = NativeVenueDetailPresentation.detailSection(for: venue) { detailSpotlight(section) }
+            }
+            .padding(18)
+            .padding(.bottom, 28)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-venue-detail")
+    }
+
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            NativeRemoteImage(url: venue.imageUrl, fallbackColors: [NativeTheme.cyan.opacity(0.45), NativeTheme.purple.opacity(0.34), NativeTheme.pink.opacity(0.24)], fallbackEmoji: categoryEmoji, emojiSize: 112, emojiOpacity: 0.22)
+                .frame(height: 255)
+            LinearGradient(colors: [.clear, Color.black.opacity(0.74)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    if let badge = NativeVenueDetailPresentation.headerBadgeTitle(for: venue) {
+                        pill(badge, color: NativeTheme.emerald, foreground: .black)
+                    }
+                    pill(openStatus.label.uppercased(), color: openStatus.isOpen ? NativeTheme.emerald : NativeTheme.textTertiary, foreground: openStatus.isOpen ? .black : .white)
+                    Spacer()
+                    Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 14, weight: .black)).foregroundColor(.white).frame(width: 36, height: 36).background(Color.black.opacity(0.42)).clipShape(Circle()) }
+                        .buttonStyle(.plain)
+                }
+                Text(venue.name).font(.system(size: 34, weight: .black)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.78)
+                Text(venue.address).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.86)).lineLimit(2)
+            }
+            .padding(16)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1.1))
+        .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 10)
+    }
+
+    private var metricsRow: some View {
+        HStack(spacing: 9) {
+            metric("star.fill", ratingText, "1.2k reviews", NativeTheme.blackAmber)
+            metric("location.fill", venue.distance, "away", NativeTheme.cyan)
+            metric("person.3.fill", crowdText, "crowd", NativeTheme.pink)
+        }
+    }
+
+    private var actionGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            ForEach(NativeVenueDetailContract.actions) { action in
+                Button(action: { handle(action) }) { actionTile(action) }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-venue-action-\(action.id)")
+            }
+        }
+    }
+
+    private var infoSection: some View {
+        VStack(spacing: 10) {
+            infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, NativeTheme.cyan)
+            infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Atlanta Midtown" : "\(venue.distance) away", NativeTheme.orange)
+            infoRow(categoryDetailIcon, categoryDetailTitle, categoryPrimaryDetail, categorySecondaryDetail, NativeTheme.emerald)
+        }
+    }
+
+    private func actionTile(_ action: NativeVenueDetailAction) -> some View {
+        let locked = isLocked(action)
+        return HStack(spacing: 11) {
+            Image(systemName: locked ? "lock.fill" : NativeVenueDetailPresentation.actionSystemImage(for: action, venue: venue)).font(.system(size: 18, weight: .black)).foregroundColor(locked ? NativeTheme.textTertiary : actionAccent(action))
+                .frame(width: 36, height: 36).background((locked ? NativeTheme.textTertiary : actionAccent(action)).opacity(0.13)).clipShape(Circle())
+            Text(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue)).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.78)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 14)
+        .frame(minHeight: 58)
+        .background(NativePolish.elevatedSurface)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(locked ? NativePolish.softBorder : actionAccent(action).opacity(0.26), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func metric(_ icon: String, _ value: String, _ label: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(color)
+            Text(value).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.72)
+            Text(label).font(.system(size: 10.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func infoRow(_ icon: String, _ title: String, _ primary: String, _ secondary: String, _ color: Color) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.system(size: 17, weight: .black)).foregroundColor(color).frame(width: 34, height: 34).background(color.opacity(0.13)).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text(primary).nativeBody(size: 13.5); Text(secondary).font(.system(size: 12, weight: .bold)).foregroundColor(color) }
+            Spacer()
+        }.padding(14).background(NativePolish.elevatedSurface).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func detailSpotlight(_ section: NativeVenueDetailSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: section.systemImage).font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 36, height: 36).background(NativeTheme.cyan.opacity(0.13)).clipShape(Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(section.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text(section.subtitle).nativeBody(size: 13.5).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(section.highlights, id: \.self) { highlight in
+                    Text(highlight).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.78).padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 34, alignment: .leading).background(NativeTheme.selectedControlSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                }
+            }
+        }
+        .padding(14)
+        .background(NativePolish.elevatedSurface)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativeTheme.cyan.opacity(0.18), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func statusBanner(_ text: String) -> some View { Text(text).font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+    private func pill(_ title: String, color: Color, foreground: Color) -> some View { Text(title).font(.system(size: 10.5, weight: .black, design: .monospaced)).foregroundColor(foreground).tracking(1).padding(.horizontal, 9).padding(.vertical, 6).background(color).clipShape(Capsule()) }
+
+    private func handle(_ action: NativeVenueDetailAction) {
+        nativeImpactLight()
+        switch action.kind {
+        case .device:
+            handleDevice(action.id)
+        case .local:
+            isSaved.toggle(); statusMessage = isSaved ? "Saved \(venue.name)." : "Removed \(venue.name) from saved spots."
+        case .capability(let capability):
+            if capability == .saveToWallet { statusMessage = "Opening \(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue).lowercased()) options for \(venue.name)."; openHybrid(.access) }
+            else { statusMessage = "Taking you to secure booking for \(venue.name)."; openHybrid(.map) }
+        case .authedWrite:
+            Task { await submitCheckIn() }
+        case .handoff:
+            openHybrid(.concierge)
+        }
+    }
+
+    private func handleDevice(_ id: String) {
+        switch id {
+        case "navigate": openURL(URL(string: "http://maps.apple.com/?daddr=\(venue.latitude),\(venue.longitude)&dirflg=d"))
+        case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded("\(venue.name) Atlanta phone number"))"))
+        case "share": presentShare(text: "\(venue.name) — \(venue.address) · \(venue.distance) on Bytspot")
+        default: break
+        }
+    }
+
+    private func submitCheckIn() async {
+        guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
+        didCheckIn = true
+        let idempotencyKey = UUID().uuidString
+        statusMessage = "Checked in at \(venue.name)!"
+        guard sessionStore.canAttachBearerToken else { return }
+        let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]])
+        let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
+        _ = try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)
+    }
+
+    private func isLocked(_ action: NativeVenueDetailAction) -> Bool { if case .capability(let capability) = action.kind { return currentTrustLevel < capability.requiredLevel }; return false }
+    private func actionAccent(_ action: NativeVenueDetailAction) -> Color { ["navigate": NativeTheme.cyan, "call": NativeTheme.emerald, "share": NativeTheme.textPrimary, "save": NativeTheme.pink, "getTickets": NativeTheme.blackAmber, "checkIn": NativeTheme.emerald, "concierge": NativeTheme.purple, "bookRide": NativeTheme.orange][action.id] ?? NativeTheme.cyan }
+    private var categoryDetailIcon: String { NativeVenueDetailPresentation.isDiningVenue(venue) ? "fork.knife" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "ticket.fill" : venue.discoverType == "parking" ? "parkingsign.circle.fill" : "sparkles" }
+    private var categoryDetailTitle: String { NativeVenueDetailPresentation.isDiningVenue(venue) ? "Dining" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Pass details" : venue.discoverType == "parking" ? "Parking" : "Details" }
+    private var categoryPrimaryDetail: String { NativeVenueDetailPresentation.isDiningVenue(venue) ? "Menu and pickup options" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Digital pass and event access" : entryText }
+    private var categorySecondaryDetail: String { NativeVenueDetailPresentation.isDiningVenue(venue) ? "Order ahead or ask Concierge" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "View pass, share, or book a ride" : venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spaces nearby" : "Save, share, or ask Concierge" }
+    private var categoryEmoji: String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "service": "🛎️"][venue.discoverType] ?? "📍" }
+    private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
+    private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
+    private func presentShare(text: String) { guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first, let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }; root.present(UIActivityViewController(activityItems: [text], applicationActivities: nil), animated: true) }
+}
+
 // Stays `private`: promoting this 1000-line view to internal would force every
 // private subtype it exposes (markers, pins, sheets) internal too. The AppTests
 // XCTest target instead reaches the pure, load-bearing L2 gate through the
@@ -2352,6 +2749,10 @@ private struct NativeMapExploreView: View {
     @State private var region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045))
     @State private var selectedMode = modeTitles[0]
     @State private var selectedPin: NativeMapPin?
+    /// Native Venue Details (WS-C). Presented from the non-partner peek card's
+    /// "Details" action — an L0 read-only surface (viewVenue) that replaces the
+    /// former coarse openHybrid(.discover) handoff. nil ⇒ no detail presented.
+    @State private var detailVenue: NativeVenueSummary?
     @State private var showFunctionSheet = Self.previewShowsFunctionSheet
     @State private var showParking = true
     @State private var showVenues = true
@@ -2635,6 +3036,16 @@ private struct NativeMapExploreView: View {
                     .presentationDragIndicator(.visible)
             } else {
                 sheet
+            }
+        }
+        .sheet(item: $detailVenue) { venue in
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid)
+            if #available(iOS 16.0, *) {
+                detail
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            } else {
+                detail
             }
         }
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
@@ -2950,7 +3361,7 @@ private struct NativeMapExploreView: View {
             .accessibilityIdentifier("native-map-nonpartner-navigate")
             HStack(spacing: 8) {
                 ForEach(Self.nonPartnerCardSecondaryLabels, id: \.self) { label in
-                    Button(action: { handleNonPartnerSecondary(label) }) {
+                    Button(action: { handleNonPartnerSecondary(label, for: pin) }) {
                         HStack(spacing: 6) {
                             Image(systemName: secondaryIcon(for: label)).font(.system(size: 11, weight: .black))
                             Text(label).font(.system(size: 12, weight: .black))
@@ -2983,13 +3394,39 @@ private struct NativeMapExploreView: View {
         }
     }
 
-    private func handleNonPartnerSecondary(_ label: String) {
+    private func handleNonPartnerSecondary(_ label: String, for pin: NativeMapPin) {
         nativeImpactLight()
         switch label {
         case "Concierge": openHybrid(.concierge)
         case "Save": openHybrid(.access)
+        case "Details": detailVenue = venueForDetail(pin)
         default: openHybrid(.discover)
         }
+    }
+
+    /// Resolves the full venue backing a peek-card pin for the native detail
+    /// surface, falling back to a pin-derived summary for sample pins that have
+    /// no live venue (so the L0 detail still renders without a web handoff).
+    private func venueForDetail(_ pin: NativeMapPin) -> NativeVenueSummary {
+        if let match = venues.first(where: { $0.id == pin.id }) { return match }
+        let labels = ["Chill", "Active", "Busy", "Packed"]
+        let crowd = pin.crowdLevel.map { level in
+            NativeCrowdSummary(level: level, label: labels[max(0, min(labels.count - 1, level - 1))], waitMins: nil)
+        }
+        return NativeVenueSummary(
+            id: pin.id,
+            name: pin.title,
+            category: pin.kind == .parking ? "parking" : "venue",
+            address: pin.subtitle,
+            distance: pin.distance,
+            rating: nil,
+            latitude: pin.coordinate.latitude,
+            longitude: pin.coordinate.longitude,
+            crowd: crowd,
+            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"),
+            verifiedPatchId: nil,
+            imageUrl: nil
+        )
     }
 
     private func partnerPeekCard(for pin: NativeMapPin) -> some View {
@@ -5862,6 +6299,16 @@ enum NativeMapParitySelfTests {
         precondition(NativeMapExploreView.nonPartnerCardVerdictLabels == ["Plenty of Space", "Filling Up", "Likely Busy", "Likely Full"], "NativeMapParitySelfTests: non-partner verdict labels drifted from the simplex verdict-pill contract.")
         precondition(NativeMapExploreView.nonPartnerCardPrimaryLabel == "Navigate", "NativeMapParitySelfTests: non-partner card primary CTA must remain 'Navigate'.")
         precondition(NativeMapExploreView.nonPartnerCardSecondaryLabels == ["Save", "Concierge", "Details"], "NativeMapParitySelfTests: non-partner card secondary actions drifted from the lean 3-button row.")
+        // WS-C — native Venue Details L0 surface. Mirrors native-trust-contract.json venueDetail.
+        precondition(NativeVenueDetailContract.surfaceCapability == .viewVenue, "NativeMapParitySelfTests: Venue Details must remain an L0 read-only surface (viewVenue).")
+        precondition(NativeVenueDetailContract.checkinEndpoint == "venues.checkin" && NativeVenueDetailContract.checkinIdempotent, "NativeMapParitySelfTests: venues.checkin endpoint/idempotency drifted from contract venueDetail.")
+        precondition(NativeVenueDetailContract.actionIDs == ["navigate", "call", "share", "save", "getTickets", "checkIn", "concierge", "bookRide"], "NativeMapParitySelfTests: Venue Details action set drifted from React VenueDetails.tsx / contract venueDetail.actions.")
+        precondition(NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })?.kind == NativeVenueActionKind.capability(.saveToWallet), "NativeMapParitySelfTests: Get Tickets must gate on saveToWallet (L1).")
+        precondition(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind == NativeVenueActionKind.capability(.createCheckoutHold), "NativeMapParitySelfTests: Book Ride must gate on createCheckoutHold (L3).")
+        precondition(NativeVenueDetailPresentation.actionTitle(for: NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })!, venue: NativeVenueSummary(id: "broni", name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking", distance: "Service", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)) == "View Menu", "NativeMapParitySelfTests: Broni dining detail primary action must remain View Menu.")
+        precondition(NativeVenueDetailPresentation.headerBadgeTitle(for: NativeVenueSummary(id: "patch", name: "Approved Patch Venue", category: "dining", address: "Atlanta", distance: "0.4 mi", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)) == "VERIFIED PATCH", "NativeMapParitySelfTests: real patch/vendor-approved details must claim VERIFIED PATCH authentication.")
+        precondition(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label == "Open Now", "NativeMapParitySelfTests: coffee venue must read Open Now at 8am (parity with venueHours.ts).")
+        precondition(NativeVenueHours.openStatus(category: "coffee", hour: 5, minute: 0, weekday: 3).isOpen == false, "NativeMapParitySelfTests: coffee venue must read closed at 5am (parity with venueHours.ts).")
         precondition(NativeMapExploreView.verifiedZoneRadiusMeters == 120, "NativeMapParitySelfTests: VERIFIED_ZONE_RADIUS proximity gate drifted from React MapSection 120 m.")
         precondition(NativeMapExploreView.proximityOverrideEnvironmentKey == "BYT_NATIVE_MAP_PROXIMITY_METERS", "NativeMapParitySelfTests: proximity simulator override env key drifted.")
         precondition(BytspotTrustLevel.allCases.map(\.rawValue) == [0, 1, 2, 3, 4], "NativeMapParitySelfTests: Trust Ladder rung order drifted from native-trust-contract.json.")
@@ -6076,6 +6523,8 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.visibleSectionOrder == ["filters", "feed"], "NativeDiscoverParitySelfTests: Discover header/search/scaffold sections must stay removed.")
         precondition(NativeDiscoverView.filterRowCount == 3, "NativeDiscoverParitySelfTests: Discover filter system must remain three rows.")
         precondition(NativeDiscoverView.introCardDeckIndex == 0, "NativeDiscoverParitySelfTests: swipe onboarding card must stay first in the deck.")
+        precondition(NativeDiscoverView.detailEnvironmentKey == "BYT_NATIVE_DISCOVER_DETAIL", "NativeDiscoverParitySelfTests: Discover detail screenshot env key drifted.")
+        precondition(NativeDiscoverView.detailDefaultsKey == "bytspot_native_discover_detail", "NativeDiscoverParitySelfTests: Discover detail defaults key drifted.")
         precondition(NativeDiscoverIntroCard.compactHeight == 152, "NativeDiscoverParitySelfTests: Discover swipe guide should stay compact.")
         precondition(NativeDiscoverFeatureCard.cardHeight == 460 && NativeDiscoverFeatureCard.heroHeight == 248 && NativeDiscoverFeatureCard.bodyHeight == 212, "NativeDiscoverParitySelfTests: Discover card fixed dimensions drifted.")
         precondition(NativeDiscoverView.categoryLabels == ["All", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"], "NativeDiscoverParitySelfTests: category labels drifted from React DiscoverSection.")

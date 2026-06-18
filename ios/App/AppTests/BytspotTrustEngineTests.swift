@@ -135,6 +135,60 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(BytspotTrustCapability.allCases.filter(\.isIrreversible).allSatisfy { $0.requiredLevel > .proximate }, "An irreversible capability must require trust above L2 (proximate).")
     }
 
+    // MARK: - Native Venue Details contract (WS-C)
+
+    func testVenueDetailSurfaceIsL0ReadOnly() {
+        XCTAssertEqual(NativeVenueDetailContract.surfaceCapability, .viewVenue)
+        XCTAssertEqual(NativeVenueDetailContract.surfaceCapability.requiredLevel, .anonymous)
+    }
+
+    func testVenueDetailActionsMirrorContract() {
+        XCTAssertEqual(NativeVenueDetailContract.checkinEndpoint, "venues.checkin")
+        XCTAssertTrue(NativeVenueDetailContract.checkinIdempotent)
+        XCTAssertEqual(NativeVenueDetailContract.actionIDs, ["navigate", "call", "share", "save", "getTickets", "checkIn", "concierge", "bookRide"])
+    }
+
+    func testVenueDetailCapabilityBindings() {
+        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })?.kind, .capability(.saveToWallet))
+        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind, .capability(.createCheckoutHold))
+        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "checkIn" })?.kind, .authedWrite(endpoint: "venues.checkin", idempotent: true))
+    }
+
+    func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
+        let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access")), "View Pass")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Events Worth Leaving For", category: "entertainment", address: "Shows and event experiences")), "Get Tickets")
+    }
+
+    func testVenueDetailHeaderBadgesStayConsumerFacing() {
+        XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: nil)))
+        XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: "DISCOVER-VERIFIED")))
+        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking", patchId: "DISCOVER-VERIFIED")), "MEMBER SERVICE")
+        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")), "VERIFIED PATCH")
+    }
+
+    func testVenueDetailCategorySectionsArePurposeBuilt() {
+        let broni = NativeVenueDetailPresentation.detailSection(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"))
+        XCTAssertEqual(broni?.title, "Dining highlights")
+        XCTAssertEqual(broni?.systemImage, "fork.knife")
+        XCTAssertTrue(broni?.highlights.contains("Jollof + chicken") == true)
+
+        let gh = NativeVenueDetailPresentation.detailSection(for: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access"))
+        XCTAssertEqual(gh?.title, "Pass access")
+        XCTAssertEqual(gh?.systemImage, "ticket.fill")
+        XCTAssertTrue(gh?.highlights.contains("Digital pass") == true)
+    }
+
+    func testVenueHoursCoffeeParity() {
+        XCTAssertEqual(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label, "Open Now")
+        XCTAssertFalse(NativeVenueHours.openStatus(category: "coffee", hour: 5, minute: 0, weekday: 3).isOpen)
+    }
+
+    private func venue(name: String, category: String, address: String, patchId: String? = nil) -> NativeVenueSummary {
+        NativeVenueSummary(id: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name, category: category, address: address, distance: "0.4 mi", rating: 4.9, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: 2, label: "Open", waitMins: nil), parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: patchId, imageUrl: nil)
+    }
+
     // MARK: - Premium Map Functions entitlement matrix (WS-B)
     // Mirrors contracts/native-trust-contract.json mapFunctions.
 

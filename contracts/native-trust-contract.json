@@ -7,7 +7,8 @@
     "mapSection": "src/components/MapSection.tsx",
     "mapParking": "src/utils/mapParking.ts",
     "patchTiers": "src/utils/patchTiers.ts",
-    "mapTypes": "src/components/map/mapTypes.ts"
+    "mapTypes": "src/components/map/mapTypes.ts",
+    "venueDetails": "src/components/VenueDetails.tsx"
   },
   "trustLadder": [
     {
@@ -140,5 +141,48 @@
       "traffic-intelligence"
     ],
     "premiumEntitlement": "insider-premium"
+  },
+  "venueDetail": {
+    "surfaceCapability": "viewVenue",
+    "checkinEndpoint": "venues.checkin",
+    "checkinIdempotent": true,
+    "actions": [
+      {
+        "id": "navigate",
+        "kind": "device"
+      },
+      {
+        "id": "call",
+        "kind": "device"
+      },
+      {
+        "id": "share",
+        "kind": "device"
+      },
+      {
+        "id": "save",
+        "kind": "local"
+      },
+      {
+        "id": "getTickets",
+        "kind": "capability",
+        "capability": "saveToWallet"
+      },
+      {
+        "id": "checkIn",
+        "kind": "authedWrite",
+        "endpoint": "venues.checkin",
+        "idempotent": true
+      },
+      {
+        "id": "concierge",
+        "kind": "handoff"
+      },
+      {
+        "id": "bookRide",
+        "kind": "capability",
+        "capability": "createCheckoutHold"
+      }
+    ]
   }
 }

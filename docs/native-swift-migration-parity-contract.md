@@ -102,6 +102,33 @@ Recommended first slice: native authenticated shell with React fallback preserve
 6. Each tab initially shows native skeleton + "Open legacy web" fallback.
 7. Run simulator smoke before any release-root switch.
 
+## Workstream C — Native Venue Details
+
+Status: scoped 2026-06-18. Next slice after WS-A (trust ladder) and WS-B (Map
+Functions premium gating). Source of truth: `src/components/VenueDetails.tsx`.
+Rationale for sequencing before Checkout: the venue detail surface is the read
+surface (`viewVenue` = capability L0, no trust gate, low risk) already reachable
+from two migrated entry points that today collapse to a coarse
+`openHybrid(.discover)` handoff; it is the natural precursor to the higher-trust
+Checkout surface (L3, irreversible, Stripe redirect) which is already partially
+modeled by the contract `checkout` block + `NativePatchBookingSelfTests`.
+
+| Item | React anchor | Native target | Trust mapping |
+| --- | --- | --- | --- |
+| Read surface | `VenueDetails` modal | `NativeVenueDetailView` | `viewVenue` (L0) |
+| Navigate / Call / Share | `handleNavigate` / `handleCall` / `handleShare` | Device intents (Maps, `tel:`, share sheet) | none (device) |
+| Save | `handleToggleFavorite` (savedSpots) | Save-to-wallet action | `saveToWallet` (L1) |
+| Get Tickets | `handleOpenTicketFlow` (access pass) | Ticket/access pass action | `saveToWallet` (L1) |
+| Check In | `trpc.venues.checkin.mutate` (idempotent) | Authed write | session-gated, advisory (reversible — no trust rung) |
+| Concierge | `onOpenConcierge` | `openHybrid(.concierge)` | handoff |
+| Book Ride | `handleBookValet` / `onBookRide` | L3 checkout bridge → WS-D | `createCheckoutHold` (L3) |
+
+Anchors are locked in `contracts/native-trust-contract.json → venueDetail`
+(generated from React source; the `venues.checkin` endpoint is extracted
+verbatim). Anything not yet native falls back to web. WS-D (Checkout parity) is
+the follow-on: it consumes the existing `checkout` contract block and the L3
+`createCheckoutHold` capability that Book Ride bridges into.
+
 ## No-Ship Gates Per Slice
 
 - `npm run type-check`

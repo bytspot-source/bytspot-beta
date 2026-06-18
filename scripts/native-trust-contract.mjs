@@ -21,6 +21,7 @@ const SRC = {
   mapParking: 'src/utils/mapParking.ts',
   patchTiers: 'src/utils/patchTiers.ts',
   mapTypes: 'src/components/map/mapTypes.ts',
+  venueDetails: 'src/components/VenueDetails.tsx',
 };
 
 const fail = (msg) => {
@@ -73,6 +74,7 @@ const ms = read(SRC.mapSection);
 const mp = read(SRC.mapParking);
 const pt = read(SRC.patchTiers);
 const mt = read(SRC.mapTypes);
+const vd = read(SRC.venueDetails);
 
 const holdWindowMs = matchNumber(SRC.virtualPatch, vp, 'VIRTUAL_PATCH_HOLD_WINDOW_MS');
 const webTrustLevels = matchUnion(SRC.virtualPatch, vp, 'VirtualPatchTrustLevel');
@@ -202,6 +204,47 @@ const invariants = {
   irreversibleCapabilities,
 };
 
+// ── Native Venue Details surface (WS-C) ─────────────────────────────────────
+// The read surface itself is L0 (viewVenue) — viewing a venue grants/needs no
+// trust. Each action either requires a ladder capability, hands off to a not-
+// yet-native (or higher-trust) web surface, or is a plain device intent. The
+// single write path (check-in) is extracted verbatim from VenueDetails.tsx so
+// the native action can't target a router/method the web never calls; it is a
+// reversible authenticated write (idempotent), so it needs a session but grants
+// and requires no trust rung — advisory, not a ladder capability. bookRide is
+// the L3 createCheckoutHold bridge into the (future) native checkout surface.
+//
+// Action `kind` taxonomy: `device` (transient OS intent — maps/tel/share),
+// `local` (local persistent favorite, no server/trust — savedSpots), `capability`
+// (requires a ladder rung), `authedWrite` (session-gated reversible server write,
+// no trust rung), `handoff` (defers to web / another surface). `save` is the
+// React heart/favorite (local savedSpots) — trust-free; the real wallet write is
+// `getTickets` (the access-pass flow → saveToWallet L1).
+const venueCheckinEndpoint = (() => {
+  const m = vd.match(/trpc\.(venues\.checkin)\.mutate/);
+  if (!m) fail(`could not find trpc.venues.checkin.mutate in ${SRC.venueDetails}`);
+  return m[1];
+})();
+const venueDetailSurfaceCapability = 'viewVenue';
+if (capabilities[venueDetailSurfaceCapability] !== 0) {
+  fail(`venue detail read surface must be L0 (${venueDetailSurfaceCapability} is L${capabilities[venueDetailSurfaceCapability]})`);
+}
+const venueDetailActions = [
+  { id: 'navigate', kind: 'device' },
+  { id: 'call', kind: 'device' },
+  { id: 'share', kind: 'device' },
+  { id: 'save', kind: 'local' },
+  { id: 'getTickets', kind: 'capability', capability: 'saveToWallet' },
+  { id: 'checkIn', kind: 'authedWrite', endpoint: venueCheckinEndpoint, idempotent: true },
+  { id: 'concierge', kind: 'handoff' },
+  { id: 'bookRide', kind: 'capability', capability: 'createCheckoutHold' },
+];
+for (const a of venueDetailActions) {
+  if (a.kind === 'capability' && !(a.capability in capabilities)) {
+    fail(`venueDetail action "${a.id}" references unknown capability "${a.capability}"`);
+  }
+}
+
 const contract = {
   $schema: 'bytspot.native-trust-contract/v1',
   version: 1,
@@ -226,6 +269,17 @@ const contract = {
     premium: premiumMapFunctions,
     premiumEntitlement: premiumEntitlementPlan,
   },
+  // Native Venue Details read surface (WS-C). `surfaceCapability` is the L0 view
+  // gate; `checkinEndpoint` is the verbatim venues.checkin write path; `actions`
+  // bind each CTA to a ladder capability, a handoff, an authed write, or a plain
+  // device intent. Native reads this so the detail surface can't gate (or free)
+  // an action against the wrong trust rung.
+  venueDetail: {
+    surfaceCapability: venueDetailSurfaceCapability,
+    checkinEndpoint: venueCheckinEndpoint,
+    checkinIdempotent: true,
+    actions: venueDetailActions,
+  },
 };
 
 const serialized = `${JSON.stringify(contract, null, 2)}\n`;
@@ -235,7 +289,7 @@ if (isCheck) {
   if (!fs.existsSync(OUT)) fail(`contract not generated yet: ${path.relative(root, OUT)} (run: npm run gen:native-trust-contract)`);
   const current = fs.readFileSync(OUT, 'utf8');
   if (current !== serialized) fail(`contract drifted from React source of truth. Run: npm run gen:native-trust-contract, then update native consumers.`);
-  console.log(`[native-trust-contract] PASS: contract matches React source (proximity ${proximityRadiusMeters}m arm / ${proximityRadiusMeters + proximityHysteresisMeters}m release, accuracy floor ${proximityAccuracyFloorMeters}m, advisory rings ${proximityPreStageMeters}m/${proximityDiscoveryMeters}m, hold ${holdWindowMs / 60000}m, ${trustLadder.length} ladder rungs, ${irreversibleCapabilities.length} irreversible caps > L${PROXIMATE_LEVEL}, ${premiumMapFunctions.length} premium map functions of ${mapFunctionTokens.length}).`);
+  console.log(`[native-trust-contract] PASS: contract matches React source (proximity ${proximityRadiusMeters}m arm / ${proximityRadiusMeters + proximityHysteresisMeters}m release, accuracy floor ${proximityAccuracyFloorMeters}m, advisory rings ${proximityPreStageMeters}m/${proximityDiscoveryMeters}m, hold ${holdWindowMs / 60000}m, ${trustLadder.length} ladder rungs, ${irreversibleCapabilities.length} irreversible caps > L${PROXIMATE_LEVEL}, ${premiumMapFunctions.length} premium map functions of ${mapFunctionTokens.length}, ${venueDetailActions.length} venue-detail actions).`);
 } else {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, serialized);

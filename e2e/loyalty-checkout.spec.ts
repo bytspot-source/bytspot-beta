@@ -56,6 +56,9 @@ const STATUS_INSIDER: SubscriptionStatus = {
 async function installCheckoutMocks(page: Page, status: SubscriptionStatus) {
   await page.addInitScript(({ subscriptionStatus, verifiedVenue }) => {
     localStorage.setItem('bytspot_intro_seen', 'true');
+    localStorage.setItem('bytspot_auth_token', 'guest_session');
+    localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
+    localStorage.setItem('bytspot_user_name', 'Guest');
     localStorage.removeItem('bytspot_provider_premium_entitlement');
     if ('serviceWorker' in navigator) {
       try {
@@ -137,10 +140,6 @@ async function installCheckoutMocks(page: Page, status: SubscriptionStatus) {
 
 async function enterMainApp(page: Page) {
   await page.goto('/');
-  await expect(page.getByText("Let's Go")).toBeVisible({ timeout: 15_000 });
-  await page.getByText("Let's Go").click();
-  await expect(page.getByText('Continue as Guest')).toBeVisible({ timeout: 10_000 });
-  await page.getByText('Continue as Guest').click();
   await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 }
 
@@ -163,20 +162,19 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 
 async function openVerifiedPremiumTeaser(page: Page) {
   const mapTab = page.getByRole('tab', { name: 'Map tab' });
-  const dialog = page.getByRole('dialog', { name: 'Map Functions' });
   await robustClick(mapTab);
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await robustClick(page.getByRole('button', { name: /Live Venue Data/i }));
-  await expect(dialog).toBeHidden({ timeout: 10_000 });
-  const verifiedMarker = page.locator('.leaflet-marker-icon:has(.byt-verified-glow)').first();
-  await expect(verifiedMarker).toBeVisible({ timeout: 15_000 });
-  await verifiedMarker.evaluate((el: HTMLElement) => {
-    const rect = el.getBoundingClientRect();
-    const opts = { bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
-    el.dispatchEvent(new MouseEvent('mousedown', opts));
-    el.dispatchEvent(new MouseEvent('mouseup', opts));
-    el.dispatchEvent(new MouseEvent('click', opts));
-  });
+  await expect(mapTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
+  await page.locator('.leaflet-container').waitFor({ state: 'attached', timeout: 15_000 });
+  const dataReadyCue = page.getByRole('button', { name: /Open Tap and Scan virtual patch flow/i });
+  await expect(dataReadyCue).toContainText(VERIFIED_VENUE.name, { timeout: 15_000 });
+  const search = page.getByPlaceholder('Search destination or service type');
+  await expect(search).toBeVisible({ timeout: 15_000 });
+  await search.fill(VERIFIED_VENUE.name);
+  await expect(search).toHaveValue(VERIFIED_VENUE.name);
+  await search.press('Enter');
+  const venueResult = page.getByRole('button', { name: new RegExp(VERIFIED_VENUE.name, 'i') }).first();
+  await expect(venueResult).toBeVisible({ timeout: 15_000 });
+  await robustClick(venueResult);
   const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' });
   await expect(unlockBtn).toBeVisible({ timeout: 15_000 });
   await robustClick(unlockBtn);

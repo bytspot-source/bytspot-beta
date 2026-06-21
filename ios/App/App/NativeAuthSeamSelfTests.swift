@@ -83,4 +83,53 @@ enum NativeAuthSeamSelfTests {
         }
     }
 }
+
+/// DEBUG-only source-of-truth guard for the native Splash → Landing → Auth P1 flow.
+/// Locks React copy/routes and the native-only backend boundary before smoke capture.
+@MainActor
+enum NativeAuthSplashSelfTests {
+    static func runIfRequested() {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        assertReactLaunchCopyIsMirrored()
+        assertAuthRouteContractsAreNativeOnly()
+        assertPreviewHooksAreDeterministic()
+    }
+
+    private static func assertReactLaunchCopyIsMirrored() {
+        precondition(NativeAuthLaunchContract.appFlow == ["splash", "landing", "vibe", "walk", "crew", "atlanta", "main"], "NativeAuthSplashSelfTests: App flow drifted from launch personalization source-of-truth.")
+        precondition(NativeAuthLaunchContract.reactSources.contains("SplashScreen.tsx"), "NativeAuthSplashSelfTests: missing SplashScreen source guard.")
+        precondition(NativeAuthLaunchContract.reactSources.contains("App.tsx onboarding quiz"), "NativeAuthSplashSelfTests: missing App.tsx onboarding quiz source guard.")
+        precondition(NativeAuthLaunchContract.reactSources.contains("AuthenticationFlow.tsx"), "NativeAuthSplashSelfTests: missing auth source guard.")
+        precondition(NativeAuthLaunchContract.splashDurationSeconds == 3.0, "NativeAuthSplashSelfTests: splash timing must mirror React 3s brand impression.")
+        precondition(NativeAuthLaunchContract.splashTagline == "Your perfect spot awaits", "NativeAuthSplashSelfTests: splash tagline drifted.")
+        precondition(NativeAuthLaunchContract.splashFeatureChips == ["Parking", "Venues", "AI-Powered"], "NativeAuthSplashSelfTests: splash chips drifted.")
+        precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
+        precondition(NativeAuthLaunchContract.vibeQuestion == "What's your vibe tonight?", "NativeAuthSplashSelfTests: vibe question drifted.")
+        precondition(NativeAuthLaunchContract.walkOptions == ["🚶 < 5 min", "🚶‍♀️ 10 min", "🚌 Anywhere"], "NativeAuthSplashSelfTests: walk options drifted.")
+        precondition(NativeAuthLaunchContract.atlantaPicks.contains("Ladybird Grove & Mess Hall"), "NativeAuthSplashSelfTests: Atlanta pick fixture drifted.")
+        precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min") == "walk_10", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
+        precondition(ProcessInfo.processInfo.environment["BYT_NATIVE_LAUNCH_AUTORUN"] == nil || NativeAuthLaunchContract.autoRunsLaunchJourney, "NativeAuthSplashSelfTests: launch autorun hook drifted.")
+    }
+
+    private static func assertAuthRouteContractsAreNativeOnly() {
+        precondition(NativeAuthLaunchContract.authRoutes == ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"], "NativeAuthSplashSelfTests: auth route list drifted.")
+        precondition(NativeAuthLaunchContract.authModes == ["signup", "login"], "NativeAuthSplashSelfTests: auth modes drifted.")
+        precondition(NativeAuthLaunchContract.signupPasswordMinimum == 8, "NativeAuthSplashSelfTests: native signup password minimum must stay strict at 8.")
+        precondition(NativeAuthLaunchContract.reactSignupPasswordMinimum == 6, "NativeAuthSplashSelfTests: React mismatch marker drifted; re-audit AuthenticationFlow.tsx.")
+        precondition(NativeAuthInputValidator.emailIsValid("member@example.com"), "NativeAuthSplashSelfTests: email validation contract drifted.")
+        precondition(!NativeAuthInputValidator.canSubmit(mode: .signup, name: "A", email: "bad", password: "1234567"), "NativeAuthSplashSelfTests: invalid signup should stay blocked.")
+        precondition(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"), "NativeAuthSplashSelfTests: signup validation copy drifted.")
+        precondition(NativeAuthRouteContract.storageKeys.contains("bytspot_auth_token"), "NativeAuthSplashSelfTests: React auth token storage key guard missing.")
+        precondition(NativeAuthRouteContract.passwordRecoveryRoutes.contains("/#/forgot-password"), "NativeAuthSplashSelfTests: password recovery route guard missing.")
+        precondition(NativeAuthDataAPI.signupInput(email: "  USER@Example.com ", password: "12345678", name: " Ada ", ref: " ab12 ")["ref"] as? String == "AB12", "NativeAuthSplashSelfTests: signup invite ref normalization drifted.")
+        precondition(NativeAuthDataAPI.loginInput(email: "  user@example.com ", password: "pw")["email"] as? String == "user@example.com", "NativeAuthSplashSelfTests: login email trimming drifted.")
+    }
+
+    private static func assertPreviewHooksAreDeterministic() {
+        precondition(NativeAuthLaunchContract.requestedAuthMode == .signup || NativeAuthLaunchContract.requestedAuthMode == .login, "NativeAuthSplashSelfTests: preview auth mode must be deterministic.")
+        precondition(NativeAuthLaunchContract.bypassesLaunchFlowForPreview == (ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_PROFILE"] != nil || ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_TAB"] != nil || ProcessInfo.processInfo.environment["BYT_NATIVE_PROFILE_PANEL_SMOKE"] != nil), "NativeAuthSplashSelfTests: launch bypass hooks drifted.")
+    }
+}
 #endif

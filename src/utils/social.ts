@@ -2,7 +2,8 @@
  * Bytspot Social Utility
  * v2 — API-first: calls tRPC social.* endpoints, falls back to localStorage.
  */
-import { trpc } from './trpc';
+import { trpc } from './trpc.ts';
+import { pickAndHashContacts, isContactPickerSupported } from './contactHash.ts';
 
 export interface SocialFeedEvent {
   id: string;
@@ -127,5 +128,92 @@ export function broadcastOwnCheckin(venueName: string, venueId: string | undefin
 function seedFriendActivity(userId: string, userName: string): void {
   void userId;
   void userName;
+}
+
+// ── Contact graph (WS-Social Phase 1) ───────────────────────────────────────
+
+/** A contact-graph friend suggestion surfaced by social.suggestions. Mirrors
+ * the server item shape and the native NativeFriendSuggestion. */
+export interface FriendSuggestion {
+  userId: string;
+  name: string;
+  profileImage: string | null;
+  source: string;
+  mutual: boolean;
+  mutualContacts: number;
+  sharedVerifiedVenues: number;
+}
+
+/** Result of a syncCloudContact mutation. */
+export interface ContactSyncResult {
+  source: string;
+  degraded: boolean;
+  scanned: number;
+  matched: number;
+  mutual: number;
+}
+
+/** Human reason string, ranked the same way the server sorts suggestions. */
+export function suggestionReason(s: FriendSuggestion): string {
+  if (s.mutual) return 'Mutual contact';
+  if (s.mutualContacts > 0) return `${s.mutualContacts} contact${s.mutualContacts === 1 ? '' : 's'} in common`;
+  if (s.sharedVerifiedVenues > 0) return `${s.sharedVerifiedVenues} shared verified spot${s.sharedVerifiedVenues === 1 ? '' : 's'}`;
+  return s.source === 'google' ? 'From your Google contacts' : 'From your contacts';
+}
+
+/** Deterministic client mirror of the server suggestion ordering contract. */
+export function rankFriendSuggestions(suggestions: FriendSuggestion[]): FriendSuggestion[] {
+  return [...suggestions].sort((a, b) => {
+    const mutualDelta = Number(b.mutual) - Number(a.mutual);
+    if (mutualDelta !== 0) return mutualDelta;
+    const contactsDelta = b.mutualContacts - a.mutualContacts;
+    if (contactsDelta !== 0) return contactsDelta;
+    const venuesDelta = b.sharedVerifiedVenues - a.sharedVerifiedVenues;
+    if (venuesDelta !== 0) return venuesDelta;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Fetch ranked friend suggestions from the contact graph. Fails safe to []. */
+export async function getSuggestions(limit = 20): Promise<FriendSuggestion[]> {
+  if (!isAuthenticated()) return [];
+  try {
+    const res = await trpc.social.suggestions.query({ limit });
+    return rankFriendSuggestions((res?.items ?? []).map((item: Record<string, unknown>) => ({
+      userId: String(item.userId),
+      name: (item.name as string) ?? 'Bytspot member',
+      profileImage: (item.profileImage as string | null) ?? null,
+      source: (item.source as string) ?? 'apple',
+      mutual: Boolean(item.mutual),
+      mutualContacts: Number(item.mutualContacts ?? 0),
+      sharedVerifiedVenues: Number(item.sharedVerifiedVenues ?? 0),
+    })));
+  } catch {
+    return [];
+  }
+}
+
+/** Sync salted contact hashes into the contact graph (Apple/device source). */
+export async function syncCloudContact(hashes: string[]): Promise<ContactSyncResult | null> {
+  if (!isAuthenticated()) return null;
+  try {
+    return await trpc.social.syncCloudContact.mutate({ source: 'apple', hashes });
+  } catch {
+    return null;
+  }
+}
+
+/** True when this browser exposes the Web Contact Picker API (Android Chrome). */
+export { isContactPickerSupported };
+
+/**
+ * Open the Web Contact Picker, hash the chosen contacts on-device, and sync
+ * the hashes. Returns the sync result, or null when unsupported/cancelled.
+ * Raw contacts never leave the device.
+ */
+export async function syncDeviceContactsViaPicker(): Promise<ContactSyncResult | null> {
+  const hashes = await pickAndHashContacts();
+  if (hashes === null) return null;
+  return syncCloudContact(hashes);
 }
 

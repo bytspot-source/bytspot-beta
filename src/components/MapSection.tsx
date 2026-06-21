@@ -1,7 +1,6 @@
 import 'leaflet/dist/leaflet.css';
 import { Capacitor } from '@capacitor/core';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle, Polyline } from 'react-leaflet';
-import L from 'leaflet';
+import { MapContainer, TileLayer, useMap, useMapEvents, Polyline } from 'react-leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation,
@@ -16,14 +15,13 @@ import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
-import { VenueDetails } from './VenueDetails';
-import { useVenues, venueToCard } from '../utils/hooks/useVenues';
+import { useVenues } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
 import { trpc, type ApiVenue } from '../utils/trpc';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
-import { filterMapVenues, hasHardwarePatchInstalled, isBikeStation } from '../utils/mapVenues';
+import { filterMapVenues, hasHardwarePatchInstalled } from '../utils/mapVenues';
 import { getUserPreferences, getPreferredMapFilters, getCulturalContext } from '../utils/personalization';
 import { type MapParkingSpot } from '../utils/mapParking';
 import { impactLight } from '../utils/haptics';
@@ -33,8 +31,6 @@ import { MapSearchBar } from './map/MapSearchBar';
 import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
 import { useMapParkingData } from './map/useMapParkingData';
-
-type LeafletDefaultIconPrototype = typeof L.Icon.Default.prototype & { _getIconUrl?: unknown };
 
 type ReservationSpot = {
   id: string;
@@ -113,8 +109,6 @@ const SPATIAL_SHEET_PEEK_Y = 118;
 const SPATIAL_SHEET_SNAP_OFFSET = 44;
 const SPATIAL_SHEET_SNAP_VELOCITY = 420;
 
-type AvailabilityStatus = 'available' | 'limited' | 'full';
-
 // ParkingSpot definition lives in src/utils/mapParking.ts. Local alias keeps
 // existing call sites compiling while the helpers do the heavy lifting.
 type ParkingSpot = MapParkingSpot;
@@ -128,16 +122,7 @@ interface FilterState {
   showPremiumOnly: boolean;
 }
 
-// Tiered parking strategy: vendor-reported (apiVenues) → Google Places nearby
-// → static fallback. See src/utils/mapParking.ts for the merge logic.
-
-// Fix Leaflet's broken default icon paths in Vite builds
-delete (L.Icon.Default.prototype as LeafletDefaultIconPrototype)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
+// Parking source merge lives in src/utils/mapParking.ts.
 
 // Default center fallback — used only when no GPS coords are available
 const DEFAULT_MAP_CENTER: [number, number] = [33.7866, -84.3833];
@@ -167,7 +152,7 @@ function LongPressDropController({ onDrop, onMapTap }: { onDrop: (lat: number, l
   useMapEvents({
     click(event) {
       const target = event.originalEvent.target as HTMLElement | null;
-      if (target?.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control, .leaflet-interactive')) return;
+      if (target?.closest('.leaflet-control, .leaflet-interactive')) return;
       onMapTap();
     },
     contextmenu(event) {
@@ -175,153 +160,6 @@ function LongPressDropController({ onDrop, onMapTap }: { onDrop: (lat: number, l
     },
   });
   return null;
-}
-
-// Shared CSS keyframes injected once
-const PULSE_STYLE_ID = 'bytspot-pulse-css';
-if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID)) {
-  const style = document.createElement('style');
-  style.id = PULSE_STYLE_ID;
-  style.textContent = `
-    @keyframes bytspot-pulse { 0%{transform:scale(1);opacity:.7} 70%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
-    @keyframes bytspot-pulse-slow { 0%{transform:scale(1);opacity:.5} 70%{transform:scale(2.4);opacity:0} 100%{transform:scale(2.4);opacity:0} }
-    @keyframes bytspot-trend { 0%{transform:scale(1);opacity:.85} 50%{transform:scale(2.8);opacity:0} 100%{transform:scale(2.8);opacity:0} }
-    @keyframes bytspot-verified-glow { 0%,100%{transform:scale(1);opacity:.45} 50%{transform:scale(1.24);opacity:.12} }
-    @keyframes bytspot-verified-ring { 0%{transform:scale(.98);opacity:.8} 70%{transform:scale(1.75);opacity:0} 100%{transform:scale(1.75);opacity:0} }
-    @keyframes bytspot-marker-in { 0%{opacity:0;transform:scale(.55) translateY(4px)} 60%{opacity:1;transform:scale(1.06) translateY(0)} 100%{opacity:1;transform:scale(1) translateY(0)} }
-    @keyframes bytspot-station-orbit { 0%{transform:scale(.9);opacity:.7} 70%{transform:scale(2.15);opacity:0} 100%{transform:scale(2.15);opacity:0} }
-    @keyframes bytspot-tapzone-scan { 0%,100%{transform:translateY(-2px);opacity:.35} 50%{transform:translateY(22px);opacity:.95} }
-    @keyframes bytspot-live-pop { 0%,100%{transform:scale(1);box-shadow:0 0 0 rgba(251,146,60,0)} 50%{transform:scale(1.08);box-shadow:0 0 16px rgba(251,146,60,.75)} }
-    .byt-pulse-ring{position:absolute;inset:-6px;border-radius:50%;animation:bytspot-pulse 2s ease-out infinite;}
-    .byt-pulse-ring-slow{position:absolute;inset:-5px;border-radius:50%;animation:bytspot-pulse-slow 3s ease-out infinite;}
-    .byt-trend-pulse{position:absolute;inset:-9px;border-radius:50%;animation:bytspot-trend 1.1s ease-out infinite;}
-    .byt-verified-glow{position:absolute;inset:-12px;border-radius:50%;background:radial-gradient(circle, rgba(34,211,238,.45) 0%, rgba(124,58,237,.24) 44%, rgba(236,72,153,0) 74%);animation:bytspot-verified-glow 2.6s ease-in-out infinite;}
-    .byt-verified-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.85);box-shadow:0 0 20px rgba(34,211,238,.45),0 0 28px rgba(124,58,237,.22);animation:bytspot-verified-ring 1.85s ease-out infinite;}
-    .byt-marker-in{animation:bytspot-marker-in 320ms cubic-bezier(.2,.8,.25,1.05) both;transform-origin:center bottom;}
-    .byt-station-orbit{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(103,232,249,.72);animation:bytspot-station-orbit 1.9s ease-out infinite;}
-    .byt-tapzone-scan{position:absolute;left:6px;right:6px;height:2px;border-radius:999px;background:rgba(103,232,249,.95);box-shadow:0 0 12px rgba(34,211,238,.8);animation:bytspot-tapzone-scan 1.6s ease-in-out infinite;}
-    .byt-live-badge{animation:bytspot-live-pop 1.15s ease-in-out infinite;}
-  `;
-  document.head.appendChild(style);
-}
-
-function createParkingIcon(color: string): L.DivIcon {
-  return L.divIcon({
-    html: `<div style="position:relative;width:32px;height:32px;">
-      <div class="byt-pulse-ring" style="border:2px solid ${color};"></div>
-      <div style="width:32px;height:32px;border-radius:50%;background:${color};border:3px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 20px ${color}44;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;cursor:pointer;line-height:1;">P</div>
-    </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -18],
-    className: '',
-  });
-}
-
-function createDroppedPinIcon(): L.DivIcon {
-  return L.divIcon({
-    html: `<div class="byt-marker-in" style="position:relative;width:34px;height:42px;">
-      <div style="position:absolute;left:50%;top:2px;transform:translateX(-50%);width:30px;height:30px;border-radius:50% 50% 50% 4px;background:linear-gradient(135deg,#22d3ee,#8b5cf6);border:2px solid rgba(255,255,255,.94);box-shadow:0 12px 26px rgba(0,0,0,.52),0 0 22px rgba(34,211,238,.5);transform-origin:center;rotate:-45deg;"></div>
-      <div style="position:absolute;left:50%;top:11px;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:white;"></div>
-    </div>`,
-    iconSize: [34, 42],
-    iconAnchor: [17, 36],
-    popupAnchor: [0, -34],
-    className: '',
-  });
-}
-
-function createTapZoneIcon(crowdLabel = 'Live', waitLabel = 'Now'): L.DivIcon {
-  return L.divIcon({
-    html: `<div class="byt-marker-in" style="position:relative;width:40px;height:40px;">
-      <div class="byt-verified-glow"></div>
-      <div style="position:absolute;inset:1px;clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(135deg,#06b6d4,#7c3aed 58%,#ec4899);border:2px solid rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(0,0,0,.55),0 0 24px rgba(34,211,238,.45);overflow:hidden;">
-        <div class="byt-tapzone-scan"></div>
-        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:white;font-size:15px;font-weight:900;line-height:1;">⌁</div>
-      </div>
-      <div style="position:absolute;top:-12px;right:-18px;padding:2px 6px;border-radius:999px;background:#050505;border:1px solid rgba(103,232,249,.8);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;white-space:nowrap;box-shadow:0 0 12px rgba(34,211,238,.35);">${crowdLabel}</div>
-      <div style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.94);border:1px solid rgba(103,232,249,.65);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;white-space:nowrap;">TAP</div>
-      <div style="position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.94);border:1px solid rgba(255,255,255,.45);color:white;font-size:7px;font-weight:900;white-space:nowrap;">${waitLabel}</div>
-    </div>`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -22],
-    className: '',
-  });
-}
-
-/** eBike / bike-share station marker — squared teal badge keeps it visually
- *  distinct from circular parking pins and rounded venue tiles. */
-function createEBikeIcon(): L.DivIcon {
-  const color = '#14B8A6'; // teal-500
-  return L.divIcon({
-    html: `<div style="position:relative;width:32px;height:32px;">
-      <div class="byt-pulse-ring" style="border:2px solid ${color};border-radius:8px;"></div>
-      <div style="width:32px;height:32px;border-radius:8px;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;line-height:1;">🚲</div>
-    </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -18],
-    className: '',
-  });
-}
-
-/** Vibe-level → hex color. Mirrors the 1-4 scale from crowdSimulator.ts. */
-const VIBE_COLORS: Record<number, string> = {
-  1: '#10B981', // Chill  — green
-  2: '#EAB308', // Active — yellow
-  3: '#F97316', // Busy   — orange
-  4: '#EF4444', // Packed — red
-};
-
-/**
- * Vibe-driven marker icon:
- *   level    — 1-4 crowd level from Vibe Engine
- *   isPaid   — shows amber price badge on marker
- *   isTrending — faster, larger pulse ring for high check-in velocity venues
- *   priceBadge — e.g. "$20" text in the badge
- */
-function createVibeMarkerIcon(
-  level: number,
-  isPaid: boolean,
-  isTrending: boolean,
-  priceBadge?: string | null,
-  isVerified: boolean = false,
-  crowdLabel: string = CROWD_LEVEL_LABELS[level] ?? 'Live',
-  waitLabel: string = 'Now',
-): L.DivIcon {
-  const color = VIBE_COLORS[level] ?? '#9333ea';
-  const size = isVerified ? (isTrending ? 38 : 34) : (isTrending ? 34 : 28);
-  const anchor = Math.floor(size / 2);
-  const pulseClass = isTrending ? 'byt-trend-pulse' : 'byt-pulse-ring-slow';
-  const priceBadgeHtml = isPaid
-    ? `<div style="position:absolute;top:-7px;right:-8px;background:#F59E0B;color:white;font-size:8px;font-weight:800;padding:1px 4px;border-radius:5px;border:1.5px solid rgba(255,255,255,0.9);white-space:nowrap;line-height:1.5;">${priceBadge ?? '$'}</div>`
-    : '';
-  const verifiedGlowHtml = isVerified
-    ? `<div class="byt-verified-glow"></div>
-       <div class="byt-verified-ring"></div>
-       <div style="position:absolute;top:-6px;left:-6px;width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#8b5cf6);border:1.5px solid rgba(255,255,255,0.95);box-shadow:0 0 14px rgba(34,211,238,0.48);display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:900;line-height:1;">✓</div>
-       <div style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);padding:1px 5px;border-radius:999px;background:rgba(3,7,18,0.92);border:1px solid rgba(103,232,249,0.55);color:#a5f3fc;font-size:7px;font-weight:900;letter-spacing:.08em;line-height:1.35;white-space:nowrap;">BYT</div>`
-    : '';
-  return L.divIcon({
-    html: `<div class="byt-marker-in" style="position:relative;width:${size}px;height:${size}px;">
-      ${verifiedGlowHtml}
-      <div class="byt-station-orbit" style="border-color:${color};"></div>
-      <div class="${pulseClass}" style="border:2px solid ${color};"></div>
-      <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid rgba(255,255,255,0.92);box-shadow:0 2px 12px rgba(0,0,0,0.7),0 0 18px ${color}55;display:flex;align-items:center;justify-content:center;cursor:pointer;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
-      </div>
-      <div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);display:flex;gap:3px;align-items:center;white-space:nowrap;">
-        <span style="padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.95);border:1px solid rgba(255,255,255,.5);color:white;font-size:7px;font-weight:900;line-height:1.35;">${crowdLabel}</span>
-        <span style="padding:1px 5px;border-radius:999px;background:rgba(3,7,18,.95);border:1px solid ${color};color:#fff;font-size:7px;font-weight:900;line-height:1.35;">${waitLabel}</span>
-      </div>
-      ${priceBadgeHtml}
-    </div>`,
-    iconSize: [size, size],
-    iconAnchor: [anchor, anchor],
-    popupAnchor: [0, -(anchor + 2)],
-    className: '',
-  });
 }
 
 const VERIFIED_ZONE_RADIUS_METERS = 120;
@@ -368,97 +206,6 @@ function saveVirtualPatchContext(payload: Record<string, unknown> | VirtualPatch
   localStorage.setItem(VIRTUAL_PATCH_CONTEXT_KEY, JSON.stringify(payload));
 }
 
-// Community Report icons
-type ReportType = 'accident' | 'closure' | 'police' | 'hazard' | 'construction';
-interface CommunityReport {
-  id: number; lat: number; lng: number; type: ReportType;
-  description: string; reportedBy: string; timeAgo: string; upvotes: number;
-}
-
-const REPORT_ICONS: Record<ReportType, { emoji: string; color: string }> = {
-  accident: { emoji: '🚨', color: '#EF4444' },
-  closure: { emoji: '🚧', color: '#F59E0B' },
-  police: { emoji: '👮', color: '#3B82F6' },
-  hazard: { emoji: '⚠️', color: '#F97316' },
-  construction: { emoji: '🔨', color: '#8B5CF6' },
-};
-
-const COMMUNITY_REPORTS: CommunityReport[] = [
-  { id: 101, lat: 33.7870, lng: -84.3850, type: 'accident', description: 'Minor fender bender, right lane blocked', reportedBy: 'Alex M.', timeAgo: '5 min ago', upvotes: 12 },
-  { id: 102, lat: 33.7830, lng: -84.3880, type: 'closure', description: 'Road closed for construction until 6 PM', reportedBy: 'Jordan K.', timeAgo: '22 min ago', upvotes: 34 },
-  { id: 103, lat: 33.7900, lng: -84.3840, type: 'police', description: 'Speed trap on Peachtree near 14th', reportedBy: 'Sam W.', timeAgo: '8 min ago', upvotes: 45 },
-  { id: 104, lat: 33.7780, lng: -84.3870, type: 'hazard', description: 'Large pothole in right lane', reportedBy: 'Chris D.', timeAgo: '1 hr ago', upvotes: 8 },
-  { id: 105, lat: 33.7855, lng: -84.3820, type: 'construction', description: 'Lane shift ahead, expect delays', reportedBy: 'Taylor R.', timeAgo: '15 min ago', upvotes: 19 },
-];
-
-function createReportIcon(type: ReportType): L.DivIcon {
-  const { emoji, color } = REPORT_ICONS[type];
-  return L.divIcon({
-    html: `<div style="position:relative;width:30px;height:30px;">
-      <div class="byt-pulse-ring" style="border:2px solid ${color};"></div>
-      <div style="width:30px;height:30px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;">${emoji}</div>
-    </div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-    popupAnchor: [0, -17],
-    className: '',
-  });
-}
-
-// Live Events & Vibes
-interface LiveEvent {
-  id: number; lat: number; lng: number; name: string;
-  type: 'concert' | 'food' | 'party' | 'sports' | 'market';
-  crowd: 'low' | 'medium' | 'high'; description: string; time: string;
-}
-
-const EVENT_ICONS: Record<LiveEvent['type'], { emoji: string; color: string }> = {
-  concert: { emoji: '🎵', color: '#EC4899' },
-  food: { emoji: '🍔', color: '#F59E0B' },
-  party: { emoji: '🎉', color: '#8B5CF6' },
-  sports: { emoji: '⚽', color: '#10B981' },
-  market: { emoji: '🛍️', color: '#06B6D4' },
-};
-
-const LIVE_EVENTS: LiveEvent[] = [
-  { id: 201, lat: 33.7890, lng: -84.3870, name: 'Midtown Music Fest', type: 'concert', crowd: 'high', description: 'Live DJ set at Piedmont Park entrance', time: '8 PM - 12 AM' },
-  { id: 202, lat: 33.7810, lng: -84.3855, name: 'ATL Food Truck Rally', type: 'food', crowd: 'medium', description: '12 food trucks on 10th Street', time: '11 AM - 9 PM' },
-  { id: 203, lat: 33.7860, lng: -84.3895, name: 'Rooftop Block Party', type: 'party', crowd: 'high', description: 'Colony Square rooftop party', time: '7 PM - 2 AM' },
-  { id: 204, lat: 33.7920, lng: -84.3860, name: 'Pickup Soccer', type: 'sports', crowd: 'low', description: 'Open pickup game at the park', time: '5 PM - 7 PM' },
-  { id: 205, lat: 33.7750, lng: -84.3840, name: 'Artisan Market', type: 'market', crowd: 'medium', description: 'Local artisans and crafts', time: '10 AM - 6 PM' },
-];
-
-function createEventIcon(type: LiveEvent['type']): L.DivIcon {
-  const { emoji, color } = EVENT_ICONS[type];
-  return L.divIcon({
-    html: `<div style="position:relative;width:34px;height:34px;">
-      <div class="byt-pulse-ring-slow" style="border:2px solid ${color};"></div>
-      <div style="width:34px;height:34px;border-radius:12px;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;">${emoji}</div>
-    </div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
-    popupAnchor: [0, -19],
-    className: '',
-  });
-}
-
-function createHotspotIcon(label = 'LIVE'): L.DivIcon {
-  return L.divIcon({
-    html: `<div class="byt-marker-in" style="position:relative;width:42px;height:42px;">
-      <div class="byt-trend-pulse" style="border:2px solid #fb923c;box-shadow:0 0 28px rgba(249,115,22,.8);"></div>
-      <div style="position:absolute;inset:7px;border-radius:999px;background:radial-gradient(circle,#fed7aa 0%,#fb923c 46%,#ea580c 100%);border:2px solid rgba(255,255,255,.96);box-shadow:0 0 24px rgba(251,146,60,.9),0 12px 26px rgba(0,0,0,.58);"></div>
-      <div class="byt-live-badge" style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);padding:2px 7px;border-radius:999px;background:#ff2f86;color:#050505;border:1px solid rgba(255,255,255,.92);font-size:8px;font-weight:950;letter-spacing:.08em;white-space:nowrap;">LIVE</div>
-      <div style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);padding:1px 6px;border-radius:999px;background:#050505;border:1px solid rgba(251,146,60,.85);color:#fed7aa;font-size:7px;font-weight:900;white-space:nowrap;">${label}</div>
-    </div>`,
-    iconSize: [42, 42],
-    iconAnchor: [21, 21],
-    popupAnchor: [0, -22],
-    className: '',
-  });
-}
-
-const CROWD_COLORS: Record<LiveEvent['crowd'], string> = { low: '#10B981', medium: '#F59E0B', high: '#EF4444' };
-
 /** Open native navigation — Google Maps on Android/web, Apple Maps on iOS */
 function openNativeNavigation(lat: number, lng: number, label?: string) {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -504,7 +251,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [routeDestination, setRouteDestination] = useState<string>(destination || '');
   const [showTrafficIntel, setShowTrafficIntel] = useState(false);
   const [showLayerMenu, setShowLayerMenu] = useState(false);
-  const [openLayerGroup, setOpenLayerGroup] = useState('Show on map');
+  const [openLayerGroup, setOpenLayerGroup] = useState('Explore');
   const [mapQuery, setMapQuery] = useState(destination || '');
   const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
   const [droppedRequestPin, setDroppedRequestPin] = useState<DroppedRequestPin | null>(null);
@@ -512,19 +259,11 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [shouldRecenter, setShouldRecenter] = useState(false);
   const [zoomDirection, setZoomDirection] = useState(0);
   const [reservationSpot, setReservationSpot] = useState<ReservationSpot | null>(null);
-  // Community reports & live vibes/events layers
-  const [showReports, setShowReports] = useState(true);
-  const [showEvents, setShowEvents] = useState(true);
-  const [showReportForm, setShowReportForm] = useState(false);
-  const [newReportType, setNewReportType] = useState<ReportType>('hazard');
-  const [newReportDesc, setNewReportDesc] = useState('');
-  const [communityReports, setCommunityReports] = useState<CommunityReport[]>(COMMUNITY_REPORTS);
 
   // ─── Vibe-centric filter state ─────────────────────────────────────────────
   const [vibeFilter, setVibeFilter] = useState<number | null>(null);         // 1|2|3|4|null
   const [entryFilter, setEntryFilter] = useState<'free' | 'paid' | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null); // 'dining'|'nightlife'|'coffee'|'parks'|null
-  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const preferredMapFilters = useMemo(
     () => getPreferredMapFilters(getUserPreferences(), getCulturalContext()),
@@ -544,7 +283,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [peekVenue, setPeekVenue] = useState<ApiVenue | null>(null);
   const [nearbySheetDismissed, setNearbySheetDismissed] = useState(true);
-  const [venueDetailsVenue, setVenueDetailsVenue] = useState<ApiVenue | null>(null);
   const [showVirtualPatchSheet, setShowVirtualPatchSheet] = useState(false);
   const [showAINotice, setShowAINotice] = useState(false);
   const {
@@ -617,20 +355,20 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   // Apply Verified-only / vibe / entry / category filters to the full ApiVenue list
   const normalizedMapQuery = mapQuery.trim().toLowerCase();
   const allFilteredVenues = useMemo<ApiVenue[]>(
-    () => filterMapVenues(apiVenues, { showVerifiedOnly, vibeFilter, entryFilter, categoryFilter }).filter((venue) => {
+    () => filterMapVenues(apiVenues, {
+      showVerifiedOnly,
+      vibeFilter: normalizedMapQuery ? null : vibeFilter,
+      entryFilter,
+      categoryFilter: normalizedMapQuery ? null : categoryFilter,
+    }).filter((venue) => {
       if (!normalizedMapQuery) return true;
       const haystack = [venue.name, venue.category, venue.address, venue.description].filter(Boolean).join(' ').toLowerCase();
       return haystack.includes(normalizedMapQuery);
     }),
     [apiVenues, vibeFilter, entryFilter, categoryFilter, showVerifiedOnly, normalizedMapQuery],
   );
-  // eBike stations render as their own marker type; everything else uses the vibe tile.
-  const bikeStations = useMemo<ApiVenue[]>(
-    () => allFilteredVenues.filter(isBikeStation),
-    [allFilteredVenues],
-  );
   const filteredMapVenues = useMemo<ApiVenue[]>(
-    () => allFilteredVenues.filter((v) => !isBikeStation(v) && (!showTapZones || !hasHardwarePatchInstalled(v))),
+    () => allFilteredVenues.filter((v) => !showTapZones || !hasHardwarePatchInstalled(v)),
     [allFilteredVenues, showTapZones],
   );
   const tapZoneVenues = useMemo<ApiVenue[]>(
@@ -733,9 +471,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const handleOpenVirtualPatch = useCallback(() => {
     void impactLight();
-    setShowReportForm(false);
     setPeekVenue(null);
-    setVenueDetailsVenue(null);
     setShowQrScannerSheet(false);
     setQrScannerVenue(null);
     resetQrScannerContext();
@@ -888,7 +624,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const handleVerifyVenueAccess = useCallback((venue: ApiVenue) => {
     setPeekVenue(venue);
-    setVenueDetailsVenue(null);
     if (hasHardwarePatchInstalled(venue) && (scanCapabilities.nfc || scanCapabilities.qr)) {
       openMapQrScanner(venue);
       toast.success('Tap Zone ready', { description: `Verify access at ${venue.name}.` });
@@ -917,20 +652,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     onServiceLocationRequestConsumed?.();
   }, [handleDroppedPin, mapCenter, onServiceLocationRequestConsumed, requestServiceLocation, userCoords]);
 
-  const getAvailabilityStatus = (spot: ParkingSpot): AvailabilityStatus => {
-    const pct = (spot.available / spot.total) * 100;
-    if (pct === 0) return 'full';
-    if (pct < 25) return 'limited';
-    return 'available';
-  };
-
-  const getColor = (status: AvailabilityStatus): string => {
-    if (status === 'available') return '#10B981';
-    if (status === 'limited') return '#F59E0B';
-    return '#EF4444';
-  };
-
-  const filteredParkingSpots = parkingData.filter((spot: ParkingSpot) => {
+  const filteredParkingSpots = showParkingSpots ? parkingData.filter((spot: ParkingSpot) => {
     if (normalizedMapQuery && !`${spot.name} ${spot.securityLevel} parking`.toLowerCase().includes(normalizedMapQuery)) return false;
     if (spot.price < filters.priceRange[0] || spot.price > filters.priceRange[1]) return false;
     if (!filters.securityLevel.includes(spot.securityLevel)) return false;
@@ -938,7 +660,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     if (filters.coveredOnly && !spot.isCovered) return false;
     if (filters.showPremiumOnly && !spot.isPremium) return false;
     return true;
-  });
+  }) : [];
 
   const selectedDestinationCoords = peekVenue
     ? [peekVenue.lat, peekVenue.lng] as [number, number]
@@ -979,13 +701,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       .sort((a, b) => (b.crowd?.level ?? 0) - (a.crowd?.level ?? 0))
       .slice(0, 4);
   }, [filteredMapVenues, showTapZones, showVenues, tapZoneVenues, trendingIds]);
-  const showTrendingHotspots = (showEvents || showHeatmap) && liveHotspotVenues.length > 0;
+  const showTrendingHotspots = liveHotspotVenues.length > 0;
 
   const focusVenue = useCallback((venue: ApiVenue) => {
     setShowTrafficIntel(false);
     setShowLayerMenu(false);
     setDroppedRequestPin(null);
-    setVenueDetailsVenue(null);
     setPeekVenue(venue);
     setBottomSheetExpanded(true);
   }, []);
@@ -1022,7 +743,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     if (partnerFocusActive || routeDestination || selectedFunction) setNearbySheetDismissed(false);
   }, [partnerFocusActive, routeDestination, selectedFunction]);
   const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
-  const shouldShowSpatialSheet = !trafficPanelActive && !venueDetailsVenue && (peekVenue || droppedRequestPin || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
+  const hasActiveSpatialQuery = normalizedMapQuery.length > 0;
+  const shouldShowSpatialSheet = !trafficPanelActive && (peekVenue || droppedRequestPin || hasActiveSpatialQuery || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
   const mapMode: MapMode = isRideBookingOpen
     ? 'ride'
     : droppedRequestPin
@@ -1061,21 +783,19 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       setNearbySheetDismissed(true);
       setShowVerifiedOnly(false);
       setPeekVenue(null);
-      setVenueDetailsVenue(null);
       setDroppedRequestPin(null);
       setBottomSheetExpanded(false);
       setShowSpotDetails(false);
       setSelectedSpot(null);
-      setShowReportForm(false);
     }
     setShowTrafficIntel(nextTrafficState);
   }, [showTrafficIntel]);
 
   const visibleLayerControls = [
-    { group: 'Show on map', icon: 'P', label: 'Parking', detail: 'Garages, lots, valet', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
-    { group: 'Show on map', icon: '•', label: 'Places', detail: 'Restaurants, nightlife, wellness', checked: showVenues, onToggle: () => setShowVenues(v => !v), modes: ['default'] },
-    { group: 'Show on map', icon: '⬢', label: 'Tap Zones', detail: `${partnerVenueCount} Patch-ready nearby`, checked: showTapZones, onToggle: () => setShowTapZones(v => !v), modes: ['default'] },
-    { group: 'Show on map', icon: '✓', label: 'Verified partners only', detail: 'Show partnered Bytspots first', checked: showVerifiedOnly, onToggle: () => setShowVerifiedOnly(v => !v), modes: ['default'] },
+    { group: 'Explore', icon: 'P', label: 'Parking', detail: 'Include parking in results', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
+    { group: 'Explore', icon: '•', label: 'Places', detail: 'Include nearby services', checked: showVenues, onToggle: () => setShowVenues(v => !v), modes: ['default'] },
+    { group: 'Explore', icon: '⬢', label: 'Tap Zones', detail: `${partnerVenueCount} Patch-ready nearby`, checked: showTapZones, onToggle: () => setShowTapZones(v => !v), modes: ['default'] },
+    { group: 'Explore', icon: '✓', label: 'Verified partners only', detail: 'Prioritize partnered Bytspots', checked: showVerifiedOnly, onToggle: () => setShowVerifiedOnly(v => !v), modes: ['default'] },
     { group: 'Entry', icon: '✅', label: 'Free', detail: 'No-cost entry', checked: entryFilter === 'free', onToggle: () => setEntryFilter(current => current === 'free' ? null : 'free'), modes: ['default'] },
     { group: 'Entry', icon: '💰', label: 'Paid', detail: 'Premium access', checked: entryFilter === 'paid', onToggle: () => setEntryFilter(current => current === 'paid' ? null : 'paid'), modes: ['default'] },
     { group: 'Category', icon: '🍽️', label: 'Dining', detail: 'Food and chefs', checked: categoryFilter === 'dining', onToggle: () => setCategoryFilter(current => current === 'dining' ? null : 'dining'), modes: ['default'] },
@@ -1086,26 +806,23 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     { group: 'Vibe', icon: '🟡', label: 'Active', detail: 'Balanced', checked: vibeFilter === 2, onToggle: () => setVibeFilter(current => current === 2 ? null : 2), modes: ['default'] },
     { group: 'Vibe', icon: '🟠', label: 'Busy', detail: 'Lively', checked: vibeFilter === 3, onToggle: () => setVibeFilter(current => current === 3 ? null : 3), modes: ['default'] },
     { group: 'Vibe', icon: '🔴', label: 'Packed', detail: 'Peak', checked: vibeFilter === 4, onToggle: () => setVibeFilter(current => current === 4 ? null : 4), modes: ['default'] },
-    { group: 'Live info', icon: '⚠️', label: 'Live Reports', detail: 'Crowd, hazards, closures', checked: showReports, onToggle: () => setShowReports(v => !v), modes: ['default', 'navigation'] },
-    { group: 'Live info', icon: '🎶', label: 'Live Events', detail: 'Music, activity, momentum', checked: showEvents, onToggle: () => setShowEvents(v => !v), modes: ['default'] },
-    { group: 'Live info', icon: '🌡️', label: 'Heatmap', detail: 'Busy areas at a glance', checked: showHeatmap, onToggle: () => setShowHeatmap(v => !v), modes: ['default'] },
     { group: 'Live info', icon: '⚡', label: 'Traffic', detail: 'Street movement conditions', checked: trafficPanelActive, onToggle: toggleTrafficIntel, modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '🔌', label: 'EV charging', detail: 'Chargers available', checked: filters.evChargingOnly, onToggle: () => setFilters(current => ({ ...current, evChargingOnly: !current.evChargingOnly })), modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '☂️', label: 'Covered', detail: 'Indoor or protected', checked: filters.coveredOnly, onToggle: () => setFilters(current => ({ ...current, coveredOnly: !current.coveredOnly })), modes: ['default', 'navigation'] },
     { group: 'Parking options', icon: '★', label: 'Premium', detail: 'Higher-security spots', checked: filters.showPremiumOnly, onToggle: () => setFilters(current => ({ ...current, showPremiumOnly: !current.showPremiumOnly })), modes: ['default', 'navigation'] },
   ].filter(item => item.modes.includes(mapMode));
-  const layerControlGroups = ['Show on map', 'Entry', 'Category', 'Vibe', 'Live info', 'Parking options']
+  const layerControlGroups = ['Explore', 'Entry', 'Category', 'Vibe', 'Live info', 'Parking options']
     .map(group => ({ group, items: visibleLayerControls.filter(item => item.group === group) }))
     .filter(group => group.items.length > 0);
 
   useEffect(() => {
     if (!showLayerMenu) return;
     if (!layerControlGroups.some(({ group }) => group === openLayerGroup)) {
-      setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
+      setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Explore');
     }
   }, [layerControlGroups, openLayerGroup, showLayerMenu]);
 
-  const handleShowPartneredVendors = useCallback(() => {
+  const handleShowPartneredProviders = useCallback(() => {
     void impactLight();
     setShowLayerMenu(false);
     setShowTrafficIntel(false);
@@ -1114,7 +831,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     setShowVerifiedOnly(true);
     setNearbySheetDismissed(false);
     setPeekVenue(null);
-    setVenueDetailsVenue(null);
     setBottomSheetExpanded(true);
     toast.success('Partnered providers', {
       description: partnerVenueCount > 0
@@ -1159,136 +875,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           />
         )}
 
-        {/* Parking Markers */}
-        {droppedRequestPin && (
-          <Marker
-            position={[droppedRequestPin.lat, droppedRequestPin.lng]}
-            icon={createDroppedPinIcon()}
-            eventHandlers={{ click: () => setBottomSheetExpanded(true) }}
-          />
-        )}
-
-        {showParkingSpots && filteredParkingSpots.map((spot: ParkingSpot) => {
-          const status = getAvailabilityStatus(spot);
-          const color = getColor(status);
-          return (
-            <Marker
-              key={spot.id}
-              position={[spot.lat, spot.lng]}
-              icon={createParkingIcon(color)}
-	              eventHandlers={{ click: () => { setSelectedSpot(spot.id); setShowSpotDetails(true); setBottomSheetExpanded(true); } }}
-            >
-              <Popup>
-                <div style={{ minWidth: 160 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{spot.name}</div>
-                  <div style={{ color, fontWeight: 600 }}>{spot.available}/{spot.total} spots · ${spot.price}/hr</div>
-                  {spot.isPremium && <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2 }}>★ Premium</div>}
-                  {spot.hasEVCharging && <div style={{ fontSize: 11, color: '#10B981', marginTop: 2 }}>⚡ EV Charging</div>}
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-
-        {/* ── Vibe Heatmap Overlay — Busy/Packed venues cast a colour glow ── */}
-        {showHeatmap && filteredMapVenues
-          .filter(v => (v.crowd?.level ?? 0) >= 3)
-          .map(v => (
-            <Circle
-              key={`heat-${v.id}`}
-              center={[v.lat, v.lng]}
-              radius={220}
-              pathOptions={{
-                fillColor: v.crowd?.level === 4 ? '#EF4444' : '#F97316',
-                fillOpacity: 0.13,
-                stroke: false,
-              }}
-            />
-          ))
-        }
-
-        {/* ── Venue Markers — vibe-coloured, entry-badged, trending-pulsed ── */}
-        {showVenues && filteredMapVenues.map((v) => {
-          const level = v.crowd?.level ?? 1;
-          const isPaid = v.entryType === 'paid';
-          const isTrending = trendingIds.has(v.id ?? '') || trendingIds.has(v.name);
-          const isVerified = hasHardwarePatchInstalled(v);
-          return (
-            <Marker
-              key={v.id}
-              position={[v.lat, v.lng]}
-              icon={createVibeMarkerIcon(level, isPaid, isTrending, v.entryPrice, isVerified, getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
-              eventHandlers={{
-                click: () => focusVenue(v),
-              }}
-            />
-          );
-        })}
-
-        {/* ── NFC Tap Zone Markers — distinct hex/scanner icon ── */}
-        {showTapZones && tapZoneVenues.map((v) => (
-          <Marker
-            key={`tap-zone-${v.id ?? v.name}`}
-            position={[v.lat, v.lng]}
-            icon={createTapZoneIcon(getVenueCrowdLabel(v), getVenueWaitShortLabel(v))}
-            eventHandlers={{
-              click: () => focusVenue(v),
-            }}
-          />
-        ))}
-
-        {/* Trending Hotspots — high-momentum LIVE layer follows Live Events / Heatmap toggles */}
-        {showTrendingHotspots && liveHotspotVenues.map((venue) => (
-          <Marker
-            key={`hotspot-${venue.id ?? venue.name}`}
-            position={[venue.lat, venue.lng]}
-            icon={createHotspotIcon(getVenueCrowdLabel(venue))}
-            eventHandlers={{
-              click: () => focusVenue(venue),
-            }}
-          />
-        ))}
-
-        {/* ── eBike Station Markers — distinct teal squared icon ── */}
-        {showVenues && bikeStations.map((b) => (
-          <Marker
-            key={`bike-${b.id}`}
-            position={[b.lat, b.lng]}
-            icon={createEBikeIcon()}
-            eventHandlers={{
-              click: () => focusVenue(b),
-            }}
-          />
-        ))}
-
-        {/* Community Report Markers */}
-        {showReports && communityReports.map((r) => (
-          <Marker key={r.id} position={[r.lat, r.lng]} icon={createReportIcon(r.type)}>
-            <Popup>
-              <div style={{ minWidth: 180 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{REPORT_ICONS[r.type].emoji} {r.type.charAt(0).toUpperCase() + r.type.slice(1)}</div>
-                <div style={{ fontSize: 12, marginBottom: 4 }}>{r.description}</div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{r.reportedBy} · {r.timeAgo} · 👍 {r.upvotes}</div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-
-        {/* Live Event Markers */}
-        {showEvents && LIVE_EVENTS.map((ev) => (
-          <Marker key={ev.id} position={[ev.lat, ev.lng]} icon={createEventIcon(ev.type)}>
-            <Popup>
-              <div style={{ minWidth: 180 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{EVENT_ICONS[ev.type].emoji} {ev.name}</div>
-                <div style={{ fontSize: 12, marginBottom: 2 }}>{ev.description}</div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>🕐 {ev.time}</div>
-                <div style={{ fontSize: 11, marginTop: 2 }}>
-                  Crowd: <span style={{ color: CROWD_COLORS[ev.crowd], fontWeight: 600 }}>{ev.crowd.toUpperCase()}</span>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {/* Clean canvas: only base tiles and the optional route line render inside the map. */}
 
       </MapContainer>
 
@@ -1296,11 +883,19 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         isVisible={showSearchBar}
         isFocusedMapMode={isFocusedMapMode}
         value={mapQuery}
-        onChange={setMapQuery}
-        onSubmit={() => {
-          setRouteDestination(mapQuery.trim());
+        onChange={(nextQuery) => {
+          setMapQuery(nextQuery);
+          if (nextQuery.trim()) {
+            setNearbySheetDismissed(false);
+            setBottomSheetExpanded(true);
+          }
+        }}
+        onSubmit={(submittedQuery) => {
+          setMapQuery(submittedQuery);
+          setRouteDestination(submittedQuery);
+          setNearbySheetDismissed(false);
           setBottomSheetExpanded(true);
-          toast.success('Spatial search', { description: `Scanning for ${mapQuery.trim()}` });
+          toast.success('Spatial search', { description: `Scanning for ${submittedQuery}` });
         }}
         transition={springConfig}
       />
@@ -1318,7 +913,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           triggerLightHaptic();
           setShowLayerMenu(prev => {
             const next = !prev;
-            if (next) setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Show on map');
+            if (next) setOpenLayerGroup(layerControlGroups[0]?.group ?? 'Explore');
             return next;
           });
         }}
@@ -1326,7 +921,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         onZoomIn={() => { triggerLightHaptic(); setZoomDirection(1); }}
         onZoomOut={() => { triggerLightHaptic(); setZoomDirection(-1); }}
         onToggleTraffic={(event) => { event.currentTarget.blur(); triggerLightHaptic(); toggleTrafficIntel(); }}
-        onShowPartneredVendors={(event) => { event.currentTarget.blur(); handleShowPartneredVendors(); }}
+        onShowPartneredProviders={(event) => { event.currentTarget.blur(); handleShowPartneredProviders(); }}
         transition={springConfig}
       />
 
@@ -1341,7 +936,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         transition={springConfig}
       />
 
-      {/* Route FAB — appears only after a venue/pin route context exists */}
+      {/* Route FAB — appears only after a destination context exists */}
       <AnimatePresence>
         {showFloatingNavigationFab && selectedDestinationCoords && (
           <motion.div
@@ -1354,7 +949,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
             <motion.button
               data-testid="orange-navigation-fab"
               onClick={() => openNativeNavigation(selectedDestinationCoords[0], selectedDestinationCoords[1], peekVenue?.name ?? droppedRequestPin?.label ?? routeDestination ?? 'Destination')}
-              className="w-14 h-14 rounded-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-red-500 border-2 border-white/40 shadow-xl"
+              className="w-14 h-14 rounded-full flex items-center justify-center bg-[#050505] border-2 border-white/40 shadow-xl"
               whileTap={{ scale: 0.9 }}
               title="Start navigation"
               aria-label="Start navigation"
@@ -1377,8 +972,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           aria-label="Open Tap and Scan virtual patch flow"
         >
           <div className="relative flex items-center gap-3">
-            <div className="w-11 h-11 flex items-center justify-center border border-white/35 bg-black/15" style={{ clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)' }}>
-              <Zap className="w-5 h-5 text-white" strokeWidth={2.6} />
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center border border-white/35 bg-black/15">
+              <QrCode className="w-5 h-5 text-white" strokeWidth={2.6} />
             </div>
             <div className="text-left min-w-0">
               <div className="text-[15px] text-white leading-tight" style={{ fontWeight: 900 }}>Tap / Scan</div>
@@ -1567,62 +1162,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
       <AITransparencyNotice isOpen={showAINotice} onClose={() => setShowAINotice(false)} />
 
-      {/* Community Report Form — slides up from bottom-right */}
-      <AnimatePresence>
-        {showReportForm && (
-          <motion.div
-            className="fixed bottom-44 right-4 w-72 z-[1002]"
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 30, scale: 0.95 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30, mass: 0.8 }}
-          >
-            <div className="p-4 rounded-[20px] bg-[#050505] border-2 border-white/40 shadow-xl">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[15px] text-white" style={{ fontWeight: 700 }}>📋 Community Report</h3>
-                <motion.button onClick={() => setShowReportForm(false)} whileTap={{ scale: 0.9 }}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-[#080A10] border border-white/40">
-                  <X className="w-3.5 h-3.5 text-white" />
-                </motion.button>
-              </div>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {(Object.entries(REPORT_ICONS) as [ReportType, { emoji: string; color: string }][]).map(([key, { emoji, color }]) => (
-                  <motion.button key={key}
-                    onClick={() => setNewReportType(key)}
-                    className={`px-2.5 py-1.5 rounded-full text-[11px] border ${newReportType === key ? 'border-white/60' : 'border-white/20'}`}
-                    style={{ background: newReportType === key ? `${color}33` : 'rgba(255,255,255,0.05)', fontWeight: 600, color: 'white' }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {emoji} {key}
-                  </motion.button>
-                ))}
-              </div>
-              <input
-                type="text" value={newReportDesc} onChange={(e) => setNewReportDesc(e.target.value)}
-                placeholder="What's happening?" className="w-full p-2.5 rounded-[12px] bg-[#080A10] border border-white/40 text-[13px] text-white placeholder:text-white/55 outline-none mb-3"
-              />
-              <motion.button
-                onClick={() => {
-                  if (!newReportDesc.trim()) return;
-                  const newReport: CommunityReport = {
-                    id: Date.now(), lat: mapCenter[0] + (Math.random() - 0.5) * 0.005,
-                    lng: mapCenter[1] + (Math.random() - 0.5) * 0.005, type: newReportType,
-                    description: newReportDesc, reportedBy: 'You', timeAgo: 'Just now', upvotes: 0,
-                  };
-                  setCommunityReports(prev => [newReport, ...prev]);
-                  setNewReportDesc(''); setShowReportForm(false);
-                  toast.success('Report submitted', { description: `${REPORT_ICONS[newReportType].emoji} ${newReportDesc}` });
-                }}
-                className="w-full py-2.5 rounded-[12px] bg-gradient-to-r from-red-500 to-orange-500 text-white text-[14px] border border-white/30"
-                style={{ fontWeight: 600 }} whileTap={{ scale: 0.98 }}
-              >
-                Submit Report
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Live Update Indicator — auto-hides so it doesn't obstruct the map */}
       <AnimatePresence>
         {showLiveUpdates && (
@@ -1792,6 +1331,22 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                       <div className="rounded-2xl border border-white/30 bg-[#080A10] p-3"><p className="text-[10px] text-cyan-100">Wait Time</p><p className="text-[13px] text-white" style={{ fontWeight: 900 }}>{getVenueWaitShortLabel(peekVenue)}</p></div>
                     </div>
 
+                    {peekVenueIsVerified && (
+                      <div className="rounded-2xl border border-cyan-300/45 bg-[#06242B] p-3">
+                        {isPremium ? (
+                          <>
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 950 }}>MEMBER PERKS · ACTIVE</p>
+                            <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 900 }}>10% off your tab</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[13px] text-white" style={{ fontWeight: 900 }}>Unlock perks at this Verified venue</p>
+                            <button type="button" onClick={() => setShowPremiumTeaser(true)} className="mt-2 rounded-xl bg-white px-3 py-2 text-[12px] text-black" style={{ fontWeight: 900 }} aria-label="Unlock Bytspot Premium perks for this venue">Unlock perks</button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {selectedDestinationCoords && (
                       <div className="rounded-2xl border border-cyan-400/50 bg-[#06242B] p-3">
                         <div className="flex items-center gap-2 text-cyan-100"><Route className="h-4 w-4" /><span className="text-[12px]" style={{ fontWeight: 900 }}>Route preview · {routeEtaMinutes} min ETA</span></div>
@@ -1807,7 +1362,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                         <Navigation className="h-4 w-4" /> Start Navigation
                       </motion.button>
                     </div>
-                    <button onClick={() => setVenueDetailsVenue(peekVenue)} className="w-full rounded-2xl border border-purple-300/55 bg-[#21102F] px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 900 }}>View full venue details</button>
                     <motion.button
                       onClick={() => onOpenConciergeRequest?.(`Create a Concierge request for services at ${peekVenue.name}.`)}
                       className="w-full rounded-2xl bg-white px-3 py-3.5 text-[14px] text-black flex items-center justify-center gap-1.5"
@@ -1891,7 +1445,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                       <div className="rounded-[22px] border border-orange-300/55 bg-[#2A1205] p-3" data-testid="trending-now-section">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 text-white"><Zap className="h-4 w-4 text-orange-200" /><span className="text-[14px]" style={{ fontWeight: 950 }}>Trending Now</span></div>
-                          <span className="byt-live-badge rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black" style={{ fontWeight: 950 }}>LIVE</span>
+                          <span className="rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black" style={{ fontWeight: 950 }}>LIVE</span>
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                           {liveHotspotVenues.map(venue => (
@@ -1916,7 +1470,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                               <span className="mt-1 flex flex-wrap gap-1.5">
                                 <span className="rounded-full border border-orange-300/55 bg-[#2A1205] px-2 py-0.5 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>Crowd Level · {result.crowdLabel}</span>
                                 <span className="rounded-full border border-white/25 bg-[#050505] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 850 }}>{result.waitLabel}</span>
-                                {result.isTrending && <span className="byt-live-badge rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] text-black" style={{ fontWeight: 950 }}>LIVE</span>}
+                                {result.isTrending && <span className="rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] text-black" style={{ fontWeight: 950 }}>LIVE</span>}
                               </span>
                             )}
                           </span>
@@ -2068,23 +1622,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         )}
       </AnimatePresence>
 
-      {/* ── Full Venue Details (opened from peek sheet) ── */}
-      <AnimatePresence>
-        {venueDetailsVenue && (
-          <VenueDetails
-            venue={venueToCard(venueDetailsVenue, 0, userCoords)}
-            isDarkMode={true}
-            onClose={() => { setVenueDetailsVenue(null); setPeekVenue(null); }}
-            onOpenAccessWallet={onOpenAccessWallet}
-            onNavigateToMap={() => {}}
-            onBookRide={() => onBookRide?.({
-              name: venueDetailsVenue.name,
-              lat: venueDetailsVenue.lat,
-              lng: venueDetailsVenue.lng,
-            })}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

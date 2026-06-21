@@ -6,7 +6,7 @@ type MapSearchBarProps = {
   isFocusedMapMode: boolean;
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => void;
   transition: object;
 };
 
@@ -28,7 +28,8 @@ export function MapSearchBar({ isVisible, isFocusedMapMode, value, onChange, onS
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && value.trim()) onSubmit();
+                  const query = event.currentTarget.value.trim();
+                  if (event.key === 'Enter' && query) onSubmit(query);
                 }}
                 placeholder="Search destination or service type"
                 className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/45"

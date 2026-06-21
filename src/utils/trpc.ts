@@ -15,8 +15,10 @@ import { createTRPCClient, httpLink } from '@trpc/client';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AppRouter = any;
 
+const trpcEnv = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env;
+
 /** API base URL — single source of truth (also used for SSE stream) */
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://bytspot-api.onrender.com';
+export const API_BASE_URL = trpcEnv?.VITE_API_URL || 'https://bytspot-api.onrender.com';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const trpc: any = createTRPCClient<any>({

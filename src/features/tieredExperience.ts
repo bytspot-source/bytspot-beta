@@ -56,9 +56,9 @@ export const TIERED_EXPERIENCE_PROFILES: Record<ConsumerExperienceTier, Consumer
     heroLabel: 'General trending experiences',
     priorityRailLabel: 'Recommended near you',
     cardStyleLabel: '',
-    accessLevel: 'Flexible same-day options',
+    accessLevel: 'Parking perks unlock as you book',
     patchVerifiedLabel: 'Patch Verified',
-    benefits: ['Local discovery', 'Clear pricing', 'Same-day options when available'],
+    benefits: ['Local parking discovery', 'Clear arrival pricing', 'Same-day parking when available'],
     accentClass: 'from-cyan-500/22 via-slate-500/14 to-blue-500/18 border-cyan-300/25',
   },
   insider: {
@@ -68,9 +68,9 @@ export const TIERED_EXPERIENCE_PROFILES: Record<ConsumerExperienceTier, Consumer
     heroLabel: 'Personalized picks',
     priorityRailLabel: 'Recommended for You',
     cardStyleLabel: '',
-    accessLevel: 'More availability and better pricing',
+    accessLevel: 'Better parking availability and pricing',
     patchVerifiedLabel: 'Patch Verified',
-    benefits: ['Better recommendations', 'Occasional early access', 'Booking rewards'],
+    benefits: ['Smarter parking recommendations', 'Occasional early access', 'Booking progress perks'],
     accentClass: 'from-purple-500/24 via-cyan-500/16 to-fuchsia-500/20 border-fuchsia-300/30',
   },
   vip: {
@@ -82,7 +82,7 @@ export const TIERED_EXPERIENCE_PROFILES: Record<ConsumerExperienceTier, Consumer
     cardStyleLabel: '',
     accessLevel: 'Priority booking and dedicated valet slots',
     patchVerifiedLabel: 'Patch Verified',
-    benefits: ['Priority booking', 'Dedicated support', 'Curated experiences', 'Valet credits', 'Passport wristband'],
+    benefits: ['Priority parking booking', 'Dedicated support', 'Curated arrivals', 'Valet credits', 'Passport wristband'],
     accentClass: 'from-amber-400/26 via-yellow-500/18 to-orange-500/22 border-amber-200/45',
   },
 };
@@ -111,7 +111,7 @@ export function getConsumerTierProgress(input: TierProgressInput): ConsumerTierP
     bookingCount,
     bookingsNeeded,
     progressPercent,
-    label: nextTier ? `${bookingsNeeded} more booking${bookingsNeeded === 1 ? '' : 's'} to unlock more Parker benefits` : 'Parker benefits active',
+    label: nextTier ? `${bookingsNeeded} more booking${bookingsNeeded === 1 ? '' : 's'} to unlock the next perk` : 'Parker progress active',
   };
 }
 

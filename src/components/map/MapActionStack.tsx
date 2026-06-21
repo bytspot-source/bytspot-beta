@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Crosshair, Layers, Minus, Plus, Zap } from 'lucide-react';
+import { Activity, Crosshair, Layers, MapPin, Minus, Plus } from 'lucide-react';
 
 type MapActionStackProps = {
   mapMode: string;
@@ -14,7 +14,7 @@ type MapActionStackProps = {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onToggleTraffic: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onShowPartneredVendors: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onShowPartneredProviders: (event: React.MouseEvent<HTMLButtonElement>) => void;
   transition: object;
 };
 
@@ -31,7 +31,7 @@ export function MapActionStack({
   onZoomIn,
   onZoomOut,
   onToggleTraffic,
-  onShowPartneredVendors,
+  onShowPartneredProviders,
   transition,
 }: MapActionStackProps) {
   return (
@@ -70,18 +70,18 @@ export function MapActionStack({
           </motion.button>
           <motion.button
             onClick={onToggleTraffic}
-            className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-amber-500 border-amber-200' : 'bg-[#050505] border-white/40'}`}
+            className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
             whileTap={{ scale: 0.9 }}
             transition={transition}
             title="Traffic Intelligence"
             aria-label="Traffic intelligence"
             data-testid="traffic-intelligence-fab"
           >
-            <Zap className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-amber-400'}`} strokeWidth={2.5} />
+            <Activity className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-cyan-300'}`} strokeWidth={2.5} />
           </motion.button>
           <motion.button
-            onClick={onShowPartneredVendors}
-            className="relative w-11 h-11 flex items-center justify-center"
+            onClick={onShowPartneredProviders}
+            className={`relative w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showVerifiedOnly ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
             whileTap={{ scale: 0.9 }}
             transition={transition}
             aria-pressed={showVerifiedOnly}
@@ -89,21 +89,7 @@ export function MapActionStack({
             data-testid="partnered-vendors-patch-button"
             title="Partnered Tap Zone providers"
           >
-            {showVerifiedOnly && (
-              <motion.span className="absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle, rgba(34,211,238,0.55), rgba(124,58,237,0.25) 60%, transparent 75%)' }} animate={{ scale: [1, 1.55, 1.85], opacity: [0.65, 0.15, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }} />
-            )}
-            <motion.span
-              className="absolute inset-0 flex items-center justify-center border-2 shadow-xl"
-              style={{
-                clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%)',
-                background: showVerifiedOnly ? 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))' : '#050505',
-                borderColor: showVerifiedOnly ? 'rgba(165,243,252,1)' : 'rgba(255,255,255,0.42)',
-              }}
-              animate={showVerifiedOnly ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-              transition={{ duration: 2.4, repeat: showVerifiedOnly ? Infinity : 0, ease: 'easeInOut' }}
-            >
-              <Zap className={`w-5 h-5 ${showVerifiedOnly ? 'text-white' : 'text-cyan-300'}`} strokeWidth={2.6} />
-            </motion.span>
+            <MapPin className={`w-5 h-5 ${showVerifiedOnly ? 'text-white' : 'text-cyan-300'}`} strokeWidth={2.6} />
           </motion.button>
         </>
       )}

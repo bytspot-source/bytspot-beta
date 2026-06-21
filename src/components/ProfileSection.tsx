@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Receipt, Trash2 } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
@@ -20,7 +20,7 @@ import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
 import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
-import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, type SocialFeedEvent, type FollowedUser } from '../utils/social';
+import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type SocialFeedEvent, type FollowedUser, type FriendSuggestion } from '../utils/social';
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
@@ -57,6 +57,18 @@ type ProfileMenuSection = {
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
+type NativeProfilePanel = 'reservations' | 'access' | 'rewards';
+
+function postNativeProfilePanel(panel: NativeProfilePanel): boolean {
+  try {
+    const handler = (window as any)?.webkit?.messageHandlers?.bytspotNativeProfilePanel;
+    if (!handler || typeof handler.postMessage !== 'function') return false;
+    handler.postMessage({ panel });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getToastErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -181,6 +193,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
+  // Contact-graph friend suggestions (WS-Social Phase 1)
+  const [suggestions, setSuggestions] = useState<FriendSuggestion[]>([]);
+  const [contactSyncPhase, setContactSyncPhase] = useState<'idle' | 'syncing' | 'done' | 'unsupported'>('idle');
+  const [contactSyncSummary, setContactSyncSummary] = useState<string | null>(null);
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'guest_session';
@@ -269,6 +285,37 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     setVirtualPatchContext(readVirtualPatchContext());
   }, [currentScreen]);
 
+  // Load contact-graph friend suggestions whenever the Friends screen mounts.
+  useEffect(() => {
+    if (currentScreen !== 'friends') return;
+    let mounted = true;
+    getSuggestions().then((items) => { if (mounted) setSuggestions(items); }).catch(() => {});
+    return () => { mounted = false; };
+  }, [currentScreen]);
+
+  const handleContactSync = async () => {
+    if (contactSyncPhase === 'syncing') return;
+    if (!isContactPickerSupported()) {
+      setContactSyncPhase('unsupported');
+      return;
+    }
+    setContactSyncPhase('syncing');
+    try {
+      const result = await syncDeviceContactsViaPicker();
+      if (result) {
+        setContactSyncSummary(`Scanned ${result.scanned} · matched ${result.matched} · ${result.mutual} mutual`);
+        setSuggestions(await getSuggestions());
+        setContactSyncPhase('done');
+        impactLight();
+      } else {
+        setContactSyncPhase('idle');
+      }
+    } catch {
+      setContactSyncPhase('idle');
+      toast.error('Couldn\'t sync contacts. Try again in a moment.');
+    }
+  };
+
   const springConfig = {
     type: "spring" as const,
     stiffness: 320,
@@ -281,13 +328,13 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
     if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
       if (membership.isActive) {
-        setCurrentScreen('tickets');
+        if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       }
       return;
     }
 
     if (membership.isActive) {
-      setCurrentScreen('tickets');
+      if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       return;
     }
 
@@ -328,6 +375,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }
   };
 
+  const openProfilePanel = (panel: NativeProfilePanel, fallbackScreen: ProfileScreen) => {
+    if (!postNativeProfilePanel(panel)) setCurrentScreen(fallbackScreen);
+  };
+
   const handleDeleteAccount = async () => {
     if (deleteConfirmation !== 'DELETE' || isDeletingAccount) return;
     const token = localStorage.getItem('bytspot_auth_token');
@@ -366,8 +417,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         { icon: <User className="w-5 h-5" />, label: 'Personal Information', badge: null, screen: 'personal-info' as ProfileScreen },
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: vehicleCount && vehicleCount > 0 ? String(vehicleCount) : null, screen: 'vehicles' as ProfileScreen },
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
-        { icon: <Ticket className="w-5 h-5" />, label: 'My Access', badge: totalAccessItems > 0 ? totalAccessItems.toString() : null, screen: 'tickets' as ProfileScreen },
-        { icon: <Receipt className="w-5 h-5" />, label: 'My Reservations', badge: parkingReservations.length > 0 ? parkingReservations.length.toString() : null, screen: 'reservations' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
         { icon: <Users className="w-5 h-5" />, label: 'Friends', badge: (() => { const f = getFollowedUsers().length; return f > 0 ? f.toString() : null; })(), screen: 'friends' as ProfileScreen },
@@ -765,7 +814,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   {formatVirtualPatchMode(virtualPatchContext.mode)}
                 </div>
                 {virtualPatchContext.scan?.type && (
-                  <div className="px-3 py-1.5 rounded-full bg-emerald-500/18 border border-emerald-400/25 text-[12px] text-emerald-200" style={{ fontWeight: 700 }}>
+                  <div className="px-3 py-1.5 rounded-full bg-cyan-500/18 border border-cyan-400/25 text-[12px] text-cyan-200" style={{ fontWeight: 700 }}>
                     {hasVerifiedVirtualPatchScan ? (virtualPatchContext.scan.type === 'nfc' ? 'Tap confirmed' : 'QR confirmed') : 'Discovery only'}
                   </div>
                 )}
@@ -798,7 +847,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100" style={{ fontWeight: 950 }}>Venue Services</p>
                       <p className="mt-1 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 750 }}>Choose a service to continue in the patch flow.</p>
                     </div>
-                    <span className="rounded-full border border-emerald-200/35 bg-emerald-300/15 px-2.5 py-1 text-[11px] text-emerald-100" style={{ fontWeight: 850 }}>Live</span>
+                    <span className="rounded-full border border-cyan-200/35 bg-cyan-300/15 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 850 }}>Live</span>
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {DEMO_VENUE_SERVICES.map((service) => (
@@ -935,9 +984,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       {pass.subtitle ? `${pass.subtitle} · ${pass.location}` : pass.location}
                     </p>
                   </div>
-                  <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.4} />
-                    <span className="text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>Confirmed</span>
+                  <div className="px-3 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-300" strokeWidth={2.4} />
+                    <span className="text-[11px] text-cyan-200" style={{ fontWeight: 700 }}>Confirmed</span>
                   </div>
                 </div>
 
@@ -1025,9 +1074,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                     <p className="text-[18px] text-white" style={{ fontWeight: 700 }}>{reservation.spotName}</p>
                     <p className="text-[13px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{reservation.address}</p>
                   </div>
-                  <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-300" strokeWidth={2.4} />
-                    <span className="text-[11px] text-emerald-200" style={{ fontWeight: 700 }}>Active</span>
+                  <div className="px-3 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-300" strokeWidth={2.4} />
+                    <span className="text-[11px] text-cyan-200" style={{ fontWeight: 700 }}>Active</span>
                   </div>
                 </div>
 
@@ -1065,8 +1114,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     const followed = getFollowedUsers();
     const feed = getSocialFeed();
     const crowdColor = (lvl: number) =>
-      lvl === 1 ? 'text-green-400' : lvl === 2 ? 'text-yellow-400' : lvl === 3 ? 'text-orange-400' : 'text-red-400';
-    const crowdEmoji = (lvl: number) => lvl === 1 ? '🟢' : lvl === 2 ? '🟡' : lvl === 3 ? '🟠' : '🔴';
+      lvl === 1 ? 'text-cyan-300' : lvl === 2 ? 'text-purple-300' : lvl === 3 ? 'text-orange-400' : 'text-pink-400';
+    const crowdEmoji = (lvl: number) => lvl === 1 ? '🔵' : lvl === 2 ? '🟣' : lvl === 3 ? '🟠' : '🔴';
     const formatTime = (iso: string) => {
       const diff = Date.now() - new Date(iso).getTime();
       const m = Math.floor(diff / 60000);
@@ -1090,6 +1139,78 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+          {/* Find friends — privacy-first contact graph (WS-Social Phase 1) */}
+          <motion.div
+            className="rounded-[24px] p-5 border-2 border-purple-500/60 bg-slate-950 shadow-xl relative overflow-hidden"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={springConfig}
+          >
+            <div className="absolute top-0 right-0 w-28 h-28 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center shrink-0">
+                <UserPlus className="w-5 h-5 text-white" strokeWidth={2.5} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>CONTACTS</p>
+                <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find friends</p>
+                <p className="text-[12px] text-slate-300 mt-0.5" style={{ fontWeight: 500 }}>
+                  Bytspot matches your contacts on-device using salted hashes. Your address book is never uploaded or stored.
+                </p>
+              </div>
+            </div>
+
+            <motion.button
+              onClick={handleContactSync}
+              disabled={contactSyncPhase === 'syncing'}
+              className="w-full py-3 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 flex items-center justify-center gap-2 shadow-lg tap-target disabled:opacity-60"
+              whileTap={{ scale: 0.97 }}
+              transition={springConfig}
+            >
+              <Users className="w-4 h-4 text-white" strokeWidth={2.5} />
+              <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+                {contactSyncPhase === 'syncing'
+                  ? 'Syncing contacts…'
+                  : contactSyncSummary
+                    ? 'Re-sync contacts'
+                    : 'Sync contacts to find friends'}
+              </span>
+            </motion.button>
+
+            {contactSyncSummary && (
+              <p className="text-[11.5px] text-cyan-300 mt-2" style={{ fontWeight: 600 }}>{contactSyncSummary}</p>
+            )}
+            {contactSyncPhase === 'unsupported' && (
+              <p className="text-[11.5px] text-orange-300 mt-2" style={{ fontWeight: 600 }}>
+                Contact matching runs on your phone in the Bytspot app. Suggestions below come from your earlier syncs.
+              </p>
+            )}
+
+            {suggestions.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {suggestions.slice(0, 8).map((s: FriendSuggestion) => (
+                  <div key={s.userId} className="flex items-center gap-3 px-3 py-2.5 rounded-[16px] bg-black/40 border border-slate-700/60">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.mutual ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                      {s.mutual ? <Users className="w-4 h-4" strokeWidth={2.5} /> : <User className="w-4 h-4" strokeWidth={2.5} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] text-white truncate" style={{ fontWeight: 650 }}>{s.name}</p>
+                      <p className="text-[12px] text-slate-300 truncate" style={{ fontWeight: 500 }}>{suggestionReason(s)}</p>
+                    </div>
+                    {s.mutual && (
+                      <span className="shrink-0 text-[10px] text-white bg-purple-500 rounded-full px-2 py-1" style={{ fontWeight: 800 }}>MUTUAL</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {suggestions.length === 0 && contactSyncPhase !== 'idle' && (
+              <p className="text-[12px] text-slate-400 mt-3" style={{ fontWeight: 500 }}>
+                No matches yet. Sync your contacts to see friends already on Bytspot.
+              </p>
+            )}
+          </motion.div>
+
           {/* Following list */}
           {followed.length > 0 && (
             <div>
@@ -1140,9 +1261,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
   if (currentScreen === 'checkin-history') {
     const crowdColor = (lvl: number) =>
-      lvl === 1 ? 'text-green-400' : lvl === 2 ? 'text-yellow-400' : lvl === 3 ? 'text-orange-400' : 'text-red-400';
+      lvl === 1 ? 'text-cyan-300' : lvl === 2 ? 'text-purple-300' : lvl === 3 ? 'text-orange-400' : 'text-pink-400';
     const crowdBg = (lvl: number) =>
-      lvl === 1 ? 'bg-green-500/20 border-green-500/30' : lvl === 2 ? 'bg-yellow-500/20 border-yellow-500/30' : lvl === 3 ? 'bg-orange-500/20 border-orange-500/30' : 'bg-red-500/20 border-red-500/30';
+      lvl === 1 ? 'bg-cyan-500/20 border-cyan-500/30' : lvl === 2 ? 'bg-purple-500/20 border-purple-500/30' : lvl === 3 ? 'bg-orange-500/20 border-orange-500/30' : 'bg-pink-500/20 border-pink-500/30';
     return (
       <div className="h-full flex flex-col">
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
@@ -1274,7 +1395,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         <div className={`rounded-[24px] border-2 border-slate-700 bg-slate-950 p-5 shadow-xl`}>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker benefits</h3>
+              <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker progress</h3>
               <p className="mt-2 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{consumerExperienceProfile.accessLevel}</p>
             </div>
             <div className="rounded-2xl border border-slate-500 bg-slate-950 px-3 py-2 text-right">
@@ -1296,7 +1417,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           <div className="mt-4 grid gap-2">
             {consumerExperienceProfile.benefits.map((benefit) => (
               <div key={benefit} className="flex items-center gap-2 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
-                <CheckCircle2 className="h-4 w-4 text-emerald-200" strokeWidth={2.4} />
+                <CheckCircle2 className="h-4 w-4 text-cyan-200" strokeWidth={2.4} />
                 <span>{benefit}</span>
               </div>
             ))}
@@ -1304,7 +1425,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         </div>
       </motion.div>
 
-      {/* Points & Rewards Quick Access */}
+      {/* Insider quick access */}
       {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && (
         <motion.div
           className="px-4 mb-6"
@@ -1320,11 +1441,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{membership.isActive ? 'Insider active' : '$9.99/month'}</p>
                 <p className="mt-2 text-[13px] leading-5 text-slate-300" style={{ fontWeight: 600 }}>
                   {membership.isActive
-                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your access wallet is ready.`
-                    : 'Faster paid-entry checkout and wallet-first access for Parker consumers.'}
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Premium checkout is ready.`
+                    : 'Premium checkout, priority support, and member-only entry flow.'}
                 </p>
               </div>
-              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-emerald-600 border-emerald-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-cyan-600 border-cyan-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
@@ -1339,11 +1460,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
 
             <div className="relative mt-4 flex flex-wrap gap-2">
-              <div className="rounded-full border border-slate-500 bg-slate-950 px-3 py-1.5 text-[12px] text-white" style={{ fontWeight: 700 }}>
-                {walletPasses.length} in My Access
+              <div className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>
+                Premium checkout
               </div>
-              <div className="rounded-full border border-slate-500 bg-slate-950 px-3 py-1.5 text-[12px] text-white" style={{ fontWeight: 700 }}>
-                {userTier.icon} {userTier.name} rewards
+              <div className="rounded-full border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-1.5 text-[12px] text-fuchsia-100" style={{ fontWeight: 700 }}>
+                Priority support
               </div>
             </div>
 
@@ -1370,7 +1491,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.095 }}
       >
         <motion.button
-          onClick={() => setCurrentScreen('reservations')}
+          onClick={() => openProfilePanel('reservations', 'reservations')}
           data-testid="profile-reservations-summary"
           className="w-full rounded-[24px] p-5 border-2 border-cyan-500 bg-slate-950 shadow-xl text-left relative overflow-hidden"
           whileTap={{ scale: 0.98 }}
@@ -1378,7 +1499,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         >
           <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
               <Car className="w-6 h-6 text-white" strokeWidth={2.4} />
             </div>
             <div className="flex-1">
@@ -1395,7 +1516,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{parkingReservations[0].spotName}</p>
                   <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{formatReservationWindow(parkingReservations[0].startTime, parkingReservations[0].endTime)} · {parkingReservations[0].reservationCode}</p>
                 </div>
-                <div className="px-3 py-1 rounded-full bg-emerald-700 border border-emerald-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
+                <div className="px-3 py-1 rounded-full bg-cyan-700 border border-cyan-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
                   Active
                 </div>
               </div>
@@ -1415,7 +1536,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.09 }}
       >
         <motion.button
-          onClick={() => setCurrentScreen('tickets')}
+          onClick={() => openProfilePanel('access', 'tickets')}
+          data-testid="profile-access-summary"
           className="w-full rounded-[24px] p-5 border-2 border-slate-700 bg-slate-950 shadow-xl text-left relative overflow-hidden"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
@@ -1427,7 +1549,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
             <div className="flex-1">
               <p className="text-[13px] text-slate-300 mb-0.5" style={{ fontWeight: 800 }}>MY ACCESS</p>
-              <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{walletPasses.length} in wallet</p>
+              <p className="text-[22px] text-white" style={{ fontWeight: 700 }}>{totalAccessItems} in wallet</p>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-100" strokeWidth={2.4} />
           </div>
@@ -1439,7 +1561,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>{walletPasses[0].title}</p>
                   <p className="text-[12px] text-slate-300 mt-1" style={{ fontWeight: 600 }}>{walletPasses[0].priceLabel} · {walletPasses[0].orderNumber}</p>
                 </div>
-                <div className="px-3 py-1 rounded-full bg-emerald-700 border border-emerald-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
+                <div className="px-3 py-1 rounded-full bg-cyan-700 border border-cyan-200 text-[11px] text-white" style={{ fontWeight: 800 }}>
                   Confirmed
                 </div>
               </div>
@@ -1459,7 +1581,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.1 }}
       >
         <motion.button
-          onClick={() => setCurrentScreen('points')}
+          onClick={() => openProfilePanel('rewards', 'points')}
+          data-testid="profile-rewards-summary"
           className="w-full rounded-[24px] p-6 border-2 border-purple-400 bg-slate-950 shadow-xl relative overflow-hidden tap-target"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
@@ -1473,10 +1596,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
               <div className="text-left">
                 <p className="text-[13px] text-purple-200 mb-0.5" style={{ fontWeight: 600 }}>
-                  YOUR REWARDS
+                  MEMBERSHIP
                 </p>
                 <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-                  {userPoints.total.toLocaleString()} points
+                  Rewards & badges
                 </p>
               </div>
             </div>

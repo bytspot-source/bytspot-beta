@@ -11,9 +11,9 @@ describe('tiered Parker experience', () => {
   });
 
   it('reports clear booking progression labels', () => {
-    assert.equal(getConsumerTierProgress({ bookingCount: 0, activityPoints: 0 }).label, '3 more bookings to unlock more Parker benefits');
-    assert.equal(getConsumerTierProgress({ bookingCount: 4, activityPoints: 0 }).label, '4 more bookings to unlock more Parker benefits');
-    assert.equal(getConsumerTierProgress({ bookingCount: 8, activityPoints: 0 }).label, 'Parker benefits active');
+    assert.equal(getConsumerTierProgress({ bookingCount: 0, activityPoints: 0 }).label, '3 more bookings to unlock the next perk');
+    assert.equal(getConsumerTierProgress({ bookingCount: 4, activityPoints: 0 }).label, '4 more bookings to unlock the next perk');
+    assert.equal(getConsumerTierProgress({ bookingCount: 8, activityPoints: 0 }).label, 'Parker progress active');
   });
 
   it('publishes consumer-safe home cards for chef, valet, and cottage experiences', () => {

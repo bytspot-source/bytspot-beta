@@ -308,6 +308,29 @@ function getPublicVenueName(value?: string | null): string {
   return trimmed;
 }
 
+/**
+ * JS\u2192native bridge for the SwiftUI shell's NativeBridgeStore. Channel name
+ * mirrors `nativePatchScanBridgeChannel` in ios/App/App/NativeShellView.swift
+ * and is locked by NativePatchRouteSelfTests on the native side.
+ *
+ * Posts `{url, source}` so NativeNavigationCoordinator.notifyPatchScanned can
+ * route the verified URL through the same `.patch(route)` funnel as a
+ * universal link, surfacing the paired-card state without an app relaunch.
+ *
+ * Silent on every failure path: missing handler (older native build), older
+ * Capacitor runtime, Android shell, browser, etc.
+ */
+function postNativePatchScannedToBridge(url: string, source: 'nfc' | 'qr'): void {
+  try {
+    if (Capacitor.getPlatform() !== 'ios') return;
+    const handler = (window as any)?.webkit?.messageHandlers?.bytspotNativePatchScanned;
+    if (!handler || typeof handler.postMessage !== 'function') return;
+    handler.postMessage({ url, source });
+  } catch {
+    /* bridge call must never crash the scanner success path */
+  }
+}
+
 function isBroniHomeTaste(value?: string | null): boolean {
   return /\bobroni home taste\b|\bbroni home taste\b/i.test(value ?? '');
 }
@@ -919,7 +942,12 @@ export function VirtualPatchScannerSheet({
         uid: summary.uid,
         tokenJti: summary.tokenJti,
       }));
-      if (isCounterVerified) onVerified?.(summary);
+      if (isCounterVerified) {
+        onVerified?.(summary);
+        // Mirror the verified URL to the SwiftUI shell's patch funnel so the
+        // map-card paired state transitions live without an app relaunch.
+        postNativePatchScannedToBridge(summary.rawValue, method);
+      }
       toast.success(isCounterVerified ? 'Bytspot Verified' : 'Patch opened', {
         description: isCounterVerified
           ? `${publicVenueName} patch ${method === 'nfc' ? 'tap' : 'scan'} verified successfully.`

@@ -84,6 +84,8 @@
     <string>Bytspot accesses your photo library so you can choose images for your posts and profile.</string>
     <key>NSUserNotificationsUsageDescription</key>
     <string>Bytspot sends you alerts when your saved spots are packed or when events near you are starting.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Bytspot matches your contacts on-device using salted hashes to find friends already on Bytspot. Your address book is never uploaded or stored.</string>
     <!-- â”€â”€ App Transport Security â”€â”€ -->
     <key>NSAppTransportSecurity</key>
     <dict>

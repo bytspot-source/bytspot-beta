@@ -243,3 +243,133 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeMembershipStore.findBool(named: "isPremium", in: payload))
     }
 }
+
+final class NativeProfileDataAPITests: XCTestCase {
+    func testTRPCDecodeUnwrapsSuperjsonProfileEnvelope() throws {
+        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Avery Parker", "phone": "+1 404 555 0198", "address": "Atlanta, GA", "birthday": "1994-04-03"]]]]
+        let record = try decode(NativeUserProfileRecord.self, from: envelope)
+        XCTAssertEqual(record.email, "member@example.com")
+        XCTAssertEqual(record.name, "Avery Parker")
+    }
+
+    func testTRPCDecodeUnwrapsVehicleArrayEnvelope() throws {
+        let vehicle: [String: Any] = ["id": "veh_1", "type": "sedan", "make": "Tesla", "model": "Model 3", "year": 2026, "color": "Midnight Blue", "licensePlate": "BYT-424", "transmissionType": "automatic", "trunkCategory": "full"]
+        let records = try decode([NativeVehicleRecord].self, from: ["result": ["data": ["json": [vehicle]]]])
+        XCTAssertEqual(records.first?.title, "2026 Tesla Model 3")
+        XCTAssertEqual(records.first?.licensePlate, "BYT-424")
+    }
+
+    func testTRPCDecodeUnwrapsPlainPaymentEnvelope() throws {
+        let envelope: [String: Any] = ["result": ["data": ["id": "pm_1", "type": "card", "brand": "visa", "last4": "4242", "expiryMonth": "04", "expiryYear": "30", "isDefault": true]]]
+        let record = try decode(NativePaymentMethodRecord.self, from: envelope)
+        XCTAssertEqual(record.label, "Visa •••• 4242")
+        XCTAssertEqual(record.detail, "04/30")
+        XCTAssertTrue(record.isDefault)
+    }
+
+    func testTRPCDecodeUnwrapsNotificationPreferenceEnvelope() throws {
+        let prefs: [String: Any] = ["push": ["reservations": true, "promotions": true, "reminders": true, "insider": true, "nearby": false], "email": ["reservations": true, "promotions": false, "newsletter": true, "receipts": true], "sms": ["reservations": true, "reminders": true, "emergencies": true]]
+        let record = try decode(NativeNotificationPreferences.self, from: ["result": ["data": ["json": prefs]]])
+        XCTAssertEqual(record, .webDefaults)
+        XCTAssertFalse(record.push.nearby)
+        XCTAssertFalse(record.email.promotions)
+    }
+
+    func testTRPCDecodeUnwrapsUserPreferenceEnvelope() throws {
+        let prefs: [String: Any] = ["vibes": ["drinks"], "parking": ["covered": true, "evCharging": true, "security": "premium"]]
+        let record = try decode(NativeUserPreferencesRecord.self, from: ["result": ["data": ["json": prefs]]])
+        XCTAssertEqual(record.vibes, ["drinks"])
+        XCTAssertEqual(record.parking?.covered, true)
+        XCTAssertEqual(record.parking?.security, "premium")
+    }
+
+    func testPreferenceMutationInputsMirrorReactContracts() throws {
+        let notificationInput = NativeProfileDataAPI.notificationInput(.webDefaults)
+        XCTAssertEqual((notificationInput["push"] as? [String: Bool])?["reservations"], true)
+        XCTAssertEqual((notificationInput["push"] as? [String: Bool])?["nearby"], false)
+        XCTAssertEqual((notificationInput["email"] as? [String: Bool])?["promotions"], false)
+
+        let parking = NativeUserPreferencesRecord.Parking(covered: true, evCharging: true, security: "premium")
+        let userInput = NativeProfileDataAPI.userPreferencesInput(vibeToken: "drinks", parking: parking)
+        XCTAssertEqual(userInput["vibes"] as? [String], ["drinks"])
+        XCTAssertEqual((userInput["parking"] as? [String: Any])?["covered"] as? Bool, true)
+        XCTAssertEqual((userInput["parking"] as? [String: Any])?["security"] as? String, "premium")
+    }
+
+    func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
+        XCTAssertEqual(NativeProfileDataAPI.fixtureEnvironmentKey, "BYT_NATIVE_PROFILE_DATA_FIXTURES")
+        XCTAssertEqual(NativeProfileDataAPI.fixtureProfile.email, "member@example.com")
+        XCTAssertEqual(NativeProfileDataAPI.fixtureVehicles.first?.licensePlate, "BYT-424")
+        XCTAssertEqual(NativeProfileDataAPI.fixturePaymentMethods.first?.last4, "4242")
+        XCTAssertEqual(NativeProfileDataAPI.fixtureNotificationPreferences, .webDefaults)
+        XCTAssertEqual(NativeProfileDataAPI.fixtureUserPreferences.vibes, ["drinks"])
+        let fixtureStrings = [NativeProfileDataAPI.fixtureProfile.email, NativeProfileDataAPI.fixtureVehicles.first?.licensePlate, NativeProfileDataAPI.fixturePaymentMethods.first?.last4, NativeProfileDataAPI.fixturePaymentMethods.first?.brand].compactMap { $0 }
+        XCTAssertFalse(fixtureStrings.contains { $0.contains("sk_") || $0.contains("pk_live") || $0.contains("Bearer ") })
+    }
+
+    func testRequestAttachesBearerOnlyWhenProviderReturnsToken() throws {
+        let authed = BytspotAPIClient(tokenProvider: { "fixture-token" })
+        XCTAssertEqual(try authed.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
+
+        let guest = BytspotAPIClient(tokenProvider: { nil })
+        XCTAssertNil(try guest.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"))
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from envelope: Any) throws -> T {
+        let payload = BytspotAPIClient.unwrapTRPCData(envelope)
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
+final class NativeAuthLaunchInputTests: XCTestCase {
+    func testSignupValidationUsesBackendSafeEightCharacterMinimum() {
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "1234567"))
+        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345678"))
+        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 8 characters.")
+        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"))
+    }
+
+    func testLoginValidationRequiresEmailAndNonEmptyPasswordOnly() {
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .login, name: "", email: "bad", password: "pw"))
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .login, name: "", email: "member@example.com", password: ""))
+        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .login, name: "", email: "member@example.com", password: "p"))
+        XCTAssertEqual(NativeAuthInputValidator.submitValidationMessage(mode: .login), "Please enter a valid email address and password.")
+    }
+
+    func testAuthMutationInputsTrimAndNormalizeWithoutLoggingSecrets() {
+        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Avery Parker ", ref: " ab12 ")
+        XCTAssertEqual(signup["email"] as? String, "member@example.com")
+        XCTAssertEqual(signup["name"] as? String, "Avery Parker")
+        XCTAssertEqual(signup["ref"] as? String, "AB12")
+
+        let login = NativeAuthDataAPI.loginInput(email: " member@example.com ", password: "pw")
+        XCTAssertEqual(login["email"] as? String, "member@example.com")
+        XCTAssertEqual(login["password"] as? String, "pw")
+    }
+
+    func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "walk_10")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")
+    }
+}
+
+final class NativeAppearanceModeContractTests: XCTestCase {
+    func testAppearanceModeInteractiveSelectionContract() {
+        XCTAssertEqual(NativeAppearanceMode.defaultsKey, "bytspot_native_appearance_mode")
+        XCTAssertEqual(NativeAppearanceMode.environmentKey, "BYT_NATIVE_APPEARANCE")
+        XCTAssertEqual(NativeAppearanceMode.panelAutorunEnvironmentKey, "BYT_NATIVE_APPEARANCE_PANEL_AUTORUN")
+        XCTAssertEqual(NativeAppearanceMode.userSelectionNotification.rawValue, "BytspotNativeAppearanceUserSelectionDidChange")
+        XCTAssertEqual(NativeAppearanceMode.userSelectionUserInfoKey, "mode")
+        XCTAssertEqual(NativeAppearanceMode.allCases.map(\.rawValue), ["system", "dark", "light"])
+        XCTAssertEqual(NativeAppearanceMode.resolved(raw: "DARK"), .dark)
+        XCTAssertEqual(NativeAppearanceMode.resolved(raw: "bad-value"), .system)
+        XCTAssertNil(NativeAppearanceMode.system.preferredColorScheme)
+        XCTAssertEqual(NativeAppearanceMode.dark.uiUserInterfaceStyle, .dark)
+        XCTAssertEqual(NativeAppearanceMode.light.uiUserInterfaceStyle, .light)
+    }
+}

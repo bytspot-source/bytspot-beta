@@ -21,7 +21,7 @@ export function useMapParkingData(options: {
   useEffect(() => {
     let cancelled = false;
     const center = userCoords ?? { lat: fallbackCenter[0], lng: fallbackCenter[1] };
-    const vendor = apiVenues
+    const venueProvided = apiVenues
       .map(venueToParkingSpot)
       .filter((spot): spot is MapParkingSpot => spot !== null);
 
@@ -29,11 +29,11 @@ export function useMapParkingData(options: {
       .then((res: { places?: Array<{ placeId: string; name: string; lat: number; lng: number }> }) => {
         if (cancelled) return;
         const places = (res.places ?? []).map(placeToParkingSpot);
-        setParkingData(mergeParkingSources({ vendor, places, fallback: FALLBACK_ATLANTA_PARKING }));
+        setParkingData(mergeParkingSources({ vendor: venueProvided, places, fallback: FALLBACK_ATLANTA_PARKING }));
       })
       .catch(() => {
         if (cancelled) return;
-        setParkingData(mergeParkingSources({ vendor, places: [], fallback: FALLBACK_ATLANTA_PARKING }));
+        setParkingData(mergeParkingSources({ vendor: venueProvided, places: [], fallback: FALLBACK_ATLANTA_PARKING }));
       });
 
     return () => { cancelled = true; };

@@ -25,10 +25,8 @@ const VERIFIED_VENUE = {
 };
 
 // Non-Verified venue — no hardwarePatch field. Offset ~0.0008° (~90 m) from the
-// Verified venue so it (a) stays inside Leaflet's tight initial viewport
-// around the user and (b) renders as a distinct marker that can be selected
-// via :not(:has(.byt-verified-glow)). Anything further (e.g. +0.005°, ~500 m)
-// risks falling outside the rendered tile area at the default zoom level.
+// Verified venue so it stays inside the initial map area and appears as a nearby
+// spatial result alongside the verified venue.
 const NON_VERIFIED_VENUE = {
   id: 'non-verified-venue-1',
   name: 'Optimist Hall',
@@ -244,60 +242,25 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 
 async function openMapWithLiveVenues(page: Page) {
   const mapTab = page.getByRole('tab', { name: 'Map tab' });
-  const dialog = page.getByRole('dialog', { name: 'Map Functions' });
-  const liveVenueData = page.getByRole('button', { name: /Live Venue Data/i });
 
   await robustClick(mapTab);
-  if (!(await dialog.isVisible().catch(() => false))) {
-    await mapTab.evaluate((el: HTMLElement) => el.click());
-  }
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-
-  // The Map Functions dialog is a scrollable Radix sheet — the Live Venue Data
-  // button often renders below the fold, which is why a plain click({ force: true })
-  // still throws "Element is outside of the viewport". robustClick falls back
-  // to a raw HTMLElement.click() that bypasses Playwright's viewport guard.
-  await robustClick(liveVenueData);
-  if (await dialog.isVisible().catch(() => false)) {
-    await liveVenueData.evaluate((el: HTMLElement) => el.click());
-  }
-  await expect(dialog).toBeHidden({ timeout: 10_000 });
-
+  await expect(mapTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
   await page.locator('.leaflet-container').waitFor({ state: 'attached', timeout: 15_000 });
 }
 
-async function clickVerifiedMarker(page: Page) {
-  // Verified vibe markers carry a `.byt-verified-glow` element inside the Leaflet
-  // DivIcon and a "BYT" text badge. The DivIcon container is exposed as a button
-  // by Leaflet (role="button" on `.leaflet-marker-icon`), with accessible name
-  // assembled from the inner text — for our verified paid venue that's "✓ BYT $22".
-  const verifiedMarker = page.locator('.leaflet-marker-icon:has(.byt-verified-glow)').first();
-  await expect(verifiedMarker).toBeVisible({ timeout: 15_000 });
-  await verifiedMarker.scrollIntoViewIfNeeded().catch(() => {});
+async function openVenueFromSpatialSheet(page: Page, venueName = VERIFIED_VENUE.name) {
+  const dataReadyCue = page.getByRole('button', { name: /Open Tap and Scan virtual patch flow/i });
+  await expect(dataReadyCue).toContainText(VERIFIED_VENUE.name, { timeout: 15_000 });
 
-  // Leaflet's marker click handler listens for a full mousedown + mouseup + click
-  // sequence dispatched on the icon element. A plain Playwright click sometimes
-  // doesn't trigger the React-side `setPeekVenue` because Leaflet swallows the
-  // synthesized event. Dispatch the full sequence at the marker's visual center
-  // and also issue an mouse-coords click as a belt-and-braces fallback so the
-  // peek card opens reliably across CI and local runs.
-  const box = await verifiedMarker.boundingBox();
-  if (box) {
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    await verifiedMarker.evaluate((el: HTMLElement, [x, y]: [number, number]) => {
-      const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 };
-      el.dispatchEvent(new MouseEvent('mousedown', opts));
-      el.dispatchEvent(new MouseEvent('mouseup', opts));
-      el.dispatchEvent(new MouseEvent('click', opts));
-    }, [cx, cy]);
-    // Fallback: real mouse click at the same coords if the dispatch didn't take.
-    if (!(await page.locator('text=Tap-ready').isVisible().catch(() => false))) {
-      await page.mouse.click(cx, cy);
-    }
-  } else {
-    await verifiedMarker.evaluate((el: HTMLElement) => el.click());
-  }
+  const search = page.getByPlaceholder('Search destination or service type');
+  await expect(search).toBeVisible({ timeout: 15_000 });
+  await search.fill(venueName);
+  await expect(search).toHaveValue(venueName);
+  await search.press('Enter');
+
+  const result = page.getByRole('button', { name: new RegExp(venueName, 'i') }).first();
+  await expect(result).toBeVisible({ timeout: 15_000 });
+  await robustClick(result);
 }
 
 test.describe('Member Perks gating on Verified venues', () => {
@@ -305,7 +268,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     await installMocks(page, { isPremium: false });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
-    await clickVerifiedMarker(page);
+    await openVenueFromSpatialSheet(page);
 
     // The peek card mounts inside a framer-motion AnimatePresence with a spring
     // transition on opacity + translateY — it can take ~2-3s before the outer
@@ -334,7 +297,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     await installMocks(page, { isPremium: true });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
-    await clickVerifiedMarker(page);
+    await openVenueFromSpatialSheet(page);
 
     // Same AnimatePresence spring on the peek card — bumped timeout to 15s.
     await expect(page.getByText('MEMBER PERKS · ACTIVE')).toBeVisible({ timeout: 15_000 });
@@ -359,7 +322,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     await installMocks(page, { isPremium: false });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
-    await clickVerifiedMarker(page);
+    await openVenueFromSpatialSheet(page);
 
     const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' });
     await robustClick(unlockBtn);
@@ -430,7 +393,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     await installMocks(page, { isPremium: true });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
-    await clickVerifiedMarker(page);
+    await openVenueFromSpatialSheet(page);
 
     // Confirm the active-perks state rendered first so the downgrade transition
     // is meaningful (i.e. we're not just observing the guest default).
@@ -450,7 +413,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     // way.
     await ensureMainApp(page);
     await openMapWithLiveVenues(page);
-    await clickVerifiedMarker(page);
+    await openVenueFromSpatialSheet(page);
 
     await expect(page.getByText('Unlock perks at this Verified venue')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' })).toBeVisible();
@@ -459,7 +422,7 @@ test.describe('Member Perks gating on Verified venues', () => {
   });
 
   test('Non-Verified venue: neither active perks nor locked teaser render in the peek card', async ({ page }) => {
-    // Render both venues so the map has a Verified and a non-Verified marker
+    // Render both venues so the spatial sheet has Verified and non-Verified rows
     // simultaneously — this catches selector regressions where the perks block
     // would accidentally key off "any venue" instead of hardwarePatch presence.
     await installMocks(page, {
@@ -468,31 +431,7 @@ test.describe('Member Perks gating on Verified venues', () => {
     });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
-
-    // Venue markers all carry `.byt-marker-in` inside their Leaflet DivIcon
-    // (set by createVibeMarkerIcon); parking, community report, event, and the
-    // user-location markers do not. Anchoring on `.byt-marker-in` first
-    // restricts the match to venue markers, then `:not(:has(.byt-verified-glow))`
-    // picks out the non-Verified one specifically.
-    const nonVerifiedMarker = page
-      .locator('.leaflet-marker-icon:has(.byt-marker-in):not(:has(.byt-verified-glow))')
-      .first();
-    await expect(nonVerifiedMarker).toBeVisible({ timeout: 15_000 });
-
-    const box = await nonVerifiedMarker.boundingBox();
-    if (box) {
-      const cx = box.x + box.width / 2;
-      const cy = box.y + box.height / 2;
-      await nonVerifiedMarker.evaluate((el: HTMLElement, [x, y]: [number, number]) => {
-        const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 };
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
-      }, [cx, cy]);
-      if (!(await page.locator(`text=${NON_VERIFIED_VENUE.name}`).isVisible().catch(() => false))) {
-        await page.mouse.click(cx, cy);
-      }
-    }
+    await openVenueFromSpatialSheet(page, NON_VERIFIED_VENUE.name);
 
     // The peek card should still open for the non-Verified venue (it shows the
     // venue name, vibe, and entry price) — we just need the perks-specific UI

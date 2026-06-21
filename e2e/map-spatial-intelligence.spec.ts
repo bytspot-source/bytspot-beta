@@ -219,10 +219,10 @@ test.describe('Map Spatial Intelligence sheet', () => {
     expect(html).not.toMatch(/border-white\/16|border-white\/18|text-white\/(55|58|65|70)/);
   });
 
-  test('renders LIVE hotspot markers when live event or heatmap layers are active', async ({ page }) => {
+  test('keeps the Leaflet canvas free of marker overlays', async ({ page }) => {
     await openMapTab(page);
 
-    await expect(page.locator('.leaflet-marker-icon').filter({ hasText: 'LIVE' }).first()).toBeVisible();
+    await expect(page.locator('.leaflet-marker-icon')).toHaveCount(0);
   });
 
   test('uses high-contrast Spatial sheet surfaces without muddy translucent panel classes', async ({ page }) => {

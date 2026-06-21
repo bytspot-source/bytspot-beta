@@ -40,6 +40,297 @@ struct BytspotAPIClient {
     func json(path: String, method: String = "GET", body: Data? = nil) async throws -> Any {
         try JSONSerialization.jsonObject(with: try await data(path: path, method: method, body: body))
     }
+
+    func trpcPayload(path: String, method: String = "GET", input: [String: Any]? = nil) async throws -> Any {
+        let body = try input.map { try JSONSerialization.data(withJSONObject: ["json": $0]) }
+        return Self.unwrapTRPCData(try await json(path: path, method: method, body: body))
+    }
+
+    func trpcDecode<T: Decodable>(_ type: T.Type, path: String, method: String = "GET", input: [String: Any]? = nil) async throws -> T {
+        let payload = try await trpcPayload(path: path, method: method, input: input)
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    static func unwrapTRPCData(_ value: Any) -> Any {
+        guard let dict = value as? [String: Any] else { return value }
+        if let result = dict["result"] { return unwrapTRPCData(result) }
+        if let data = dict["data"] as? [String: Any] {
+            if let json = data["json"] { return json }
+            return unwrapTRPCData(data)
+        }
+        return value
+    }
+}
+
+struct NativeUserProfileRecord: Codable, Equatable {
+    var id: String?
+    var email: String?
+    var name: String?
+    var phone: String?
+    var profileImage: String?
+    var address: String?
+    var birthday: String?
+}
+
+struct NativeVehicleRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var type: String
+    var make: String
+    var model: String
+    var year: Int
+    var color: String
+    var licensePlate: String
+    var photo: String?
+    var vin: String?
+    var transmissionType: String
+    var trunkCategory: String
+
+    var title: String { [String(year), make, model].filter { !$0.isEmpty }.joined(separator: " ") }
+    var subtitle: String { "\(color.isEmpty ? "Color pending" : color) · Plate \(licensePlate.isEmpty ? "pending" : licensePlate)" }
+}
+
+struct NativePaymentMethodRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var type: String
+    var brand: String?
+    var last4: String?
+    var expiryMonth: String?
+    var expiryYear: String?
+    var isDefault: Bool
+
+    var label: String { "\((brand ?? type).capitalized) •••• \(last4 ?? "")" }
+    var detail: String { [expiryMonth, expiryYear].compactMap { $0 }.joined(separator: "/") }
+}
+
+struct NativePaymentSetupSession: Codable, Equatable { var url: String? }
+
+struct NativeNotificationPreferences: Codable, Equatable {
+    struct Push: Codable, Equatable { var reservations: Bool; var promotions: Bool; var reminders: Bool; var insider: Bool; var nearby: Bool }
+    struct Email: Codable, Equatable { var reservations: Bool; var promotions: Bool; var newsletter: Bool; var receipts: Bool }
+    struct SMS: Codable, Equatable { var reservations: Bool; var reminders: Bool; var emergencies: Bool }
+
+    var push: Push
+    var email: Email
+    var sms: SMS
+
+    static let webDefaults = NativeNotificationPreferences(
+        push: Push(reservations: true, promotions: true, reminders: true, insider: true, nearby: false),
+        email: Email(reservations: true, promotions: false, newsletter: true, receipts: true),
+        sms: SMS(reservations: true, reminders: true, emergencies: true)
+    )
+}
+
+struct NativeUserPreferencesRecord: Codable, Equatable {
+    struct Parking: Codable, Equatable { var covered: Bool?; var evCharging: Bool?; var security: String? }
+    var interests: [String]?
+    var vibes: [String]?
+    var cuisines: [String]?
+    var parking: Parking?
+}
+
+struct NativeMutationSuccess: Codable, Equatable { var success: Bool?; var ok: Bool? }
+
+struct NativeAuthUserRecord: Codable, Equatable {
+    var id: String?
+    var email: String?
+    var name: String?
+}
+
+struct NativeAuthResponse: Codable, Equatable {
+    var token: String?
+    var user: NativeAuthUserRecord?
+    var isNewUser: Bool?
+}
+
+enum NativeAuthRouteContract {
+    static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
+    static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
+    static let passwordRecoveryRoutes = ["/#/forgot-password", "/forgot-password", "/#/reset-password", "/reset-password"]
+}
+
+struct NativeAuthDataAPI {
+    var client: BytspotAPIClient
+
+    func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.signup", method: "POST", input: Self.signupInput(email: email, password: password, name: name, ref: ref))
+    }
+
+    func login(email: String, password: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.login", method: "POST", input: Self.loginInput(email: email, password: password))
+    }
+
+    static func signupInput(email: String, password: String, name: String, ref: String?) -> [String: Any] {
+        var input: [String: Any] = ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password, "name": name.trimmingCharacters(in: .whitespacesAndNewlines)]
+        if let ref = ref?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !ref.isEmpty { input["ref"] = ref }
+        return input
+    }
+
+    static func loginInput(email: String, password: String) -> [String: Any] {
+        ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password]
+    }
+}
+
+struct NativeProfileDataAPI {
+    let client: BytspotAPIClient
+
+    #if DEBUG
+    static let fixtureEnvironmentKey = "BYT_NATIVE_PROFILE_DATA_FIXTURES"
+
+    private var usesAuthenticatedFixtures: Bool {
+        let raw = ProcessInfo.processInfo.environment[Self.fixtureEnvironmentKey]?.lowercased()
+        return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
+    }
+
+    static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Avery Parker", phone: "+1 404 555 0198", profileImage: nil, address: "Atlanta, GA", birthday: "1994-04-03")
+    static let fixtureVehicles = [NativeVehicleRecord(id: "veh_fixture_1", type: "sedan", make: "Tesla", model: "Model 3", year: 2026, color: "Midnight Blue", licensePlate: "BYT-424", photo: nil, vin: nil, transmissionType: "automatic", trunkCategory: "full")]
+    static let fixturePaymentMethods = [NativePaymentMethodRecord(id: "pm_fixture_1", type: "card", brand: "visa", last4: "4242", expiryMonth: "04", expiryYear: "30", isDefault: true)]
+    static let fixtureNotificationPreferences = NativeNotificationPreferences.webDefaults
+    static let fixtureUserPreferences = NativeUserPreferencesRecord(interests: nil, vibes: ["drinks"], cuisines: nil, parking: NativeUserPreferencesRecord.Parking(covered: true, evCharging: true, security: "premium"))
+    #endif
+
+    func loadProfile() async throws -> NativeUserProfileRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return Self.fixtureProfile }
+        #endif
+        return try await client.trpcDecode(NativeUserProfileRecord.self, path: "/trpc/user.profile.get")
+    }
+
+    func updateProfile(name: String?, phone: String?, address: String?, birthday: String?) async throws -> NativeUserProfileRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures {
+            return NativeUserProfileRecord(id: Self.fixtureProfile.id, email: Self.fixtureProfile.email, name: name ?? Self.fixtureProfile.name, phone: phone ?? Self.fixtureProfile.phone, profileImage: nil, address: address ?? Self.fixtureProfile.address, birthday: birthday ?? Self.fixtureProfile.birthday)
+        }
+        #endif
+        var input: [String: Any] = [:]
+        if let name, !name.isEmpty { input["name"] = name }
+        if let phone, !phone.isEmpty { input["phone"] = phone }
+        if let address, !address.isEmpty { input["address"] = address }
+        if let birthday, !birthday.isEmpty { input["birthday"] = birthday }
+        return try await client.trpcDecode(NativeUserProfileRecord.self, path: "/trpc/user.profile.update", method: "POST", input: input)
+    }
+
+    func listVehicles() async throws -> [NativeVehicleRecord] {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return Self.fixtureVehicles }
+        #endif
+        return try await client.trpcDecode([NativeVehicleRecord].self, path: "/trpc/user.vehicles.list")
+    }
+
+    func addVehicle(_ vehicle: NativeVehicleRecord) async throws -> NativeVehicleRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return NativeVehicleRecord(id: "veh_fixture_new", type: vehicle.type, make: vehicle.make, model: vehicle.model, year: vehicle.year, color: vehicle.color, licensePlate: vehicle.licensePlate, photo: vehicle.photo, vin: vehicle.vin, transmissionType: vehicle.transmissionType, trunkCategory: vehicle.trunkCategory) }
+        #endif
+        return try await client.trpcDecode(NativeVehicleRecord.self, path: "/trpc/user.vehicles.add", method: "POST", input: vehicleInput(vehicle, includeID: false))
+    }
+
+    func updateVehicle(_ vehicle: NativeVehicleRecord) async throws -> NativeVehicleRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return vehicle }
+        #endif
+        return try await client.trpcDecode(NativeVehicleRecord.self, path: "/trpc/user.vehicles.update", method: "POST", input: vehicleInput(vehicle, includeID: true))
+    }
+
+    func removeVehicle(id: String) async throws {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return }
+        #endif
+        _ = try await client.trpcPayload(path: "/trpc/user.vehicles.remove", method: "POST", input: ["id": id])
+    }
+
+    func listPaymentMethods() async throws -> [NativePaymentMethodRecord] {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return Self.fixturePaymentMethods }
+        #endif
+        return try await client.trpcDecode([NativePaymentMethodRecord].self, path: "/trpc/payments.listMethods")
+    }
+
+    func createPaymentSetupSession() async throws -> NativePaymentSetupSession {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return NativePaymentSetupSession(url: nil) }
+        #endif
+        return try await client.trpcDecode(NativePaymentSetupSession.self, path: "/trpc/payments.setupSession", method: "POST", input: ["successPath": "/profile/payment", "cancelPath": "/profile/payment"])
+    }
+
+    func setDefaultPaymentMethod(id: String) async throws {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return }
+        #endif
+        _ = try await client.trpcPayload(path: "/trpc/payments.setDefaultMethod", method: "POST", input: ["paymentMethodId": id])
+    }
+
+    func removePaymentMethod(id: String) async throws {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return }
+        #endif
+        _ = try await client.trpcPayload(path: "/trpc/payments.removeMethod", method: "POST", input: ["paymentMethodId": id])
+    }
+
+    func loadNotificationPreferences() async throws -> NativeNotificationPreferences {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return Self.fixtureNotificationPreferences }
+        #endif
+        return try await client.trpcDecode(NativeNotificationPreferences.self, path: "/trpc/user.notifications.getPrefs")
+    }
+
+    func updateNotificationPreferences(_ preferences: NativeNotificationPreferences) async throws {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return }
+        #endif
+        _ = try await client.trpcDecode(NativeMutationSuccess.self, path: "/trpc/user.notifications.updatePrefs", method: "POST", input: Self.notificationInput(preferences))
+    }
+
+    func loadUserPreferences() async throws -> NativeUserPreferencesRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return Self.fixtureUserPreferences }
+        #endif
+        return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.get")
+    }
+
+    func updateUserPreferenceSummary(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil) async throws -> NativeUserPreferencesRecord {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return NativeUserPreferencesRecord(interests: nil, vibes: vibeToken.map { [$0] } ?? Self.fixtureUserPreferences.vibes, cuisines: nil, parking: parking ?? Self.fixtureUserPreferences.parking) }
+        #endif
+        return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.update", method: "POST", input: Self.userPreferencesInput(vibeToken: vibeToken, parking: parking))
+    }
+
+    static func notificationInput(_ preferences: NativeNotificationPreferences) -> [String: Any] {
+        [
+            "push": ["reservations": preferences.push.reservations, "promotions": preferences.push.promotions, "reminders": preferences.push.reminders, "insider": preferences.push.insider, "nearby": preferences.push.nearby],
+            "email": ["reservations": preferences.email.reservations, "promotions": preferences.email.promotions, "newsletter": preferences.email.newsletter, "receipts": preferences.email.receipts],
+            "sms": ["reservations": preferences.sms.reservations, "reminders": preferences.sms.reminders, "emergencies": preferences.sms.emergencies]
+        ]
+    }
+
+    static func userPreferencesInput(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil) -> [String: Any] {
+        var input: [String: Any] = [:]
+        if let vibeToken, !vibeToken.isEmpty { input["vibes"] = [vibeToken] }
+        if let parking {
+            var parkingInput: [String: Any] = [:]
+            if let covered = parking.covered { parkingInput["covered"] = covered }
+            if let evCharging = parking.evCharging { parkingInput["evCharging"] = evCharging }
+            if let security = parking.security, !security.isEmpty { parkingInput["security"] = security }
+            if !parkingInput.isEmpty { input["parking"] = parkingInput }
+        }
+        return input
+    }
+
+    private func vehicleInput(_ vehicle: NativeVehicleRecord, includeID: Bool) -> [String: Any] {
+        var input: [String: Any] = [
+            "type": vehicle.type,
+            "make": vehicle.make,
+            "model": vehicle.model,
+            "year": vehicle.year,
+            "color": vehicle.color,
+            "licensePlate": vehicle.licensePlate,
+            "transmissionType": vehicle.transmissionType,
+            "trunkCategory": vehicle.trunkCategory
+        ]
+        if includeID { input["id"] = vehicle.id }
+        if let photo = vehicle.photo, !photo.isEmpty { input["photo"] = photo }
+        if let vin = vehicle.vin, !vin.isEmpty { input["vin"] = vin }
+        return input
+    }
 }
 
 struct NativeAPISessionSnapshot: Equatable {

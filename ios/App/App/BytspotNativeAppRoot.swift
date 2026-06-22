@@ -116,6 +116,7 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
+    @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
     @State private var didCompleteLaunchFlow = false
 
     private var effectiveAppearance: NativeAppearanceMode {
@@ -126,11 +127,13 @@ struct BytspotNativeAppRoot: View {
         #if DEBUG
         NativeAuthSeamSelfTests.runIfRequested()
         NativeAuthSplashSelfTests.runIfRequested()
+        NativeJourneyThemeSelfTests.runIfRequested()
         NativePatchRouteSelfTests.runIfRequested()
         NativePatchBookingSelfTests.runIfRequested()
         NativePatchSpecialFlowSelfTests.runIfRequested()
         NativeShellThemeSelfTests.runIfRequested()
         NativeHomeParitySelfTests.runIfRequested()
+        NativePostAuthIntentSelfTests.runIfRequested()
         NativeMapParitySelfTests.runIfRequested()
         NativeAccessParitySelfTests.runIfRequested()
         NativeBookingParitySelfTests.runIfRequested()
@@ -146,9 +149,10 @@ struct BytspotNativeAppRoot: View {
         Group {
             if shouldShowLaunchFlow {
                 NativeLaunchFlowView(sessionStore: sessionStore, authCoordinator: authCoordinator) { didCompleteLaunchFlow = true }
-                    .preferredColorScheme(effectiveAppearance.preferredColorScheme)
+                    .preferredColorScheme(journeyPreferredColorScheme)
             } else {
                 BytspotNativeShellView(bridgeStore: bridgeStore, navigation: navigation, preferHomeAfterLaunch: didCompleteLaunchFlow)
+                    .preferredColorScheme(journeyPreferredColorScheme)
             }
         }
             .environmentObject(sessionStore)
@@ -159,7 +163,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(contactSyncStore)
             .environmentObject(appearanceRuntimeStore)
             .onAppear {
-                NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
+                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
             }
@@ -174,6 +178,9 @@ struct BytspotNativeAppRoot: View {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
                 }
+            }
+            .onChange(of: launchAtmosphere) { _ in
+                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
             }
             .onOpenURL { navigation.notifyPatchScanned(url: $0, source: .deepLink); _ = navigation.handle(url: $0) }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -196,6 +203,10 @@ struct BytspotNativeAppRoot: View {
             .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(effectiveAppearance) }
     }
 
+    private var journeyPreferredColorScheme: ColorScheme? {
+        NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance.preferredColorScheme
+    }
+
     private var shouldShowLaunchFlow: Bool {
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
         if NativeAuthLaunchContract.autoRunsLaunchJourney, didCompleteLaunchFlow || sessionStore.hasSecureToken { return false }
@@ -210,6 +221,8 @@ enum NativeAuthLaunchContract {
     static let reactSources = ["SplashScreen.tsx", "LandingPage.tsx", "AuthenticationFlow.tsx", "AppleSignInButton.tsx", "GoogleSignInButton.tsx", "PasswordRecoveryScreen.tsx", "App.tsx onboarding quiz"]
     static let appFlow = ["splash", "landing", "vibe", "walk", "crew", "atlanta", "main"]
     static let splashDurationSeconds = 1.8
+    static let splashStartTitle = "Start your walkthrough"
+    static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
     static let landingSubtitle = "Live crowd levels, parking & ride ETAs for Atlanta Midtown — all in one place."
     static let landingFeatures = ["Live crowd levels at Midtown venues", "Smart parking with live spot availability", "Ride ETAs & valet options nearby"]
@@ -265,6 +278,7 @@ enum NativeLaunchStage { case splash, landing, vibe, walk, crew, atlanta, auth }
 enum NativeAuthMode: String, CaseIterable { case signup, login }
 
 enum NativeLaunchPersonalizationStorage {
+    static let atmosphereKey = "bytspot_native_launch_atmosphere"
     static let vibeKey = "bytspot_native_launch_vibe"
     static let walkKey = "bytspot_native_launch_walk"
     static let crewKey = "bytspot_native_launch_crew"
@@ -350,6 +364,67 @@ private enum NativeLaunchTheme {
     static let landingCTAGradient = LinearGradient(colors: [purple, cyan500], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
+enum NativeJourneyAtmosphere: String, CaseIterable {
+    case daylight, nightlight
+
+    static var current: NativeJourneyAtmosphere {
+        if let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_ATMOSPHERE"]?.lowercased(), let value = Self(rawValue: raw) { return value }
+        let hour = Calendar.current.component(.hour, from: Date())
+        return (hour >= 6 && hour < 18) ? .daylight : .nightlight
+    }
+
+    static var storedOrCurrent: NativeJourneyAtmosphere {
+        if let forced = ProcessInfo.processInfo.environment["BYT_NATIVE_ATMOSPHERE"]?.lowercased(), let value = Self(rawValue: forced) { return value }
+        if let stored = UserDefaults.standard.string(forKey: NativeLaunchPersonalizationStorage.atmosphereKey), let value = Self(rawValue: stored) { return value }
+        return .current
+    }
+}
+
+struct NativeJourneyTheme {
+    let atmosphere: NativeJourneyAtmosphere
+    let intent: String
+    let primary: Color
+    let secondary: Color
+    let tertiary: Color
+    let background: LinearGradient
+    let ctaGradient: LinearGradient
+    let glassFill: [Color]
+    let glowOpacity: Double
+
+    static func current(intent: String = "") -> NativeJourneyTheme { resolve(atmosphere: .storedOrCurrent, intent: intent) }
+
+    static func resolve(atmosphere: NativeJourneyAtmosphere, intent rawIntent: String) -> NativeJourneyTheme {
+        let intent = rawIntent.isEmpty ? "brand" : rawIntent
+        let accents = accentColors(for: intent)
+        let base: [Color] = atmosphere == .daylight
+            ? [Color(hex: 0x071827), Color(hex: 0x092F3E), Color.black]
+            : [Color.black, Color(hex: 0x140825), Color(hex: 0x020617)]
+        return NativeJourneyTheme(
+            atmosphere: atmosphere,
+            intent: intent,
+            primary: accents.0,
+            secondary: accents.1,
+            tertiary: atmosphere == .daylight ? NativeLaunchTheme.emerald : NativeLaunchTheme.magenta,
+            background: LinearGradient(colors: base, startPoint: .topLeading, endPoint: .bottomTrailing),
+            ctaGradient: LinearGradient(colors: [accents.0, accents.1], startPoint: .topLeading, endPoint: .bottomTrailing),
+            glassFill: atmosphere == .daylight ? [Color.white.opacity(0.06), Color(hex: 0x082F49).opacity(0.82), Color.black.opacity(0.58)] : [Color.white.opacity(0.035), NativeLaunchTheme.card.opacity(0.98), Color.black.opacity(0.72)],
+            glowOpacity: atmosphere == .daylight ? 0.18 : 0.26
+        )
+    }
+
+    static func accentColors(for intent: String) -> (Color, Color) {
+        switch intent {
+        case "food", "dining": return (NativeLaunchTheme.orange, NativeLaunchTheme.pink)
+        case "drinks", "nightlife", "events": return (NativeLaunchTheme.purple, NativeLaunchTheme.magenta)
+        case "parking", "covered_parking": return (NativeLaunchTheme.emerald, NativeLaunchTheme.cyan)
+        case "ride": return (NativeLaunchTheme.orange, NativeLaunchTheme.cyan)
+        case "sleep", "stay": return (NativeLaunchTheme.purple400, NativeLaunchTheme.cyan)
+        case "coffee", "work": return (NativeLaunchTheme.cyan, NativeLaunchTheme.emerald)
+        default: return (NativeLaunchTheme.cyan, NativeLaunchTheme.purple)
+        }
+    }
+}
+
 private extension View {
     /// CSS-style transparent card: use for landing feature pills and inner rows.
     /// No iOS Material and no dark tint; it should read as transparent over the page.
@@ -377,6 +452,17 @@ private extension View {
     }
 }
 
+private extension Color {
+    init(hex: Int, alpha: Double = 1) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255,
+            opacity: alpha
+        )
+    }
+}
+
 private struct NativeLaunchFlowView: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     @ObservedObject var authCoordinator: NativeAuthCoordinator
@@ -386,6 +472,7 @@ private struct NativeLaunchFlowView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var selectedWalk = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var selectedCrew = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var completedPersonalization = false
+    @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
     @State private var stage = NativeAuthLaunchContract.requestedLaunchStage ?? .splash
     @State private var didScheduleAutorun = false
 
@@ -408,14 +495,19 @@ private struct NativeLaunchFlowView: View {
                 NativeAuthenticationScreen(mode: NativeAuthLaunchContract.requestedAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: onComplete, onBack: { advance(to: .landing) })
             }
         }
-        .background(NativeLaunchTheme.background.ignoresSafeArea())
+        .background(NativeJourneyTheme.current(intent: selectedVibe).background.ignoresSafeArea())
         .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.985)))
-        .onAppear { scheduleAutorunIfNeeded() }
+        .onAppear { captureLaunchAtmosphereIfNeeded(); scheduleAutorunIfNeeded() }
         .onChange(of: sessionStore.token ?? "") { _ in if sessionStore.hasSecureToken { onComplete() } }
     }
 
     private func advance(to next: NativeLaunchStage) {
         if reduceMotion { stage = next } else { withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) { stage = next } }
+    }
+
+    private func captureLaunchAtmosphereIfNeeded() {
+        let resolved = NativeJourneyAtmosphere.current.rawValue
+        if launchAtmosphere != resolved { launchAtmosphere = resolved }
     }
 
     private func completeAsGuest() {
@@ -455,6 +547,18 @@ private struct NativeLaunchSizing {
     var ctaHeight: CGFloat { compactHeight ? 52 : 56 }
 }
 
+#if DEBUG
+enum NativeJourneyThemeSelfTests {
+    static func runIfRequested() {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        precondition(NativeJourneyAtmosphere.allCases.map(\.rawValue) == ["daylight", "nightlight"], "NativeJourneyThemeSelfTests: atmosphere names drifted.")
+        precondition(NativeJourneyTheme.resolve(atmosphere: .daylight, intent: "parking").intent == "parking", "NativeJourneyThemeSelfTests: intent should pass through resolver.")
+        precondition(NativeJourneyTheme.resolve(atmosphere: .nightlight, intent: "").intent == "brand", "NativeJourneyThemeSelfTests: empty intent should resolve to brand.")
+        precondition(NativeJourneyTheme.resolve(atmosphere: .daylight, intent: "parking").glowOpacity < NativeJourneyTheme.resolve(atmosphere: .nightlight, intent: "parking").glowOpacity, "NativeJourneyThemeSelfTests: nightlight should carry stronger glow.")
+    }
+}
+#endif
+
 private struct NativeSplashScreen: View {
     let freeze: Bool
     let onComplete: () -> Void
@@ -464,20 +568,33 @@ private struct NativeSplashScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let theme = NativeJourneyTheme.current()
             let centerX = proxy.size.width * 0.5
             let centerY = proxy.size.height * 0.5
             ZStack {
-                NativeLaunchTheme.background.ignoresSafeArea()
-                splashOrb(color: NativeLaunchTheme.purple, size: 420, x: centerX, y: centerY, intensity: 0.20)
-                splashOrb(color: NativeLaunchTheme.cyan, size: 320, x: centerX, y: proxy.size.height * 0.68, intensity: 0.12)
-                splashOrb(color: NativeLaunchTheme.magenta, size: 280, x: proxy.size.width * 0.82, y: centerY * 0.96, intensity: 0.08)
+                theme.background.ignoresSafeArea()
+                splashOrb(color: theme.primary, size: 420, x: centerX, y: centerY, intensity: theme.glowOpacity)
+                splashOrb(color: theme.secondary, size: 320, x: centerX, y: proxy.size.height * 0.68, intensity: theme.glowOpacity * 0.70)
+                splashOrb(color: theme.tertiary, size: 280, x: proxy.size.width * 0.82, y: centerY * 0.96, intensity: theme.glowOpacity * 0.46)
                 VStack(spacing: sizing.splashSpacing) {
                     NativeBytspotMark(size: sizing.splashMark, showGlow: true)
                         .scaleEffect(animate && !reduceMotion ? 1.025 : 1)
                     Text("BYTSPOT")
                         .font(.system(size: sizing.splashTitle, weight: .bold))
-                        .foregroundStyle(NativeLaunchTheme.brandGradient)
-                    HStack(spacing: 8) { ForEach([NativeLaunchTheme.cyan, NativeLaunchTheme.purple, NativeLaunchTheme.magenta], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
+                        .foregroundStyle(theme.ctaGradient)
+                    HStack(spacing: 8) { ForEach([theme.primary, theme.secondary, theme.tertiary], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
+                    VStack(spacing: 8) {
+                        Button(action: { nativeAuthImpactLight(); onComplete() }) {
+                            NativeLaunchCTA(title: NativeAuthLaunchContract.splashStartTitle, color: theme.ctaGradient, foreground: .white, height: sizing.compactHeight ? 50 : 54, cornerRadius: 17, showArrow: true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-launch-splash-start")
+                        Text(NativeAuthLaunchContract.splashStartSubtitle)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white.opacity(0.46))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, sizing.compactHeight ? 4 : 8)
                 }
                 .padding(.horizontal, sizing.horizontalPadding)
                 .accessibilityElement(children: .combine)
@@ -487,7 +604,7 @@ private struct NativeSplashScreen: View {
         }
         .onAppear {
             if !reduceMotion { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { animate = true } }
-            guard !freeze else { return }
+            guard NativeAuthLaunchContract.autoRunsLaunchJourney, !freeze else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + NativeAuthLaunchContract.splashDurationSeconds) { onComplete() }
         }
     }
@@ -514,16 +631,17 @@ private struct NativeLandingScreen: View {
             let sizing = NativeLaunchSizing(size: proxy.size)
             let railWidth = min(proxy.size.width, sizing.landingMaxWidth)
             let contentWidth = railWidth - (sizing.horizontalPadding * 2)
+            let theme = NativeJourneyTheme.current()
             let centerX = proxy.size.width * 0.5
             let featureY = proxy.size.height * 0.602
             let featurePillHeight: CGFloat = sizing.compactHeight ? 56 : 60
             let featureGroupHeight = (featurePillHeight * 3) + (12 * 2)
             let ctaY = featureY + (featureGroupHeight * 0.5) + 40 + (sizing.landingCTAHeight * 0.5)
             ZStack {
-                NativeLaunchTheme.background.ignoresSafeArea()
-                landingOrb(color: NativeLaunchTheme.purple, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: 0.22)
-                landingOrb(color: NativeLaunchTheme.cyan, size: 400, x: centerX, y: proxy.size.height * 0.90 - 200, intensity: 0.18)
-                landingOrb(color: NativeLaunchTheme.magenta, size: 300, x: proxy.size.width * 0.95 - 150, y: proxy.size.height * 0.50, intensity: 0.12)
+                theme.background.ignoresSafeArea()
+                landingOrb(color: theme.primary, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: theme.glowOpacity)
+                landingOrb(color: theme.secondary, size: 400, x: centerX, y: proxy.size.height * 0.90 - 200, intensity: theme.glowOpacity * 0.82)
+                landingOrb(color: theme.tertiary, size: 300, x: proxy.size.width * 0.95 - 150, y: proxy.size.height * 0.50, intensity: theme.glowOpacity * 0.56)
                 NativeBytspotMark(size: 100)
                     .position(x: centerX, y: proxy.size.height * 0.286)
                 VStack(spacing: 8) {
@@ -535,7 +653,7 @@ private struct NativeLandingScreen: View {
                 VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures.enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
                     .frame(width: contentWidth)
                     .position(x: centerX, y: featureY)
-                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go", color: NativeLaunchTheme.landingCTAGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
+                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
                     .buttonStyle(.plain)
                     .frame(width: contentWidth)
                     .position(x: centerX, y: ctaY)
@@ -713,13 +831,14 @@ private struct NativePersonalizationScreen: View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
             let context = NativeLaunchQuizContext.current
+            let theme = NativeJourneyTheme.current(intent: selectedIntent)
             let emoji = step.emoji(context: context, selectedIntent: selectedIntent)
             let question = step.question(context: context, selectedIntent: selectedIntent)
             let options = step.options(context: context, selectedIntent: selectedIntent)
             ZStack(alignment: .bottom) {
-                NativeLaunchTheme.background.ignoresSafeArea()
-                Circle().fill(NativeLaunchTheme.cyan.opacity(0.10)).frame(width: 280, height: 280).blur(radius: 90).offset(x: -120, y: 180)
-                Circle().fill(NativeLaunchTheme.purple.opacity(0.14)).frame(width: 340, height: 340).blur(radius: 100).offset(x: 130, y: -20)
+                theme.background.ignoresSafeArea()
+                Circle().fill(theme.primary.opacity(theme.glowOpacity * 0.66)).frame(width: 280, height: 280).blur(radius: 90).offset(x: -120, y: 180)
+                Circle().fill(theme.secondary.opacity(theme.glowOpacity * 0.78)).frame(width: 340, height: 340).blur(radius: 100).offset(x: 130, y: -20)
                 VStack(spacing: sizing.compactHeight ? 18 : 22) {
                 HStack {
                     NativePersonalizationProgress(step: step.index, total: 3)
@@ -727,11 +846,11 @@ private struct NativePersonalizationScreen: View {
                     Button(action: { nativeAuthImpactLight(); onSkip() }) { Text("Skip").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.36)).padding(.horizontal, 15).frame(height: 40).overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)) }.buttonStyle(.plain).accessibilityLabel("Skip personalization").accessibilityHint("Opens Bytspot in guest mode.")
                 }
                 Text(emoji).font(.system(size: sizing.compactHeight ? 24 : 28)).accessibilityHidden(true)
-                if let contextLine = step.contextLine(context: context) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(NativeLaunchTheme.cyan400.opacity(0.82)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(NativeLaunchTheme.cyan.opacity(0.10)).overlay(Capsule().stroke(NativeLaunchTheme.cyan.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
+                if let contextLine = step.contextLine(context: context) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(theme.primary.opacity(0.88)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(theme.primary.opacity(0.10)).overlay(Capsule().stroke(theme.primary.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
                 Text(question).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
                 LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     ForEach(options, id: \.self) { option in
-                        Button(action: { nativeAuthImpactLight(); onSelect(option) }) { Text(option).font(.system(size: 17, weight: .black)).foregroundColor(.white).minimumScaleFactor(0.82).lineLimit(1).frame(maxWidth: .infinity).frame(minHeight: sizing.compactHeight ? 56 : 62).background(Color.white.opacity(0.075)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.15), lineWidth: 2)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+                        Button(action: { nativeAuthImpactLight(); onSelect(option) }) { Text(option).font(.system(size: 17, weight: .black)).foregroundColor(.white).minimumScaleFactor(0.82).lineLimit(1).frame(maxWidth: .infinity).frame(minHeight: sizing.compactHeight ? 56 : 62).background(Color.white.opacity(0.075)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.primary.opacity(0.24), lineWidth: 2)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
                             .buttonStyle(.plain)
                             .accessibilityLabel(option)
                             .accessibilityHint("Selects this answer and moves to the next launch step.")
@@ -753,10 +872,11 @@ private struct NativePersonalizationScreen: View {
 private struct NativePersonalizationProgress: View {
     let step: Int
     let total: Int
+    var color: Color = NativeLaunchTheme.cyan
     var body: some View {
         ZStack {
             Circle().stroke(Color.white.opacity(0.12), lineWidth: 4)
-            Circle().trim(from: 0, to: CGFloat(step) / CGFloat(total)).stroke(NativeLaunchTheme.cyan, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
+            Circle().trim(from: 0, to: CGFloat(step) / CGFloat(total)).stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
             Text("\(step)/\(total)").font(.system(size: 12, weight: .black)).foregroundColor(.white)
         }
         .frame(width: 50, height: 50)
@@ -768,6 +888,7 @@ private struct NativePersonalizationProgress: View {
 private struct NativeAtlantaPicksScreen: View {
     let onContinue: () -> Void
     let onSignIn: () -> Void
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var selectedVibe = ""
     private let picks = [
         ("🥇", "Ladybird Grove & Mess Hall", "684 John Wesley Dobbs Ave NE", "Chill", NativeLaunchTheme.cyan),
         ("🥈", "Livingston", "659 Peachtree St NE", "Chill", NativeLaunchTheme.cyan),
@@ -777,17 +898,19 @@ private struct NativeAtlantaPicksScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let theme = NativeJourneyTheme.current(intent: selectedVibe)
             ZStack(alignment: .bottom) {
-                NativeLaunchTheme.background.ignoresSafeArea()
-                Circle().fill(NativeLaunchTheme.purple.opacity(0.14)).frame(width: 420, height: 420).blur(radius: 110).offset(y: -120)
+                theme.background.ignoresSafeArea()
+                Circle().fill(theme.primary.opacity(theme.glowOpacity * 0.78)).frame(width: 420, height: 420).blur(radius: 110).offset(y: -120)
+                Circle().fill(theme.secondary.opacity(theme.glowOpacity * 0.52)).frame(width: 320, height: 320).blur(radius: 100).offset(x: 120, y: 190)
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: sizing.compactHeight ? 13 : 16) {
-                HStack { NativePersonalizationProgress(step: 3, total: 3).overlay(Image(systemName: "checkmark").font(.system(size: 18, weight: .black)).foregroundColor(NativeLaunchTheme.cyan)); Spacer() }
+                HStack { NativePersonalizationProgress(step: 3, total: 3, color: theme.primary).overlay(Image(systemName: "checkmark").font(.system(size: 18, weight: .black)).foregroundColor(theme.primary)); Spacer() }
                 VStack(spacing: 8) { Text("🗺️").font(.system(size: sizing.compactHeight ? 28 : 34)).accessibilityHidden(true); Text(NativeAuthLaunchContract.atlantaHeadline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(NativeAuthLaunchContract.atlantaSubtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.50)).multilineTextAlignment(.center) }
                 VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.offset) { _, pick in NativeAtlantaPickRow(medal: pick.0, title: pick.1, address: pick.2, label: pick.3, color: pick.4) } }
                 Text("You can explore now. Sign in anytime to save favorites and sync your picks.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
-                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Explore These Spots", color: LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.purple], startPoint: .leading, endPoint: .trailing), foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
-                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save these picks").font(.system(size: 14, weight: .black)).foregroundColor(NativeLaunchTheme.cyan).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeLaunchTheme.cyan.opacity(0.28), lineWidth: 1)) }
+                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Explore These Spots", color: theme.ctaGradient, foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
+                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save these picks").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens the sign in screen before saving picks.")
                     .accessibilityIdentifier("native-launch-sign-in-after-picks")
@@ -825,6 +948,7 @@ struct NativeAuthenticationScreen: View {
     @State private var error = ""
     @State private var showRecovery = false
     @State private var touchedFields = Set<NativeAuthField>()
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @FocusState private var focusedField: NativeAuthField?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -835,10 +959,11 @@ struct NativeAuthenticationScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let theme = NativeJourneyTheme.current(intent: launchIntent)
             ScrollView(showsIndicators: false) {
                 VStack(spacing: sizing.compactHeight ? 15 : 18) {
                     HStack { Button(action: onBack) { Image(systemName: "chevron.left").font(.system(size: 16, weight: .black)).foregroundColor(.white).frame(width: 42, height: 42).background(NativeLaunchTheme.panel).clipShape(Circle()) }.buttonStyle(.plain).accessibilityLabel("Back").accessibilityHint("Returns to the landing screen."); Spacer() }
-                    VStack(spacing: 10) { Text("👋").font(.system(size: sizing.compactHeight ? 28 : 34)).frame(width: sizing.compactHeight ? 56 : 64, height: sizing.compactHeight ? 56 : 64).background(NativeLaunchTheme.gradient).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)).accessibilityHidden(true); Text("Welcome to Bytspot").font(.system(size: dynamicTypeSize.isAccessibilitySize ? 28 : sizing.compactHeight ? 30 : 34, weight: .black)).foregroundColor(.white).multilineTextAlignment(.center); Text(currentMode == .signup ? "Create your account to save spots, preferences, and reservations." : "Sign in to access your saved Bytspot profile.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body).multilineTextAlignment(.center) }
+                    VStack(spacing: 10) { Text("👋").font(.system(size: sizing.compactHeight ? 28 : 34)).frame(width: sizing.compactHeight ? 56 : 64, height: sizing.compactHeight ? 56 : 64).background(theme.ctaGradient).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)).accessibilityHidden(true); Text("Welcome to Bytspot").font(.system(size: dynamicTypeSize.isAccessibilitySize ? 28 : sizing.compactHeight ? 30 : 34, weight: .black)).foregroundColor(.white).multilineTextAlignment(.center); Text(currentMode == .signup ? "Create your account to save spots, preferences, and reservations." : "Sign in to continue with your picks.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body).multilineTextAlignment(.center) }
                     .accessibilityElement(children: .combine)
                 authModeToggle
                 NativeSocialAuthButton(title: "Continue with Apple", icon: "apple.logo", loading: loading || isAuthenticating(.apple)) { signIn(.apple) }
@@ -854,9 +979,9 @@ struct NativeAuthenticationScreen: View {
                     if shouldShowEmailValidation { validationCopy(NativeAuthLaunchContract.emailValidationMessage) }
                     NativeLaunchSecureField(title: "Password", text: $password, focus: $focusedField, field: .password, submitLabel: .go, onSubmit: submitEmailAuth)
                     if shouldShowPasswordValidation { validationCopy(NativeAuthLaunchContract.signupPasswordValidationMessage) }
-                    if currentMode == .login { Button("Forgot password?") { showRecovery = true }.font(.system(size: 13, weight: .bold)).foregroundColor(NativeLaunchTheme.cyan).frame(maxWidth: .infinity, alignment: .trailing).accessibilityHint("Opens password recovery.") }
+                    if currentMode == .login { Button("Forgot password?") { showRecovery = true }.font(.system(size: 13, weight: .bold)).foregroundColor(theme.primary).frame(maxWidth: .infinity, alignment: .trailing).accessibilityHint("Opens password recovery.") }
                     if !error.isEmpty { Text(error).font(.system(size: 13, weight: .bold)).foregroundColor(.red.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.red.opacity(0.16)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)).accessibilityLabel("Authentication error. \(error)") }
-                    Button(action: submitEmailAuth) { NativeLaunchCTA(title: loading ? "Connecting…" : currentMode == .signup ? "Create Account" : "Log In", color: NativeLaunchTheme.gradient, foreground: .white, height: sizing.ctaHeight) }.buttonStyle(.plain).disabled(!canSubmit || loading).opacity(canSubmit ? 1 : 0.45).accessibilityHint(canSubmit ? "Submits the email authentication form." : "Complete the required fields to continue.")
+                    Button(action: submitEmailAuth) { NativeLaunchCTA(title: loading ? "Connecting…" : currentMode == .signup ? "Create Account" : "Log In", color: theme.ctaGradient, foreground: .white, height: sizing.ctaHeight) }.buttonStyle(.plain).disabled(!canSubmit || loading).opacity(canSubmit ? 1 : 0.45).accessibilityHint(canSubmit ? "Submits the email authentication form." : "Complete the required fields to continue.")
                 }
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted).multilineTextAlignment(.center)
                 }
@@ -869,7 +994,7 @@ struct NativeAuthenticationScreen: View {
                 .padding(.bottom, 42)
             }
         }
-        .background(NativeLaunchTheme.background.ignoresSafeArea())
+        .background(NativeJourneyTheme.current(intent: launchIntent).background.ignoresSafeArea())
         .accessibilityIdentifier("native-launch-auth")
         .sheet(isPresented: $showRecovery) { NativePasswordRecoverySheet(email: email) }
         .onAppear { focusedField = currentMode == .signup ? .name : .email }

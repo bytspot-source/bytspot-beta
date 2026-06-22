@@ -313,6 +313,7 @@ struct BytspotNativeShellView: View {
     @State private var hybridRoute: BytspotHybridRoute?
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
+    @State private var pendingPostAuthIntent: NativePostAuthIntent?
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var suppressInitialTabRequestAfterLaunch = false
@@ -327,6 +328,7 @@ struct BytspotNativeShellView: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
 
     private static let previewTabDefaultsKey = "bytspot_native_preview_tab"
 
@@ -356,12 +358,12 @@ struct BytspotNativeShellView: View {
 
     var body: some View {
         ZStack {
-            BytspotNativeBackground(tier: activeTier).ignoresSafeArea()
+            BytspotNativeBackground(tier: activeTier, intent: launchIntent).ignoresSafeArea()
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: openNativeProfile, openNativeAuth: { openNativeAuth(mode: .login) })
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: openNativeProfile, openNativeAuth: openNativeAuth)
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .map:
@@ -400,6 +402,8 @@ struct BytspotNativeShellView: View {
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { handleRequestedHybridRoute($0) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
         .onReceive(navigation.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
+        .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady() }
+        .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
             if case .patch(let route) = destination {
                 activeTier = route.tier
@@ -416,7 +420,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .fullScreenCover(isPresented: $showNativeAuth) {
-            NativeAuthenticationScreen(mode: nativeAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: { showNativeAuth = false }, onBack: { showNativeAuth = false })
+            NativeAuthenticationScreen(mode: nativeAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: completeNativeAuth, onBack: { showNativeAuth = false })
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
@@ -433,7 +437,7 @@ struct BytspotNativeShellView: View {
     }
 
     private func openHybrid(_ route: BytspotHybridRoute) {
-        if route == .profile || route == .access, NativeMigrationConfig.isNativeRootEnabled {
+        if Self.shouldRouteHybridRequestNatively(route) {
             openNativeEquivalent(for: route)
             return
         }
@@ -442,7 +446,7 @@ struct BytspotNativeShellView: View {
     }
 
     private func handleRequestedHybridRoute(_ route: BytspotHybridRoute) {
-        if route == .profile || route == .access, NativeMigrationConfig.isNativeRootEnabled {
+        if Self.shouldRouteHybridRequestNatively(route) {
             bridgeStore.requestedHybridRoute = nil
             hybridRoute = nil
             openNativeEquivalent(for: route)
@@ -464,16 +468,46 @@ struct BytspotNativeShellView: View {
         }
     }
 
+    static func shouldRouteHybridRequestNatively(_ route: BytspotHybridRoute) -> Bool {
+        (route == .profile || route == .access) && NativeMigrationConfig.isNativeRootEnabled
+    }
+
     private func openNativeProfile() {
         openNativeProfile(panel: nil)
     }
 
     private func openNativeAuth(mode: NativeAuthMode) {
+        openNativeAuth(mode: mode, pendingIntent: nil)
+    }
+
+    private func openNativeAuth(mode: NativeAuthMode, pendingIntent: NativePostAuthIntent?) {
         hybridRoute = nil
         contextualDestination = nil
+        pendingPostAuthIntent = pendingIntent
         nativeAuthMode = mode
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             showNativeAuth = true
+        }
+    }
+
+    private func completeNativeAuth() {
+        showNativeAuth = false
+        resolvePendingPostAuthIntentIfReady()
+    }
+
+    private func resolvePendingPostAuthIntentIfReady() {
+        guard sessionStore.isAuthenticated, let intent = pendingPostAuthIntent else { return }
+        pendingPostAuthIntent = nil
+        showNativeAuth = false
+        switch intent {
+        case .explorePicks:
+            selectedTab = .discover
+        case .mapPicks:
+            UserDefaults.standard.set(NativeHomeDashboardView.defaultLaunchMapDestination, forKey: NativeOnboardingMapHandoff.destinationKey)
+            UserDefaults.standard.set("Route", forKey: NativeOnboardingMapHandoff.modeKey)
+            selectedTab = .map
+        case .savePicks:
+            selectedTab = .home
         }
     }
 
@@ -3131,15 +3165,17 @@ private struct NativeGuestSavePromptSheet: View {
     var ctaTitle = "Sign in to save"
     let onSignIn: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
 
     var body: some View {
+        let theme = NativeJourneyTheme.current(intent: launchIntent)
         VStack(spacing: 16) {
-            NativeIcon(symbol: "heart.fill", color: NativeTheme.cyan)
+            NativeIcon(symbol: "heart.fill", color: theme.primary)
             VStack(spacing: 6) {
                 Text(title).font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.center)
                 Text(subtitle).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center).lineSpacing(2)
             }
-            Button(action: { dismiss(); onSignIn() }) { NativeCTA(title: ctaTitle, color: NativeTheme.cyan, foreground: .black) }
+            Button(action: { dismiss(); onSignIn() }) { NativeCTA(title: ctaTitle, color: theme.primary, foreground: .black) }
                 .buttonStyle(.plain)
             Button(action: { dismiss() }) { Text("Not now").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textSecondary).frame(maxWidth: .infinity).frame(height: 44).background(NativeTheme.selectedControlSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                 .buttonStyle(.plain)
@@ -3148,6 +3184,14 @@ private struct NativeGuestSavePromptSheet: View {
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-guest-save-prompt")
     }
+}
+
+private enum NativePostAuthIntent: String, Equatable, CaseIterable {
+    case explorePicks
+    case mapPicks
+    case savePicks
+
+    var authMode: NativeAuthMode { .login }
 }
 
 private struct NativeHomeDashboardView: View {
@@ -3168,7 +3212,7 @@ private struct NativeHomeDashboardView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeProfile: () -> Void
-    let openNativeAuth: () -> Void
+    let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     @State private var searchText = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -3182,6 +3226,7 @@ private struct NativeHomeDashboardView: View {
     @State private var guestHomePromptTitle = "Save your picks?"
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
     @State private var guestHomePromptCTA = "Sign in"
+    @State private var guestHomePendingIntent: NativePostAuthIntent? = nil
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "find-parking", title: "Find Parking", subtitle: "Live spots near you", icon: "mappin.and.ellipse", color: NativeTheme.cyan, target: .nativeTab(.map)),
@@ -3365,16 +3410,17 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var launchPicksReadySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let theme = NativeJourneyTheme.current(intent: launchIntent)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                NativeIcon(symbol: "sparkles", color: NativeTheme.cyan)
+                NativeIcon(symbol: "sparkles", color: theme.primary)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("YOUR PICKS ARE READY").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
+                    Text("YOUR PICKS ARE READY").font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).tracking(1.1)
                     Text(launchPicksTitle).nativeTitle(20)
                     Text(launchPicksSubtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
-                Text("+1 more").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
+                Text("+1 more").font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).padding(.horizontal, 8).padding(.vertical, 5).background(theme.primary.opacity(0.12)).clipShape(Capsule())
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("WHY THESE?").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(0.9)
@@ -3382,7 +3428,7 @@ private struct NativeHomeDashboardView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
-            .background(NativeTheme.selectedControlSurface.opacity(0.54))
+            .background(theme.primary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(spacing: 7) {
                 ForEach(Array(Self.launchPreviewPicks.prefix(2).enumerated()), id: \.offset) { index, pick in
@@ -3401,24 +3447,24 @@ private struct NativeHomeDashboardView: View {
                 }
             }
             HStack(spacing: 8) {
-                Button(action: exploreLaunchPicksTapped) { Text("Explore").font(.system(size: 13.2, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 40).background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                Button(action: exploreLaunchPicksTapped) { Text("Explore").font(.system(size: 13.2, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 40).background(theme.ctaGradient).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
-                Button(action: mapLaunchPicksTapped) { Text("Map").font(.system(size: 13.2, weight: .black)).foregroundColor(NativeTheme.purple).frame(maxWidth: .infinity).frame(height: 40).background(NativeTheme.purple.opacity(0.12)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.purple.opacity(0.25), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                Button(action: mapLaunchPicksTapped) { Text("Map").font(.system(size: 13.2, weight: .black)).foregroundColor(theme.secondary).frame(maxWidth: .infinity).frame(height: 40).background(theme.secondary.opacity(0.12)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(theme.secondary.opacity(0.25), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
-                Button(action: saveLaunchPicksTapped) { Text(sessionStore.isAuthenticated ? "Active" : "Save picks").font(.system(size: 13.2, weight: .black)).foregroundColor(sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).frame(maxWidth: .infinity).frame(height: 40).background((sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).opacity(0.11)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke((sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                Button(action: saveLaunchPicksTapped) { Text(sessionStore.isAuthenticated ? "Active" : "Save picks").font(.system(size: 13.2, weight: .black)).foregroundColor(sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).frame(maxWidth: .infinity).frame(height: 40).background((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.11)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
             }
         }
         .padding(14)
         .nativePanel()
         .accessibilityIdentifier("native-home-launch-picks-ready")
-        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: openNativeAuth) }
+        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: { openNativeAuth(guestHomePendingIntent?.authMode ?? .login, guestHomePendingIntent) }) }
     }
 
     private func exploreLaunchPicksTapped() {
         nativeImpactLight()
         guard sessionStore.isAuthenticated else {
-            presentHomeGuestPrompt(title: "Sign in to explore your picks", subtitle: "Create an account to personalize recommendations before opening Discover.", cta: "Sign in to explore")
+            presentHomeGuestPrompt(title: "Sign in to explore your picks", subtitle: "Create an account to personalize recommendations before opening Discover.", cta: "Sign in to explore", intent: .explorePicks)
             return
         }
         openNativeTab(.discover)
@@ -3427,7 +3473,7 @@ private struct NativeHomeDashboardView: View {
     private func mapLaunchPicksTapped() {
         nativeImpactLight()
         guard sessionStore.isAuthenticated else {
-            presentHomeGuestPrompt(title: "Sign in to view your map", subtitle: "Sign in to keep routes, parking context, and arrival notes synced before opening Map.", cta: "Sign in to map")
+            presentHomeGuestPrompt(title: "Sign in to view your map", subtitle: "Sign in to keep routes, parking context, and arrival notes synced before opening Map.", cta: "Sign in to map", intent: .mapPicks)
             return
         }
         openLaunchPicksOnMap()
@@ -3436,13 +3482,14 @@ private struct NativeHomeDashboardView: View {
     private func saveLaunchPicksTapped() {
         nativeImpactLight()
         guard !sessionStore.isAuthenticated else { return }
-        presentHomeGuestPrompt(title: "Save your picks?", subtitle: "Sign in to keep favorites, routes, and parking preferences across devices.", cta: "Sign in to save")
+        presentHomeGuestPrompt(title: "Save your picks?", subtitle: "Sign in to keep favorites, routes, and parking preferences across devices.", cta: "Sign in to save", intent: .savePicks)
     }
 
-    private func presentHomeGuestPrompt(title: String, subtitle: String, cta: String) {
+    private func presentHomeGuestPrompt(title: String, subtitle: String, cta: String, intent: NativePostAuthIntent) {
         guestHomePromptTitle = title
         guestHomePromptSubtitle = subtitle
         guestHomePromptCTA = cta
+        guestHomePendingIntent = intent
         showGuestSavePrompt = true
     }
 
@@ -3486,6 +3533,8 @@ private struct NativeHomeDashboardView: View {
         default: return "Your vibe · local conditions · nearby activity around Midtown"
         }
     }
+
+    static let defaultLaunchMapDestination = "Ladybird Grove & Mess Hall"
 
     static let launchPreviewPicks: [(String, String, String, Color)] = [
         ("Ladybird Grove & Mess Hall", "684 John Wesley Dobbs Ave NE", "Chill", NativeTheme.cyan),
@@ -8319,16 +8368,18 @@ private struct NativeMapMarker: View {
 
 private struct BytspotNativeBackground: View {
     let tier: BytspotTier
+    var intent: String = ""
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let journey = NativeJourneyTheme.current(intent: intent)
         ZStack {
-            BytspotTheme.background
-            RadialGradient(colors: [BytspotTheme.purple.opacity(0.20), .clear], center: .top, startRadius: 20, endRadius: 360)
+            journey.background
+            RadialGradient(colors: [journey.primary.opacity(0.20), .clear], center: .top, startRadius: 20, endRadius: 360)
                 .opacity(colorScheme == .dark ? 0.30 : 0.12)
-            RadialGradient(colors: [BytspotTheme.cyan.opacity(0.18), .clear], center: .bottomTrailing, startRadius: 20, endRadius: 340)
+            RadialGradient(colors: [journey.secondary.opacity(0.18), .clear], center: .bottomTrailing, startRadius: 20, endRadius: 340)
                 .opacity(colorScheme == .dark ? 0.30 : 0.14)
-            RadialGradient(colors: [BytspotTheme.magenta.opacity(0.15), .clear], center: .leading, startRadius: 20, endRadius: 320)
+            RadialGradient(colors: [journey.tertiary.opacity(0.15), .clear], center: .leading, startRadius: 20, endRadius: 320)
                 .opacity(colorScheme == .dark ? 0.30 : 0.10)
             BytspotTheme.tierHeroWash(for: tier).opacity(colorScheme == .dark ? 0.72 : 0.16)
         }
@@ -8547,6 +8598,23 @@ enum NativeHomeParitySelfTests {
         precondition(actions[2].target == .hybrid(.map), "NativeHomeParitySelfTests: Book a Ride must keep production React ride fallback until native ride modal parity.")
         precondition(actions[3].target == .nativeTab(.discover), "NativeHomeParitySelfTests: Explore Venues must route to native Discover tab.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
+    }
+}
+#endif
+
+#if DEBUG
+/// Guards post-auth continuation for personalized Home picks.
+/// These are sign-in intent gates, not premium locks, and native-root profile/access
+/// requests must not present the React hybrid overlay.
+enum NativePostAuthIntentSelfTests {
+    static func runIfRequested() {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
+        precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
+        precondition(NativeHomeDashboardView.defaultLaunchMapDestination == NativeHomeDashboardView.launchPreviewPicks.first?.0, "NativePostAuthIntentSelfTests: Map continuation must target the top launch pick.")
+        precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
+        precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")
+        precondition(!BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && !BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: generic browse routes must remain available.")
     }
 }
 #endif

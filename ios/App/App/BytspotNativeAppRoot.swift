@@ -810,7 +810,7 @@ private struct NativeAtlantaPickRow: View {
     var body: some View { HStack(spacing: 12) { Text(medal).font(.system(size: 20)).accessibilityHidden(true); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(.white).lineLimit(1); Text(address).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.36)).lineLimit(1) }; Spacer(); Text(label).font(.system(size: 12, weight: .black)).foregroundColor(color).padding(.horizontal, 10).padding(.vertical, 5).background(color.opacity(0.16)).overlay(Capsule().stroke(color.opacity(0.34), lineWidth: 1)).clipShape(Capsule()) }.padding(14).nativeLaunchTransparentCard(radius: 16, fillOpacity: 0.065).accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(address), \(label)") }
 }
 
-private struct NativeAuthenticationScreen: View {
+struct NativeAuthenticationScreen: View {
     let mode: NativeAuthMode
     @ObservedObject var sessionStore: BytspotSessionStore
     @ObservedObject var authCoordinator: NativeAuthCoordinator
@@ -843,7 +843,6 @@ private struct NativeAuthenticationScreen: View {
                 authModeToggle
                 NativeSocialAuthButton(title: "Continue with Apple", icon: "apple.logo", loading: loading || isAuthenticating(.apple)) { signIn(.apple) }
                 NativeSocialAuthButton(title: "Continue with Google", icon: "person.crop.circle.badge.plus", loading: loading || isAuthenticating(.google)) { signIn(.google) }
-                Text("Apple and Google use native adapter seams; email sign-in stays available if provider setup is unavailable on this build.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted).multilineTextAlignment(.center).accessibilityLabel("Apple and Google sign in use native adapters. Email sign in remains available if provider setup is unavailable.")
                 HStack { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1); Text("or use email").font(.system(size: 12, weight: .bold)).foregroundColor(NativeLaunchTheme.muted); Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1) }.accessibilityHidden(true)
                 VStack(spacing: 12) {
                     if currentMode == .signup {
@@ -872,7 +871,6 @@ private struct NativeAuthenticationScreen: View {
         }
         .background(NativeLaunchTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-launch-auth")
-        .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { focusedField = nil } } }
         .sheet(isPresented: $showRecovery) { NativePasswordRecoverySheet(email: email) }
         .onAppear { focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: currentMode) { _ in error = ""; touchedFields.removeAll(); focusedField = currentMode == .signup ? .name : .email }

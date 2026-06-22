@@ -400,6 +400,7 @@ export default function App() {
   const prefillRef = useMemo(() => new URLSearchParams(window.location.search).get('ref') ?? '', []);
   const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
   const [launchPreviewVersion, setLaunchPreviewVersion] = useState(0);
+  const [guestSavePrompt, setGuestSavePrompt] = useState<{ title: string; subtitle: string; cta?: string } | null>(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
@@ -1002,6 +1003,35 @@ export default function App() {
       return parsed?.picks?.length ? parsed : null;
     } catch { return null; }
   }, [launchPreviewVersion, activeTab]);
+  const onboardingPreviewCopy = useMemo(() => {
+    const intent = onboardingPreview?.answers?.vibe ?? '';
+    if (['sleep', 'stay'].includes(intent)) return { title: 'Safe stays nearby', why: 'Late night · Midtown · safe area preference · short-rest options' };
+    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Parking-aware picks', why: 'Midtown · easy parking preference · short walk options' };
+    if (intent === 'ride') return { title: 'Ride-friendly options', why: 'Local conditions · ride-aware route · nearby pickup options' };
+    if (intent === 'indoor') return { title: 'Indoor picks nearby', why: 'Weather-aware · indoor comfort · short walk priority' };
+    if (intent === 'drinks') return { title: 'Nightlife picks nearby', why: 'Evening vibe · Midtown · drinks and social spots' };
+    if (intent === 'events') return { title: 'Event-friendly picks', why: 'Evening vibe · Midtown · entertainment nearby' };
+    if (intent === 'coffee') return { title: 'Coffee and quick stops', why: 'Daytime vibe · Midtown · quick walk preference' };
+    return { title: 'Recommended from your quiz', why: 'Your vibe · local conditions · nearby activity around Midtown' };
+  }, [onboardingPreview]);
+  const viewOnboardingPicksOnMap = useCallback(() => {
+    if (!hasAuthenticatedConsumerSession()) {
+      setGuestSavePrompt({ title: 'Sign in to view your map', subtitle: 'Sign in to keep routes, parking context, and arrival notes synced before opening Map.', cta: 'Sign in to map' });
+      return;
+    }
+    const topPick = onboardingPreview?.picks?.[0];
+    if (topPick?.name) setSelectedDestination(topPick.name);
+    setSelectedMapFunction('route');
+    setActiveTab('map');
+  }, [onboardingPreview]);
+
+  const exploreOnboardingPreviewFromHome = useCallback(() => {
+    if (!hasAuthenticatedConsumerSession()) {
+      setGuestSavePrompt({ title: 'Sign in to explore your picks', subtitle: 'Create an account to personalize recommendations before opening Discover.', cta: 'Sign in to explore' });
+      return;
+    }
+    setActiveTab('discover');
+  }, []);
   const memoizedLocations = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       return getPersonalizedNearbyLocations(
@@ -1545,16 +1575,20 @@ export default function App() {
                       <div className="relative mb-3 flex items-start justify-between gap-3">
                         <div>
                           <p className="text-[11px] uppercase tracking-[0.08em] text-cyan-200" style={{ fontWeight: 850 }}>Your picks are ready</p>
-                          <h2 className="mt-1 text-[20px] leading-6 text-white" style={{ fontWeight: 800 }}>Recommended from your quiz</h2>
+                          <h2 className="mt-1 text-[20px] leading-6 text-white" style={{ fontWeight: 800 }}>{onboardingPreviewCopy.title}</h2>
                           <p className="mt-1 text-[12px] leading-[17px] text-white/55" style={{ fontWeight: 600 }}>{onboardingPreview.context ?? `Based on your vibe near ${onboardingPreview.userCity ?? userCity}`}</p>
                         </div>
                         <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{onboardingPreview.picks?.length ?? 0} picks</span>
+                      </div>
+                      <div className="relative mb-3 rounded-[15px] border border-white/10 bg-white/[0.045] px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.07em] text-white/38" style={{ fontWeight: 850 }}>Why these?</p>
+                        <p className="mt-0.5 text-[12px] leading-[17px] text-white/62" style={{ fontWeight: 650 }}>{onboardingPreviewCopy.why}</p>
                       </div>
                       <div className="relative flex flex-col gap-2.5">
                         {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
                           const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
                           return (
-                            <button key={`onboarding-pick-${pick.id}-${index}`} type="button" onClick={() => setActiveTab('discover')} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
+                            <button key={`onboarding-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
                               <span className="text-xl">{['🥇', '🥈', '🥉'][index] ?? '📍'}</span>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-[15px] text-white" style={{ fontWeight: 750 }}>{pick.name}</p>
@@ -1566,11 +1600,14 @@ export default function App() {
                         })}
                       </div>
                       <div className="relative mt-3 grid grid-cols-2 gap-2.5">
-                        <button type="button" onClick={() => setActiveTab('discover')} className="rounded-[15px] bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-3 text-[13px] text-black" style={{ fontWeight: 850 }}>Explore picks</button>
+                        <button type="button" onClick={exploreOnboardingPreviewFromHome} className="rounded-[15px] bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-3 text-[13px] text-black" style={{ fontWeight: 850 }}>Explore picks</button>
+                        <button type="button" onClick={viewOnboardingPicksOnMap} className="rounded-[15px] border border-purple-300/25 bg-purple-400/10 px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 800 }}>View on Map</button>
+                      </div>
+                      <div className="relative mt-2.5">
                         {!hasAuthenticatedConsumerSession() ? (
-                          <button type="button" onClick={() => setCurrentScreen('auth')} className="rounded-[15px] border border-cyan-300/25 bg-white/[0.055] px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 800 }}>Sign in to save</button>
+                          <button type="button" onClick={() => setGuestSavePrompt({ title: 'Save your picks?', subtitle: 'Sign in to keep favorites, routes, and parking preferences across devices.', cta: 'Sign in to save' })} className="w-full rounded-[15px] border border-cyan-300/25 bg-white/[0.055] px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 800 }}>Sign in to save picks</button>
                         ) : (
-                          <button type="button" onClick={() => toast.success('Your picks are ready', { description: 'Saved preferences are active on this device.' })} className="rounded-[15px] border border-emerald-300/25 bg-emerald-400/10 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 800 }}>Picks active</button>
+                          <button type="button" onClick={() => toast.success('Your picks are ready', { description: 'Saved preferences are active on this device.' })} className="w-full rounded-[15px] border border-emerald-300/25 bg-emerald-400/10 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 800 }}>Picks active</button>
                         )}
                       </div>
                     </div>
@@ -2370,6 +2407,48 @@ export default function App() {
           onMapButtonClick={() => setShowMapMenu(true)}
           isVisible={showBottomNav}
         />
+
+        <AnimatePresence>
+          {guestSavePrompt && (
+            <motion.div
+              className="fixed inset-0 z-[95] flex items-end justify-center bg-black/45 px-4 pb-[calc(1rem+var(--safe-area-bottom,0px))] backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setGuestSavePrompt(null)}
+            >
+              <motion.div
+                className="w-full max-w-[420px] rounded-[28px] border border-white/15 bg-[linear-gradient(145deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96)_55%,rgba(8,47,73,0.86))] p-5 text-center text-white shadow-[0_24px_70px_rgba(0,0,0,0.48)]"
+                initial={{ y: 30, scale: 0.98 }}
+                animate={{ y: 0, scale: 1 }}
+                exit={{ y: 30, scale: 0.98 }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-400/15 text-2xl">💾</div>
+                <h3 className="text-[22px] leading-7" style={{ fontWeight: 900 }}>{guestSavePrompt.title}</h3>
+                <p className="mx-auto mt-2 max-w-[310px] text-[14px] leading-5 text-white/62" style={{ fontWeight: 650 }}>{guestSavePrompt.subtitle}</p>
+                <div className="mt-5 grid gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setGuestSavePrompt(null); setCurrentScreen('auth'); }}
+                    className="rounded-[17px] bg-gradient-to-r from-cyan-400 to-purple-500 px-4 py-3.5 text-[15px] text-black"
+                    style={{ fontWeight: 900 }}
+                  >
+                    {guestSavePrompt.cta ?? 'Sign in'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuestSavePrompt(null)}
+                    className="rounded-[17px] border border-white/12 bg-white/[0.055] px-4 py-3 text-[14px] text-white/70"
+                    style={{ fontWeight: 800 }}
+                  >
+                    Not now
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Secondary Map Tools sheet: the Map tab itself opens the map directly. */}
         <MapMenuSlideUp

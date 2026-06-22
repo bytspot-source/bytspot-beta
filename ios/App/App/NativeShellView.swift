@@ -247,7 +247,7 @@ final class NativeBridgeStore: NSObject, ObservableObject, WKScriptMessageHandle
         guard let target, let route else { return false }
         requestedTab = target
         open(route, force: true, handoffURL: url)
-        if route == .profile || route == .access { requestedHybridRoute = route }
+        if (route == .profile || route == .access) && !NativeMigrationConfig.isNativeRootEnabled { requestedHybridRoute = route }
         return true
     }
 
@@ -311,6 +311,8 @@ struct BytspotNativeShellView: View {
     @State private var selectedTab: BytspotNativeTab = Self.previewInitialTab
     @State private var activeTier: BytspotTier = BytspotTheme.defaultTier
     @State private var hybridRoute: BytspotHybridRoute?
+    @State private var showNativeAuth = false
+    @State private var nativeAuthMode: NativeAuthMode = .login
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var suppressInitialTabRequestAfterLaunch = false
@@ -359,11 +361,11 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: openNativeProfile)
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: openNativeProfile, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab)
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, prewarmBridge: { bridgeStore.preloadBridge() }, activeTier: activeTier, membership: membershipStore.membership)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, prewarmBridge: { bridgeStore.preloadBridge() }, activeTier: activeTier, membership: membershipStore.membership)
                             .environmentObject(pairingStore)
                     case .concierge:
                         NativeConciergeView(openHybrid: openHybrid)
@@ -395,7 +397,7 @@ struct BytspotNativeShellView: View {
         }
         .onChange(of: selectedTab) { bridgeStore.open($0.hybridRoute) }
         .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
-        .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { hybridRoute = $0 }
+        .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { handleRequestedHybridRoute($0) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
         .onReceive(navigation.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
@@ -413,8 +415,16 @@ struct BytspotNativeShellView: View {
             NativeHybridBridgeScreen(route: route, bridgeStore: bridgeStore)
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
+        .fullScreenCover(isPresented: $showNativeAuth) {
+            NativeAuthenticationScreen(mode: nativeAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: { showNativeAuth = false }, onBack: { showNativeAuth = false })
+                .preferredColorScheme(.dark)
+        }
         .sheet(item: $contextualDestination) { destination in
             NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }) { route in
+                if route == .profile || route == .access, NativeMigrationConfig.isNativeRootEnabled {
+                    openNativeEquivalent(for: route)
+                    return
+                }
                 bridgeStore.open(route, force: true, handoffURL: navigation.lastURL)
                 hybridRoute = route
             }
@@ -423,12 +433,48 @@ struct BytspotNativeShellView: View {
     }
 
     private func openHybrid(_ route: BytspotHybridRoute) {
+        if route == .profile || route == .access, NativeMigrationConfig.isNativeRootEnabled {
+            openNativeEquivalent(for: route)
+            return
+        }
         bridgeStore.open(route)
         hybridRoute = route
     }
 
+    private func handleRequestedHybridRoute(_ route: BytspotHybridRoute) {
+        if route == .profile || route == .access, NativeMigrationConfig.isNativeRootEnabled {
+            bridgeStore.requestedHybridRoute = nil
+            hybridRoute = nil
+            openNativeEquivalent(for: route)
+            return
+        }
+        hybridRoute = route
+    }
+
+    private func openNativeEquivalent(for route: BytspotHybridRoute) {
+        switch route {
+        case .profile:
+            openNativeProfile()
+        case .access:
+            hybridRoute = nil
+            selectedTab = .home
+            contextualDestination = .accessWallet
+        default:
+            break
+        }
+    }
+
     private func openNativeProfile() {
         openNativeProfile(panel: nil)
+    }
+
+    private func openNativeAuth(mode: NativeAuthMode) {
+        hybridRoute = nil
+        contextualDestination = nil
+        nativeAuthMode = mode
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            showNativeAuth = true
+        }
     }
 
     private func openNativeProfile(panel: NativeProfilePanel?) {
@@ -3074,6 +3120,36 @@ private struct NativeWalletLine: View {
     }
 }
 
+private enum NativeOnboardingMapHandoff {
+    static let destinationKey = "bytspot_native_onboarding_map_destination"
+    static let modeKey = "bytspot_native_onboarding_map_mode"
+}
+
+private struct NativeGuestSavePromptSheet: View {
+    let title: String
+    let subtitle: String
+    var ctaTitle = "Sign in to save"
+    let onSignIn: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            NativeIcon(symbol: "heart.fill", color: NativeTheme.cyan)
+            VStack(spacing: 6) {
+                Text(title).font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.center)
+                Text(subtitle).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center).lineSpacing(2)
+            }
+            Button(action: { dismiss(); onSignIn() }) { NativeCTA(title: ctaTitle, color: NativeTheme.cyan, foreground: .black) }
+                .buttonStyle(.plain)
+            Button(action: { dismiss() }) { Text("Not now").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textSecondary).frame(maxWidth: .infinity).frame(height: 44).background(NativeTheme.selectedControlSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                .buttonStyle(.plain)
+        }
+        .padding(20)
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-guest-save-prompt")
+    }
+}
+
 private struct NativeHomeDashboardView: View {
     enum ActionTarget: Equatable {
         case nativeTab(BytspotNativeTab)
@@ -3092,6 +3168,7 @@ private struct NativeHomeDashboardView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeProfile: () -> Void
+    let openNativeAuth: () -> Void
     @State private var searchText = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -3099,6 +3176,12 @@ private struct NativeHomeDashboardView: View {
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
+    @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var mapHandoffDestination = ""
+    @AppStorage(NativeOnboardingMapHandoff.modeKey) private var mapHandoffMode = ""
+    @State private var showGuestSavePrompt = false
+    @State private var guestHomePromptTitle = "Save your picks?"
+    @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
+    @State private var guestHomePromptCTA = "Sign in"
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "find-parking", title: "Find Parking", subtitle: "Live spots near you", icon: "mappin.and.ellipse", color: NativeTheme.cyan, target: .nativeTab(.map)),
@@ -3282,42 +3365,104 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var launchPicksReadySection: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 NativeIcon(symbol: "sparkles", color: NativeTheme.cyan)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("YOUR PICKS ARE READY").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
-                    Text("Recommended from your quiz").nativeTitle(20)
+                    Text(launchPicksTitle).nativeTitle(20)
                     Text(launchPicksSubtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
+                Text("+1 more").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
             }
-            VStack(spacing: 8) {
-                ForEach(Array(Self.launchPreviewPicks.enumerated()), id: \.offset) { index, pick in
+            VStack(alignment: .leading, spacing: 4) {
+                Text("WHY THESE?").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(0.9)
+                Text(launchPicksWhy).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineSpacing(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(NativeTheme.selectedControlSurface.opacity(0.54))
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            VStack(spacing: 7) {
+                ForEach(Array(Self.launchPreviewPicks.prefix(2).enumerated()), id: \.offset) { index, pick in
                     HStack(spacing: 12) {
-                        Text(["🥇", "🥈", "🥉"][index]).font(.system(size: 20)).accessibilityHidden(true)
+                        Text(["🥇", "🥈"][index]).font(.system(size: 18)).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(pick.0).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
-                            Text(pick.1).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+                            Text(pick.0).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                            Text(pick.1).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                         Text(pick.2).font(.system(size: 11, weight: .black)).foregroundColor(pick.3).padding(.horizontal, 8).padding(.vertical, 5).background(pick.3.opacity(0.14)).clipShape(Capsule())
                     }
-                    .padding(11)
+                    .padding(10)
                     .background(NativeTheme.selectedControlSurface.opacity(0.66))
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
-            HStack(spacing: 9) {
-                Button(action: { nativeImpactLight(); openNativeTab(.discover) }) { Text("Explore picks").font(.system(size: 14, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 44).background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+            HStack(spacing: 8) {
+                Button(action: exploreLaunchPicksTapped) { Text("Explore").font(.system(size: 13.2, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 40).background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
-                Button(action: { nativeImpactLight(); openNativeProfile() }) { Text(sessionStore.isAuthenticated ? "Picks active" : "Sign in to save").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan).frame(maxWidth: .infinity).frame(height: 44).background(NativeTheme.selectedControlSurface.opacity(0.72)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.cyan.opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                Button(action: mapLaunchPicksTapped) { Text("Map").font(.system(size: 13.2, weight: .black)).foregroundColor(NativeTheme.purple).frame(maxWidth: .infinity).frame(height: 40).background(NativeTheme.purple.opacity(0.12)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.purple.opacity(0.25), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                    .buttonStyle(.plain)
+                Button(action: saveLaunchPicksTapped) { Text(sessionStore.isAuthenticated ? "Active" : "Save picks").font(.system(size: 13.2, weight: .black)).foregroundColor(sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).frame(maxWidth: .infinity).frame(height: 40).background((sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).opacity(0.11)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke((sessionStore.isAuthenticated ? NativeTheme.emerald : NativeTheme.cyan).opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
             }
         }
-        .padding(16)
+        .padding(14)
         .nativePanel()
         .accessibilityIdentifier("native-home-launch-picks-ready")
+        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: openNativeAuth) }
+    }
+
+    private func exploreLaunchPicksTapped() {
+        nativeImpactLight()
+        guard sessionStore.isAuthenticated else {
+            presentHomeGuestPrompt(title: "Sign in to explore your picks", subtitle: "Create an account to personalize recommendations before opening Discover.", cta: "Sign in to explore")
+            return
+        }
+        openNativeTab(.discover)
+    }
+
+    private func mapLaunchPicksTapped() {
+        nativeImpactLight()
+        guard sessionStore.isAuthenticated else {
+            presentHomeGuestPrompt(title: "Sign in to view your map", subtitle: "Sign in to keep routes, parking context, and arrival notes synced before opening Map.", cta: "Sign in to map")
+            return
+        }
+        openLaunchPicksOnMap()
+    }
+
+    private func saveLaunchPicksTapped() {
+        nativeImpactLight()
+        guard !sessionStore.isAuthenticated else { return }
+        presentHomeGuestPrompt(title: "Save your picks?", subtitle: "Sign in to keep favorites, routes, and parking preferences across devices.", cta: "Sign in to save")
+    }
+
+    private func presentHomeGuestPrompt(title: String, subtitle: String, cta: String) {
+        guestHomePromptTitle = title
+        guestHomePromptSubtitle = subtitle
+        guestHomePromptCTA = cta
+        showGuestSavePrompt = true
+    }
+
+    private func openLaunchPicksOnMap() {
+        mapHandoffDestination = Self.launchPreviewPicks.first?.0 ?? "Ladybird Grove & Mess Hall"
+        mapHandoffMode = launchIntent == "parking" || launchIntent == "covered_parking" ? "Smart Parking" : "Route"
+        openNativeTab(.map)
+    }
+
+    private var launchPicksTitle: String {
+        switch launchIntent {
+        case "sleep", "stay": return "Safe stays nearby"
+        case "parking", "covered_parking": return "Parking-aware picks"
+        case "ride": return "Ride-friendly options"
+        case "indoor": return "Indoor picks nearby"
+        case "drinks": return "Nightlife picks nearby"
+        case "events": return "Event-friendly picks"
+        case "coffee": return "Coffee and quick stops"
+        default: return "Recommended from your quiz"
+        }
     }
 
     private var launchPicksSubtitle: String {
@@ -3326,6 +3471,19 @@ private struct NativeHomeDashboardView: View {
         case "parking", "covered_parking": return "Parking-aware Midtown picks are active on this device."
         case "ride": return "Ride-aware nearby picks are active on this device."
         default: return "Based on your vibe, location, and local conditions near Midtown."
+        }
+    }
+
+    private var launchPicksWhy: String {
+        switch launchIntent {
+        case "sleep", "stay": return "Late night · Midtown · safe area preference · short-rest options"
+        case "parking", "covered_parking": return "Midtown · easy parking preference · short walk options"
+        case "ride": return "Local conditions · ride-aware route · nearby pickup options"
+        case "indoor": return "Weather-aware · indoor comfort · short walk priority"
+        case "drinks": return "Evening vibe · Midtown · drinks and social spots"
+        case "events": return "Evening vibe · Midtown · entertainment nearby"
+        case "coffee": return "Daytime vibe · Midtown · quick walk preference"
+        default: return "Your vibe · local conditions · nearby activity around Midtown"
         }
     }
 
@@ -3772,6 +3930,7 @@ private struct NativeStatusPill: View {
 private struct NativeDiscoverView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
+    let openNativeAuth: () -> Void
     @State private var selectedFilter: String? = nil
     @State private var entryFilter = "all"
     @State private var sortBy = "crowd"
@@ -3780,8 +3939,10 @@ private struct NativeDiscoverView: View {
     @State private var savedCardIDs: Set<String> = []
     @State private var skippedCardIDs: Set<String> = []
     @State private var detailVenue: NativeVenueSummary?
+    @State private var guestSavePromptTitle: String?
     @State private var didApplyDetailPreview = false
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
 
     struct DiscoverCardSpec: Identifiable, Equatable {
@@ -3828,7 +3989,7 @@ private struct NativeDiscoverView: View {
         .task { applyDetailPreviewIfRequested() }
         .onChange(of: tabContentStore.snapshot.discoverCards.count) { _ in applyDetailPreviewIfRequested() }
         .sheet(item: $detailVenue) { venue in
-            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid)
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
             if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
@@ -3836,6 +3997,9 @@ private struct NativeDiscoverView: View {
             } else {
                 detail
             }
+        }
+        .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
+            NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
         }
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-discover-depth")
@@ -4006,6 +4170,11 @@ private struct NativeDiscoverView: View {
     }
 
     private func toggleSaved(_ id: String) {
+        guard sessionStore.isAuthenticated else {
+            guestSavePromptTitle = rankedCards.first(where: { $0.id == id })?.title ?? "this spot"
+            nativeImpactLight()
+            return
+        }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.78)) {
             if savedCardIDs.contains(id) { savedCardIDs.remove(id) } else { savedCardIDs.insert(id) }
         }
@@ -4574,11 +4743,18 @@ enum NativeVenueHours {
 private struct NativeVenueDetailView: View {
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
+    var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
+    var openNativeAuth: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @State private var isSaved = false
     @State private var didCheckIn = false
     @State private var statusMessage: String?
+    @State private var showGuestSavePrompt = false
+    @State private var guestPromptTitle = "Save this spot?"
+    @State private var guestPromptSubtitle = "Sign in to keep this spot in your favorites and sync it later."
+    @State private var guestPromptCTA = "Sign in to save"
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -4601,6 +4777,9 @@ private struct NativeVenueDetailView: View {
         }
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-venue-detail")
+        .sheet(isPresented: $showGuestSavePrompt) {
+            NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: { openNativeAuth?() })
+        }
     }
 
     private var hero: some View {
@@ -4716,15 +4895,38 @@ private struct NativeVenueDetailView: View {
         case .device:
             handleDevice(action.id)
         case .local:
-            isSaved.toggle(); statusMessage = isSaved ? "Saved \(venue.name)." : "Removed \(venue.name) from saved spots."
+            if sessionStore.isAuthenticated { isSaved.toggle(); statusMessage = isSaved ? "Saved \(venue.name)." : "Removed \(venue.name) from saved spots." }
+            else { presentGuestPrompt(title: "Save \(venue.name)?", subtitle: "Sign in to keep this spot in your favorites and sync it later.", cta: "Sign in to save") }
         case .capability(let capability):
-            if capability == .saveToWallet { statusMessage = "Opening \(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue).lowercased()) options for \(venue.name)."; openHybrid(.access) }
-            else { statusMessage = "Taking you to secure booking for \(venue.name)."; openHybrid(.map) }
+            handleCapability(action, capability: capability)
         case .authedWrite:
-            Task { await submitCheckIn() }
+            if sessionStore.isAuthenticated { Task { await submitCheckIn() } }
+            else { presentGuestPrompt(title: "Sign in to check in", subtitle: "Create an account to keep check-ins and visit history synced.", cta: "Sign in to check in") }
         case .handoff:
-            openHybrid(.concierge)
+            openNativeTab?(.concierge)
         }
+    }
+
+    private func handleCapability(_ action: NativeVenueDetailAction, capability: BytspotTrustCapability) {
+        guard sessionStore.isAuthenticated else {
+            let title = NativeVenueDetailPresentation.actionTitle(for: action, venue: venue)
+            presentGuestPrompt(title: "Sign in to \(title.lowercased())", subtitle: "We'll keep \(venue.name), receipts, routes, and arrival details tied to your account.", cta: "Sign in")
+            return
+        }
+        if capability == .saveToWallet {
+            statusMessage = "Opening \(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue).lowercased()) options for \(venue.name)."
+            openHybrid(.access)
+        } else {
+            statusMessage = "Starting native Concierge for \(venue.name)."
+            openNativeTab?(.concierge)
+        }
+    }
+
+    private func presentGuestPrompt(title: String, subtitle: String, cta: String) {
+        guestPromptTitle = title
+        guestPromptSubtitle = subtitle
+        guestPromptCTA = cta
+        showGuestSavePrompt = true
     }
 
     private func handleDevice(_ id: String) {
@@ -4766,6 +4968,8 @@ private struct NativeVenueDetailView: View {
 // static gate surface via same-file access.
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
+    let openNativeTab: (BytspotNativeTab) -> Void
+    let openNativeAuth: () -> Void
     /// Advisory-only hybrid bridge pre-warm, fired when the parker crosses into
     /// the pre-stage ring. Defaults to a no-op so previews/tests need not wire it.
     var prewarmBridge: () -> Void = {}
@@ -4794,11 +4998,18 @@ private struct NativeMapExploreView: View {
     @State private var communityReports: [NativeCommunityReport] = NativeCommunityReport.samples
     @State private var recenterMode: NativeMapRecenterMode = .off
     @State private var pairedPatchVenueID: String? = Self.previewPairedPatchVenueID
+    @State private var guestMapPromptTitle: String?
+    @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
+    @State private var guestMapPromptCTA = "Sign in to save"
     @State private var gateLatched = false
     @State private var bridgePrewarmed = false
     @StateObject private var headingProvider = NativeMapHeadingProvider()
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var pairingStore: NativePatchPairingStore
+    @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var onboardingMapDestination = ""
+    @AppStorage(NativeOnboardingMapHandoff.modeKey) private var onboardingMapMode = ""
     private var venues: [NativeVenueSummary] {
         tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
     }
@@ -5066,7 +5277,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $detailVenue) { venue in
-            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid)
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
             if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
@@ -5075,10 +5286,14 @@ private struct NativeMapExploreView: View {
                 detail
             }
         }
+        .sheet(isPresented: Binding(get: { guestMapPromptTitle != nil }, set: { if !$0 { guestMapPromptTitle = nil } })) {
+            NativeGuestSavePromptSheet(title: guestMapPromptTitle ?? "Save this spot?", subtitle: guestMapPromptSubtitle, ctaTitle: guestMapPromptCTA, onSignIn: openNativeAuth)
+        }
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
         .accessibilityIdentifier("native-map-explore")
-        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); refreshDescentPrewarm(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested() }
+        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); refreshDescentPrewarm(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested() }
+        .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch(); refreshDescentPrewarm() }
         .onDisappear { headingProvider.stopLocating() }
     }
@@ -5110,6 +5325,25 @@ private struct NativeMapExploreView: View {
 
     private static var previewSelectedPinToken: String? {
         ProcessInfo.processInfo.environment[selectedPinEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private func applyOnboardingMapHandoffIfRequested() {
+        let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !destination.isEmpty else { return }
+        let mode = onboardingMapMode.isEmpty ? "Route" : onboardingMapMode
+        let lower = destination.lowercased()
+        let resolved = pins.first { pin in
+            let title = pin.title.lowercased()
+            return title.contains(lower) || lower.contains(title)
+        } ?? NativeMapPin.onboardingFallback(title: destination)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            selectedMode = mode
+            selectedPin = mode == "Smart Parking" ? pins.first(where: { $0.kind == .parking }) ?? resolved : resolved
+            if let coordinate = selectedPin?.coordinate { region.center = coordinate }
+            showFunctionSheet = false
+            onboardingMapDestination = ""
+            onboardingMapMode = ""
+        }
     }
 
     private func autoOpenTrafficIntelIfRequested() {
@@ -5262,7 +5496,7 @@ private struct NativeMapExploreView: View {
                         icon: "sparkles",
                         accent: NativeTheme.purple,
                         isPrimary: false,
-                        action: { openHybrid(.concierge) }
+                        action: { openNativeTab(.concierge) }
                     )
                 }
             }
@@ -5377,7 +5611,7 @@ private struct NativeMapExploreView: View {
                 Text(pin.title).font(.system(size: 17, weight: .heavy)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
                 Text(pin.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
-            Button(action: { nativeImpactLight(); openHybrid(.map) }) {
+            Button(action: { handleNonPartnerPrimary(pin) }) {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.triangle.turn.up.right.circle.fill").font(.system(size: 15, weight: .black))
                     Text(Self.nonPartnerCardPrimaryLabel).font(.system(size: 14, weight: .black))
@@ -5431,11 +5665,34 @@ private struct NativeMapExploreView: View {
     private func handleNonPartnerSecondary(_ label: String, for pin: NativeMapPin) {
         nativeImpactLight()
         switch label {
-        case "Concierge": openHybrid(.concierge)
-        case "Save": openHybrid(.access)
+        case "Concierge": openNativeTab(.concierge)
+        case "Save":
+            if sessionStore.isAuthenticated { selectedPin = pin }
+            else { presentGuestMapPrompt(title: "Save \(pin.title)?", subtitle: "Sign in to keep this map pick, route, and parking context synced.", cta: "Sign in to save") }
         case "Details": detailVenue = venueForDetail(pin)
-        default: openHybrid(.discover)
+        default: openNativeTab(.discover)
         }
+    }
+
+    private func handleNonPartnerPrimary(_ pin: NativeMapPin) {
+        nativeImpactLight()
+        if sessionStore.isAuthenticated {
+            selectRoute(to: pin)
+        } else {
+            presentGuestMapPrompt(title: "Save route to \(pin.title)?", subtitle: "Sign in to keep this route, parking context, and arrival notes across devices.", cta: "Sign in to save route")
+        }
+    }
+
+    private func presentGuestMapPrompt(title: String, subtitle: String, cta: String) {
+        guestMapPromptTitle = title
+        guestMapPromptSubtitle = subtitle
+        guestMapPromptCTA = cta
+    }
+
+    private func selectRoute(to pin: NativeMapPin) {
+        selectedMode = "Route"
+        selectedPin = pin
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = pin.coordinate }
     }
 
     /// Resolves the full venue backing a peek-card pin for the native detail
@@ -5556,9 +5813,18 @@ private struct NativeMapExploreView: View {
     private func handleServiceTileTap(_ tile: String, pin: NativeMapPin) {
         nativeImpactLight()
         switch tile {
-        case "Concierge": openHybrid(.concierge)
-        case "See all": openHybrid(.discover)
-        default: openHybrid(.access)
+        case "Concierge":
+            openNativeTab(.concierge)
+        case "See all":
+            openNativeTab(.discover)
+        case "Reserve":
+            if sessionStore.isAuthenticated { detailVenue = venueForDetail(pin) }
+            else { presentGuestMapPrompt(title: "Sign in to reserve at \(pin.title)", subtitle: "We'll save the reservation, receipt, and arrival details to your account.", cta: "Sign in to reserve") }
+        case "Valet":
+            if sessionStore.isAuthenticated { openNativeTab(.concierge) }
+            else { presentGuestMapPrompt(title: "Sign in for valet at \(pin.title)", subtitle: "Create an account to keep valet requests, routes, and pickup notes synced.", cta: "Sign in for valet") }
+        default:
+            detailVenue = venueForDetail(pin)
         }
     }
 
@@ -5728,7 +5994,7 @@ private struct NativeMapExploreView: View {
         showFunctionSheet = false
         switch function {
         case .aiNavigation:
-            openHybrid(.concierge)
+            openNativeTab(.concierge)
         case .spotRadar:
             selectedMode = "Nearby"
             showHeatmap = true
@@ -8004,10 +8270,17 @@ private enum NativeMapPinKind { case partner, parking, access
 private struct NativeMapPin: Identifiable {
     let id: String; let title: String; let subtitle: String; let distance: String; let coordinate: CLLocationCoordinate2D; let color: Color; let kind: NativeMapPinKind; let crowdLevel: Int?
     static let samples = [
+        NativeMapPin(id: "launch-ladybird", title: "Ladybird Grove & Mess Hall", subtitle: "Recommended from your quiz · Dining", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7639, longitude: -84.3669), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1),
+        NativeMapPin(id: "launch-livingston", title: "Livingston", subtitle: "Recommended from your quiz · Date night", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7726, longitude: -84.3847), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1),
+        NativeMapPin(id: "launch-lyla-lila", title: "Lyla Lila", subtitle: "Recommended from your quiz · Active", distance: "1.1 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7818, longitude: -84.4113), color: NativeTheme.emerald, kind: .partner, crowdLevel: 0),
         NativeMapPin(id: "partner-colony", title: "Colony Square", subtitle: "Verified Tap Zone · Dining + access", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832), color: NativeTheme.cyan, kind: .partner, crowdLevel: 2),
         NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking, crowdLevel: 1),
         NativeMapPin(id: "access-arts", title: "Arts Center Access", subtitle: "Patch-ready entry and concierge help", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: NativeTheme.pink, kind: .access, crowdLevel: 3)
     ]
+
+    static func onboardingFallback(title: String) -> NativeMapPin {
+        NativeMapPin(id: "launch-" + title.lowercased().replacingOccurrences(of: " ", with: "-"), title: title, subtitle: "Recommended from your quiz", distance: "Nearby", coordinate: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1)
+    }
 
     init(id: String, title: String, subtitle: String, distance: String, coordinate: CLLocationCoordinate2D, color: Color, kind: NativeMapPinKind, crowdLevel: Int?) {
         self.id = id; self.title = title; self.subtitle = subtitle; self.distance = distance; self.coordinate = coordinate; self.color = color; self.kind = kind; self.crowdLevel = crowdLevel

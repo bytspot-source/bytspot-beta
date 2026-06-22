@@ -307,11 +307,13 @@ final class NativePatchPairingStore: ObservableObject {
 struct BytspotNativeShellView: View {
     @ObservedObject var bridgeStore: NativeBridgeStore
     @ObservedObject var navigation: NativeNavigationCoordinator
+    var preferHomeAfterLaunch: Bool = false
     @State private var selectedTab: BytspotNativeTab = Self.previewInitialTab
     @State private var activeTier: BytspotTier = BytspotTheme.defaultTier
     @State private var hybridRoute: BytspotHybridRoute?
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
+    @State private var suppressInitialTabRequestAfterLaunch = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @StateObject private var pairingStore = NativePatchPairingStore()
     /// Live premium-membership entitlement (orthogonal to the service tier), sourced
@@ -377,6 +379,13 @@ struct BytspotNativeShellView: View {
             authCoordinator.runDebugAutorunIfRequested(sessionStore: sessionStore)
             #endif
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
+            if preferHomeAfterLaunch {
+                suppressInitialTabRequestAfterLaunch = true
+                bridgeStore.requestedTab = nil
+                navigation.requestedTab = nil
+                selectedTab = .home
+                DispatchQueue.main.async { suppressInitialTabRequestAfterLaunch = false }
+            }
             bridgeStore.open(selectedTab.hybridRoute)
             if Self.previewProfileRequested, contextualDestination == nil {
                 contextualDestination = .profile
@@ -385,10 +394,10 @@ struct BytspotNativeShellView: View {
             runProfilePanelBridgeSmokeIfRequested()
         }
         .onChange(of: selectedTab) { bridgeStore.open($0.hybridRoute) }
-        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { selectedTab = $0 }
+        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { hybridRoute = $0 }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
-        .onReceive(navigation.$requestedTab.compactMap { $0 }) { selectedTab = $0 }
+        .onReceive(navigation.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
             if case .patch(let route) = destination {
                 activeTier = route.tier
@@ -3088,6 +3097,8 @@ private struct NativeHomeDashboardView: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "find-parking", title: "Find Parking", subtitle: "Live spots near you", icon: "mappin.and.ellipse", color: NativeTheme.cyan, target: .nativeTab(.map)),
@@ -3102,6 +3113,7 @@ private struct NativeHomeDashboardView: View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
+            if launchPicksCompleted { launchPicksReadySection }
             tonightPickCard
             weatherSmartCard
             quickActionsSection
@@ -3268,6 +3280,60 @@ private struct NativeHomeDashboardView: View {
         .shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8)
         .accessibilityIdentifier("native-home-search")
     }
+
+    private var launchPicksReadySection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
+                NativeIcon(symbol: "sparkles", color: NativeTheme.cyan)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR PICKS ARE READY").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
+                    Text("Recommended from your quiz").nativeTitle(20)
+                    Text(launchPicksSubtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                }
+                Spacer(minLength: 0)
+            }
+            VStack(spacing: 8) {
+                ForEach(Array(Self.launchPreviewPicks.enumerated()), id: \.offset) { index, pick in
+                    HStack(spacing: 12) {
+                        Text(["🥇", "🥈", "🥉"][index]).font(.system(size: 20)).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(pick.0).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                            Text(pick.1).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Text(pick.2).font(.system(size: 11, weight: .black)).foregroundColor(pick.3).padding(.horizontal, 8).padding(.vertical, 5).background(pick.3.opacity(0.14)).clipShape(Capsule())
+                    }
+                    .padding(11)
+                    .background(NativeTheme.selectedControlSurface.opacity(0.66))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+            HStack(spacing: 9) {
+                Button(action: { nativeImpactLight(); openNativeTab(.discover) }) { Text("Explore picks").font(.system(size: 14, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 44).background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                    .buttonStyle(.plain)
+                Button(action: { nativeImpactLight(); openNativeProfile() }) { Text(sessionStore.isAuthenticated ? "Picks active" : "Sign in to save").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan).frame(maxWidth: .infinity).frame(height: 44).background(NativeTheme.selectedControlSurface.opacity(0.72)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.cyan.opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .nativePanel()
+        .accessibilityIdentifier("native-home-launch-picks-ready")
+    }
+
+    private var launchPicksSubtitle: String {
+        switch launchIntent {
+        case "sleep", "stay": return "Safe stays and short-rest options stay visible while you browse."
+        case "parking", "covered_parking": return "Parking-aware Midtown picks are active on this device."
+        case "ride": return "Ride-aware nearby picks are active on this device."
+        default: return "Based on your vibe, location, and local conditions near Midtown."
+        }
+    }
+
+    static let launchPreviewPicks: [(String, String, String, Color)] = [
+        ("Ladybird Grove & Mess Hall", "684 John Wesley Dobbs Ave NE", "Chill", NativeTheme.cyan),
+        ("Livingston", "659 Peachtree St NE", "Chill", NativeTheme.cyan),
+        ("Lyla Lila", "972 Brady Ave NW", "Active", NativeTheme.emerald)
+    ]
 
     private var searchPlaceholderRotation: String {
         let pool = ["restaurants", "coffee", "nightlife", "parking", "events", "shopping malls"]

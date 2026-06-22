@@ -399,6 +399,7 @@ export default function App() {
   const prefillEmail = useMemo(() => new URLSearchParams(window.location.search).get('email') ?? '', []);
   const prefillRef = useMemo(() => new URLSearchParams(window.location.search).get('ref') ?? '', []);
   const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
+  const [launchPreviewVersion, setLaunchPreviewVersion] = useState(0);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
@@ -993,6 +994,14 @@ export default function App() {
   
   // PERFORMANCE: Memoize personalized locations — use live GPS coords, fall back to Atlanta
   const activeCoords = userCoords ?? cityCoords ?? { lat: 33.7866, lng: -84.3833 };
+  const onboardingPreview = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('bytspot_onboarding_preview');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { context?: string; userCity?: string; picks?: Array<{ id: number | string; name: string; address?: string; category?: string; label?: string; crowd?: { level?: number; label?: string } }>; answers?: Record<string, string>; savedAt?: string };
+      return parsed?.picks?.length ? parsed : null;
+    } catch { return null; }
+  }, [launchPreviewVersion, activeTab]);
   const memoizedLocations = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       return getPersonalizedNearbyLocations(
@@ -1522,6 +1531,52 @@ export default function App() {
                   onScroll={handleScroll}
                   className="absolute inset-0 overflow-y-auto"
                 >
+                {onboardingPreview && (
+                  <motion.div
+                    className="px-4 mb-4 pt-2"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...springConfig, delay: 0.03 }}
+                    data-testid="home-onboarding-picks-ready"
+                  >
+                    <div className="relative overflow-hidden rounded-[22px] border border-cyan-300/25 bg-[#101116]/90 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+                      <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-cyan-500/20 blur-3xl" />
+                      <div className="absolute -left-12 bottom-0 h-24 w-24 rounded-full bg-purple-500/15 blur-3xl" />
+                      <div className="relative mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.08em] text-cyan-200" style={{ fontWeight: 850 }}>Your picks are ready</p>
+                          <h2 className="mt-1 text-[20px] leading-6 text-white" style={{ fontWeight: 800 }}>Recommended from your quiz</h2>
+                          <p className="mt-1 text-[12px] leading-[17px] text-white/55" style={{ fontWeight: 600 }}>{onboardingPreview.context ?? `Based on your vibe near ${onboardingPreview.userCity ?? userCity}`}</p>
+                        </div>
+                        <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{onboardingPreview.picks?.length ?? 0} picks</span>
+                      </div>
+                      <div className="relative flex flex-col gap-2.5">
+                        {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
+                          const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
+                          return (
+                            <button key={`onboarding-pick-${pick.id}-${index}`} type="button" onClick={() => setActiveTab('discover')} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
+                              <span className="text-xl">{['🥇', '🥈', '🥉'][index] ?? '📍'}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[15px] text-white" style={{ fontWeight: 750 }}>{pick.name}</p>
+                                <p className="truncate text-[12px] text-white/42" style={{ fontWeight: 600 }}>{pick.address ?? pick.category ?? 'Nearby pick'}</p>
+                              </div>
+                              <span className="shrink-0 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100" style={{ fontWeight: 750 }}>{crowd}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="relative mt-3 grid grid-cols-2 gap-2.5">
+                        <button type="button" onClick={() => setActiveTab('discover')} className="rounded-[15px] bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-3 text-[13px] text-black" style={{ fontWeight: 850 }}>Explore picks</button>
+                        {!hasAuthenticatedConsumerSession() ? (
+                          <button type="button" onClick={() => setCurrentScreen('auth')} className="rounded-[15px] border border-cyan-300/25 bg-white/[0.055] px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 800 }}>Sign in to save</button>
+                        ) : (
+                          <button type="button" onClick={() => toast.success('Your picks are ready', { description: 'Saved preferences are active on this device.' })} className="rounded-[15px] border border-emerald-300/25 bg-emerald-400/10 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 800 }}>Picks active</button>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* ── Tonight's Pick ── Smart venue recommendation */}
                 {tonightsPick && (() => {
                   const v = tonightsPick;
@@ -2549,7 +2604,7 @@ export default function App() {
               ? { emoji: '🛏️', question: 'What kind of stay fits tonight?', key: 'walk', options: [{ label: '🏨 Hotel', value: 'hotel' }, { label: '✨ Boutique hotel', value: 'boutique' }, { label: '🏢 Apartment stay', value: 'apartment' }, { label: '⏱️ Short stay', value: 'short_stay' }] }
               : wet
                 ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered parking', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Closest option', value: 'closest' }] }
-                : { emoji: '🗺️', question: 'How close should it be?', key: 'walk', options: [{ label: '🚶 Under 5 min', value: 'close' }, { label: '🚶‍♀️ Around 10 min', value: 'medium' }, { label: '🚗 Parking nearby', value: 'parking' }, { label: '🚌 Open to explore', value: 'far' }] };
+                : { emoji: '🗺️', question: 'How close should it be?', key: 'walk', options: [{ label: '📍 Closest', value: 'closest' }, { label: '🚶 5 min walk', value: 'close' }, { label: '🚗 Easy parking', value: 'parking' }, { label: '🗺️ Open to explore', value: 'far' }] };
             const preferenceQuestion: QuizQuestion = sleepIntent
               ? { emoji: '🔒', question: 'What matters most?', key: 'group', options: [{ label: '📍 Closest', value: 'closest' }, { label: '💸 Best price', value: 'price' }, { label: '⭐ Best rated', value: 'rated' }, { label: '🔒 Safest area', value: 'safe', recommended: true }] }
               : { emoji: '👥', question: "Who's this for?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }, { label: '💼 Work/client', value: 'work' }] };
@@ -2591,6 +2646,27 @@ export default function App() {
                 return { v, score };
               }).sort((a, b) => b.score - a.score).slice(0, 3).map(s => s.v);
             })();
+            const persistOnboardingPreview = () => {
+              if (!picks.length) return;
+              localStorage.setItem('bytspot_onboarding_preview', JSON.stringify({
+                savedAt: new Date().toISOString(),
+                userCity,
+                context: contextLine,
+                answers: quizSelections,
+                picks: picks.map(v => ({ id: v.id, name: v.name, address: v.address, category: v.category, crowd: v.crowd ? { level: v.crowd.level, label: v.crowd.label } : undefined }))
+              }));
+              setLaunchPreviewVersion(version => version + 1);
+            };
+            const exploreOnboardingPicks = () => {
+              persistOnboardingPreview();
+              setSelectedDestination(undefined);
+              setSelectedMapFunction(undefined);
+              setDiscoverFilter(undefined);
+              setShowMapMenu(false);
+              setCurrentScreen('main');
+              setActiveTab('home');
+              dismiss();
+            };
             // Animated SVG ring
             const ringR = 18; const ringC = 2 * Math.PI * ringR;
             const ringFill = isConfirmation ? 1 : (quizStep + 1) / total;
@@ -2658,13 +2734,13 @@ export default function App() {
                       </p>
                       <motion.button className="w-full rounded-[18px] py-4 text-[16px] text-black"
                         style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
-                        whileTap={{ scale: 0.97 }} onClick={() => dismiss()}>
+                        whileTap={{ scale: 0.97 }} onClick={exploreOnboardingPicks}>
                         Explore These Spots
                       </motion.button>
                       {!hasAuthenticatedConsumerSession() && (
                         <motion.button className="w-full rounded-[16px] py-3 text-[14px] text-cyan-200"
                           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(34,211,238,0.28)', fontWeight: 700 }}
-                          whileTap={{ scale: 0.97 }} onClick={() => { dismiss(); setCurrentScreen('auth'); }}>
+                          whileTap={{ scale: 0.97 }} onClick={() => { persistOnboardingPreview(); dismiss(); setCurrentScreen('auth'); }}>
                           Sign in to save picks
                         </motion.button>
                       )}

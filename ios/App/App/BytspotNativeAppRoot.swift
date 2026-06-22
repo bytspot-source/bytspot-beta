@@ -148,7 +148,7 @@ struct BytspotNativeAppRoot: View {
                 NativeLaunchFlowView(sessionStore: sessionStore, authCoordinator: authCoordinator) { didCompleteLaunchFlow = true }
                     .preferredColorScheme(effectiveAppearance.preferredColorScheme)
             } else {
-                BytspotNativeShellView(bridgeStore: bridgeStore, navigation: navigation)
+                BytspotNativeShellView(bridgeStore: bridgeStore, navigation: navigation, preferHomeAfterLaunch: didCompleteLaunchFlow)
             }
         }
             .environmentObject(sessionStore)
@@ -216,7 +216,7 @@ enum NativeAuthLaunchContract {
     static let vibeQuestion = "What's your evening vibe?"
     static let vibeOptions = ["🍽️ Dinner", "🍸 Drinks", "🎶 Events", "💕 Date night"]
     static let walkQuestion = "How close should it be?"
-    static let walkOptions = ["🚶 Under 5 min", "🚶‍♀️ Around 10 min", "🚗 Parking nearby", "🚌 Open to explore"]
+    static let walkOptions = ["📍 Closest", "🚶 5 min walk", "🚗 Easy parking", "🗺️ Open to explore"]
     static let crewQuestion = "Who's this for?"
     static let crewOptions = ["🙋 Just me", "💕 Date night", "👥 Group", "💼 Work/client"]
     static let atlantaHeadline = "Recommended for you"
@@ -284,8 +284,8 @@ enum NativeLaunchPersonalizationStorage {
         if normalized.contains("sleep") { return "sleep" }
         if normalized.contains("stay nearby") { return "stay" }
         if normalized.contains("ride") { return "ride" }
-        if normalized.contains("under 5") || normalized.contains("short walk") { return "close" }
-        if normalized.contains("around 10") { return "medium" }
+        if normalized.contains("5 min") || normalized.contains("short walk") { return "close" }
+        if normalized.contains("10 min") { return "medium" }
         if normalized.contains("open to explore") { return "far" }
         if normalized.contains("closest") { return "closest" }
         if normalized.contains("hotel") { return normalized.contains("boutique") ? "boutique" : "hotel" }
@@ -351,6 +351,16 @@ private enum NativeLaunchTheme {
 }
 
 private extension View {
+    /// CSS-style transparent card: use for landing feature pills and inner rows.
+    /// No iOS Material and no dark tint; it should read as transparent over the page.
+    func nativeLaunchTransparentCard(radius: CGFloat, fillOpacity: Double = 0.05, borderOpacity: Double = 0.10) -> some View {
+        self
+            .background(Color.white.opacity(fillOpacity))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Color.white.opacity(borderOpacity), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+
+    /// Dark material glass: use only for primary floating surfaces like quiz/auth sheets.
     func nativeLaunchGlass(radius: CGFloat, borderOpacity: Double = 0.14, shadow: Bool = true) -> some View {
         self
             .background(
@@ -627,7 +637,7 @@ private struct NativeLaunchHeadline: View {
 private struct NativeLaunchFeaturePill: View {
     let title: String
     let compact: Bool
-    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchGlass(radius: 14, borderOpacity: 0.10, shadow: false).accessibilityElement(children: .combine).accessibilityLabel(title) }
+    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchTransparentCard(radius: 14).accessibilityElement(children: .combine).accessibilityLabel(title) }
     private var icon: String { title.contains("parking") ? "car" : title.contains("Ride") ? "clock" : "dot.radiowaves.left.and.right" }
     private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.red400 }
 }
@@ -797,7 +807,7 @@ private struct NativeAtlantaPicksScreen: View {
 
 private struct NativeAtlantaPickRow: View {
     let medal: String; let title: String; let address: String; let label: String; let color: Color
-    var body: some View { HStack(spacing: 12) { Text(medal).font(.system(size: 20)).accessibilityHidden(true); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(.white).lineLimit(1); Text(address).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.36)).lineLimit(1) }; Spacer(); Text(label).font(.system(size: 12, weight: .black)).foregroundColor(color).padding(.horizontal, 10).padding(.vertical, 5).background(color.opacity(0.16)).overlay(Capsule().stroke(color.opacity(0.34), lineWidth: 1)).clipShape(Capsule()) }.padding(14).background(Color.white.opacity(0.065)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(address), \(label)") }
+    var body: some View { HStack(spacing: 12) { Text(medal).font(.system(size: 20)).accessibilityHidden(true); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(.white).lineLimit(1); Text(address).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.36)).lineLimit(1) }; Spacer(); Text(label).font(.system(size: 12, weight: .black)).foregroundColor(color).padding(.horizontal, 10).padding(.vertical, 5).background(color.opacity(0.16)).overlay(Capsule().stroke(color.opacity(0.34), lineWidth: 1)).clipShape(Capsule()) }.padding(14).nativeLaunchTransparentCard(radius: 16, fillOpacity: 0.065).accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(address), \(label)") }
 }
 
 private struct NativeAuthenticationScreen: View {

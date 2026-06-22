@@ -103,12 +103,12 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.splashDurationSeconds == 1.8, "NativeAuthSplashSelfTests: splash timing must mirror approved native premium-minimal intro.")
         precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
         precondition(NativeAuthLaunchContract.vibeQuestion == "What's your evening vibe?", "NativeAuthSplashSelfTests: vibe question drifted.")
-        precondition(NativeAuthLaunchContract.walkOptions == ["🚶 Under 5 min", "🚶‍♀️ Around 10 min", "🚗 Parking nearby", "🚌 Open to explore"], "NativeAuthSplashSelfTests: walk options drifted.")
+        precondition(NativeAuthLaunchContract.walkOptions == ["📍 Closest", "🚶 5 min walk", "🚗 Easy parking", "🗺️ Open to explore"], "NativeAuthSplashSelfTests: walk options drifted.")
         precondition(NativeAuthLaunchContract.atlantaHeadline == "Recommended for you", "NativeAuthSplashSelfTests: picks preview headline drifted.")
         precondition(NativeAuthLaunchContract.atlantaPicks.contains("Ladybird Grove & Mess Hall"), "NativeAuthSplashSelfTests: Atlanta pick fixture drifted.")
         precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Keep going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
-        precondition(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ Around 10 min") == "medium", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "🚶 5 min walk") == "close", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
         precondition(ProcessInfo.processInfo.environment["BYT_NATIVE_LAUNCH_AUTORUN"] == nil || NativeAuthLaunchContract.autoRunsLaunchJourney, "NativeAuthSplashSelfTests: launch autorun hook drifted.")
     }
 

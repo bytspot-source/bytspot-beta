@@ -3236,6 +3236,7 @@ private struct NativeHomeDashboardView: View {
     ]
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
+    static let launchPicksSignInHint = "Sign in to continue with your personalized picks."
 
     var body: some View {
         NativeScreenScroll {
@@ -3453,6 +3454,13 @@ private struct NativeHomeDashboardView: View {
                     .buttonStyle(.plain)
                 Button(action: saveLaunchPicksTapped) { Text(sessionStore.isAuthenticated ? "Active" : "Save picks").font(.system(size: 13.2, weight: .black)).foregroundColor(sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).frame(maxWidth: .infinity).frame(height: 40).background((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.11)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
                     .buttonStyle(.plain)
+            }
+            if !sessionStore.isAuthenticated {
+                Text(Self.launchPicksSignInHint)
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundColor(NativeTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
             }
         }
         .padding(14)
@@ -8611,6 +8619,7 @@ enum NativePostAuthIntentSelfTests {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
         precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
+        precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
         precondition(NativeHomeDashboardView.defaultLaunchMapDestination == NativeHomeDashboardView.launchPreviewPicks.first?.0, "NativePostAuthIntentSelfTests: Map continuation must target the top launch pick.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")

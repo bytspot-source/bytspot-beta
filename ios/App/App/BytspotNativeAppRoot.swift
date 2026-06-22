@@ -583,18 +583,20 @@ private struct NativeSplashScreen: View {
                         .font(.system(size: sizing.splashTitle, weight: .bold))
                         .foregroundStyle(theme.ctaGradient)
                     HStack(spacing: 8) { ForEach([theme.primary, theme.secondary, theme.tertiary], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
-                    VStack(spacing: 8) {
-                        Button(action: { nativeAuthImpactLight(); onComplete() }) {
-                            NativeLaunchCTA(title: NativeAuthLaunchContract.splashStartTitle, color: theme.ctaGradient, foreground: .white, height: sizing.compactHeight ? 50 : 54, cornerRadius: 17, showArrow: true)
+                    if freeze {
+                        VStack(spacing: 8) {
+                            Button(action: { nativeAuthImpactLight(); onComplete() }) {
+                                NativeLaunchCTA(title: NativeAuthLaunchContract.splashStartTitle, color: theme.ctaGradient, foreground: .white, height: sizing.compactHeight ? 50 : 54, cornerRadius: 17, showArrow: true)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("native-launch-splash-start")
+                            Text(NativeAuthLaunchContract.splashStartSubtitle)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white.opacity(0.46))
+                                .multilineTextAlignment(.center)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("native-launch-splash-start")
-                        Text(NativeAuthLaunchContract.splashStartSubtitle)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white.opacity(0.46))
-                            .multilineTextAlignment(.center)
+                        .padding(.top, sizing.compactHeight ? 4 : 8)
                     }
-                    .padding(.top, sizing.compactHeight ? 4 : 8)
                 }
                 .padding(.horizontal, sizing.horizontalPadding)
                 .accessibilityElement(children: .combine)
@@ -604,7 +606,7 @@ private struct NativeSplashScreen: View {
         }
         .onAppear {
             if !reduceMotion { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { animate = true } }
-            guard NativeAuthLaunchContract.autoRunsLaunchJourney, !freeze else { return }
+            guard !freeze, !NativeAuthLaunchContract.autoRunsLaunchJourney else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + NativeAuthLaunchContract.splashDurationSeconds) { onComplete() }
         }
     }

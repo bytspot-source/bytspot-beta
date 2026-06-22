@@ -65,7 +65,7 @@ import {
   getUserPreferences,
   getUserBehavior,
   getPreferredMapFilters,
-  getPersonalizedDiscoverCards,
+  getCulturalContext,
   saveUserPreferences,
   getContextualPrompt,
   type CategorySuggestion,
@@ -76,6 +76,7 @@ import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
+import { rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
@@ -557,6 +558,21 @@ export default function App() {
     || userPreferences?.cuisineAffinities?.length
   );
 
+  const vendorMatchQuery = useMemo(() => {
+    let quizAnswers: Record<string, string> = {};
+    try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
+    return [
+      ...Object.values(quizAnswers),
+      ...(userPreferences?.interests ?? []),
+      ...(userPreferences?.vibePreferences?.selectedVibes ?? []),
+      ...(userPreferences?.cuisineAffinities ?? []),
+      userPreferences?.culturalIdentity,
+      userCity,
+    ].filter(Boolean).join(' ');
+  }, [userPreferences, userCity, activeTab, currentScreen, showOnboarding, launchPreviewVersion]);
+
+  const vendorMatchCulturalContext = useMemo(() => getCulturalContext(), [activeTab, currentScreen, showOnboarding, launchPreviewVersion]);
+
   useEffect(() => {
     if (APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && (currentScreen === 'host' || currentScreen === 'valet')) {
       setCurrentScreen('main');
@@ -601,8 +617,12 @@ export default function App() {
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
     const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : CURATED_HOME_DISCOVERY_CARDS;
     const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
-    return getPersonalizedDiscoverCards([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], userPreferences);
-  }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences]);
+    return rankDiscoverCardsWithSimplex([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], {
+      preferences: userPreferences,
+      culturalContext: vendorMatchCulturalContext,
+      query: vendorMatchQuery,
+    });
+  }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences, vendorMatchCulturalContext, vendorMatchQuery]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
   const shouldShowHomeRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext || hasPersonalizedPreferenceSignal;
@@ -632,47 +652,11 @@ export default function App() {
     setActiveTab('discover');
   }, []);
 
-  // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
-  const tonightsPick = useMemo(() => {
-    if (!apiVenues || apiVenues.length === 0) return null;
-    let quizAnswers: Record<string, string> = {};
-    try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
-    if (!quizAnswers.vibe && userPreferences?.vibePreferences?.selectedVibes?.length) {
-      quizAnswers.vibe = userPreferences.vibePreferences.selectedVibes[0];
-    }
-
-    // Map quiz vibe → preferred API categories
-    const vibeMap: Record<string, string[]> = {
-      drinks: ['bar', 'nightlife', 'cocktails'],
-      coffee: ['coffee', 'cafe', 'brunch'],
-      food: ['restaurant', 'dining', 'food'],
-      fitness: ['fitness', 'gym', 'wellness'],
-      work: ['coffee', 'cafe', 'coworking'],
-      parking: ['parking'],
-      events: ['event', 'music', 'entertainment'],
-      date: ['restaurant', 'dining', 'cocktails'],
-      indoor: ['restaurant', 'dining', 'coffee', 'cafe'],
-      covered_parking: ['parking'],
-      ride: ['ride', 'transport'],
-      sleep: ['hotel', 'stay'],
-      stay: ['hotel', 'stay'],
-    };
-    const preferredCats = vibeMap[quizAnswers.vibe ?? ''] ?? [];
-
-    // Score each venue: prefer quiz match (2pts), prefer crowd 1-2 (1pt for date, deduct for group=solo if packed)
-    const scored = apiVenues.map(v => {
-      const catMatch = preferredCats.some(c => (v.category ?? '').toLowerCase().includes(c));
-      const lvl = v.crowd?.level ?? 2;
-      let score = catMatch ? 2 : 0;
-      if (quizAnswers.group === 'date') score += lvl <= 2 ? 1 : -1; // date prefers chill
-      else if (quizAnswers.group === 'group') score += lvl >= 3 ? 1 : 0; // group prefers busy
-      else score += lvl <= 3 ? 1 : 0; // default: not packed
-      if (lvl === 4) score -= 2; // heavily penalise Packed
-      return { v, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0]?.v ?? null;
-  }, [apiVenues, userPreferences]);
+  // ─── AI Pick: top Simplex-ranked Discover recommendation ───────────────────
+  const homeAiPickCard = useMemo<DiscoverCard | null>(() => {
+    const visibleCards = discoverCardsWithSavedRequests.filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)));
+    return visibleCards[0] ?? null;
+  }, [discoverCardsWithSavedRequests]);
 
   const springConfig = {
     type: "spring" as const,
@@ -1614,22 +1598,22 @@ export default function App() {
                   </motion.div>
                 )}
 
-                {/* ── Tonight's Pick ── Smart venue recommendation */}
-                {tonightsPick && (() => {
-                  const v = tonightsPick;
-                  const lvl = v.crowd?.level ?? 1;
-                  const crowdLabel = v.crowd?.label ?? 'Chill';
-                  const crowdColor = lvl === 4 ? 'bg-red-500/30 border-red-400/50 text-red-300'
-                    : lvl === 3 ? 'bg-orange-500/30 border-orange-400/50 text-orange-300'
-                    : lvl === 2 ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300'
+                {/* ── Tonight's Pick ── Simplex-ranked Discover recommendation */}
+                {homeAiPickCard && (() => {
+                  const card = homeAiPickCard;
+                  const status = card.availability ?? (card.isOpen === true ? 'Open now' : card.isOpen === false ? 'Closed' : card.type === 'service' ? 'Available' : 'Recommended');
+                  const statusKey = status.toLowerCase();
+                  const statusColor = statusKey.includes('packed') || statusKey.includes('closed') ? 'bg-red-500/30 border-red-400/50 text-red-300'
+                    : statusKey.includes('busy') ? 'bg-orange-500/30 border-orange-400/50 text-orange-300'
+                    : statusKey.includes('active') ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300'
                     : 'bg-green-500/30 border-green-400/50 text-green-300';
-                  const crowdEmoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
+                  const statusEmoji = statusKey.includes('packed') || statusKey.includes('closed') ? '🔴' : statusKey.includes('busy') ? '🟠' : statusKey.includes('active') ? '🟡' : '🟢';
                   const catEmoji: Record<string, string> = {
-                    restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
-                    shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
+                    dining: '🍽️', service: '✨', venue: '📍', parking: '🅿️', valet: '🚕', coffee: '☕', nightlife: '🎶',
+                    shopping: '🛍️', fitness: '💪', entertainment: '🎭',
                   };
-                  const icon = catEmoji[v.category] || '📍';
-                  const imgUrl = v.imageUrl || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
+                  const icon = catEmoji[card.type] || '📍';
+                  const imgUrl = card.image || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
                   return (
                     <motion.div
 	                      className="px-4 mb-3 pt-2"
@@ -1645,10 +1629,10 @@ export default function App() {
                         className="relative w-full rounded-2xl overflow-hidden text-left"
 	                        style={{ height: 118 }}
                         whileTap={{ scale: 0.97 }}
-                        onClick={() => setSelectedSearchVenue(v)}
+                        onClick={() => handleRecommendedHomeCardClick(card)}
                       >
                         {/* Background image */}
-                        <img src={imgUrl} alt={v.name} className="absolute inset-0 w-full h-full object-cover" />
+                        <img src={imgUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />
                         {/* Gradient overlay */}
                         <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
                         {/* AI Pick badge */}
@@ -1660,11 +1644,11 @@ export default function App() {
                         <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
                           <div>
 	                            <div className="text-[16px] mb-0.5">{icon}</div>
-                            <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{v.name}</h3>
-                            {v.address && <p className={`${HOME_CARD_META_CLASS} text-[12px] mt-0.5 truncate`}>{v.address}</p>}
+                            <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{card.name}</h3>
+                            {(card.location || card.description) && <p className={`${HOME_CARD_META_CLASS} text-[12px] mt-0.5 truncate`}>{card.location || card.description}</p>}
                           </div>
-                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>
-                            {crowdEmoji} {crowdLabel}
+                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${statusColor}`} style={{ fontWeight: 700 }}>
+                            {statusEmoji} {status}
                           </div>
                         </div>
                       </motion.button>

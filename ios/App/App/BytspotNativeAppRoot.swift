@@ -219,8 +219,8 @@ enum NativeAuthLaunchContract {
     static let walkOptions = ["🚶 Under 5 min", "🚶‍♀️ Around 10 min", "🚗 Parking nearby", "🚌 Open to explore"]
     static let crewQuestion = "Who's this for?"
     static let crewOptions = ["🙋 Just me", "💕 Date night", "👥 Group", "💼 Work/client"]
-    static let atlantaHeadline = "Here's your Atlanta"
-    static let atlantaSubtitle = "Tonight's top picks, just for you"
+    static let atlantaHeadline = "Recommended for you"
+    static let atlantaSubtitle = "Based on your vibe, location, and local conditions"
     static let atlantaPicks = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
     static let authRoutes = NativeAuthRouteContract.routes
     static let authModes = ["signup", "login"]
@@ -348,6 +348,23 @@ private enum NativeLaunchTheme {
     static let brandGradient = LinearGradient(colors: [cyan, purple, magenta], startPoint: .leading, endPoint: .trailing)
     static let beforeGradient = LinearGradient(colors: [purple400, cyan400], startPoint: .leading, endPoint: .trailing)
     static let landingCTAGradient = LinearGradient(colors: [purple, cyan500], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+private extension View {
+    func nativeLaunchGlass(radius: CGFloat, borderOpacity: Double = 0.14, shadow: Bool = true) -> some View {
+        self
+            .background(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.035), NativeLaunchTheme.card.opacity(0.98), Color.black.opacity(0.72)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .background(.ultraThinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Color.white.opacity(borderOpacity), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .shadow(color: shadow ? Color.black.opacity(0.34) : .clear, radius: shadow ? 22 : 0, x: 0, y: shadow ? 14 : 0)
+    }
 }
 
 private struct NativeLaunchFlowView: View {
@@ -610,7 +627,7 @@ private struct NativeLaunchHeadline: View {
 private struct NativeLaunchFeaturePill: View {
     let title: String
     let compact: Bool
-    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).background(Color.white.opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).accessibilityElement(children: .combine).accessibilityLabel(title) }
+    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchGlass(radius: 14, borderOpacity: 0.10, shadow: false).accessibilityElement(children: .combine).accessibilityLabel(title) }
     private var icon: String { title.contains("parking") ? "car" : title.contains("Ride") ? "clock" : "dot.radiowaves.left.and.right" }
     private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.red400 }
 }
@@ -714,9 +731,7 @@ private struct NativePersonalizationScreen: View {
             }
             .padding(sizing.cardPadding)
             .frame(maxWidth: .infinity)
-            .background(NativeLaunchTheme.card)
-            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .nativeLaunchGlass(radius: 30, borderOpacity: 0.14)
             .padding(.horizontal, sizing.sheetHorizontalInset)
             .padding(.bottom, 10)
             .accessibilityIdentifier("native-launch-personalization")
@@ -758,9 +773,10 @@ private struct NativeAtlantaPicksScreen: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: sizing.compactHeight ? 13 : 16) {
                 HStack { NativePersonalizationProgress(step: 3, total: 3).overlay(Image(systemName: "checkmark").font(.system(size: 18, weight: .black)).foregroundColor(NativeLaunchTheme.cyan)); Spacer() }
-                VStack(spacing: 8) { Text("🗺️").font(.system(size: sizing.compactHeight ? 28 : 34)).accessibilityHidden(true); Text(NativeAuthLaunchContract.atlantaHeadline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(NativeAuthLaunchContract.atlantaSubtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.45)) }
+                VStack(spacing: 8) { Text("🗺️").font(.system(size: sizing.compactHeight ? 28 : 34)).accessibilityHidden(true); Text(NativeAuthLaunchContract.atlantaHeadline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(NativeAuthLaunchContract.atlantaSubtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.50)).multilineTextAlignment(.center) }
                 VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.offset) { _, pick in NativeAtlantaPickRow(medal: pick.0, title: pick.1, address: pick.2, label: pick.3, color: pick.4) } }
-                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Let's Go 🚀", color: LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.purple], startPoint: .leading, endPoint: .trailing), foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
+                Text("You can explore now. Sign in anytime to save favorites and sync your picks.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
+                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Explore These Spots", color: LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.purple], startPoint: .leading, endPoint: .trailing), foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
                 Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save these picks").font(.system(size: 14, weight: .black)).foregroundColor(NativeLaunchTheme.cyan).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeLaunchTheme.cyan.opacity(0.28), lineWidth: 1)) }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens the sign in screen before saving picks.")
@@ -770,9 +786,7 @@ private struct NativeAtlantaPicksScreen: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(maxHeight: proxy.size.height * sizing.sheetMaxHeightFraction)
-                .background(NativeLaunchTheme.card)
-                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                .nativeLaunchGlass(radius: 30, borderOpacity: 0.14)
                 .padding(.horizontal, sizing.sheetHorizontalInset)
                 .padding(.bottom, 10)
                 .accessibilityIdentifier("native-launch-atlanta-picks")
@@ -837,7 +851,11 @@ private struct NativeAuthenticationScreen: View {
                 }
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted).multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, sizing.horizontalPadding)
+                .padding(sizing.cardPadding)
+                .frame(maxWidth: sizing.landingMaxWidth)
+                .nativeLaunchGlass(radius: 30, borderOpacity: 0.14)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, sizing.sheetHorizontalInset)
                 .padding(.top, sizing.authTopPadding)
                 .padding(.bottom, 42)
             }

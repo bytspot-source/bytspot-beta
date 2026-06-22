@@ -2626,12 +2626,12 @@ export default function App() {
                   </div>
 
                   {isConfirmation ? (
-                    /* ── Confirmation: Here's your city ── */
+                    /* ── Confirmation: Value-first picks preview ── */
                     <>
                       <div className="text-center">
                         <div className="text-4xl mb-2">🗺️</div>
-                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Here's your {userCity}</h2>
-                        <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 400 }}>Tonight's top picks, just for you</p>
+                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Recommended for you</h2>
+                        <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Based on your vibe, location, and local conditions near {userCity}</p>
                       </div>
                       <div className="flex flex-col gap-2.5">
                         {picks.length > 0 ? picks.map((venue, i) => {
@@ -2653,11 +2653,21 @@ export default function App() {
                           );
                         }) : <p className="text-[14px] text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>Discovering spots for you…</p>}
                       </div>
+                      <p className="text-center text-[12px] leading-[17px]" style={{ color: 'rgba(255,255,255,0.38)', fontWeight: 600 }}>
+                        Explore now. Sign in anytime to save favorites and sync your picks.
+                      </p>
                       <motion.button className="w-full rounded-[18px] py-4 text-[16px] text-black"
                         style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
                         whileTap={{ scale: 0.97 }} onClick={() => dismiss()}>
-                        Let's Go 🚀
+                        Explore These Spots
                       </motion.button>
+                      {!hasAuthenticatedConsumerSession() && (
+                        <motion.button className="w-full rounded-[16px] py-3 text-[14px] text-cyan-200"
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(34,211,238,0.28)', fontWeight: 700 }}
+                          whileTap={{ scale: 0.97 }} onClick={() => { dismiss(); setCurrentScreen('auth'); }}>
+                          Sign in to save picks
+                        </motion.button>
+                      )}
                     </>
                   ) : (
                     /* ── Quiz slide ── */

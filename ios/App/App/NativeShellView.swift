@@ -482,6 +482,7 @@ private struct BytspotNativeBottomTabBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: NativePolish.bottomBarHeight)
         .background(NativePolish.bottomBarSurface)
+        .background(.ultraThinMaterial)
         .overlay(RoundedRectangle(cornerRadius: NativePolish.bottomBarRadius, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1.25))
         .clipShape(RoundedRectangle(cornerRadius: NativePolish.bottomBarRadius, style: .continuous))
         .shadow(color: NativeTheme.panelShadow, radius: NativePolish.bottomBarShadowRadius, x: 0, y: NativePolish.bottomBarShadowY)
@@ -666,6 +667,7 @@ private extension View {
     func nativeProfileCard(border: Color = NativeProfileStyle.cardBorder, radius: CGFloat = NativeProfileStyle.cardRadius, accent: Color? = nil) -> some View {
         self
             .background(NativeProfileStyle.cardSurface(accent: accent))
+            .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(border, lineWidth: 1.25))
             .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
@@ -5069,6 +5071,7 @@ private struct NativeMapExploreView: View {
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapSearchHeight)
             .background(NativePolish.mapControlSurface)
+            .background(.ultraThinMaterial)
             .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1))
             .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).fill(LinearGradient(colors: [NativeTheme.surfaceHighlight, Color.clear], startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
             .clipShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
@@ -5202,6 +5205,7 @@ private struct NativeMapExploreView: View {
         .padding(.top, NativePolish.mapSheetInnerTopPadding)
         .padding(.bottom, NativePolish.mapSheetInnerBottomPadding)
         .background(LinearGradient(colors: [NativePolish.mapPanelSurface, NativePolish.mapBaseSurface], startPoint: .top, endPoint: .bottom))
+        .background(.ultraThinMaterial)
         .overlay(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius).fill(LinearGradient(colors: [NativeTheme.surfaceHighlight, Color.clear, NativeTheme.cyan.opacity(0.018)], startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
         .overlay(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius).stroke(NativePolish.strongBorder, lineWidth: 1.25))
         .clipShape(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))
@@ -8588,7 +8592,7 @@ enum NativePhase4TabContentSelfTests {
 }
 #endif
 
-private extension View { func nativePanel() -> some View { self.background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)).overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous)).shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8) } }
+private extension View { func nativePanel() -> some View { self.background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)).background(.ultraThinMaterial).overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous)).shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8) } }
 private extension Text {
     func nativeTitle(_ size: CGFloat) -> some View { self.font(.system(size: size, weight: .black)).foregroundColor(NativeTheme.textPrimary) }
     func nativeBody(size: CGFloat = 13.5, color: Color = NativeTheme.textSecondary) -> some View { self.font(.system(size: size, weight: .semibold)).foregroundColor(color).lineSpacing(2) }

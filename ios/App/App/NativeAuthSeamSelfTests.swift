@@ -104,6 +104,7 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
         precondition(NativeAuthLaunchContract.vibeQuestion == "What's your evening vibe?", "NativeAuthSplashSelfTests: vibe question drifted.")
         precondition(NativeAuthLaunchContract.walkOptions == ["🚶 Under 5 min", "🚶‍♀️ Around 10 min", "🚗 Parking nearby", "🚌 Open to explore"], "NativeAuthSplashSelfTests: walk options drifted.")
+        precondition(NativeAuthLaunchContract.atlantaHeadline == "Recommended for you", "NativeAuthSplashSelfTests: picks preview headline drifted.")
         precondition(NativeAuthLaunchContract.atlantaPicks.contains("Ladybird Grove & Mess Hall"), "NativeAuthSplashSelfTests: Atlanta pick fixture drifted.")
         precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Keep going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")

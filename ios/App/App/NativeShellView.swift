@@ -317,7 +317,9 @@ struct BytspotNativeShellView: View {
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var suppressInitialTabRequestAfterLaunch = false
+    @State private var postAuthHomeHoldGeneration = 0
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
+    @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
     /// Live premium-membership entitlement (orthogonal to the service tier), sourced
     /// from `NativeMembershipStore` (trpc.subscription.status.isPremium parity). It
@@ -397,14 +399,18 @@ struct BytspotNativeShellView: View {
             runDirectProfilePanelSmokeIfRequested()
             runProfilePanelBridgeSmokeIfRequested()
         }
-        .onChange(of: selectedTab) { bridgeStore.open($0.hybridRoute) }
-        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
-        .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { handleRequestedHybridRoute($0) }
+        .onChange(of: selectedTab) { tab in
+            if tab != .home { cancelPostAuthHomeHold() }
+            bridgeStore.open(tab.hybridRoute)
+        }
+        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedTab = nil; return }; selectedTab = tab }
+        .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { route in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedHybridRoute = nil; return }; handleRequestedHybridRoute(route) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
-        .onReceive(navigation.$requestedTab.compactMap { $0 }) { if !suppressInitialTabRequestAfterLaunch { selectedTab = $0 } }
+        .onReceive(navigation.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { navigation.requestedTab = nil; return }; selectedTab = tab }
         .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
+            if suppressInitialTabRequestAfterLaunch { navigation.requestedDestination = nil; return }
             if case .patch(let route) = destination {
                 activeTier = route.tier
                 pairingStore.markPaired(route: route)
@@ -484,6 +490,7 @@ struct BytspotNativeShellView: View {
         hybridRoute = nil
         contextualDestination = nil
         pendingPostAuthIntent = pendingIntent
+        pendingPostAuthIntentRaw = pendingIntent?.rawValue ?? ""
         nativeAuthMode = mode
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             showNativeAuth = true
@@ -496,9 +503,14 @@ struct BytspotNativeShellView: View {
     }
 
     private func resolvePendingPostAuthIntentIfReady() {
-        guard sessionStore.isAuthenticated, let intent = pendingPostAuthIntent else { return }
+        let storedIntent = NativePostAuthIntent(rawValue: pendingPostAuthIntentRaw)
+        guard sessionStore.isAuthenticated, let intent = pendingPostAuthIntent ?? storedIntent else { return }
         pendingPostAuthIntent = nil
+        pendingPostAuthIntentRaw = ""
         showNativeAuth = false
+        hybridRoute = nil
+        contextualDestination = nil
+        pendingProfilePanel = nil
         switch intent {
         case .explorePicks:
             selectedTab = .discover
@@ -507,8 +519,31 @@ struct BytspotNativeShellView: View {
             UserDefaults.standard.set("Route", forKey: NativeOnboardingMapHandoff.modeKey)
             selectedTab = .map
         case .savePicks:
-            selectedTab = .home
+            forceHomeAfterSavePicksAuth()
         }
+    }
+
+    private func forceHomeAfterSavePicksAuth() {
+        postAuthHomeHoldGeneration += 1
+        let holdGeneration = postAuthHomeHoldGeneration
+        suppressInitialTabRequestAfterLaunch = true
+        bridgeStore.requestedTab = nil
+        bridgeStore.requestedHybridRoute = nil
+        navigation.requestedTab = nil
+        navigation.requestedDestination = nil
+        hybridRoute = nil
+        contextualDestination = nil
+        pendingProfilePanel = nil
+        UserDefaults.standard.removeObject(forKey: NativeDiscoverView.detailDefaultsKey)
+        selectedTab = .home
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { if postAuthHomeHoldGeneration == holdGeneration { selectedTab = .home } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.72) { if postAuthHomeHoldGeneration == holdGeneration { selectedTab = .home } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.20) { if postAuthHomeHoldGeneration == holdGeneration { suppressInitialTabRequestAfterLaunch = false } }
+    }
+
+    private func cancelPostAuthHomeHold() {
+        postAuthHomeHoldGeneration += 1
+        suppressInitialTabRequestAfterLaunch = false
     }
 
     private func openNativeProfile(panel: NativeProfilePanel?) {
@@ -523,6 +558,7 @@ struct BytspotNativeShellView: View {
 
     private func selectNativeTab(_ tab: BytspotNativeTab) {
         nativeImpactLight()
+        cancelPostAuthHomeHold()
         withAnimation(.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)) {
             selectedTab = tab
         }
@@ -3219,14 +3255,18 @@ private struct NativeHomeDashboardView: View {
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalkPreference = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
     @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var mapHandoffDestination = ""
     @AppStorage(NativeOnboardingMapHandoff.modeKey) private var mapHandoffMode = ""
+    @State private var aiPickDetailVenue: NativeVenueSummary?
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
     @State private var guestHomePromptCTA = "Sign in"
     @State private var guestHomePendingIntent: NativePostAuthIntent? = nil
+    @State private var didScheduleAuthenticatedLaunchPicksCollapse = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "find-parking", title: "Find Parking", subtitle: "Live spots near you", icon: "mappin.and.ellipse", color: NativeTheme.cyan, target: .nativeTab(.map)),
@@ -3237,6 +3277,9 @@ private struct NativeHomeDashboardView: View {
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
     static let launchPicksSignInHint = "Sign in to continue with your personalized picks."
+    static let authenticatedLaunchPicksCollapseDelay: TimeInterval = 1.8
+    static let aiPickPrimaryCTA = "Route"
+    static let aiPickSecondaryCTA = "Details"
 
     var body: some View {
         NativeScreenScroll {
@@ -3254,6 +3297,19 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
+        .onAppear(perform: scheduleAuthenticatedLaunchPicksCollapseIfNeeded)
+        .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
+        .sheet(item: $aiPickDetailVenue) { venue in
+            NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) })
+        }
+    }
+
+    private func scheduleAuthenticatedLaunchPicksCollapseIfNeeded() {
+        guard sessionStore.isAuthenticated, launchPicksCompleted, !didScheduleAuthenticatedLaunchPicksCollapse else { return }
+        didScheduleAuthenticatedLaunchPicksCollapse = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.authenticatedLaunchPicksCollapseDelay) {
+            if sessionStore.isAuthenticated { launchPicksCompleted = false }
+        }
     }
 
     private var nativeHomeHeader: some View {
@@ -3466,7 +3522,7 @@ private struct NativeHomeDashboardView: View {
         .padding(14)
         .nativePanel()
         .accessibilityIdentifier("native-home-launch-picks-ready")
-        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: { openNativeAuth(guestHomePendingIntent?.authMode ?? .login, guestHomePendingIntent) }) }
+        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
     }
 
     private func exploreLaunchPicksTapped() {
@@ -3499,6 +3555,14 @@ private struct NativeHomeDashboardView: View {
         guestHomePromptCTA = cta
         guestHomePendingIntent = intent
         showGuestSavePrompt = true
+    }
+
+    private func continueHomeGuestPromptSignIn() {
+        let intent = guestHomePendingIntent
+        showGuestSavePrompt = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            openNativeAuth(intent?.authMode ?? .login, intent)
+        }
     }
 
     private func openLaunchPicksOnMap() {
@@ -3557,23 +3621,109 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var tonightPickCard: some View {
-        let v = tonightsPick
+        let card = personalizedAIPick
+        let v = venueForAIPick(card)
         return NativeHomeHeroCard(
             venue: v,
             eyebrow: "AI Pick",
             eyebrowIcon: "sparkles",
             eyebrowColor: NativeTheme.purple,
+            reason: personalizedAIReason,
             crowdEmoji: crowdEmoji(v.crowd),
             crowdLabel: v.crowd?.label ?? "Chill",
             categoryEmoji: categoryEmoji(v.discoverType),
-            ctaTitle: "Open in Discover",
-            action: { openNativeTab(.discover) }
+            primaryCTATitle: Self.aiPickPrimaryCTA,
+            secondaryCTATitle: Self.aiPickSecondaryCTA,
+            primaryAction: { routeToAIPick(v) },
+            secondaryAction: { aiPickDetailVenue = v }
         )
-        .accessibilityIdentifier("native-home-tonight-pick")
+        .accessibilityIdentifier("native-home-ai-pick")
     }
 
     private var tonightsPick: NativeVenueSummary {
         tabContentStore.snapshot.venues.first(where: { $0.verifiedPatchId != nil }) ?? tabContentStore.snapshot.venues.first ?? NativeTabContentSnapshot.fallback.venues[0]
+    }
+
+    private var personalizedAIPick: NativeDiscoverSummary {
+        let cards = tabContentStore.snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : tabContentStore.snapshot.discoverCards
+        let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        return types.compactMap { type in cards.first { $0.type == type } }.first
+            ?? cards.first(where: { !$0.membershipRequired })
+            ?? NativeTabContentSnapshot.fallback.discoverCards[0]
+    }
+
+    static func personalizedAIPickTypes(vibe: String, walk: String, crew: String) -> [String] {
+        var types: [String] = []
+        switch vibe {
+        case "food": types.append("dining")
+        case "drinks": types.append("nightlife")
+        case "coffee", "work": types.append("coffee")
+        case "events": types.append("entertainment")
+        case "parking", "covered_parking", "ride": types.append("parking")
+        case "fitness": types.append("fitness")
+        default: break
+        }
+        if walk == "close" { types.append("coffee") }
+        if crew == "group" { types.append(contentsOf: ["nightlife", "entertainment"]) }
+        if crew == "date_night" { types.append(contentsOf: ["dining", "nightlife"]) }
+        if crew == "safe" { types.append("parking") }
+        return Array((types + ["dining", "coffee", "parking"]).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } })
+    }
+
+    private var personalizedAIReason: String {
+        [Self.vibeLabel(launchIntent), Self.walkLabel(launchWalkPreference), Self.crewLabel(launchCrewPreference)]
+            .filter { !$0.isEmpty }
+            .joined(separator: " • ")
+    }
+
+    private static func vibeLabel(_ token: String) -> String {
+        switch token {
+        case "food": return "food vibe"
+        case "drinks": return "nightlife"
+        case "coffee": return "coffee"
+        case "work": return "work-friendly"
+        case "events": return "events"
+        case "parking", "covered_parking": return "parking-aware"
+        case "ride": return "ride-friendly"
+        case "fitness": return "wellness"
+        default: return "personalized"
+        }
+    }
+
+    private static func walkLabel(_ token: String) -> String {
+        switch token {
+        case "close", "closest": return "short walk"
+        case "medium": return "10 min OK"
+        case "far": return "explore farther"
+        default: return "near Midtown"
+        }
+    }
+
+    private static func crewLabel(_ token: String) -> String {
+        switch token {
+        case "solo": return "solo"
+        case "date_night": return "date night"
+        case "group": return "group-ready"
+        case "safe": return "safer area"
+        case "price": return "price-aware"
+        case "rated": return "top rated"
+        default: return "for you"
+        }
+    }
+
+    private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
+        let venues = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
+        if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
+        let parsedRating = Double(card.rating)
+        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
+        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
+    }
+
+    private func routeToAIPick(_ venue: NativeVenueSummary) {
+        mapHandoffDestination = venue.name
+        mapHandoffMode = venue.discoverType == "parking" ? "Smart Parking" : "Route"
+        openNativeTab(.map)
     }
 
     private var tonightEventsSection: some View {
@@ -3824,98 +3974,72 @@ private struct NativeHomeHeroCard: View {
     let eyebrow: String
     let eyebrowIcon: String
     let eyebrowColor: Color
+    let reason: String
     let crowdEmoji: String
     let crowdLabel: String
     let categoryEmoji: String
-    let ctaTitle: String
-    let action: () -> Void
+    let primaryCTATitle: String
+    let secondaryCTATitle: String
+    let primaryAction: () -> Void
+    let secondaryAction: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                NativeRemoteImage(
-                    url: venue.imageUrl,
-                    fallbackColors: [NativeTheme.purple.opacity(0.55), NativeTheme.magenta.opacity(0.32), NativeTheme.cyan.opacity(0.22)],
-                    fallbackEmoji: categoryEmoji,
-                    emojiSize: 150,
-                    emojiOpacity: 0.16,
-                    emojiOffset: CGSize(width: 70, height: 10)
-                )
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color.black.opacity(0.02), Color.black.opacity(0.42), Color.black.opacity(0.92)]
-                        : [Color.white.opacity(0.02), Color.white.opacity(0.62), Color.white.opacity(0.94)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                VStack {
-                    HStack {
-                        Spacer()
-                        HStack(spacing: 4) {
-                            Image(systemName: eyebrowIcon).font(.system(size: 10, weight: .black))
-                            Text(eyebrow).font(.system(size: 11, weight: .black))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(eyebrowColor.opacity(0.92))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 1))
-                        .clipShape(Capsule())
-                        .shadow(color: eyebrowColor.opacity(0.45), radius: 8, x: 0, y: 4)
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(categoryEmoji).font(.system(size: 17))
-                    Text(venue.name)
-                        .font(.system(size: 24, weight: .black))
-                        .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                        .lineLimit(2)
-                        .shadow(color: colorScheme == .dark ? .black.opacity(0.45) : .white.opacity(0.0), radius: 4, x: 0, y: 1)
-                    Text(venue.address)
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary)
-                        .lineLimit(1)
-                        .shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
-                    HStack(spacing: 8) {
-                        if !crowdLabel.isEmpty {
-                            Text("\(crowdEmoji) \(crowdLabel)")
-                                .font(.system(size: 10, weight: .black))
-                                .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(colorScheme == .dark ? Color.black.opacity(0.55) : NativeTheme.selectedControlSurface)
-                                .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
-                                .clipShape(Capsule())
-                        }
-                        if let r = venue.rating {
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill").font(.system(size: 9, weight: .black))
-                                Text(String(format: "%.1f", r)).font(.system(size: 10, weight: .black))
-                            }
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(NativeTheme.orange.opacity(0.92))
-                            .clipShape(Capsule())
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        Text(ctaTitle).font(.system(size: 13, weight: .black))
-                        Image(systemName: "arrow.right").font(.system(size: 11, weight: .black))
-                    }
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(NativeTheme.cyan)
-                    .clipShape(Capsule())
-                    .padding(.top, 4)
-                }
-                .padding(18)
+        ZStack(alignment: .bottomLeading) {
+            NativeRemoteImage(url: venue.imageUrl, fallbackColors: [NativeTheme.purple.opacity(0.55), NativeTheme.magenta.opacity(0.32), NativeTheme.cyan.opacity(0.22)], fallbackEmoji: categoryEmoji, emojiSize: 150, emojiOpacity: 0.16, emojiOffset: CGSize(width: 70, height: 10))
+            LinearGradient(colors: colorScheme == .dark ? [Color.black.opacity(0.02), Color.black.opacity(0.42), Color.black.opacity(0.92)] : [Color.white.opacity(0.02), Color.white.opacity(0.62), Color.white.opacity(0.94)], startPoint: .top, endPoint: .bottom)
+            VStack { HStack { Spacer(); aiBadge }.padding(12); Spacer() }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(categoryEmoji).font(.system(size: 17))
+                Text(venue.name).font(.system(size: 24, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2).shadow(color: colorScheme == .dark ? .black.opacity(0.45) : .white.opacity(0.0), radius: 4, x: 0, y: 1)
+                Text(reason.isEmpty ? venue.address : reason).font(.system(size: 13, weight: .black)).foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary).lineLimit(1).shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
+                metaRow
+                ctaRow.padding(.top, 4)
             }
-            .frame(height: 252)
-            .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .shadow(color: NativeTheme.softShadow, radius: 22, x: 0, y: 14)
+            .padding(18)
         }
-        .buttonStyle(.plain)
+        .frame(height: 252)
+        .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .shadow(color: NativeTheme.softShadow, radius: 22, x: 0, y: 14)
+    }
+
+    private var aiBadge: some View {
+        HStack(spacing: 4) { Image(systemName: eyebrowIcon).font(.system(size: 10, weight: .black)); Text(eyebrow).font(.system(size: 11, weight: .black)) }
+            .foregroundColor(.white)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(eyebrowColor.opacity(0.92))
+            .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 1))
+            .clipShape(Capsule())
+            .shadow(color: eyebrowColor.opacity(0.45), radius: 8, x: 0, y: 4)
+    }
+
+    private var metaRow: some View {
+        HStack(spacing: 8) {
+            if !crowdLabel.isEmpty { pill("\(crowdEmoji) \(crowdLabel)", foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary, background: colorScheme == .dark ? Color.black.opacity(0.55) : NativeTheme.selectedControlSurface) }
+            if let r = venue.rating { pill("★ " + String(format: "%.1f", r), foreground: colorScheme == .dark ? .white : .black, background: NativeTheme.orange.opacity(0.92)) }
+        }
+    }
+
+    private var ctaRow: some View {
+        HStack(spacing: 8) {
+            Button(action: primaryAction) { ctaLabel(primaryCTATitle, systemImage: "arrow.triangle.turn.up.right.diamond.fill", foreground: .black, background: NativeTheme.cyan) }
+                .buttonStyle(.plain)
+            Button(action: secondaryAction) { ctaLabel(secondaryCTATitle, systemImage: "info.circle.fill", foreground: .white, background: Color.black.opacity(0.62)) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func pill(_ title: String, foreground: Color, background: Color) -> some View {
+        Text(title).font(.system(size: 10, weight: .black)).foregroundColor(foreground).padding(.horizontal, 8).padding(.vertical, 4).background(background).overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(Capsule())
+    }
+
+    private func ctaLabel(_ title: String, systemImage: String, foreground: Color, background: Color) -> some View {
+        HStack(spacing: 6) { Image(systemName: systemImage).font(.system(size: 11, weight: .black)); Text(title).font(.system(size: 13, weight: .black)) }
+            .foregroundColor(foreground)
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(background)
+            .clipShape(Capsule())
     }
 }
 
@@ -8606,6 +8730,9 @@ enum NativeHomeParitySelfTests {
         precondition(actions[2].target == .hybrid(.map), "NativeHomeParitySelfTests: Book a Ride must keep production React ride fallback until native ride modal parity.")
         precondition(actions[3].target == .nativeTab(.discover), "NativeHomeParitySelfTests: Explore Venues must route to native Discover tab.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
+        precondition(NativeHomeDashboardView.aiPickPrimaryCTA == "Route" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: AI Pick must expose direct Route and Details CTAs.")
+        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
+        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "covered_parking", walk: "medium", crew: "safe").first == "parking", "NativeHomeParitySelfTests: AI Pick must prefer parking for parking/safe tokens.")
     }
 }
 #endif
@@ -8620,6 +8747,7 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
         precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
+        precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
         precondition(NativeHomeDashboardView.defaultLaunchMapDestination == NativeHomeDashboardView.launchPreviewPicks.first?.0, "NativePostAuthIntentSelfTests: Map continuation must target the top launch pick.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")

@@ -645,6 +645,15 @@ export default function App() {
       coffee: ['coffee', 'cafe', 'brunch'],
       food: ['restaurant', 'dining', 'food'],
       fitness: ['fitness', 'gym', 'wellness'],
+      work: ['coffee', 'cafe', 'coworking'],
+      parking: ['parking'],
+      events: ['event', 'music', 'entertainment'],
+      date: ['restaurant', 'dining', 'cocktails'],
+      indoor: ['restaurant', 'dining', 'coffee', 'cafe'],
+      covered_parking: ['parking'],
+      ride: ['ride', 'transport'],
+      sleep: ['hotel', 'stay'],
+      stay: ['hotel', 'stay'],
     };
     const preferredCats = vibeMap[quizAnswers.vibe ?? ''] ?? [];
 
@@ -2505,14 +2514,46 @@ export default function App() {
         {/* ─── Onboarding Quiz ─── */}
         <AnimatePresence>
           {showOnboarding && (() => {
-            const quizQuestions = [
-              { emoji: '✨', question: "What's your vibe tonight?", key: 'vibe' as const,
-                options: [{ label: '🍸 Drinks', value: 'drinks' }, { label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '🏋️ Fitness', value: 'fitness' }] },
-              { emoji: '🗺️', question: "How far will you walk?", key: 'walk' as const,
-                options: [{ label: '🚶 < 5 min', value: 'close' }, { label: '🚶‍♀️ 10 min', value: 'medium' }, { label: '🚌 Anywhere', value: 'far' }] },
-              { emoji: '👥', question: "Solo or with crew?", key: 'group' as const,
-                options: [{ label: '🙋 Solo', value: 'solo' }, { label: '👫 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }] },
-            ];
+            type QuizOption = { label: string; value: string; recommended?: boolean };
+            type QuizQuestion = { emoji: string; question: string; key: 'vibe' | 'walk' | 'group'; context?: string; options: QuizOption[] };
+            const hour = new Date().getHours();
+            const wet = weather.current.precipitationIn > 0 || weather.current.weatherCode >= 51;
+            const uncomfortable = weather.current.temperatureF >= 88 || weather.current.temperatureF <= 42;
+            const lateNight = hour >= 22 || hour < 5;
+            const evening = hour >= 16;
+            const sleepIntent = ['sleep', 'stay'].includes(quizSelections.vibe ?? '');
+            const contextLine = wet
+              ? `Rain near ${userCity} · indoor spots, covered parking, and short walks prioritized`
+              : uncomfortable
+                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first nearby picks`
+                : lateNight
+                  ? `Late night near ${userCity} · keep going, get home, or stay nearby`
+                  : evening
+                    ? `Evening near ${userCity} · dinner, drinks, events, and easy parking`
+                    : `Daytime near ${userCity} · coffee, food, work spots, and parking`;
+            const intentQuestion: QuizQuestion = wet
+              ? { emoji: '☔', question: 'Rain nearby — what do you need?', key: 'vibe', context: contextLine,
+                  options: [{ label: '☔ Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Covered parking', value: 'covered_parking' }, { label: '🚕 Ride instead', value: 'ride' }, { label: '🛏️ Stay nearby', value: 'stay' }] }
+              : uncomfortable
+                ? { emoji: '🏠', question: "Let's keep it comfortable — what do you need?", key: 'vibe', context: contextLine,
+                    options: [{ label: '🏠 Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Close parking', value: 'parking' }, { label: '☕ Quick stop', value: 'coffee' }, { label: '🚕 Ride option', value: 'ride' }] }
+                : lateNight
+                  ? { emoji: '🌙', question: 'What do you need tonight?', key: 'vibe', context: contextLine,
+                      options: [{ label: '🍸 Keep going', value: 'drinks' }, { label: '🍔 Late food', value: 'food' }, { label: '🛏️ Sleep nearby', value: 'sleep', recommended: true }, { label: '🚕 Ride home', value: 'ride' }] }
+                  : evening
+                    ? { emoji: '✨', question: "What's your evening vibe?", key: 'vibe', context: contextLine,
+                        options: [{ label: '🍽️ Dinner', value: 'food' }, { label: '🍸 Drinks', value: 'drinks' }, { label: '🎶 Events', value: 'events' }, { label: '💕 Date night', value: 'date' }] }
+                    : { emoji: '☀️', question: 'What are you looking for nearby?', key: 'vibe', context: contextLine,
+                        options: [{ label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '💻 Work spot', value: 'work' }, { label: '🚗 Parking', value: 'parking' }] };
+            const mobilityQuestion: QuizQuestion = sleepIntent
+              ? { emoji: '🛏️', question: 'What kind of stay fits tonight?', key: 'walk', options: [{ label: '🏨 Hotel', value: 'hotel' }, { label: '✨ Boutique hotel', value: 'boutique' }, { label: '🏢 Apartment stay', value: 'apartment' }, { label: '⏱️ Short stay', value: 'short_stay' }] }
+              : wet
+                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered parking', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Closest option', value: 'closest' }] }
+                : { emoji: '🗺️', question: 'How close should it be?', key: 'walk', options: [{ label: '🚶 Under 5 min', value: 'close' }, { label: '🚶‍♀️ Around 10 min', value: 'medium' }, { label: '🚗 Parking nearby', value: 'parking' }, { label: '🚌 Open to explore', value: 'far' }] };
+            const preferenceQuestion: QuizQuestion = sleepIntent
+              ? { emoji: '🔒', question: 'What matters most?', key: 'group', options: [{ label: '📍 Closest', value: 'closest' }, { label: '💸 Best price', value: 'price' }, { label: '⭐ Best rated', value: 'rated' }, { label: '🔒 Safest area', value: 'safe', recommended: true }] }
+              : { emoji: '👥', question: "Who's this for?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }, { label: '💼 Work/client', value: 'work' }] };
+            const quizQuestions = [intentQuestion, mobilityQuestion, preferenceQuestion];
             const total = quizQuestions.length;
             const isConfirmation = quizStep === total;
             const q = isConfirmation ? null : quizQuestions[quizStep];
@@ -2521,9 +2562,9 @@ export default function App() {
               const answers = final ?? quizSelections;
               localStorage.setItem('bytspot_intro_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
-              const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'] };
-              const walkToInterests: Record<string, string[]> = { close: ['nearby', 'quick walk'], medium: ['walkable'], far: ['explore'] };
-              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.walk ? walkToInterests[answers.walk] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
+              const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'], work: ['coworking','cafes','quiet'], parking: ['parking','quick walk'], events: ['events','music','entertainment'], date: ['date night','romantic'], indoor: ['indoor','weather safe'], covered_parking: ['covered parking','parking'], ride: ['rideshare','transit'], sleep: ['hotel','stay nearby','overnight'], stay: ['hotel','stay nearby','overnight'] };
+              const walkToInterests: Record<string, string[]> = { close: ['nearby', 'quick walk'], medium: ['walkable'], far: ['explore'], parking: ['parking nearby'], covered: ['covered parking'], ride: ['ride preferred'], closest: ['closest'], hotel: ['hotel'], boutique: ['boutique hotel'], apartment: ['apartment stay'], short_stay: ['short stay'] };
+              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.walk ? walkToInterests[answers.walk] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : []), ...(answers.group === 'work' ? ['work friendly','client meeting'] : []), ...(answers.group === 'safe' ? ['safest area'] : [])];
               saveUserPreferences({
                 interests,
                 vibePreferences: answers.vibe ? { selectedVibes: [answers.vibe] } : undefined,
@@ -2538,7 +2579,7 @@ export default function App() {
             // Top-3 venue picks for confirmation screen
             const picks = (() => {
               if (!isConfirmation || !apiVenues?.length) return [];
-              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining'], fitness: ['fitness','gym'] };
+              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining','late'], fitness: ['fitness','gym'], work: ['cafe','coworking'], parking: ['parking'], events: ['event','music','entertainment'], date: ['restaurant','dining','cocktail'], indoor: ['restaurant','cafe','indoor'], covered_parking: ['parking'], ride: ['ride','transport'], sleep: ['hotel','stay'], stay: ['hotel','stay'] };
               const preferred = vibeMap[quizSelections.vibe ?? ''] ?? [];
               return [...apiVenues].map(v => {
                 const match = preferred.some(c => (v.category ?? '').toLowerCase().includes(c));
@@ -2622,6 +2663,11 @@ export default function App() {
                     /* ── Quiz slide ── */
                     <>
                       <div className="text-5xl text-center">{q!.emoji}</div>
+                      {q!.context && (
+                        <p className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-center text-[11px] text-cyan-100/80" style={{ fontWeight: 650 }}>
+                          {q!.context}
+                        </p>
+                      )}
                       <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{q!.question}</h2>
                       <div className="grid grid-cols-2 gap-3">
                         {q!.options.map((opt) => {
@@ -2637,6 +2683,7 @@ export default function App() {
                                 else { setTimeout(() => setQuizStep(s => s + 1), 300); }
                               }}>
                               {opt.label}
+                              {opt.recommended && <span className="mt-1 block text-[10px] text-cyan-200/75">Recommended</span>}
                             </motion.button>
                           );
                         })}

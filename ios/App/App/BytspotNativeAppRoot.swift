@@ -209,18 +209,16 @@ struct BytspotNativeAppRoot: View {
 enum NativeAuthLaunchContract {
     static let reactSources = ["SplashScreen.tsx", "LandingPage.tsx", "AuthenticationFlow.tsx", "AppleSignInButton.tsx", "GoogleSignInButton.tsx", "PasswordRecoveryScreen.tsx", "App.tsx onboarding quiz"]
     static let appFlow = ["splash", "landing", "vibe", "walk", "crew", "atlanta", "main"]
-    static let splashDurationSeconds = 3.0
-    static let splashTagline = "Your perfect spot awaits"
-    static let splashFeatureChips = ["Parking", "Venues", "AI-Powered"]
+    static let splashDurationSeconds = 1.8
     static let landingHeadline = "Know Before You Go."
     static let landingSubtitle = "Live crowd levels, parking & ride ETAs for Atlanta Midtown — all in one place."
     static let landingFeatures = ["Live crowd levels at Midtown venues", "Smart parking with live spot availability", "Ride ETAs & valet options nearby"]
-    static let vibeQuestion = "What's your vibe tonight?"
-    static let vibeOptions = ["🍸 Drinks", "☕ Coffee", "🍔 Food", "🏋️ Fitness"]
-    static let walkQuestion = "How far will you walk?"
-    static let walkOptions = ["🚶 < 5 min", "🚶‍♀️ 10 min", "🚌 Anywhere"]
-    static let crewQuestion = "Solo or with crew?"
-    static let crewOptions = ["🙋 Solo", "👫 Date night", "👥 Group"]
+    static let vibeQuestion = "What's your evening vibe?"
+    static let vibeOptions = ["🍽️ Dinner", "🍸 Drinks", "🎶 Events", "💕 Date night"]
+    static let walkQuestion = "How close should it be?"
+    static let walkOptions = ["🚶 Under 5 min", "🚶‍♀️ Around 10 min", "🚗 Parking nearby", "🚌 Open to explore"]
+    static let crewQuestion = "Who's this for?"
+    static let crewOptions = ["🙋 Just me", "💕 Date night", "👥 Group", "💼 Work/client"]
     static let atlantaHeadline = "Here's your Atlanta"
     static let atlantaSubtitle = "Tonight's top picks, just for you"
     static let atlantaPicks = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
@@ -276,14 +274,29 @@ enum NativeLaunchPersonalizationStorage {
         let normalized = option.lowercased()
         if normalized.contains("drinks") { return "drinks" }
         if normalized.contains("coffee") { return "coffee" }
+        if normalized.contains("dinner") { return "food" }
         if normalized.contains("food") { return "food" }
         if normalized.contains("fitness") { return "fitness" }
-        if normalized.contains("5 min") { return "walk_lt_5" }
-        if normalized.contains("10 min") { return "walk_10" }
-        if normalized.contains("anywhere") { return "walk_anywhere" }
-        if normalized.contains("solo") { return "solo" }
+        if normalized.contains("work") { return "work" }
+        if normalized.contains("event") { return "events" }
+        if normalized.contains("parking") { return normalized.contains("covered") ? "covered_parking" : "parking" }
+        if normalized.contains("keep going") { return "drinks" }
+        if normalized.contains("sleep") { return "sleep" }
+        if normalized.contains("stay nearby") { return "stay" }
+        if normalized.contains("ride") { return "ride" }
+        if normalized.contains("under 5") || normalized.contains("short walk") { return "close" }
+        if normalized.contains("around 10") { return "medium" }
+        if normalized.contains("open to explore") { return "far" }
+        if normalized.contains("closest") { return "closest" }
+        if normalized.contains("hotel") { return normalized.contains("boutique") ? "boutique" : "hotel" }
+        if normalized.contains("apartment") { return "apartment" }
+        if normalized.contains("short stay") { return "short_stay" }
+        if normalized.contains("just me") || normalized.contains("solo") { return "solo" }
         if normalized.contains("date") { return "date_night" }
         if normalized.contains("group") { return "group" }
+        if normalized.contains("price") { return "price" }
+        if normalized.contains("rated") { return "rated" }
+        if normalized.contains("safest") { return "safe" }
         return normalized.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
     }
 }
@@ -313,7 +326,7 @@ enum NativeAuthInputValidator {
 private enum NativeAuthField: Hashable { case name, invite, email, password }
 
 private enum NativeLaunchTheme {
-    static let background = Color(red: 0.004, green: 0.004, blue: 0.012)
+    static let background = Color.black
     static let panel = Color(red: 15 / 255, green: 15 / 255, blue: 27 / 255).opacity(0.88)
     static let border = Color.white.opacity(0.13)
     static let title = Color.white
@@ -325,9 +338,16 @@ private enum NativeLaunchTheme {
     static let magenta = Color(red: 1, green: 0, blue: 1)
     static let orange = Color(red: 1, green: 69 / 255, blue: 0)
     static let emerald = Color(red: 16 / 255, green: 185 / 255, blue: 129 / 255)
+    static let red400 = Color(red: 248 / 255, green: 113 / 255, blue: 113 / 255)
+    static let purple400 = Color(red: 192 / 255, green: 132 / 255, blue: 252 / 255)
+    static let cyan400 = Color(red: 34 / 255, green: 211 / 255, blue: 238 / 255)
+    static let cyan500 = Color(red: 6 / 255, green: 182 / 255, blue: 212 / 255)
     static let card = Color(red: 13 / 255, green: 13 / 255, blue: 24 / 255).opacity(0.96)
     static let gradient = LinearGradient(colors: [purple, pink, cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
     static let ctaGradient = LinearGradient(colors: [purple, Color(red: 117 / 255, green: 155 / 255, blue: 1), cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let brandGradient = LinearGradient(colors: [cyan, purple, magenta], startPoint: .leading, endPoint: .trailing)
+    static let beforeGradient = LinearGradient(colors: [purple400, cyan400], startPoint: .leading, endPoint: .trailing)
+    static let landingCTAGradient = LinearGradient(colors: [purple, cyan500], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
 private struct NativeLaunchFlowView: View {
@@ -352,9 +372,9 @@ private struct NativeLaunchFlowView: View {
             case .vibe:
                 NativePersonalizationScreen(step: .vibe, onSelect: { selectedVibe = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .walk) }, onSkip: completeAsGuest)
             case .walk:
-                NativePersonalizationScreen(step: .walk, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .walk, selectedIntent: selectedVibe, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: completeAsGuest)
             case .crew:
-                NativePersonalizationScreen(step: .crew, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .crew, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
             case .atlanta:
                 NativeAtlantaPicksScreen(onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
             case .auth:
@@ -381,9 +401,9 @@ private struct NativeLaunchFlowView: View {
         guard NativeAuthLaunchContract.autoRunsLaunchJourney, !didScheduleAutorun else { return }
         didScheduleAutorun = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { advance(to: .vibe) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { selectedVibe = NativeLaunchPersonalizationStorage.token(for: NativeAuthLaunchContract.vibeOptions[0]); advance(to: .walk) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { selectedWalk = NativeLaunchPersonalizationStorage.token(for: NativeAuthLaunchContract.walkOptions[0]); advance(to: .crew) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { selectedCrew = NativeLaunchPersonalizationStorage.token(for: NativeAuthLaunchContract.crewOptions[0]); completedPersonalization = true; advance(to: .atlanta) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { selectedVibe = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.vibe.options(context: NativeLaunchQuizContext.current, selectedIntent: "")[0]); advance(to: .walk) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { selectedWalk = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.walk.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); advance(to: .crew) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { selectedCrew = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.crew.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); completedPersonalization = true; advance(to: .atlanta) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.4) { completeAsGuest() }
     }
 }
@@ -393,13 +413,14 @@ private struct NativeLaunchSizing {
     var compactHeight: Bool { size.height < 720 }
     var narrowWidth: Bool { size.width < 380 }
     var horizontalPadding: CGFloat { narrowWidth ? 18 : 24 }
+    var landingMaxWidth: CGFloat { 393 }
     var cardPadding: CGFloat { compactHeight ? 22 : 28 }
-    var splashSpacing: CGFloat { compactHeight ? 22 : 30 }
-    var splashMark: CGFloat { compactHeight ? 132 : min(172, size.height * 0.205) }
-    var splashTitle: CGFloat { narrowWidth ? 48 : 58 }
-    var landingMark: CGFloat { compactHeight ? 84 : 96 }
-    var landingTitle: CGFloat { narrowWidth ? 31 : 35 }
-    var landingCTAHeight: CGFloat { compactHeight ? 62 : 70 }
+    var splashSpacing: CGFloat { compactHeight ? 26 : 34 }
+    var splashMark: CGFloat { compactHeight ? 140 : 156 }
+    var splashTitle: CGFloat { narrowWidth ? 50 : 54 }
+    var landingMark: CGFloat { compactHeight ? 88 : 100 }
+    var landingTitle: CGFloat { narrowWidth ? 28 : 32 }
+    var landingCTAHeight: CGFloat { compactHeight ? 56 : 60 }
     var sheetHorizontalInset: CGFloat { narrowWidth ? 14 : 18 }
     var sheetMaxHeightFraction: CGFloat { compactHeight ? 0.80 : 0.84 }
     var questionTitle: CGFloat { compactHeight ? 23 : 26 }
@@ -416,26 +437,24 @@ private struct NativeSplashScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let centerX = proxy.size.width * 0.5
+            let centerY = proxy.size.height * 0.5
             ZStack {
                 NativeLaunchTheme.background.ignoresSafeArea()
-                splashOrb(color: NativeLaunchTheme.cyan, size: 260, x: -110, y: -210, opacity: 0.10)
-                splashOrb(color: NativeLaunchTheme.purple, size: 430, x: 0, y: 30, opacity: 0.16)
-                splashOrb(color: NativeLaunchTheme.magenta, size: 360, x: 105, y: 250, opacity: 0.10)
+                splashOrb(color: NativeLaunchTheme.purple, size: 420, x: centerX, y: centerY, intensity: 0.20)
+                splashOrb(color: NativeLaunchTheme.cyan, size: 320, x: centerX, y: proxy.size.height * 0.68, intensity: 0.12)
+                splashOrb(color: NativeLaunchTheme.magenta, size: 280, x: proxy.size.width * 0.82, y: centerY * 0.96, intensity: 0.08)
                 VStack(spacing: sizing.splashSpacing) {
-                    NativeBytspotMark(size: sizing.splashMark)
-                    .scaleEffect(animate && !reduceMotion ? 1.04 : 1)
-                    .shadow(color: NativeLaunchTheme.purple.opacity(0.46), radius: 30, x: 0, y: 16)
-                Text("BYTSPOT")
-                    .font(.system(size: sizing.splashTitle, weight: .black, design: .rounded))
-                    .foregroundStyle(LinearGradient(colors: [NativeLaunchTheme.magenta, NativeLaunchTheme.pink, NativeLaunchTheme.purple], startPoint: .leading, endPoint: .trailing))
-                HStack(spacing: 9) { ForEach([NativeLaunchTheme.cyan, NativeLaunchTheme.magenta, NativeLaunchTheme.orange], id: \.description) { Circle().fill($0).frame(width: 11, height: 11).scaleEffect(animate && !reduceMotion ? 1.28 : 1) } }
-                Text(NativeAuthLaunchContract.splashTagline).font(.system(size: 17, weight: .bold)).foregroundColor(.white.opacity(0.78))
-                HStack(spacing: 8) { ForEach(NativeAuthLaunchContract.splashFeatureChips, id: \.self) { Text($0).font(.system(size: 11, weight: .black)).foregroundColor(chipColor($0)).padding(.horizontal, 14).padding(.vertical, 7).background(Color.black.opacity(0.30)).overlay(Capsule().stroke(chipColor($0).opacity(0.68), lineWidth: 1)).clipShape(Capsule()) } }
-                    .accessibilityLabel(NativeAuthLaunchContract.splashFeatureChips.joined(separator: ", "))
+                    NativeBytspotMark(size: sizing.splashMark, showGlow: true)
+                        .scaleEffect(animate && !reduceMotion ? 1.025 : 1)
+                    Text("BYTSPOT")
+                        .font(.system(size: sizing.splashTitle, weight: .bold))
+                        .foregroundStyle(NativeLaunchTheme.brandGradient)
+                    HStack(spacing: 8) { ForEach([NativeLaunchTheme.cyan, NativeLaunchTheme.purple, NativeLaunchTheme.magenta], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
                 }
                 .padding(.horizontal, sizing.horizontalPadding)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("BYTSPOT. \(NativeAuthLaunchContract.splashTagline). \(NativeAuthLaunchContract.splashFeatureChips.joined(separator: ", ")).")
+                .accessibilityLabel("BYTSPOT")
                 .accessibilityIdentifier("native-launch-splash")
             }
         }
@@ -446,8 +465,17 @@ private struct NativeSplashScreen: View {
         }
     }
 
-    private func splashOrb(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, opacity: Double) -> some View { Circle().fill(color.opacity(opacity)).frame(width: size, height: size).blur(radius: 70).offset(x: x, y: y).scaleEffect(animate && !reduceMotion ? 1.10 : 1) }
-    private func chipColor(_ title: String) -> Color { title == "Parking" ? NativeLaunchTheme.cyan : title == "Venues" ? NativeLaunchTheme.magenta : NativeLaunchTheme.purple }
+    private func splashOrb(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, intensity: Double) -> some View {
+        Circle()
+            .fill(RadialGradient(stops: [
+                .init(color: color.opacity(intensity), location: 0.0),
+                .init(color: Color.clear, location: 0.70)
+            ], center: .center, startRadius: 0, endRadius: size * 0.5))
+            .frame(width: size, height: size)
+            .position(x: x, y: y)
+            .blur(radius: size * 0.10)
+            .scaleEffect(animate && !reduceMotion ? 1.08 : 1)
+    }
 }
 
 private struct NativeLandingScreen: View {
@@ -457,88 +485,199 @@ private struct NativeLandingScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let railWidth = min(proxy.size.width, sizing.landingMaxWidth)
+            let contentWidth = railWidth - (sizing.horizontalPadding * 2)
+            let centerX = proxy.size.width * 0.5
+            let featureY = proxy.size.height * 0.602
+            let featurePillHeight: CGFloat = sizing.compactHeight ? 56 : 60
+            let featureGroupHeight = (featurePillHeight * 3) + (12 * 2)
+            let ctaY = featureY + (featureGroupHeight * 0.5) + 40 + (sizing.landingCTAHeight * 0.5)
             ZStack {
                 NativeLaunchTheme.background.ignoresSafeArea()
-                Circle().fill(NativeLaunchTheme.purple.opacity(0.14)).frame(width: 480, height: 480).blur(radius: 110).offset(y: -95)
-                Circle().fill(NativeLaunchTheme.cyan.opacity(0.10)).frame(width: 380, height: 380).blur(radius: 110).offset(y: 285)
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: sizing.compactHeight ? 20 : 24) {
-                Spacer(minLength: sizing.compactHeight ? 48 : 92)
-                NativeBytspotMark(size: sizing.landingMark)
-                VStack(spacing: 14) {
-                    HStack(spacing: 0) {
-                        Text("Know ").foregroundColor(.white)
-                        Text("Before").foregroundStyle(NativeLaunchTheme.gradient)
-                        Text(" You Go.").foregroundColor(.white)
-                    }
-                    .font(.system(size: sizing.landingTitle, weight: .black, design: .rounded))
-                    .multilineTextAlignment(.center)
-                    Text(NativeAuthLaunchContract.landingSubtitle).font(.system(size: 17, weight: .bold)).foregroundColor(NativeLaunchTheme.body).multilineTextAlignment(.center).lineSpacing(5)
+                landingOrb(color: NativeLaunchTheme.purple, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: 0.22)
+                landingOrb(color: NativeLaunchTheme.cyan, size: 400, x: centerX, y: proxy.size.height * 0.90 - 200, intensity: 0.18)
+                landingOrb(color: NativeLaunchTheme.magenta, size: 300, x: proxy.size.width * 0.95 - 150, y: proxy.size.height * 0.50, intensity: 0.12)
+                NativeBytspotMark(size: 100)
+                    .position(x: centerX, y: proxy.size.height * 0.286)
+                VStack(spacing: 8) {
+                    NativeLaunchHeadline(size: 32)
+                    Text("Live crowd levels, parking & ride ETAs\nfor Atlanta Midtown — all in one place.").font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
                 }
-                VStack(spacing: 14) { ForEach(Array(NativeAuthLaunchContract.landingFeatures.enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
-                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go  →", color: NativeLaunchTheme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 18) }.buttonStyle(.plain).accessibilityHint("Starts the launch personalization questions. You can still skip from the personalization steps.")
-                Spacer(minLength: sizing.compactHeight ? 44 : 96)
-                Text("By continuing, you agree to our Terms & Privacy").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted).padding(.bottom, 10)
-                    }
-                    .frame(minHeight: proxy.size.height)
-                    .padding(.horizontal, sizing.horizontalPadding)
-                    .accessibilityIdentifier("native-launch-landing")
-                }
+                .frame(width: contentWidth)
+                .position(x: centerX, y: proxy.size.height * 0.426)
+                VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures.enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
+                    .frame(width: contentWidth)
+                    .position(x: centerX, y: featureY)
+                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go", color: NativeLaunchTheme.landingCTAGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
+                    .buttonStyle(.plain)
+                    .frame(width: contentWidth)
+                    .position(x: centerX, y: ctaY)
+                    .accessibilityHint("Starts the launch personalization questions. You can still skip from the personalization steps.")
+                Text("By continuing, you agree to our Terms & Privacy").font(.system(size: 12, weight: .regular)).foregroundColor(.white.opacity(0.30))
+                    .position(x: centerX, y: proxy.size.height * 0.938)
             }
+            .accessibilityIdentifier("native-launch-landing")
         }
+    }
+
+    private func landingOrb(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, intensity: Double) -> some View {
+        Circle()
+            .fill(RadialGradient(stops: [
+                .init(color: color.opacity(intensity), location: 0.0),
+                .init(color: Color.clear, location: 0.70)
+            ], center: .center, startRadius: 0, endRadius: size * 0.5))
+            .frame(width: size, height: size)
+            .position(x: x, y: y)
     }
 }
 
 private struct NativeBytspotMark: View {
     let size: CGFloat
+    var showGlow: Bool = false
+    private var outerRingGradient: LinearGradient {
+        LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.purple, NativeLaunchTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var middleRingGradient: LinearGradient {
+        LinearGradient(colors: [NativeLaunchTheme.purple, NativeLaunchTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var hexFillGradient: LinearGradient {
+        LinearGradient(stops: [
+            .init(color: NativeLaunchTheme.purple, location: 0.0),
+            .init(color: NativeLaunchTheme.pink, location: 0.5),
+            .init(color: NativeLaunchTheme.magenta, location: 1.0)
+        ], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var hexBorderGradient: LinearGradient {
+        LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.magenta, NativeLaunchTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var centerDotGradient: RadialGradient {
+        RadialGradient(colors: [NativeLaunchTheme.cyan, Color(red: 0, green: 153 / 255, blue: 204 / 255)], center: .center, startRadius: 0, endRadius: size * 0.0665)
+    }
+    private var centerGlowGradient: RadialGradient {
+        RadialGradient(colors: [NativeLaunchTheme.cyan.opacity(0.30), Color.clear], center: .center, startRadius: 0, endRadius: size * 0.10)
+    }
     var body: some View {
-        ZStack {
-            Circle().fill(RadialGradient(colors: [NativeLaunchTheme.purple.opacity(0.22), Color.black.opacity(0.76)], center: .center, startRadius: 2, endRadius: size * 0.48))
-            Circle().stroke(NativeLaunchTheme.cyan, lineWidth: max(4, size * 0.038))
-            Circle().stroke(NativeLaunchTheme.purple.opacity(0.72), lineWidth: max(2.2, size * 0.024)).padding(size * 0.18)
-            Hexagon().fill(LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.pink, NativeLaunchTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: size * 0.32, height: size * 0.32)
-                .overlay(Hexagon().stroke(NativeLaunchTheme.cyan.opacity(0.82), lineWidth: max(1.7, size * 0.015)))
-                .shadow(color: NativeLaunchTheme.purple.opacity(0.70), radius: size * 0.13, x: 0, y: 0)
-            Circle().fill(LinearGradient(colors: [NativeLaunchTheme.cyan, Color(red: 66 / 255, green: 120 / 255, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: size * 0.16, height: size * 0.16)
-        }
+        Image("BytspotBrandMark")
+            .resizable()
+            .scaledToFit()
         .frame(width: size, height: size)
+        .shadow(color: showGlow ? NativeLaunchTheme.cyan.opacity(0.40) : .clear, radius: showGlow ? size * 0.10 : 0)
+        .shadow(color: showGlow ? NativeLaunchTheme.purple.opacity(0.30) : .clear, radius: showGlow ? size * 0.20 : 0)
         .accessibilityLabel("Bytspot logo")
     }
 }
 
 private struct Hexagon: Shape {
     func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
+        // Matches BrandLogo.tsx path: M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z
+        // Vertical-sided hexagon with vertices at (0.5w,0), (w,0.25h), (w,0.75h), (0.5w,h), (0,0.75h), (0,0.25h)
+        let w = rect.width, h = rect.height
+        let q = h * 0.25
         var path = Path()
-        for index in 0..<6 {
-            let angle = CGFloat(index) * .pi / 3 - .pi / 2
-            let point = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-            index == 0 ? path.move(to: point) : path.addLine(to: point)
-        }
+        path.move(to: CGPoint(x: rect.minX + w * 0.5, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + q))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - q))
+        path.addLine(to: CGPoint(x: rect.minX + w * 0.5, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - q))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + q))
         path.closeSubpath()
         return path
     }
 }
 
+private struct NativeLaunchHeadline: View {
+    let size: CGFloat
+    private var font: Font { .system(size: size, weight: .bold) }
+    private var beforeGradient: LinearGradient {
+        LinearGradient(colors: [NativeLaunchTheme.purple400, NativeLaunchTheme.cyan400], startPoint: .leading, endPoint: .trailing)
+    }
+    var body: some View {
+        HStack(spacing: 0) {
+            Text("Know ").font(font).foregroundColor(.white)
+            Text("Before").font(font).foregroundColor(.clear)
+                .overlay(beforeGradient.mask(Text("Before").font(font)))
+            Text(" You Go.").font(font).foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Know Before You Go.")
+    }
+}
+
+
 private struct NativeLaunchFeaturePill: View {
     let title: String
     let compact: Bool
-    var body: some View { HStack(spacing: 14) { Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(color).frame(width: 36, height: 36).accessibilityHidden(true); Text(title).font(.system(size: compact ? 14 : 15, weight: .bold)).foregroundColor(.white.opacity(0.78)); Spacer() }.padding(.horizontal, 18).frame(minHeight: compact ? 58 : 70).background(NativeLaunchTheme.panel).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeLaunchTheme.border, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).accessibilityElement(children: .combine).accessibilityLabel(title) }
-    private var icon: String { title.contains("parking") ? "car.fill" : title.contains("Ride") ? "clock.fill" : "dot.radiowaves.left.and.right" }
-    private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan : title.contains("Ride") ? NativeLaunchTheme.purple : NativeLaunchTheme.orange }
+    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).background(Color.white.opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).accessibilityElement(children: .combine).accessibilityLabel(title) }
+    private var icon: String { title.contains("parking") ? "car" : title.contains("Ride") ? "clock" : "dot.radiowaves.left.and.right" }
+    private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.red400 }
+}
+
+private enum NativeLaunchQuizContext {
+    case day, evening, lateNight
+
+    static var current: NativeLaunchQuizContext {
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hour >= 22 || hour < 5 { return .lateNight }
+        if hour >= 16 { return .evening }
+        return .day
+    }
+
+    var line: String {
+        switch self {
+        case .day: return "Daytime near Midtown · coffee, food, work spots, and parking"
+        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy parking"
+        case .lateNight: return "Late night near Midtown · keep going, get home, or stay nearby"
+        }
+    }
 }
 
 private enum NativePersonalizationStep: Equatable {
     case vibe, walk, crew
     var index: Int { self == .vibe ? 1 : self == .walk ? 2 : 3 }
-    var emoji: String { self == .vibe ? "✨" : self == .walk ? "🗺️" : "👥" }
-    var question: String { self == .vibe ? NativeAuthLaunchContract.vibeQuestion : self == .walk ? NativeAuthLaunchContract.walkQuestion : NativeAuthLaunchContract.crewQuestion }
-    var options: [String] { self == .vibe ? NativeAuthLaunchContract.vibeOptions : self == .walk ? NativeAuthLaunchContract.walkOptions : NativeAuthLaunchContract.crewOptions }
+
+    func emoji(context: NativeLaunchQuizContext, selectedIntent: String) -> String {
+        if self == .vibe { return context == .lateNight ? "🌙" : context == .day ? "☀️" : "✨" }
+        if self == .walk { return Self.isSleepIntent(selectedIntent) ? "🛏️" : "🗺️" }
+        return Self.isSleepIntent(selectedIntent) ? "🔒" : "👥"
+    }
+
+    func question(context: NativeLaunchQuizContext, selectedIntent: String) -> String {
+        switch self {
+        case .vibe:
+            return context == .lateNight ? "What do you need tonight?" : context == .day ? "What are you looking for nearby?" : NativeAuthLaunchContract.vibeQuestion
+        case .walk:
+            return Self.isSleepIntent(selectedIntent) ? "What kind of stay fits tonight?" : NativeAuthLaunchContract.walkQuestion
+        case .crew:
+            return Self.isSleepIntent(selectedIntent) ? "What matters most?" : NativeAuthLaunchContract.crewQuestion
+        }
+    }
+
+    func contextLine(context: NativeLaunchQuizContext) -> String? { self == .vibe ? context.line : nil }
+
+    func options(context: NativeLaunchQuizContext, selectedIntent: String) -> [String] {
+        switch self {
+        case .vibe:
+            switch context {
+            case .day: return ["☕ Coffee", "🍔 Food", "💻 Work spot", "🚗 Parking"]
+            case .evening: return NativeAuthLaunchContract.vibeOptions
+            case .lateNight: return ["🍸 Keep going", "🍔 Late food", "🛏️ Sleep nearby", "🚕 Ride home"]
+            }
+        case .walk:
+            return Self.isSleepIntent(selectedIntent) ? ["🏨 Hotel", "✨ Boutique hotel", "🏢 Apartment stay", "⏱️ Short stay"] : NativeAuthLaunchContract.walkOptions
+        case .crew:
+            return Self.isSleepIntent(selectedIntent) ? ["📍 Closest", "💸 Best price", "⭐ Best rated", "🔒 Safest area"] : NativeAuthLaunchContract.crewOptions
+        }
+    }
+
+    static func isSleepIntent(_ token: String) -> Bool { token == "sleep" || token == "stay" }
 }
 
 private struct NativePersonalizationScreen: View {
     let step: NativePersonalizationStep
+    var selectedIntent: String = ""
     let onSelect: (String) -> Void
     let onSkip: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -546,6 +685,10 @@ private struct NativePersonalizationScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
+            let context = NativeLaunchQuizContext.current
+            let emoji = step.emoji(context: context, selectedIntent: selectedIntent)
+            let question = step.question(context: context, selectedIntent: selectedIntent)
+            let options = step.options(context: context, selectedIntent: selectedIntent)
             ZStack(alignment: .bottom) {
                 NativeLaunchTheme.background.ignoresSafeArea()
                 Circle().fill(NativeLaunchTheme.cyan.opacity(0.10)).frame(width: 280, height: 280).blur(radius: 90).offset(x: -120, y: 180)
@@ -556,10 +699,11 @@ private struct NativePersonalizationScreen: View {
                     Spacer()
                     Button(action: { nativeAuthImpactLight(); onSkip() }) { Text("Skip").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.36)).padding(.horizontal, 15).frame(height: 40).overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)) }.buttonStyle(.plain).accessibilityLabel("Skip personalization").accessibilityHint("Opens Bytspot in guest mode.")
                 }
-                Text(step.emoji).font(.system(size: sizing.compactHeight ? 24 : 28)).accessibilityHidden(true)
-                Text(step.question).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
+                Text(emoji).font(.system(size: sizing.compactHeight ? 24 : 28)).accessibilityHidden(true)
+                if let contextLine = step.contextLine(context: context) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(NativeLaunchTheme.cyan400.opacity(0.82)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(NativeLaunchTheme.cyan.opacity(0.10)).overlay(Capsule().stroke(NativeLaunchTheme.cyan.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
+                Text(question).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
                 LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                    ForEach(step.options, id: \.self) { option in
+                    ForEach(options, id: \.self) { option in
                         Button(action: { nativeAuthImpactLight(); onSelect(option) }) { Text(option).font(.system(size: 17, weight: .black)).foregroundColor(.white).minimumScaleFactor(0.82).lineLimit(1).frame(maxWidth: .infinity).frame(minHeight: sizing.compactHeight ? 56 : 62).background(Color.white.opacity(0.075)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.15), lineWidth: 2)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
                             .buttonStyle(.plain)
                             .accessibilityLabel(option)
@@ -745,8 +889,8 @@ private extension View {
 }
 
 private struct NativeLaunchCTA: View {
-    let title: String; let color: LinearGradient; let foreground: Color; var height: CGFloat = 56; var cornerRadius: CGFloat = 16
-    var body: some View { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(foreground).frame(maxWidth: .infinity).frame(height: height).background(color).clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)).shadow(color: NativeLaunchTheme.purple.opacity(0.25), radius: 18, x: 0, y: 12) }
+    let title: String; let color: LinearGradient; let foreground: Color; var height: CGFloat = 56; var cornerRadius: CGFloat = 16; var showArrow: Bool = false
+    var body: some View { HStack(spacing: 8) { Text(title).font(.system(size: 17, weight: .bold)); if showArrow { Image(systemName: "arrow.right").font(.system(size: 20, weight: .semibold)) } }.foregroundColor(foreground).frame(maxWidth: .infinity).frame(height: height).background(color).clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)).shadow(color: NativeLaunchTheme.purple.opacity(0.25), radius: 18, x: 0, y: 12) }
 }
 
 private struct NativePasswordRecoverySheet: View {

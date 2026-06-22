@@ -4505,8 +4505,8 @@ private struct NativeDiscoverFeatureCard: View {
     @State private var dragOffset: CGFloat = 0
     @State private var isPressing = false
     @Environment(\.colorScheme) private var colorScheme
-    static let cardHeight: CGFloat = 420
-    static let heroHeight: CGFloat = 238
+    static let cardHeight: CGFloat = 398
+    static let heroHeight: CGFloat = 216
     static let bodyHeight: CGFloat = 182
 
     var body: some View {
@@ -4577,35 +4577,31 @@ private struct NativeDiscoverFeatureCard: View {
             .frame(height: Self.heroHeight)
             .clipped()
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 13) {
                 Text(decisionLine)
                     .font(.system(size: 14, weight: .black))
                     .foregroundColor(NativeTheme.textPrimary.opacity(0.86))
                     .lineLimit(2)
 
-                HStack(spacing: 8) {
-                    compactMetaPill(card.distance.isEmpty ? "Nearby" : card.distance, icon: "location.fill")
-                    if !card.rating.isEmpty { compactMetaPill(card.rating, icon: "star.fill") }
+                HStack(spacing: 10) {
+                    availabilityBadge
+                    contextMarker(bodyContextLine, icon: "location.fill", accent: NativeTheme.cyan)
                     Spacer(minLength: 0)
                 }
 
                 HStack(spacing: 8) {
+                    Spacer(minLength: 0)
                     Text(card.cta)
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 38)
-                        .background(NativeTheme.cyan)
-                        .clipShape(Capsule())
-                    Text("Details")
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundColor(NativeTheme.textPrimary)
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 38)
-                        .background(NativeTheme.selectedControlSurface)
-                        .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
-                        .clipShape(Capsule())
+                        .font(.system(size: 14, weight: .black))
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .black))
+                    Spacer(minLength: 0)
                 }
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(LinearGradient(colors: [NativeTheme.cyan, Color(hex: 0x38BDF8)], startPoint: .leading, endPoint: .trailing))
+                .clipShape(Capsule())
+                .shadow(color: NativeTheme.cyan.opacity(0.24), radius: 12, x: 0, y: 7)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -4658,16 +4654,86 @@ private struct NativeDiscoverFeatureCard: View {
         return highlights.isEmpty ? "Tap for what’s included and next steps." : highlights
     }
 
-    private func compactMetaPill(_ title: String, icon: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.system(size: 11, weight: .black))
-            .foregroundColor(NativeTheme.textPrimary.opacity(0.86))
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .background(NativeTheme.selectedControlSurface)
-            .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
-            .clipShape(Capsule())
+    private var availabilityBadge: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(availabilityAccent)
+                .frame(width: 7, height: 7)
+            Text(availabilityCopy)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(availabilityAccent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 28)
+        .background(availabilityAccent.opacity(0.12))
+        .overlay(Capsule().stroke(availabilityAccent.opacity(0.24), lineWidth: 1))
+        .clipShape(Capsule())
+    }
+
+    private var availabilityCopy: String {
+        if displayCategory == "Event Pass" { return "Pass ready · digital" }
+        let status = NativeVenueHours.openStatus(category: discoverHoursCategory)
+        let hours = NativeVenueHours.hours(for: discoverHoursCategory)
+        if status.isOpen {
+            return status.label.lowercased().contains("closes")
+                ? "Closing soon · closes \(shortTimeLabel(hours.close))"
+                : "Open now · until \(shortTimeLabel(hours.close))"
+        }
+        return opensSoon(hours) ? "Opens soon · \(shortTimeLabel(hours.open))" : "Closed · opens \(shortTimeLabel(hours.open))"
+    }
+
+    private var availabilityAccent: Color {
+        let copy = availabilityCopy.lowercased()
+        if copy.contains("pass ready") { return NativeTheme.cyan }
+        if copy.contains("open now") { return NativeTheme.emerald }
+        if copy.contains("closing") { return NativeTheme.orange }
+        if copy.contains("opens soon") { return NativeTheme.cyan }
+        return Color(hex: 0xEF4444)
+    }
+
+    private var bodyContextLine: String {
+        if card.title.localizedCaseInsensitiveContains("Broni") { return "Atlanta area" }
+        if card.title.localizedCaseInsensitiveContains("GH Akwaaba") { return "Matchday pass" }
+        let distance = card.distance.trimmingCharacters(in: .whitespacesAndNewlines)
+        let availability = card.availability.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts = [distance.isEmpty || distance == "—" ? "Nearby" : distance]
+        if !availability.isEmpty && availability != "Unknown" { parts.append(availability) }
+        else if displayCategory == "Dining" { parts.append("Pickup") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var discoverHoursCategory: String {
+        if card.title.localizedCaseInsensitiveContains("Broni") { return "dining" }
+        if displayCategory == "Event Pass" { return "entertainment" }
+        return card.type
+    }
+
+    private func opensSoon(_ hours: NativeVenueHours.Hours, date: Date = Date()) -> Bool {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let now = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        return max((hours.open * 60) - now, 0) <= 120
+    }
+
+    private func shortTimeLabel(_ value: Int) -> String {
+        let hour = value >= 24 ? value - 24 : value
+        if hour == 0 { return "12am" }
+        if hour == 12 { return "12pm" }
+        return hour > 12 ? "\(hour - 12)pm" : "\(hour)am"
+    }
+
+    private func contextMarker(_ title: String, icon: String, accent: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .black))
+                .foregroundColor(accent)
+            Text(title)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(NativeTheme.textPrimary.opacity(0.78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
     }
 
     private var heroContrastWash: some View {
@@ -5103,7 +5169,7 @@ private struct NativeVenueDetailView: View {
         if NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
             priorityIDs = ["getTickets", "save", "share", "bookRide"]
         } else if NativeVenueDetailPresentation.isDiningVenue(venue) {
-	            priorityIDs = ["getTickets", "call", "navigate", "save", "share", "concierge"]
+            priorityIDs = ["getTickets", "call", "navigate", "save", "share", "concierge"]
         } else {
             priorityIDs = ["navigate", "save", "share", "concierge"]
         }
@@ -9199,7 +9265,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.detailEnvironmentKey == "BYT_NATIVE_DISCOVER_DETAIL", "NativeDiscoverParitySelfTests: Discover detail screenshot env key drifted.")
         precondition(NativeDiscoverView.detailDefaultsKey == "bytspot_native_discover_detail", "NativeDiscoverParitySelfTests: Discover detail defaults key drifted.")
         precondition(NativeDiscoverIntroCard.compactHeight == 152, "NativeDiscoverParitySelfTests: Discover swipe guide should stay compact.")
-        precondition(NativeDiscoverFeatureCard.cardHeight == 420 && NativeDiscoverFeatureCard.heroHeight == 238 && NativeDiscoverFeatureCard.bodyHeight == 182, "NativeDiscoverParitySelfTests: Discover card compact dimensions drifted.")
+        precondition(NativeDiscoverFeatureCard.cardHeight == 398 && NativeDiscoverFeatureCard.heroHeight == 216 && NativeDiscoverFeatureCard.bodyHeight == 182, "NativeDiscoverParitySelfTests: Discover card compact dimensions drifted.")
         precondition(NativeDiscoverView.categoryLabels == ["All", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"], "NativeDiscoverParitySelfTests: category labels drifted from React DiscoverSection.")
         precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Dinner Spots That Match Your Vibe", "Nightlife Momentum", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from React App.tsx.")
         precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "dining", "nightlife", "parking", "entertainment", "fitness", "service", "service"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")

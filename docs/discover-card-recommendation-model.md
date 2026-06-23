@@ -61,7 +61,9 @@ type BytspotVendorMatchDocument = {
 
 ## Patch-verified trust model
 
-Patch verification is a Bytspot-native differentiator. It means the vendor, venue, or access point has a Bytspot trust relationship beyond generic provider metadata.
+Patch verification is a Bytspot-native differentiator for **service and premium vendor cards**. It means the vendor, venue, or access point has a Bytspot trust relationship beyond generic provider metadata.
+
+Patch verification should not be applied to every ordinary place card. A generic coffee shop, restaurant, or Google/Yelp-enriched venue can be curated or provider-enriched, but it only becomes patch verified when it is onboarded as a Bytspot service/premium vendor or verified patch partner.
 
 ```ts
 type BytspotTrustModel = {
@@ -77,8 +79,8 @@ type BytspotTrustModel = {
 
 Recommendation confidence should generally rank sources like this:
 
-1. Patch-verified Bytspot vendor
-2. Bytspot vendor-verified / approved vendor
+1. Patch-verified Bytspot service/premium vendor
+2. Bytspot vendor-verified / approved service
 3. Internal curated Bytspot recommendation
 4. Google/Yelp enriched place
 5. Generic external result
@@ -104,7 +106,7 @@ type BytspotRecommendationCard = {
   id: string;
   vendorId: string;
   sourceProvider: string;
-  categoryLabel: string;
+  categoryLabel: string; // e.g. Dining, Coffee, Boutique Apartment
   trustBadge?: 'Patch verified' | 'Bytspot verified' | 'Curated';
   title: string;
   subtitle: string;
@@ -137,11 +139,36 @@ Single primary CTA
 
 The card should not show multiple competing CTAs. For example, avoid showing both `View Menu` and `Details` when both open the same sheet.
 
+### Supported category tokens
+
+```text
+coffee
+dining
+nightlife
+entertainment
+service
+boutique_apartment
+shopping
+fitness
+parking
+```
+
+`boutique_apartment` is a premium lodging/stay category. The filter rail may use the shorter `Boutique Stay`, while cards/details should render the full label `Boutique Apartment` and use stay-first language such as:
+
+```text
+From $189/night
+Available tonight
+1 bed · Sleeps 2 · Kitchen
+View Stay →
+```
+
+Exact addresses for boutique apartments should be hidden until booking or host confirmation.
+
 ---
 
 ## Patch-verified card treatment
 
-Patch verification should be visible but not noisy.
+Patch verification should be visible but not noisy, and only on cards that are actually Bytspot service/premium vendors or verified patch partners.
 
 Recommended badge copy:
 
@@ -298,5 +325,6 @@ Matched to your taste
 - Move all secondary actions into details.
 - Show patch verification as a trust badge and ranking boost.
 - Use availability color/tone as a decision signal.
+- Support `boutique_apartment` as a distinct stay/lodging category.
 - Keep provider attribution in details.
 - Never fake phone, address, or hours.

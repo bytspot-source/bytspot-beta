@@ -148,6 +148,8 @@ const CATEGORY_SYNONYMS: Record<string, string[]> = {
   nightlife: ['bar', 'cocktail', 'club', 'lounge', 'afrobeats', 'music'],
   event: ['pass', 'ticket', 'matchday', 'stadium', 'vip', 'entry'],
   parking: ['garage', 'valet', 'reserve', 'car'],
+  boutique: ['apartment', 'stay', 'suite', 'lodging', 'furnished', 'host', 'checkin', 'booking'],
+  apartment: ['boutique', 'stay', 'suite', 'lodging', 'furnished', 'host', 'checkin', 'booking'],
 };
 
 function normalizeId(value: string): string {

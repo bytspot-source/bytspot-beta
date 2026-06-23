@@ -40,6 +40,7 @@ function getTypeColor(type: CardType): string {
     case 'coffee': return 'from-amber-600 to-yellow-500';
     case 'dining': return 'from-red-500 to-pink-500';
     case 'shopping': return 'from-indigo-500 to-purple-500';
+    case 'boutique_apartment': return 'from-violet-600 to-purple-500';
     case 'nightlife': return 'from-fuchsia-600 to-pink-500';
     case 'entertainment': return 'from-violet-500 to-purple-500';
     case 'fitness': return 'from-green-500 to-emerald-500';
@@ -59,6 +60,7 @@ function normalizeCardType(type: string | null | undefined): CardType | null {
     'coffee',
     'dining',
     'shopping',
+    'boutique_apartment',
     'nightlife',
     'entertainment',
     'fitness',
@@ -455,6 +457,7 @@ const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
   dining: 'restaurant',
   nightlife: 'night_club',
   shopping: 'shopping_mall',
+  boutique_apartment: 'lodging',
   entertainment: 'movie_theater',
   fitness: 'gym',
   parking: 'parking',
@@ -796,7 +799,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       };
       setSelectedValetService(valetService);
     } else if (card.type === 'venue' || card.type === 'coffee' || card.type === 'dining' ||
-               card.type === 'shopping' || card.type === 'nightlife' || card.type === 'entertainment' ||
+               card.type === 'shopping' || card.type === 'boutique_apartment' || card.type === 'nightlife' || card.type === 'entertainment' ||
                card.type === 'fitness') {
       // Show venue details
       setSelectedVenue(card);
@@ -951,6 +954,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
           {([
             { label: 'All',    value: null },
+            { label: '🏡 Boutique Stay', value: 'boutique_apartment' },
             { label: '🍸 Nightlife',    value: 'nightlife' },
             { label: '🍽️ Dining',       value: 'dining' },
             { label: '☕ Coffee',        value: 'coffee' },
@@ -981,12 +985,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           })}
         </div>
 
-        {/* Entry type pills — All / Free / Paid entry */}
+        {/* Entry type pills — All / Free / Paid */}
         <div className="flex gap-1.5">
           {([
-            { label: '🎟️ All access', value: 'all' as const },
-            { label: '✅ Free', value: 'free' as const },
-            { label: '💳 Paid entry', value: 'paid' as const },
+            { label: 'All', value: 'all' as const },
+            { label: 'Free', value: 'free' as const },
+            { label: 'Paid', value: 'paid' as const },
           ]).map((opt) => {
             const active = entryTypeFilter === opt.value;
             return (

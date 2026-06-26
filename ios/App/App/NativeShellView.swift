@@ -766,10 +766,11 @@ private enum NativeProfileStyle {
     static let title = NativeTheme.textPrimary
     static let body = NativeTheme.textSecondary
     static let muted = NativeTheme.textTertiary
-    static let cardBorder = NativePolish.softBorder
-    static let strongBorder = NativePolish.strongBorder
+    static let cardBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.09, darkAlpha: 0.045)
+    static let strongBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.12, darkAlpha: 0.065)
     static let hairline = NativePolish.softBorder
-    static let insetSurface = NativeTheme.selectedControlSurface
+    static let insetSurface = Color.adaptive(lightHex: 0x111827, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.070)
+    static let nestedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.46, darkAlpha: 0.038)
     static let onVibrant = Color(hex: 0x050507)
     static let menuIconSurface = Color.adaptive(lightHex: 0xE8F8FF, darkHex: 0x071F2A, lightAlpha: 1.0, darkAlpha: 0.92)
     static let chipSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.58, darkAlpha: 0.08)
@@ -779,7 +780,7 @@ private enum NativeProfileStyle {
 
     static func cardSurface(accent: Color? = nil) -> LinearGradient {
         LinearGradient(
-            colors: [NativePolish.elevatedSurface, (accent ?? NativeTheme.cyan).opacity(0.08), NativePolish.glassSurface],
+            colors: [Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x111820, lightAlpha: 0.82, darkAlpha: 0.42), (accent ?? NativeTheme.cyan).opacity(0.038), Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x0A0D12, lightAlpha: 0.62, darkAlpha: 0.24)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -792,10 +793,10 @@ private extension View {
     func nativeProfileCard(border: Color = NativeProfileStyle.cardBorder, radius: CGFloat = NativeProfileStyle.cardRadius, accent: Color? = nil) -> some View {
         self
             .background(NativeProfileStyle.cardSurface(accent: accent))
-            .background(.ultraThinMaterial)
+            .background(.ultraThinMaterial.opacity(0.38))
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(border, lineWidth: 1.25))
-            .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(border, lineWidth: 1))
+            .shadow(color: NativeTheme.softShadow.opacity(0.46), radius: 12, x: 0, y: 7)
     }
 }
 
@@ -854,11 +855,11 @@ private struct NativeProfileHeaderCard: View {
             VStack(spacing: 18) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("BYTSPOT PASSPORT")
+                        Text("ACCOUNT CENTER")
                             .font(.system(size: 11, weight: .black))
                             .foregroundColor(NativeTheme.cyan)
                             .tracking(1.4)
-                        Text("Identity, access, rewards")
+                        Text("Profile, wallet, privacy")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(NativeProfileStyle.muted)
                     }
@@ -924,49 +925,15 @@ private struct NativeProfileAccountView: View {
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore)
-            #if DEBUG
-            if shouldElevateFindFriendsPreview {
-                NativeFindFriendsCard(sessionStore: sessionStore)
-            }
-            #endif
-            NativeProfileIAHeader(title: "Today", subtitle: "Active parking, access, and patch context first.")
-            NativeProfileSummaryCard(
-                eyebrow: "MY RESERVATIONS",
-                title: "0 parking passes",
-                badge: "ARRIVALS",
-                icon: "car.fill",
-                gradient: [NativeTheme.cyan, NativeTheme.purple],
-                border: NativeTheme.cyan,
-                copy: "Parking logistics stay separate from event access, so arrival details remain calm, scannable, and wallet-ready.",
-                action: { activePanel = .reservations }
-            )
-            NativeProfileSummaryCard(
-                eyebrow: "MY ACCESS",
-                title: "0 in wallet",
-                badge: "PATCH VERIFIED",
-                icon: "ticket.fill",
-                gradient: [NativeTheme.cyan, NativeTheme.pink],
-                border: NativeProfileStyle.cardBorder,
-                copy: "Verified patches, passes, and premium venue access collect here as your native Bytspot wallet.",
-                action: { activePanel = .access }
-            )
-            NativeProfileIAHeader(title: "Progress", subtitle: "Status, rewards, and unlocks stay separate from wallet tasks.")
-            NativeParkerBenefitsCard()
-            NativeRewardsCard(action: { activePanel = .rewards })
-            NativeProfileIAHeader(title: "Social", subtitle: "Referral growth and privacy-first friend discovery.")
-            NativeInviteFriendCard()
-            if !shouldElevateFindFriendsPreview {
-                NativeFindFriendsCard(sessionStore: sessionStore)
-            }
-            NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and visit history without account clutter.")
-            NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
-            NativeProfileIAHeader(title: "Account", subtitle: "Identity, payment, and parking readiness.")
-            NativeProfileMenuGroup(section: .account, openPanel: { activePanel = $0 })
-            NativeProfileIAHeader(title: "Preferences", subtitle: "Tune discovery, parking, alerts, and privacy posture.")
+            NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
+            NativeProfileCommandGrid(openPanel: { activePanel = $0 })
+            NativeProfileReadinessCard(openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
-            NativeProfileIAHeader(title: "App Settings", subtitle: "General app controls, including Appearance.")
+            NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
+            NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
+            NativeProfileNetworkCard(sessionStore: sessionStore)
             NativeProfileMenuGroup(section: .appSettings, openPanel: { activePanel = $0 })
-            NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Dangerous actions and policy surfaces are isolated.")
+            NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Sensitive account actions are separated from everyday controls.")
             NativeProfileMenuGroup(section: .safetyLegal, openPanel: { activePanel = $0 })
             NativeProfileLogoutButton(sessionStore: sessionStore)
             NativeProfileVersionLabel()
@@ -986,14 +953,6 @@ private struct NativeProfileAccountView: View {
                 sheet
             }
         }
-    }
-
-    private var shouldElevateFindFriendsPreview: Bool {
-        #if DEBUG
-        return BytspotContactSyncStore.previewSuggestionsRequested
-        #else
-        return false
-        #endif
     }
 
     private func openInitialPanelIfNeeded() {
@@ -2431,6 +2390,133 @@ private struct NativeFriendSuggestionRow: View {
     }
 }
 
+private struct NativeProfileNetworkCard: View {
+    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
+    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
+    let sessionStore: BytspotSessionStore
+
+    static let title = "Invite & Find Friends"
+    static let actionTitles = ["Invite a Friend", "Find friends"]
+    private let referralUrl = "https://bytspot.app?ref=guest"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    LinearGradient(colors: [NativeTheme.pink, NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "person.2.badge.plus.fill").font(.system(size: 19, weight: .black)).foregroundColor(.white)
+                }
+                .frame(width: 46, height: 46)
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.pink).tracking(1.1)
+                    Text(Self.title).font(.system(size: 19, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                    Text("Share Bytspot or privately match contacts — one clean place for your network.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+
+            networkDivider
+            inviteBlock
+            networkDivider
+            findFriendsBlock
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(NativeProfileStyle.cardPadding)
+        .nativeProfileCard(border: NativeTheme.pink.opacity(0.48), accent: NativeTheme.pink)
+        .accessibilityIdentifier("native-profile-network-card")
+    }
+
+    private var inviteBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeProfileNetworkRowHeader(title: "Invite a Friend", subtitle: "Share your personal Bytspot link", icon: "square.and.arrow.up", color: NativeTheme.pink)
+            HStack(spacing: 8) {
+                Text(referralUrl).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                Spacer()
+                Text("Copy").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.pink).padding(.horizontal, 10).padding(.vertical, 5).overlay(Capsule().stroke(NativeTheme.pink.opacity(0.38), lineWidth: 1))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(NativeProfileStyle.referralPillSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+            HStack(spacing: 8) { Image(systemName: "square.and.arrow.up").font(.system(size: 13, weight: .black)); Text("Share Invite Link").font(.system(size: 14, weight: .black)) }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(LinearGradient(colors: [NativeTheme.pink, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        }
+    }
+
+    @ViewBuilder private var findFriendsBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeProfileNetworkRowHeader(title: "Find friends", subtitle: sessionStore.isAuthenticated ? NativeFindFriendsCard.privacyCopy : NativeFindFriendsCard.guestCopy, icon: "person.badge.plus", color: NativeTheme.purple)
+            if sessionStore.isAuthenticated {
+                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) {
+                    HStack(spacing: 8) { Image(systemName: "lock.shield.fill").font(.system(size: 13, weight: .black)); Text(contactCTA).font(.system(size: 14, weight: .black)) }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing))
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
+                contactStatus
+                if !contactSyncStore.suggestions.isEmpty {
+                    VStack(spacing: 8) { ForEach(contactSyncStore.suggestions.prefix(3)) { NativeFriendSuggestionRow(suggestion: $0) } }
+                }
+            } else {
+                Button(action: { authCoordinator.handle(.signIn(.apple), sessionStore: sessionStore) }) {
+                    HStack(spacing: 8) { Image(systemName: "apple.logo").font(.system(size: 13, weight: .black)); Text("Sign in to find friends").font(.system(size: 14, weight: .black)) }
+                        .foregroundColor(NativeProfileStyle.onVibrant)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(NativeTheme.cyan)
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Text("Contacts stay off until you start private matching.").nativeBody(size: 11, color: NativeProfileStyle.muted)
+            }
+        }
+    }
+
+    private var contactCTA: String {
+        switch contactSyncStore.phase {
+        case .requesting: return "Requesting access…"
+        case .syncing: return "Syncing contacts…"
+        default: return contactSyncStore.lastSummary == nil ? "Sync contacts privately" : "Re-sync contacts"
+        }
+    }
+
+    @ViewBuilder private var contactStatus: some View {
+        if let summary = contactSyncStore.lastSummary { Text(summary).nativeBody(size: 11.5, color: NativeTheme.cyan) }
+        if contactSyncStore.phase == .denied { Text("Contacts access is off. Enable it in Settings to find friends.").nativeBody(size: 11.5, color: NativeTheme.orange) }
+        if contactSyncStore.phase == .failed { Text("Couldn't sync contacts. Try again in a moment.").nativeBody(size: 11.5, color: NativeTheme.orange) }
+    }
+
+    private var networkDivider: some View { Rectangle().fill(NativeProfileStyle.hairline).frame(height: 1) }
+}
+
+private struct NativeProfileNetworkRowHeader: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(color).frame(width: 32, height: 32).background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text(subtitle).font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 private struct NativeParkerBenefitsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -2528,6 +2614,122 @@ private struct NativeProfileSummaryCard: View {
     }
 }
 
+private struct NativeProfileCommandGrid: View {
+    let openPanel: (NativeProfilePanel) -> Void
+
+    static let tileTitles = ["Wallet", "Bookings", "Rewards", "Saved"]
+    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .rewards, .savedSpots]
+
+    private let tiles: [(String, String, String, String, NativeProfilePanel, Color)] = [
+        ("WALLET", "Wallet", "Passes & access", "ticket.fill", .access, NativeTheme.pink),
+        ("BOOKINGS", "Bookings", "Parking & stays", "car.fill", .reservations, NativeTheme.cyan),
+        ("STATUS", "Rewards", "Points & badges", "sparkles", .rewards, NativeTheme.purple),
+        ("SAVED", "Saved", "Places you keep", "heart.fill", .savedSpots, NativeTheme.emerald)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                NativeProfileCommandTile(eyebrow: tile.0, title: tile.1, subtitle: tile.2, icon: tile.3, color: tile.5) {
+                    openPanel(tile.4)
+                }
+            }
+        }
+        .accessibilityIdentifier("native-profile-command-grid")
+    }
+}
+
+private struct NativeProfileCommandTile: View {
+    let eyebrow: String
+    let title: String
+    let subtitle: String
+    let icon: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(LinearGradient(colors: [color, color.opacity(0.66)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        Image(systemName: icon).font(.system(size: 17, weight: .black)).foregroundColor(.black)
+                    }
+                    .frame(width: 42, height: 42)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).foregroundColor(NativeProfileStyle.muted)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(eyebrow).font(.system(size: 10, weight: .black)).foregroundColor(color).tracking(0.9)
+                    Text(title).font(.system(size: 17, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                    Text(subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 136, alignment: .topLeading)
+            .padding(14)
+            .background(NativeProfileStyle.cardSurface(accent: color))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(color.opacity(0.28), lineWidth: 1.25))
+            .shadow(color: NativeTheme.softShadow, radius: 14, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct NativeProfileReadinessCard: View {
+    let openPanel: (NativeProfilePanel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ACCOUNT ESSENTIALS").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
+                    Text("Manage the basics people need every day.").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                }
+                Spacer()
+                NativeProfileMicroChip("3 checks", icon: "checkmark.shield.fill", color: NativeTheme.emerald)
+            }
+            VStack(spacing: 8) {
+                NativeProfileReadinessStep(title: "Identity", subtitle: "Name, email, phone, and city", icon: "person.crop.circle.fill", color: NativeTheme.cyan) { openPanel(.personalInformation) }
+                NativeProfileReadinessStep(title: "Payment", subtitle: "Payment methods and secure setup", icon: "creditcard.fill", color: NativeTheme.pink) { openPanel(.paymentMethods) }
+                NativeProfileReadinessStep(title: "Vehicle", subtitle: "Cars used for parking handoff", icon: "car.fill", color: NativeTheme.emerald) { openPanel(.vehicles) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(NativeProfileStyle.cardPadding)
+        .nativeProfileCard(accent: NativeTheme.cyan)
+        .accessibilityIdentifier("native-profile-readiness")
+    }
+}
+
+private struct NativeProfileReadinessStep: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            HStack(spacing: 11) {
+                Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(color).frame(width: 28, height: 28).background(color.opacity(0.12)).clipShape(Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                    Text(subtitle).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted).lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted)
+            }
+            .padding(11)
+            .background(NativeProfileStyle.nestedSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct NativeRewardsCard: View {
     let action: () -> Void
 
@@ -2615,9 +2817,10 @@ private struct NativeInviteFriendCard: View {
 
 private struct NativeProfileMenuItem {
     let label: String
+    let subtitle: String
     let icon: String
     let panel: NativeProfilePanel
-    var badge: String? = "NATIVE"
+    var badge: String? = nil
     var danger: Bool = false
 }
 
@@ -2659,33 +2862,33 @@ private enum NativeProfileMenuSectionKind {
         switch self {
         case .placesActivity:
             return [
-                NativeProfileMenuItem(label: "Saved Spots", icon: "heart.fill", panel: .savedSpots),
-                NativeProfileMenuItem(label: "Places I've Been", icon: "clock.fill", panel: .placesVisited)
+                NativeProfileMenuItem(label: "Saved Spots", subtitle: "Favorites, parking, and services", icon: "heart.fill", panel: .savedSpots),
+                NativeProfileMenuItem(label: "Places I've Been", subtitle: "Recent visits and activity history", icon: "clock.fill", panel: .placesVisited)
             ]
         case .account:
             return [
-                NativeProfileMenuItem(label: "Personal Information", icon: "person.text.rectangle.fill", panel: .personalInformation),
-                NativeProfileMenuItem(label: "Payment Methods", icon: "creditcard.fill", panel: .paymentMethods),
-                NativeProfileMenuItem(label: "My Vehicles", icon: "car.fill", panel: .vehicles)
+                NativeProfileMenuItem(label: "Personal Information", subtitle: "Name, email, phone, and city", icon: "person.text.rectangle.fill", panel: .personalInformation),
+                NativeProfileMenuItem(label: "Payment Methods", subtitle: "Wallet readiness and secure setup", icon: "creditcard.fill", panel: .paymentMethods),
+                NativeProfileMenuItem(label: "My Vehicles", subtitle: "Vehicles used for parking handoff", icon: "car.fill", panel: .vehicles)
             ]
         case .preferences:
             return [
-                NativeProfileMenuItem(label: "Vibe Preferences", icon: "sparkles", panel: .vibePreferences),
-                NativeProfileMenuItem(label: "Parking Preferences", icon: "parkingsign.circle.fill", panel: .parkingPreferences),
-                NativeProfileMenuItem(label: "Notifications", icon: "bell.fill", panel: .notifications),
-                NativeProfileMenuItem(label: "Location & Privacy", icon: "mappin.and.ellipse", panel: .locationPrivacy)
+                NativeProfileMenuItem(label: "Vibe Preferences", subtitle: "Tune recommendations and discovery", icon: "sparkles", panel: .vibePreferences),
+                NativeProfileMenuItem(label: "Parking Preferences", subtitle: "Covered, budget, distance, alerts", icon: "parkingsign.circle.fill", panel: .parkingPreferences),
+                NativeProfileMenuItem(label: "Notifications", subtitle: "Push, email, SMS, and reminders", icon: "bell.fill", panel: .notifications),
+                NativeProfileMenuItem(label: "Location & Privacy", subtitle: "Permissions and data transparency", icon: "mappin.and.ellipse", panel: .locationPrivacy)
             ]
         case .appSettings:
             return [
-                NativeProfileMenuItem(label: "General", icon: "gearshape.fill", panel: .generalSettings),
-                NativeProfileMenuItem(label: "Appearance", icon: "circle.lefthalf.filled", panel: .appearance)
+                NativeProfileMenuItem(label: "General", subtitle: "Version, defaults, and app behavior", icon: "gearshape.fill", panel: .generalSettings),
+                NativeProfileMenuItem(label: "Appearance", subtitle: "Auto, dark, or light mode", icon: "circle.lefthalf.filled", panel: .appearance)
             ]
         case .safetyLegal:
             return [
-                NativeProfileMenuItem(label: "Delete Account", icon: "trash.fill", panel: .deleteAccount, badge: "SAFE", danger: true),
-                NativeProfileMenuItem(label: "Privacy Policy", icon: "shield.fill", panel: .privacyPolicy),
-                NativeProfileMenuItem(label: "Terms of Service", icon: "doc.text.fill", panel: .termsOfService),
-                NativeProfileMenuItem(label: "Disclaimer", icon: "exclamationmark.triangle.fill", panel: .disclaimer)
+                NativeProfileMenuItem(label: "Delete Account", subtitle: "Requires explicit confirmation", icon: "trash.fill", panel: .deleteAccount, badge: "SAFE", danger: true),
+                NativeProfileMenuItem(label: "Privacy Policy", subtitle: "How Bytspot handles your data", icon: "shield.fill", panel: .privacyPolicy),
+                NativeProfileMenuItem(label: "Terms of Service", subtitle: "Rules for using Bytspot", icon: "doc.text.fill", panel: .termsOfService),
+                NativeProfileMenuItem(label: "Disclaimer", subtitle: "Availability and safety notes", icon: "exclamationmark.triangle.fill", panel: .disclaimer)
             ]
         }
     }
@@ -2699,11 +2902,14 @@ private struct NativeProfileMenuRow: View {
         Button(action: { nativeImpactLight(); action() }) {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle().fill(item.danger ? NativeProfileStyle.danger : NativeProfileStyle.menuIconSurface)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(item.danger ? NativeProfileStyle.danger : NativeProfileStyle.menuIconSurface)
                     Image(systemName: item.icon).font(.system(size: 16, weight: .bold)).foregroundColor(item.danger ? .white : NativeTheme.cyan)
                 }
                 .frame(width: 40, height: 40)
-                Text(item.label).font(.system(size: 15, weight: item.danger ? .heavy : .semibold)).foregroundColor(item.danger ? .white : NativeProfileStyle.title)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.label).font(.system(size: 15, weight: item.danger ? .heavy : .semibold)).foregroundColor(item.danger ? .white : NativeProfileStyle.title)
+                    Text(item.subtitle).font(.system(size: 11.5, weight: .semibold)).foregroundColor(item.danger ? .white.opacity(0.72) : NativeProfileStyle.muted).lineLimit(1)
+                }
                 Spacer()
                 if let badge = item.badge {
                     Text(badge)
@@ -2734,9 +2940,9 @@ private struct NativeProfileMenuGroup: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(section.title.uppercased())
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundColor(NativeProfileStyle.body)
-                .tracking(0.5)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(NativeProfileStyle.muted)
+                .tracking(1.0)
                 .padding(.leading, 8)
             VStack(spacing: 0) {
                 let items = section.items
@@ -3233,6 +3439,7 @@ private enum NativePostAuthIntent: String, Equatable, CaseIterable {
 private struct NativeHomeDashboardView: View {
     enum ActionTarget: Equatable {
         case nativeTab(BytspotNativeTab)
+        case discoverFilter(String)
         case hybrid(BytspotHybridRoute)
     }
 
@@ -3269,16 +3476,17 @@ private struct NativeHomeDashboardView: View {
     @State private var didScheduleAuthenticatedLaunchPicksCollapse = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
-        QuickActionSpec(id: "find-parking", title: "Find Parking", subtitle: "Live spots near you", icon: "mappin.and.ellipse", color: NativeTheme.cyan, target: .nativeTab(.map)),
-        QuickActionSpec(id: "nearby", title: "Nearby", subtitle: "What's around", icon: "location.north.line.fill", color: NativeTheme.pink, target: .nativeTab(.map)),
-        QuickActionSpec(id: "book-ride", title: "Book a Ride", subtitle: "Uber & Lyft", icon: "star.fill", color: NativeTheme.orange, target: .hybrid(.map)),
-        QuickActionSpec(id: "explore-venues", title: "Explore Venues", subtitle: "Discover", icon: "sparkles", color: NativeTheme.magenta, target: .nativeTab(.discover))
+        QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
+        QuickActionSpec(id: "food", title: "Food", subtitle: "Pickup & dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
+        QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: "Available tonight", icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
+        QuickActionSpec(id: "parking", title: "Parking", subtitle: "Before you arrive", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
+        QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for help", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
     ]
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
     static let launchPicksSignInHint = "Sign in to continue with your personalized picks."
     static let authenticatedLaunchPicksCollapseDelay: TimeInterval = 1.8
-    static let aiPickPrimaryCTA = "Route"
+    static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
 
     var body: some View {
@@ -3287,8 +3495,9 @@ private struct NativeHomeDashboardView: View {
             nativeSearchBar
             if launchPicksCompleted { launchPicksReadySection }
             tonightPickCard
-            weatherSmartCard
             quickActionsSection
+            availableTonightSection
+            weatherSmartCard
             recommendationsSection
             tonightEventsSection
             rightNowSection
@@ -3625,16 +3834,17 @@ private struct NativeHomeDashboardView: View {
         let v = venueForAIPick(card)
         return NativeHomeHeroCard(
             venue: v,
-            eyebrow: "AI Pick",
+            eyebrow: Self.aiPickEyebrow,
             eyebrowIcon: "sparkles",
             eyebrowColor: NativeTheme.purple,
             reason: personalizedAIReason,
             crowdEmoji: crowdEmoji(v.crowd),
             crowdLabel: v.crowd?.label ?? "Chill",
             categoryEmoji: categoryEmoji(v.discoverType),
-            primaryCTATitle: Self.aiPickPrimaryCTA,
+            primaryCTATitle: Self.primaryCTATitle(for: card),
+            primaryCTAIcon: Self.primaryCTAIcon(for: card),
             secondaryCTATitle: Self.aiPickSecondaryCTA,
-            primaryAction: { routeToAIPick(v) },
+            primaryAction: { triggerPrimaryAIPick(card: card, venue: v) },
             secondaryAction: { aiPickDetailVenue = v }
         )
         .accessibilityIdentifier("native-home-ai-pick")
@@ -3660,6 +3870,7 @@ private struct NativeHomeDashboardView: View {
         case "coffee", "work": types.append("coffee")
         case "events": types.append("entertainment")
         case "parking", "covered_parking", "ride": types.append("parking")
+        case "sleep", "stay": types.append("boutique_apartment")
         case "fitness": types.append("fitness")
         default: break
         }
@@ -3667,13 +3878,14 @@ private struct NativeHomeDashboardView: View {
         if crew == "group" { types.append(contentsOf: ["nightlife", "entertainment"]) }
         if crew == "date_night" { types.append(contentsOf: ["dining", "nightlife"]) }
         if crew == "safe" { types.append("parking") }
-        return Array((types + ["dining", "coffee", "parking"]).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } })
+        return Array((types + ["dining", "coffee", "boutique_apartment", "parking"]).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } })
     }
 
     private var personalizedAIReason: String {
-        [Self.vibeLabel(launchIntent), Self.walkLabel(launchWalkPreference), Self.crewLabel(launchCrewPreference)]
-            .filter { !$0.isEmpty }
-            .joined(separator: " • ")
+        let signals = [Self.vibeLabel(launchIntent), Self.walkLabel(launchWalkPreference), Self.crewLabel(launchCrewPreference)]
+            .filter { !$0.isEmpty && $0 != "personalized" && $0 != "for you" }
+        guard !signals.isEmpty && signals != ["near Midtown"] else { return "Matched to your timing and nearby intent." }
+        return "Matched to " + signals.joined(separator: " + ") + "."
     }
 
     private static func vibeLabel(_ token: String) -> String {
@@ -3724,6 +3936,31 @@ private struct NativeHomeDashboardView: View {
         mapHandoffDestination = venue.name
         mapHandoffMode = venue.discoverType == "parking" ? "Smart Parking" : "Route"
         openNativeTab(.map)
+    }
+
+    private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
+        if Self.primaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
+        aiPickDetailVenue = venue
+    }
+
+    static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
+        if card.type == "boutique_apartment" { return "View Stay" }
+        if card.type == "coffee" { return "Plan Stop" }
+        if card.type == "parking" { return "Route" }
+        if card.categoryLabel.localizedCaseInsensitiveContains("Pass") || card.title.localizedCaseInsensitiveContains("Pass") { return "View Pass" }
+        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") || card.cta.localizedCaseInsensitiveContains("Menu") { return "View Menu" }
+        return card.cta.isEmpty || card.cta == "Open details" ? "Details" : card.cta
+    }
+
+    static func primaryCTAIcon(for card: NativeDiscoverSummary) -> String {
+        switch primaryCTATitle(for: card) {
+        case "Route": return "arrow.triangle.turn.up.right.diamond.fill"
+        case "View Stay": return "house.fill"
+        case "View Menu": return "menucard.fill"
+        case "View Pass": return "ticket.fill"
+        case "Plan Stop": return "figure.walk.circle.fill"
+        default: return "sparkles"
+        }
     }
 
     private var tonightEventsSection: some View {
@@ -3827,30 +4064,26 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var weatherSmartCard: some View {
-        HStack(spacing: 13) {
-            Text("☀️").font(.system(size: 28))
-                .frame(width: 52, height: 52)
-                .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.24), NativeTheme.purple.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text("72°").font(.system(size: 24, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                    Text("Clear").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textSecondary)
-                }
-                Text("Weather-smart parking · live native preview").nativeBody(size: 12, color: NativeTheme.cyan.opacity(0.88))
-                Text("Good night for walking a block; prioritize covered parking if rain changes.").nativeBody(size: 12, color: NativeTheme.textTertiary)
+        HStack(spacing: 11) {
+            Text("☀️").font(.system(size: 22))
+                .frame(width: 42, height: 42)
+                .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.22), NativeTheme.purple.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("72° Clear").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text("Good night for walking a block · covered parking if rain changes.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
             Spacer()
-            Text("UPDATING").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.selectedControlSurface).clipShape(Capsule())
+            Text("WEATHER").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
         }
-        .padding(14)
+        .padding(12)
         .nativePanel()
         .accessibilityIdentifier("native-home-weather-smart")
     }
 
     private var quickActionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Quick Actions").nativeTitle(24)
+            Text("Start here").nativeTitle(24)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 ForEach(Self.quickActionSpecs) { spec in
                     NativeQuickAction(title: spec.title, subtitle: spec.subtitle, icon: spec.icon, color: spec.color) { perform(spec.target) }
@@ -3858,6 +4091,19 @@ private struct NativeHomeDashboardView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var availableTonightSection: some View {
+        if let card = availableTonightCard {
+            NativeHomeAvailableTonightCard(card: card) { perform(.discoverFilter(card.type)) }
+                .accessibilityIdentifier("native-home-available-tonight")
+        }
+    }
+
+    private var availableTonightCard: NativeDiscoverSummary? {
+        let cards = tabContentStore.snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : tabContentStore.snapshot.discoverCards
+        return cards.first { $0.type == "boutique_apartment" }
+            ?? NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }
     }
 
     private var recommendationsSection: some View {
@@ -3889,6 +4135,9 @@ private struct NativeHomeDashboardView: View {
     private func perform(_ target: ActionTarget) {
         switch target {
         case .nativeTab(let tab): openNativeTab(tab)
+        case .discoverFilter(let filter):
+            UserDefaults.standard.set(filter, forKey: NativeDiscoverView.filterDefaultsKey)
+            openNativeTab(.discover)
         case .hybrid(let route): openHybrid(route)
         }
     }
@@ -3979,6 +4228,7 @@ private struct NativeHomeHeroCard: View {
     let crowdLabel: String
     let categoryEmoji: String
     let primaryCTATitle: String
+    let primaryCTAIcon: String
     let secondaryCTATitle: String
     let primaryAction: () -> Void
     let secondaryAction: () -> Void
@@ -3992,7 +4242,7 @@ private struct NativeHomeHeroCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(categoryEmoji).font(.system(size: 17))
                 Text(venue.name).font(.system(size: 24, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2).shadow(color: colorScheme == .dark ? .black.opacity(0.45) : .white.opacity(0.0), radius: 4, x: 0, y: 1)
-                Text(reason.isEmpty ? venue.address : reason).font(.system(size: 13, weight: .black)).foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary).lineLimit(1).shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
+                Text(reason.isEmpty ? venue.address : reason).font(.system(size: 13, weight: .black)).foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary).lineLimit(2).shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
                 metaRow
                 ctaRow.padding(.top, 4)
             }
@@ -4023,7 +4273,7 @@ private struct NativeHomeHeroCard: View {
 
     private var ctaRow: some View {
         HStack(spacing: 8) {
-            Button(action: primaryAction) { ctaLabel(primaryCTATitle, systemImage: "arrow.triangle.turn.up.right.diamond.fill", foreground: .black, background: NativeTheme.cyan) }
+            Button(action: primaryAction) { ctaLabel(primaryCTATitle, systemImage: primaryCTAIcon, foreground: .black, background: NativeTheme.cyan) }
                 .buttonStyle(.plain)
             Button(action: secondaryAction) { ctaLabel(secondaryCTATitle, systemImage: "info.circle.fill", foreground: .white, background: Color.black.opacity(0.62)) }
                 .buttonStyle(.plain)
@@ -4040,6 +4290,36 @@ private struct NativeHomeHeroCard: View {
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(background)
             .clipShape(Capsule())
+    }
+}
+
+private struct NativeHomeAvailableTonightCard: View {
+    let card: NativeDiscoverSummary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                NativeRemoteImage(url: card.imageUrl, fallbackColors: [NativeTheme.purple.opacity(0.44), NativeTheme.cyan.opacity(0.20)], fallbackEmoji: "🏡", emojiSize: 52, emojiOpacity: 0.34)
+                    .frame(width: 82, height: 82)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("AVAILABLE TONIGHT").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(0.9)
+                    Text(card.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                    Text(card.metadataLine).font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
+                    Text(card.features.prefix(2).joined(separator: " • ")).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+                    Text("\(card.cta) →").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+            }
+            .padding(14)
+            .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativeTheme.purple.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativeTheme.purple.opacity(0.24), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+            .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -4154,6 +4434,7 @@ private struct NativeDiscoverView: View {
     static let detailEnvironmentKey = "BYT_NATIVE_DISCOVER_DETAIL"
     static let detailDefaultsKey = "bytspot_native_discover_detail"
     static let filterEnvironmentKey = "BYT_NATIVE_DISCOVER_FILTER"
+    static let filterDefaultsKey = "bytspot_native_discover_filter"
     static let entryFilterEnvironmentKey = "BYT_NATIVE_DISCOVER_ENTRY_FILTER"
 
     static let curatedCards: [DiscoverCardSpec] = NativeTabContentSnapshot.fallback.discoverCards.map(Self.spec(from:))
@@ -4168,8 +4449,8 @@ private struct NativeDiscoverView: View {
             .padding(.bottom, 12)
         }
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore) }
-        .onAppear { applyDetailPreviewIfRequested() }
-        .task { applyDetailPreviewIfRequested() }
+        .onAppear { applyFilterHandoffIfRequested(); applyDetailPreviewIfRequested() }
+        .task { applyFilterHandoffIfRequested(); applyDetailPreviewIfRequested() }
         .onChange(of: tabContentStore.snapshot.discoverCards.count) { _ in applyDetailPreviewIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
@@ -4336,8 +4617,19 @@ private struct NativeDiscoverView: View {
     }
 
     private static var previewFilter: String? {
-        let raw = ProcessInfo.processInfo.environment[filterEnvironmentKey] ?? nativeLaunchArgument("byt-native-discover-filter")
-        return raw.flatMap { $0.isEmpty ? nil : $0.lowercased() }
+        normalizedFilter(ProcessInfo.processInfo.environment[filterEnvironmentKey] ?? UserDefaults.standard.string(forKey: filterDefaultsKey) ?? nativeLaunchArgument("byt-native-discover-filter"))
+    }
+
+    private func applyFilterHandoffIfRequested() {
+        guard let filter = Self.normalizedFilter(UserDefaults.standard.string(forKey: Self.filterDefaultsKey)) else { return }
+        selectedFilter = filter
+        entryFilter = "all"
+        UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
+    }
+
+    private static func normalizedFilter(_ raw: String?) -> String? {
+        guard let lower = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !lower.isEmpty, lower != "all" else { return nil }
+        return lower
     }
 
     private static var previewEntryFilter: String {
@@ -9013,15 +9305,17 @@ enum NativeHomeParitySelfTests {
 
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
-        precondition(actions.map(\.title) == ["Find Parking", "Nearby", "Book a Ride", "Explore Venues"], "NativeHomeParitySelfTests: quick-action titles drifted from React Home.")
-        precondition(actions.map(\.subtitle) == ["Live spots near you", "What's around", "Uber & Lyft", "Discover"], "NativeHomeParitySelfTests: quick-action subtitles drifted from React Home.")
-        precondition(actions.map(\.icon) == ["mappin.and.ellipse", "location.north.line.fill", "star.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
-        precondition(actions[0].target == .nativeTab(.map) && actions[1].target == .nativeTab(.map), "NativeHomeParitySelfTests: parking/nearby must route to native Map tab.")
-        precondition(actions[2].target == .hybrid(.map), "NativeHomeParitySelfTests: Book a Ride must keep production React ride fallback until native ride modal parity.")
-        precondition(actions[3].target == .nativeTab(.discover), "NativeHomeParitySelfTests: Explore Venues must route to native Discover tab.")
+        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
+        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
+        precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
+        precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
+        precondition(actions[3].target == .nativeTab(.map) && actions[4].target == .nativeTab(.concierge), "NativeHomeParitySelfTests: Parking/Concierge must route to their native tabs.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
-        precondition(NativeHomeDashboardView.aiPickPrimaryCTA == "Route" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: AI Pick must expose direct Route and Details CTAs.")
+        precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
+        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "covered_parking", walk: "medium", crew: "safe").first == "parking", "NativeHomeParitySelfTests: AI Pick must prefer parking for parking/safe tokens.")
     }
 }
@@ -9333,6 +9627,11 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
+        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Rewards", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
+        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .rewards, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
+        precondition(NativeProfileMenuSectionKind.account.items.allSatisfy { $0.badge == nil }, "NativeAccountParitySelfTests: account rows should not show noisy NATIVE badges.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Wallet readiness and secure setup", "Vehicles used for parking handoff"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
+        precondition(NativeProfileNetworkCard.title == "Invite & Find Friends" && NativeProfileNetworkCard.actionTitles == ["Invite a Friend", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one card.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
         precondition(NativeProfileSavedSpot.fallbackFixtureTitles == ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"], "NativeAccountParitySelfTests: Saved Spots native fixture contract drifted.")
         precondition(NativeProfileSavedSpot.saved(from: .fallback).map(\.title) == NativeProfileSavedSpot.fallbackFixtureTitles, "NativeAccountParitySelfTests: Saved Spots panel must render curated native fallback rows.")

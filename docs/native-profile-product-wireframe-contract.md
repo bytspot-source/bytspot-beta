@@ -116,40 +116,37 @@ Theme is an app setting, not a Profile identity feature.
   - Dark: keeps Bytspot in premium night interface.
   - Light: high-contrast daytime surfaces.
 
-## Main Profile Wireframe v0
+## Main Profile Wireframe v1 — Professional Passport
 
 ```text
-[BYTSPOT PASSPORT]
-Avatar  Name / Guest        Tier pill
+[ACCOUNT CENTER]
+Avatar  Name / Guest       Tier + theme status
 Following   Points   Badges
-Small status: Auto theme
 
-[TODAY]
-[ My Reservations ]    count / next pass / parking copy
-[ My Access ]          patches / QR / NFC / requests
+[QUICK ACTIONS]
+Wallet          Bookings
+Rewards         Saved
 
-[PROGRESS]
-[ Parker Progress ]    tier, progress bar, next unlock
-[ Rewards & Badges ]   points, badges, earned perks
-
-[SOCIAL]
-[ Invite a Friend ]    referral count + share
-[ Find Friends ]       privacy-first contact sync + suggestions
-
-[PLACES & ACTIVITY]
-Saved Spots
-Places I've Been
-
-[ACCOUNT]
-Personal Information
-Payment Methods
-My Vehicles
+[ACCOUNT ESSENTIALS]
+Identity        name, email, phone, city
+Payment         methods and secure setup
+Vehicle         parking handoff cars
+Note: Account Essentials owns the Personal Information, Payment Methods, and My Vehicles destinations. Do not repeat these rows in a second Account menu group.
 
 [PREFERENCES]
 Vibe Preferences
 Parking Preferences
 Notifications
 Location & Privacy
+
+[PLACES & ACTIVITY]
+Saved Spots
+Places I've Been
+
+[NETWORK]
+Invite & Find Friends     one fused card
+  - Invite a Friend       referral link + share CTA
+  - Find Friends          private contact matching + sign-in/sync CTA
 
 [APP]
 General
@@ -164,6 +161,15 @@ Disclaimer
 
 [Log Out / Sign In]
 ```
+
+Professional guardrails:
+
+- Do not show noisy implementation badges like `NATIVE` on normal menu rows.
+- Keep the top visible area focused on universally understood actions: Wallet, Bookings, Rewards, Saved, Identity, Payment, Vehicle.
+- Keep destructive/legal/session actions isolated at the bottom.
+- Menus need short subtitles so rows explain outcomes without feeling like a settings dump.
+- Network must stay visually unified: Invite and Find Friends belong in one card, not two mismatched cards.
+- Do not duplicate Account Readiness with a second Account menu containing the same identity/payment/vehicle actions.
 
 ## Native/Web Boundary Rules
 

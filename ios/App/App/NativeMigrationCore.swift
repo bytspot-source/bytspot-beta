@@ -522,7 +522,7 @@ final class BytspotSessionStore: ObservableObject {
 
     var sessionLabel: String {
         if isAuthenticated { return "Signed in" }
-        if isGuest { return "Guest preview" }
+        if isGuest { return "Guest" }
         return "Signed out"
     }
 

@@ -131,6 +131,70 @@ struct NativeUserPreferencesRecord: Codable, Equatable {
 
 struct NativeMutationSuccess: Codable, Equatable { var success: Bool?; var ok: Bool? }
 
+struct NativeMobilityQuoteRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var provider: String?
+    var serviceClass: String?
+    var serviceTitle: String?
+    var priceLabel: String?
+    var etaLabel: String?
+    var pickupLabel: String?
+    var cancellationLabel: String?
+    var currency: String?
+    var expiresAt: String?
+}
+
+struct NativeMobilityRideRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var quoteId: String?
+    var provider: String?
+    var reservationReference: String?
+    var status: String?
+    var serviceClass: String?
+    var serviceTitle: String?
+    var priceLabel: String?
+    var etaLabel: String?
+    var pickupLabel: String?
+    var dropoffLabel: String?
+    var vehicleLabel: String?
+    var driverLabel: String?
+    var createdAt: String?
+}
+
+enum NativeMobilityRouteContract {
+    static let routes = ["mobility.quotes.create", "mobility.reservations.create", "mobility.reservations.cancel", "mobility.trips.status", "mobility.passenger.update"]
+}
+
+struct NativeMobilityDataAPI {
+    let client: BytspotAPIClient
+
+    func createQuote(input: [String: Any]) async throws -> NativeMobilityQuoteRecord {
+        try await client.trpcDecode(NativeMobilityQuoteRecord.self, path: "/trpc/mobility.quotes.create", method: "POST", input: input)
+    }
+
+    func createReservation(input: [String: Any]) async throws -> NativeMobilityRideRecord {
+        try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.reservations.create", method: "POST", input: input)
+    }
+
+    func rideStatus(id: String) async throws -> NativeMobilityRideRecord {
+        try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.trips.status", method: "POST", input: ["id": id])
+    }
+
+    func cancelRide(id: String, reason: String? = nil) async throws -> NativeMutationSuccess {
+        var input: [String: Any] = ["id": id]
+        if let reason, !reason.isEmpty { input["reason"] = reason }
+        return try await client.trpcDecode(NativeMutationSuccess.self, path: "/trpc/mobility.reservations.cancel", method: "POST", input: input)
+    }
+
+    func updatePassenger(id: String, name: String? = nil, phone: String? = nil, note: String? = nil) async throws -> NativeMobilityRideRecord {
+        var input: [String: Any] = ["id": id]
+        if let name, !name.isEmpty { input["name"] = name }
+        if let phone, !phone.isEmpty { input["phone"] = phone }
+        if let note, !note.isEmpty { input["note"] = note }
+        return try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.passenger.update", method: "POST", input: input)
+    }
+}
+
 struct NativeAuthUserRecord: Codable, Equatable {
     var id: String?
     var email: String?
@@ -533,7 +597,7 @@ final class NativeTabContentStore: ObservableObject {
                 events: NativeTabContentSnapshot.fallback.events,
                 source: .fallback,
                 lastUpdated: Date(),
-                errorMessage: "Live tab data unavailable; using curated React parity fixtures."
+                errorMessage: "Live tab data unavailable; using curated picks."
             )
         }
     }
@@ -600,7 +664,7 @@ final class NativeTabContentStore: ObservableObject {
                 membershipRequired: false
             )
         }
-        let serviceCards = mergeCanonicalServices(into: services)
+        let serviceCards = mergeCanonicalDiscoverCards(into: services)
         let combined = Array(serviceCards + venueCards)
         return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
     }
@@ -608,7 +672,7 @@ final class NativeTabContentStore: ObservableObject {
     private static func serviceCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
         let vendor = item["vendor"] as? [String: Any]
         let title = string(item, ["title", "name"]) ?? string(vendor, ["displayName", "name"]) ?? "Local Service"
-        let subtitle = string(item, ["serviceSubtitle", "subtitle", "description"]) ?? string(vendor, ["tagline"]) ?? "Premium member service"
+        let subtitle = string(item, ["serviceSubtitle", "subtitle", "description"]) ?? string(vendor, ["tagline"]) ?? "Trusted local service"
         let priceCents = int(item, ["priceCents", "amountCents", "priceFromCents"]) ?? int(vendor, ["priceCents", "amountCents", "priceFromCents"])
         let price = string(item, ["entryPrice", "price", "priceLabel"]) ?? priceCents.map { formatCurrency(cents: $0) } ?? "Member pricing"
         let rawCategory = string(item, ["category", "serviceCategory"]) ?? string(vendor, ["category"]) ?? "service"
@@ -624,22 +688,22 @@ final class NativeTabContentStore: ObservableObject {
             icon: icon(for: "service"),
             verified: true,
             entryType: "paid",
-            cta: string(item, ["ctaText", "action"]) ?? "Book now",
+            cta: string(item, ["ctaText", "action"]) ?? "Request Service",
             imageUrl: url(item, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]) ?? url(vendor, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]),
             categoryLabel: "Services",
-            badgeText: "PAID CHECKOUT",
+            badgeText: "Service",
             metadataLine: "\(price) • \(string(item, ["availability", "availabilityWindow"]) ?? "Available now")",
-            features: Array((features.isEmpty ? [rawCategory.capitalized, "Member service", "Verified provider"] : features).prefix(4)),
+            features: Array((features.isEmpty ? [rawCategory.capitalized, "Trusted provider", "Member pricing"] : features).prefix(4)),
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
             availability: string(item, ["availability"]) ?? "Available now",
             membershipRequired: true
         )
     }
 
-    private static func mergeCanonicalServices(into liveServices: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
+    private static func mergeCanonicalDiscoverCards(into liveServices: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
         var cards = liveServices
-        for canonical in NativeTabContentSnapshot.canonicalServiceCards where !cards.contains(where: { $0.id == canonical.id || $0.title.caseInsensitiveCompare(canonical.title) == .orderedSame }) {
-            cards.insert(canonical, at: min(cards.count, cards.isEmpty ? 0 : 1))
+        for canonical in NativeTabContentSnapshot.specialDiscoverCards.reversed() where !cards.contains(where: { $0.id == canonical.id || $0.title.caseInsensitiveCompare(canonical.title) == .orderedSame }) {
+            cards.insert(canonical, at: 0)
         }
         return cards
     }
@@ -745,6 +809,7 @@ final class NativeTabContentStore: ObservableObject {
         case "entertainment": return "ticket.fill"
         case "fitness": return "figure.mind.and.body"
         case "shopping": return "bag.fill"
+        case "mobility": return "car.side.fill"
         case "service": return "checkmark.seal.fill"
         default: return "mappin.and.ellipse"
         }
@@ -758,16 +823,21 @@ extension NativeTabContentSnapshot {
         NativeVenueSummary(id: "arts-center-access", name: "Arts Center Access", category: "entertainment", address: "15th St NE", distance: "0.8 mi", rating: 4.7, latitude: 33.7790, longitude: -84.3760, crowd: NativeCrowdSummary(level: 3, label: "Busy", waitMins: 8), parking: NativeParkingSummary(totalAvailable: 38, priceLabel: "$12/hr"), verifiedPatchId: "BYT424-ARTS-P", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"))
     ]
 
+    static let canonicalMobilityCards = [
+        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Valet Premium Ride", subtitle: "Black car, SUV, airport, and group transfers powered by a global fleet network.", distance: "Mobility", rating: "4.9", icon: "car.side.fill", verified: true, entryType: "paid", cta: "Plan Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Premium Mobility", metadataLine: "Elife · Black car · Airport", features: ["Live quote first", "Luxury maps to Black", "My Access tracking"], vibeScore: 8, availability: "Quote before booking", membershipRequired: true),
+        NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true)
+    ]
+
     static let canonicalServiceCards = [
         NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "Ghanaian comfort food, ready for pickup or delivery.", distance: "Service", rating: "4.9", icon: "fork.knife", verified: true, entryType: "paid", cta: "View Menu", imageUrl: URL(string: "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Dining", badgeText: "Dining", metadataLine: "From $21 • Available now", features: ["Jollof + chicken", "Banku + tilapia", "Family-style portions"], vibeScore: 9, availability: "Available now", membershipRequired: true),
         NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true)
     ]
 
-    static let specialDiscoverCards = canonicalServiceCards
+    static let specialDiscoverCards = canonicalMobilityCards + canonicalServiceCards
 
     static let fallbackDiscoverCards = [
         NativeDiscoverSummary(id: "coffee-walk", type: "coffee", title: "Morning Coffee Walk", subtitle: "Low-key cafés and brunch spots within a quick walk.", distance: "0.4 mi", rating: "4.8", icon: "cup.and.saucer.fill", verified: true, entryType: "free", cta: "Open details", imageUrl: URL(string: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Coffee", badgeText: "FREE ENTRY", metadataLine: "Free", features: ["Coffee", "Brunch", "Quick walk"], vibeScore: 6, availability: "Open now", membershipRequired: false),
-        NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay apartment with secure access and host support.", distance: "Midtown", rating: "4.9", icon: "house.fill", verified: true, entryType: "paid", cta: "View Stay", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Apartment", badgeText: "BOUTIQUE STAY", metadataLine: "From $189/night", features: ["1 bed", "Sleeps 2", "Kitchen"], vibeScore: 8, availability: "Available tonight", membershipRequired: true),
+        NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay suite with secure entry, host support, and easy arrival.", distance: "Midtown", rating: "4.9", icon: "house.fill", verified: true, entryType: "paid", cta: "View Stay", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Stay", badgeText: "BOUTIQUE STAY", metadataLine: "From $189/night · Available tonight", features: ["Sleeps 2", "Kitchen", "Secure entry", "Host support"], vibeScore: 8, availability: "Available tonight", membershipRequired: true),
         NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "Personalized restaurants for food, dates, and group plans.", distance: "0.9 mi", rating: "4.7", icon: "fork.knife", verified: true, entryType: "paid", cta: "Book", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Dining", badgeText: "PAID ENTRY", metadataLine: "Varies • Tables nearby", features: ["Dining", "Date night", "Personalized"], vibeScore: 7, availability: "Tables nearby", membershipRequired: false),
         NativeDiscoverSummary(id: "nightlife-momentum", type: "nightlife", title: "Nightlife Momentum", subtitle: "Bars, lounges, and cocktail rooms with the right crowd energy.", distance: "1.1 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Nightlife", badgeText: "PAID ENTRY", metadataLine: "Varies • Busy tonight", features: ["Cocktails", "Group energy", "Nightlife"], vibeScore: 8, availability: "Busy tonight", membershipRequired: false),
         NativeDiscoverSummary(id: "smart-parking", type: "parking", title: "Smart Parking Before You Arrive", subtitle: "Reserve-ready parking options around your next destination.", distance: "0.3 mi", rating: "4.5", icon: "parkingsign.circle.fill", verified: true, entryType: "paid", cta: "Route", imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Parking", badgeText: "PAID ENTRY", metadataLine: "$4.71/hr • 158 spots", features: ["Parking", "Reserve ahead", "Quick walk"], vibeScore: 3, availability: "158 spots", membershipRequired: false),

@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import MapKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import Capacitor
 import WebKit
 
@@ -1175,7 +1177,10 @@ private struct NativeProfilePanelSheet: View {
             NativeLegalPanel(document: .disclaimer)
         default:
             VStack(spacing: 10) {
-                if panel == .access { NativeValetRideWalletSection() }
+                if panel == .access {
+                    NativeParkingReservationWalletSection()
+                    NativeValetRideWalletSection()
+                }
                 ForEach(rows, id: \.0) { row in
                     NativeWalletLine(title: row.0, subtitle: row.1, icon: row.2)
                 }
@@ -3185,6 +3190,39 @@ private struct NativeValetRideWalletSection: View {
     }
 }
 
+private struct NativeParkingReservationWalletSection: View {
+    private var reservation: NativeParkingReservationRecord? { NativeParkingReservationStore.latest() }
+
+    var body: some View {
+        Group {
+            if let reservation {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        NativeIcon(symbol: "qrcode", color: NativeTheme.cyan)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Parking Space Reserved").nativeTitle(16)
+                            Text("\(reservation.spotName) · \(reservation.accessWindowLabel) · \(reservation.totalLabel)").nativeBody(size: 12)
+                        }
+                        Spacer(minLength: 0)
+                        Text(reservation.reservationCode).font(.system(size: 10.5, weight: .black, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 8).frame(height: 24).background(NativeTheme.cyan).clipShape(Capsule())
+                    }
+                    HStack(spacing: 8) {
+                        NativeAccessWalletMetric(title: "Window", value: reservation.accessWindowLabel)
+                        NativeAccessWalletMetric(title: "Total", value: reservation.totalLabel)
+                        NativeAccessWalletMetric(title: "Status", value: "Confirmed")
+                    }
+                    Text("Vehicle: \(reservation.vehicleLabel) · Scan QR at entry · \(reservation.address)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
+                }
+                .padding(12)
+                .background(NativeTheme.cyan.opacity(0.08))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .accessibilityIdentifier("native-parking-reservation-wallet-section")
+            }
+        }
+    }
+}
+
 private struct NativeAccessWalletPreview: View {
     let openAccessPanel: () -> Void
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -3202,6 +3240,7 @@ private struct NativeAccessWalletPreview: View {
                 Spacer()
             }
             NativeAccessScannerPreview(openAccessPanel: openAccessPanel)
+            NativeParkingReservationWalletSection()
             NativeValetRideWalletSection()
             NativeWalletLine(title: "Patch keys", subtitle: "Bytspot links, QR scans, and tap-to-unlock access live here.", icon: "key.radiowaves.forward.fill")
             NativeWalletLine(title: "Tickets & reservations", subtitle: "Booking confirmations stay in My Access.", icon: "ticket.fill")
@@ -4748,6 +4787,306 @@ private enum NativeValetRideWalletStore {
     static func upsert(_ record: NativeValetRideWalletRecord) {
         let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
         if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
+    }
+}
+
+private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable {
+    let id: String
+    let reservationCode: String
+    let spotID: String
+    let spotName: String
+    let address: String
+    let durationHours: Int
+    let hourlyRateLabel: String
+    let totalLabel: String
+    let vehicleLabel: String
+    let paymentLabel: String
+    let qrPayload: String
+    let startTime: String
+    let endTime: String
+    let createdAt: String
+    let status: String
+
+    var accessWindowLabel: String { Self.windowLabel(startTime: startTime, endTime: endTime) }
+
+    static func confirmed(venue: NativeVenueSummary, durationHours: Int, vehicleLabel: String, paymentLabel: String) -> Self {
+        let now = Date()
+        let id = "parking-\(Int(now.timeIntervalSince1970))"
+        let code = "BYP\(Int(now.timeIntervalSince1970) % 1_000_000)"
+        let hourly = venue.parking.priceLabel == "—" ? "$8/hr" : venue.parking.priceLabel
+        let total = Self.totalLabel(hourlyRateLabel: hourly, durationHours: durationHours)
+        let start = ISO8601DateFormatter().string(from: now)
+        let end = ISO8601DateFormatter().string(from: Calendar.current.date(byAdding: .hour, value: durationHours, to: now) ?? now)
+        let payload = "BYTSPOT:PARKING:\(code):\(venue.id):\(durationHours)H"
+        return Self(id: id, reservationCode: code, spotID: venue.id, spotName: venue.name, address: venue.address, durationHours: durationHours, hourlyRateLabel: hourly, totalLabel: total, vehicleLabel: vehicleLabel, paymentLabel: paymentLabel, qrPayload: payload, startTime: start, endTime: end, createdAt: start, status: "confirmed")
+    }
+
+    static func totalLabel(hourlyRateLabel: String, durationHours: Int) -> String {
+        let numeric = hourlyRateLabel.replacingOccurrences(of: ",", with: "").split { !(($0 >= "0" && $0 <= "9") || $0 == ".") }.first.flatMap { Double($0) } ?? 8
+        let total = numeric * Double(durationHours)
+        return total.rounded() == total ? "$\(Int(total))" : String(format: "$%.2f", total)
+    }
+
+    static func windowLabel(startTime: String, endTime: String) -> String {
+        let parser = ISO8601DateFormatter()
+        guard let start = parser.date(from: startTime), let end = parser.date(from: endTime) else { return "Active reservation window" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return "\(formatter.string(from: start))–\(formatter.string(from: end))"
+    }
+}
+
+private enum NativeParkingReservationStore {
+    static let storageKey = "bytspot_native_parking_reservations"
+    static let maxRecords = 12
+
+    static func all() -> [NativeParkingReservationRecord] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let records = try? JSONDecoder().decode([NativeParkingReservationRecord].self, from: data) else { return [] }
+        return records.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    static func latest() -> NativeParkingReservationRecord? { all().first }
+
+    static func upsert(_ record: NativeParkingReservationRecord) {
+        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
+        if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
+    }
+}
+
+private enum NativeParkingBookingContract {
+    static let title = "Reserve Parking Space"
+    static let confirmedTitle = "Space Reserved"
+    static let primaryCTA = "Pay & Reserve"
+    static let storageKey = NativeParkingReservationStore.storageKey
+    static let paymentMethods = ["Apple Pay", "Card •••• 4242"]
+}
+
+private enum NativeParkingQRCodeRenderer {
+    private static let context = CIContext()
+
+    static func image(payload: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(payload.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)), let cg = context.createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+}
+
+private enum NativeMapFocusHandoff {
+    static let idKey = "bytspot_native_map_focus_id"
+    static let titleKey = "bytspot_native_map_focus_title"
+    static let subtitleKey = "bytspot_native_map_focus_subtitle"
+    static let latitudeKey = "bytspot_native_map_focus_latitude"
+    static let longitudeKey = "bytspot_native_map_focus_longitude"
+    static let kindKey = "bytspot_native_map_focus_kind"
+    static let modeKey = "bytspot_native_map_focus_mode"
+
+    static func store(venue: NativeVenueSummary, modeOverride: String? = nil) {
+        let isParking = venue.discoverType == "parking" || venue.parking.totalAvailable > 0
+        UserDefaults.standard.set(venue.id, forKey: idKey)
+        UserDefaults.standard.set(venue.name, forKey: titleKey)
+        UserDefaults.standard.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
+        UserDefaults.standard.set(venue.latitude, forKey: latitudeKey)
+        UserDefaults.standard.set(venue.longitude, forKey: longitudeKey)
+        UserDefaults.standard.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "access", forKey: kindKey)
+        UserDefaults.standard.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
+    }
+
+    static func clear() {
+        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey].forEach { UserDefaults.standard.removeObject(forKey: $0) }
+    }
+}
+
+private struct NativeParkingBookingSheet: View {
+    let venue: NativeVenueSummary
+    var onOpenAccess: (() -> Void)? = nil
+    var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
+    @State private var durationHours = 2
+    @State private var selectedVehicle = "Personal vehicle"
+    @State private var selectedPayment = "Apple Pay"
+    @State private var confirmed: NativeParkingReservationRecord?
+    @State private var didRunPreviewAutoconfirm = false
+
+    private let accent = NativeTheme.cyan
+    private let durations = [1, 2, 4, 8]
+    private let vehicles = ["Personal vehicle", "Sedan", "SUV / Truck", "EV charging needed"]
+    private let payments = NativeParkingBookingContract.paymentMethods
+    private var hourlyRate: String { venue.parking.priceLabel == "—" ? "$8/hr" : venue.parking.priceLabel }
+    private var totalLabel: String { NativeParkingReservationRecord.totalLabel(hourlyRateLabel: hourlyRate, durationHours: durationHours) }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                hero
+                if let confirmed {
+                    confirmedPanel(confirmed)
+                    qrPanel(confirmed)
+                    walletPanel(confirmed)
+                } else {
+                    bookingParameters
+                    paymentPanel
+                    termsPanel
+                    confirmButton
+                }
+                secondaryActions
+            }
+            .padding(18)
+            .padding(.bottom, 28)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-smart-parking-booking-sheet")
+        .onAppear { runPreviewAutoconfirmIfNeeded() }
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
+                NativeIcon(symbol: "parkingsign.circle.fill", color: accent)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(confirmed == nil ? NativeParkingBookingContract.title : NativeParkingBookingContract.confirmedTitle).nativeTitle(23)
+                    Text(confirmed == nil ? "Pay now to hold one space. Scan the QR code at garage entry." : "Scan this QR code at entry. Keep it available until parked.").nativeBody(size: 13)
+                }
+                Spacer(minLength: 0)
+                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }.buttonStyle(.plain)
+            }
+            NativeWalletLine(title: venue.name, subtitle: "Entry: \(venue.address) · \(venue.parking.totalAvailable) spaces · \(hourlyRate)", icon: "mappin.circle.fill")
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var bookingParameters: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeader("Reservation", "Choose how long to hold the space.")
+            pickerGrid(title: "Duration", options: durations.map { "\($0)h" }, selected: "\(durationHours)h") { value in durationHours = Int(value.dropLast()) ?? durationHours }
+            pickerGrid(title: "Vehicle entering", options: vehicles, selected: selectedVehicle) { selectedVehicle = $0 }
+            HStack(spacing: 8) {
+                NativeAccessWalletMetric(title: "Rate", value: hourlyRate)
+                NativeAccessWalletMetric(title: "Duration", value: "\(durationHours)h")
+                NativeAccessWalletMetric(title: "Total", value: totalLabel)
+            }
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var paymentPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeader("Payment", "Charge the selected method now to reserve the space.")
+            pickerGrid(title: "Method", options: payments, selected: selectedPayment) { selectedPayment = $0 }
+            NativeWalletLine(title: "Due now", subtitle: "\(totalLabel) for \(durationHours) hour(s). Overstay is billed by the garage at posted rates.", icon: "creditcard.fill")
+            NativeWalletLine(title: "Gate access", subtitle: "QR code is created after payment and saved in My Access.", icon: "qrcode")
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var termsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("Before you reserve", "This reservation applies only to this garage.")
+            NativeWalletLine(title: "One space held", subtitle: "Valid at \(venue.name) for the selected duration.", icon: "parkingsign.circle.fill")
+            NativeWalletLine(title: "QR required", subtitle: "Open this reservation before arrival and scan at entry.", icon: "qrcode.viewfinder")
+            NativeWalletLine(title: "Overstay", subtitle: "Extra time is charged by the garage at posted rates.", icon: "clock.badge.exclamationmark.fill")
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var confirmButton: some View {
+        Button(action: confirmReservation) { NativeCTA(title: "\(NativeParkingBookingContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-smart-parking-confirm")
+    }
+
+    private func confirmedPanel(_ record: NativeParkingReservationRecord) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            sectionHeader("Reservation confirmed", "One parking space is held for this garage.")
+            NativeWalletLine(title: record.reservationCode, subtitle: "\(record.spotName) · \(record.accessWindowLabel) · \(record.vehicleLabel)", icon: "checkmark.seal.fill")
+            HStack(spacing: 8) {
+                NativeAccessWalletMetric(title: "Total", value: record.totalLabel)
+                NativeAccessWalletMetric(title: "Payment", value: paymentShortLabel(record.paymentLabel))
+                NativeAccessWalletMetric(title: "Status", value: "Confirmed")
+            }
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private func qrPanel(_ record: NativeParkingReservationRecord) -> some View {
+        VStack(alignment: .center, spacing: 12) {
+            if let image = NativeParkingQRCodeRenderer.image(payload: record.qrPayload) {
+                Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(width: 190, height: 190).padding(14).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                Text(record.reservationCode).font(.system(size: 24, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.textPrimary).padding(20).background(NativeTheme.selectedControlSurface).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            Text("Code \(record.reservationCode)").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8)
+            Text("Scan at entry · valid \(record.accessWindowLabel)").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(16)
+        .nativePanel()
+    }
+
+    private func walletPanel(_ record: NativeParkingReservationRecord) -> some View {
+        NativeWalletLine(title: "Saved to My Access", subtitle: "Open My Access to rescan the QR at entry or exit.", icon: "wallet.pass.fill")
+            .padding(16)
+            .nativePanel()
+    }
+
+    private var secondaryActions: some View {
+        HStack(spacing: 10) {
+            Button(action: openVenueOnNativeMap) { NativeCTA(title: "Navigate", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+            Button(action: { onOpenAccess?() }) { NativeCTA(title: "My Access", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+            Button(action: { dismiss() }) { NativeCTA(title: confirmed == nil ? "Cancel" : "Done", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+        }
+    }
+
+    private func pickerGrid(title: String, options: [String], selected: String, onSelect: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(.system(size: 10.5, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.textTertiary)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(options, id: \.self) { option in
+                    Button(action: { nativeImpactLight(); onSelect(option) }) {
+                        Text(option).font(.system(size: 13, weight: .black)).foregroundColor(selected == option ? .black : NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(minHeight: 38).background(selected == option ? accent : NativeTheme.selectedControlSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) { Text(title).nativeTitle(16); Text(subtitle).nativeBody(size: 12.5) }
+    }
+
+    private func paymentShortLabel(_ label: String) -> String {
+        if label.localizedCaseInsensitiveContains("Apple") { return "Apple Pay" }
+        if label.contains("4242") { return "•••• 4242" }
+        return label
+    }
+
+    private func confirmReservation() {
+        nativeImpactLight()
+        let record = NativeParkingReservationRecord.confirmed(venue: venue, durationHours: durationHours, vehicleLabel: selectedVehicle, paymentLabel: selectedPayment)
+        NativeParkingReservationStore.upsert(record)
+        confirmed = record
+    }
+
+    private func openVenueOnNativeMap() {
+        nativeImpactLight()
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
+    }
+
+    private func runPreviewAutoconfirmIfNeeded() {
+        #if DEBUG
+        guard !didRunPreviewAutoconfirm, ProcessInfo.processInfo.environment["BYT_NATIVE_PARKING_BOOKING_AUTOCONFIRM"] == "1" else { return }
+        didRunPreviewAutoconfirm = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { confirmReservation() }
+        #endif
     }
 }
 
@@ -6383,6 +6722,7 @@ private struct NativeDiscoverView: View {
     @State private var savedCardIDs: Set<String> = []
     @State private var skippedCardIDs: Set<String> = []
     @State private var detailVenue: NativeVenueSummary?
+    @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var guestSavePromptTitle: String?
     @State private var didApplyDetailPreview = false
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -6437,8 +6777,8 @@ private struct NativeDiscoverView: View {
             .padding(.bottom, 12)
         }
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore) }
-        .onAppear { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested() }
-        .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested() }
+        .onAppear { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested(); applyParkingBookingPreviewIfRequested() }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .onChange(of: tabContentStore.snapshot.discoverCards.count) { _ in applyDetailPreviewIfRequested() }
         .sheet(item: $detailVenue) { venue in
@@ -6456,6 +6796,9 @@ private struct NativeDiscoverView: View {
             } else {
                 detail
             }
+        }
+        .sheet(item: $parkingBookingVenue) { venue in
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
         }
         .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
@@ -6626,8 +6969,23 @@ private struct NativeDiscoverView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { detailVenue = venueForDetail(card) }
     }
 
+    private func applyParkingBookingPreviewIfRequested() {
+        guard parkingBookingVenue == nil, let token = Self.previewParkingBookingToken else { return }
+        let lower = token.lowercased()
+        let lookup = rankedCards + Self.curatedCards
+        let card = lookup.first { card in
+            card.type == "parking" && (card.id.lowercased() == lower || card.title.lowercased().contains(lower) || lower.contains(card.title.lowercased()) || lower == "parking")
+        } ?? lookup.first(where: { $0.type == "parking" })
+        guard let card else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { parkingBookingVenue = venueForDetail(card) }
+    }
+
     private static var previewDetailToken: String? {
         (ProcessInfo.processInfo.environment[detailEnvironmentKey] ?? nativeLaunchArgument("byt-native-discover-detail")).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private static var previewParkingBookingToken: String? {
+        ProcessInfo.processInfo.environment["BYT_NATIVE_PARKING_BOOKING_PREVIEW"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
     private static var previewFilter: String? {
@@ -7487,6 +7845,7 @@ private struct NativeVenueDetailView: View {
     @State private var guestPromptSubtitle = "Sign in to keep this spot in your favorites and sync it later."
     @State private var guestPromptCTA = "Sign in to save"
     @State private var selectedMediaIndex = 0
+    @State private var showParkingBooking = false
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -7511,6 +7870,9 @@ private struct NativeVenueDetailView: View {
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: { openNativeAuth?() })
+        }
+        .sheet(isPresented: $showParkingBooking) {
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
         }
     }
 
@@ -7775,6 +8137,10 @@ private struct NativeVenueDetailView: View {
             }
             return
         }
+        if action.id == "getTickets", venue.discoverType == "parking" {
+            showParkingBooking = true
+            return
+        }
         guard sessionStore.isAuthenticated else {
             let title = NativeVenueDetailPresentation.actionTitle(for: action, venue: venue)
             presentGuestPrompt(title: "Sign in to \(title.lowercased())", subtitle: "We'll keep \(venue.name), receipts, routes, and arrival details tied to your account.", cta: "Sign in")
@@ -7788,11 +8154,6 @@ private struct NativeVenueDetailView: View {
             }
             if NativeVenueDetailPresentation.isServiceVenue(venue) {
                 statusMessage = "Concierge can help request \(venue.name) and keep the details together."
-                openNativeTab?(.concierge)
-                return
-            }
-            if venue.discoverType == "parking" {
-                statusMessage = "Concierge can help reserve parking and keep arrival details together."
                 openNativeTab?(.concierge)
                 return
             }
@@ -7819,11 +8180,18 @@ private struct NativeVenueDetailView: View {
 
     private func handleDevice(_ id: String) {
         switch id {
-        case "navigate": openURL(URL(string: "http://maps.apple.com/?daddr=\(venue.latitude),\(venue.longitude)&dirflg=d"))
+        case "navigate": openVenueOnNativeMap()
         case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded("\(venue.name) Atlanta phone number"))"))
         case "share": presentShare(text: "\(venue.name) — \(venue.address) · \(venue.distance) on Bytspot")
         default: break
         }
+    }
+
+    private func openVenueOnNativeMap() {
+        nativeImpactLight()
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
     }
 
     private func submitCheckIn() async {
@@ -7870,10 +8238,13 @@ private struct NativeMapExploreView: View {
     @State private var region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045))
     @State private var selectedMode = modeTitles[0]
     @State private var selectedPin: NativeMapPin?
+    @State private var routeFocusedPinID: String?
+    @State private var activeRoutePinID: String?
     /// Native Venue Details (WS-C). Presented from the non-partner peek card's
     /// "Details" action — an L0 read-only surface (viewVenue) that replaces the
     /// former coarse openHybrid(.discover) handoff. nil ⇒ no detail presented.
     @State private var detailVenue: NativeVenueSummary?
+    @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var showFunctionSheet = Self.previewShowsFunctionSheet
     @State private var showParking = true
     @State private var showVenues = true
@@ -7900,13 +8271,23 @@ private struct NativeMapExploreView: View {
     @EnvironmentObject private var pairingStore: NativePatchPairingStore
     @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var onboardingMapDestination = ""
     @AppStorage(NativeOnboardingMapHandoff.modeKey) private var onboardingMapMode = ""
+    @AppStorage(NativeMapFocusHandoff.idKey) private var mapFocusID = ""
+    @AppStorage(NativeMapFocusHandoff.titleKey) private var mapFocusTitle = ""
+    @AppStorage(NativeMapFocusHandoff.subtitleKey) private var mapFocusSubtitle = ""
+    @AppStorage(NativeMapFocusHandoff.latitudeKey) private var mapFocusLatitude = 0.0
+    @AppStorage(NativeMapFocusHandoff.longitudeKey) private var mapFocusLongitude = 0.0
+    @AppStorage(NativeMapFocusHandoff.kindKey) private var mapFocusKind = ""
+    @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
+    @State private var focusedHandoffPin: NativeMapPin?
     private var venues: [NativeVenueSummary] {
         tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
     }
 
     private var pins: [NativeMapPin] {
         let livePins = venues.map(NativeMapPin.init(venue:))
-        return livePins.isEmpty ? NativeMapPin.samples : livePins
+        var resolved = livePins.isEmpty ? NativeMapPin.samples : livePins
+        if let focusedHandoffPin, !resolved.contains(where: { $0.id == focusedHandoffPin.id }) { resolved.append(focusedHandoffPin) }
+        return resolved
     }
 
     private var verifiedPins: [NativeMapPin] {
@@ -8199,14 +8580,18 @@ private struct NativeMapExploreView: View {
                 detail
             }
         }
+        .sheet(item: $parkingBookingVenue) { venue in
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
+        }
         .sheet(isPresented: Binding(get: { guestMapPromptTitle != nil }, set: { if !$0 { guestMapPromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: guestMapPromptTitle ?? "Save this spot?", subtitle: guestMapPromptSubtitle, ctaTitle: guestMapPromptCTA, onSignIn: openNativeAuth)
         }
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
         .accessibilityIdentifier("native-map-explore")
-        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); refreshDescentPrewarm(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested() }
+        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); refreshDescentPrewarm(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
+        .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch(); refreshDescentPrewarm() }
         .onDisappear { headingProvider.stopLocating() }
     }
@@ -8257,6 +8642,41 @@ private struct NativeMapExploreView: View {
             showFunctionSheet = false
             onboardingMapDestination = ""
             onboardingMapMode = ""
+        }
+    }
+
+    private func applyNativeMapFocusHandoffIfRequested() {
+        let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty || !title.isEmpty else { return }
+        let coordinate = CLLocationCoordinate2D(latitude: mapFocusLatitude, longitude: mapFocusLongitude)
+        let lowerID = id.lowercased()
+        let lowerTitle = title.lowercased()
+        let existing = pins.first { pin in
+            pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
+        }
+        let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : .access
+        let focused = existing ?? NativeMapPin(
+            id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,
+            title: title.isEmpty ? "Selected destination" : title,
+            subtitle: mapFocusSubtitle.isEmpty ? (kind == .parking ? "Parking" : "Selected destination") : mapFocusSubtitle,
+            distance: "Selected",
+            coordinate: coordinate,
+            color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink,
+            kind: kind,
+            crowdLevel: kind == .parking ? 1 : nil
+        )
+        focusedHandoffPin = focused
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
+            selectedMode = resolvedMode
+            routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
+            activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
+            if focused.kind == .parking { showParking = true }
+            selectedPin = focused
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+            showFunctionSheet = false
+            NativeMapFocusHandoff.clear()
         }
     }
 
@@ -8461,7 +8881,7 @@ private struct NativeMapExploreView: View {
     }
 
     private var closeSheetButton: some View {
-        Button(action: { selectedPin = nil; showFunctionSheet = false; nativeImpactLight() }) {
+        Button(action: { selectedPin = nil; routeFocusedPinID = nil; activeRoutePinID = nil; showFunctionSheet = false; nativeImpactLight() }) {
             Image(systemName: "xmark")
                 .font(.system(size: 23, weight: .black))
                 .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
@@ -8542,6 +8962,7 @@ private struct NativeMapExploreView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-map-nonpartner-navigate")
+            if isRouteActive(pin) { routeActivationPanel(for: pin) }
             HStack(spacing: 8) {
                 ForEach(Self.nonPartnerCardSecondaryLabels, id: \.self) { label in
                     Button(action: { handleNonPartnerSecondary(label, for: pin) }) {
@@ -8568,6 +8989,47 @@ private struct NativeMapExploreView: View {
         .accessibilityIdentifier("native-map-nonpartner-peek-card")
     }
 
+    private func routeActivationPanel(for pin: NativeMapPin) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up.fill").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Route active").font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text("Destination set to \(pin.title).").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.78)
+                }
+                Spacer(minLength: 0)
+                Text(routeEstimate(for: pin)).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 8).frame(height: 24).background(NativeTheme.cyan).clipShape(Capsule())
+            }
+            HStack(spacing: 8) {
+                Button(action: { startTurnByTurn(to: pin) }) {
+                    Label("Start Turn-by-Turn", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(.system(size: 12.5, weight: .black))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(NativeTheme.cyan)
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Button(action: { openTrafficIntel() }) {
+                    Label("Traffic", systemImage: "waveform.path.ecg")
+                        .font(.system(size: 12.5, weight: .black))
+                        .foregroundColor(NativeTheme.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(NativePolish.mapPanelSurface.opacity(0.88))
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(11)
+        .background(NativeTheme.cyan.opacity(0.09))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.cyan.opacity(0.24), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .accessibilityIdentifier("native-map-route-active-panel")
+    }
+
     private func secondaryIcon(for label: String) -> String {
         switch label {
         case "Save": return "bookmark.fill"
@@ -8591,20 +9053,28 @@ private struct NativeMapExploreView: View {
 
     private func handleNonPartnerPrimary(_ pin: NativeMapPin) {
         nativeImpactLight()
-        if pin.kind == .parking {
-            detailVenue = venueForDetail(pin)
+        if pin.kind == .parking && !isRouteFocus(pin) {
+            parkingBookingVenue = venueForDetail(pin)
+            return
+        }
+        if pin.kind == .parking && isRouteFocus(pin) {
+            activateRoute(to: pin)
             return
         }
         if sessionStore.isAuthenticated {
-            selectRoute(to: pin)
+            activateRoute(to: pin)
         } else {
             presentGuestMapPrompt(title: "Save route to \(pin.title)?", subtitle: "Sign in to keep this route, parking context, and arrival notes across devices.", cta: "Sign in to save route")
         }
     }
 
     private func nonPartnerPrimaryTitle(for pin: NativeMapPin) -> String {
-        pin.kind == .parking ? "Reserve Parking" : Self.nonPartnerCardPrimaryLabel
+        if isRouteActive(pin) { return "Route Active" }
+        return pin.kind == .parking && !isRouteFocus(pin) ? "Reserve Parking" : Self.nonPartnerCardPrimaryLabel
     }
+
+    private func isRouteFocus(_ pin: NativeMapPin) -> Bool { selectedMode == "Route" || routeFocusedPinID == pin.id }
+    private func isRouteActive(_ pin: NativeMapPin) -> Bool { activeRoutePinID == pin.id }
 
     private func nonPartnerPrimaryIcon(for pin: NativeMapPin) -> String {
         pin.kind == .parking ? "parkingsign.circle.fill" : "arrow.triangle.turn.up.right.circle.fill"
@@ -8618,8 +9088,26 @@ private struct NativeMapExploreView: View {
 
     private func selectRoute(to pin: NativeMapPin) {
         selectedMode = "Route"
+        routeFocusedPinID = pin.id
         selectedPin = pin
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = pin.coordinate }
+    }
+
+    private func activateRoute(to pin: NativeMapPin) {
+        selectRoute(to: pin)
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) { activeRoutePinID = pin.id }
+    }
+
+    private func routeEstimate(for pin: NativeMapPin) -> String {
+        if pin.kind == .parking { return pin.distance == "Selected" ? "Parking" : pin.distance }
+        return pin.distance == "Selected" ? "Route" : pin.distance
+    }
+
+    private func startTurnByTurn(to pin: NativeMapPin) {
+        nativeImpactLight()
+        let url = URL(string: "http://maps.apple.com/?daddr=\(pin.coordinate.latitude),\(pin.coordinate.longitude)&dirflg=d")
+        guard let url else { return }
+        UIApplication.shared.open(url)
     }
 
     /// Resolves the full venue backing a peek-card pin for the native detail
@@ -8752,7 +9240,8 @@ private struct NativeMapExploreView: View {
         case "See all":
             openNativeTab(.discover)
         case "Reserve":
-            if sessionStore.isAuthenticated { detailVenue = venueForDetail(pin) }
+            if pin.kind == .parking { parkingBookingVenue = venueForDetail(pin) }
+            else if sessionStore.isAuthenticated { detailVenue = venueForDetail(pin) }
             else { presentGuestMapPrompt(title: "Sign in to reserve at \(pin.title)", subtitle: "We'll save the reservation, receipt, and arrival details to your account.", cta: "Sign in to reserve") }
         case "Valet":
             if sessionStore.isAuthenticated { openNativeTab(.concierge) }
@@ -9018,7 +9507,7 @@ private struct NativeMapExploreView: View {
                 Text("LIVE").font(.system(size: 10, weight: .black)).foregroundColor(.black).padding(.horizontal, 8).padding(.vertical, 4).background(NativeTheme.pink).clipShape(Capsule())
             }
             ForEach(pins.filter { $0.kind == .parking }) { pin in
-                Button(action: { selectedPin = pin; selectedMode = "Smart Parking"; nativeImpactLight() }) {
+                Button(action: { selectedPin = pin; selectedMode = "Smart Parking"; routeFocusedPinID = nil; activeRoutePinID = nil; nativeImpactLight() }) {
                     HStack(spacing: 10) {
                         Image(systemName: "parkingsign.circle.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(pin.title).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
@@ -9210,11 +9699,14 @@ private struct NativeMapExploreView: View {
         }
         if let pinID = marker.pinID, let pin = pins.first(where: { $0.id == pinID }) {
             selectedPin = pin
+            if routeFocusedPinID != pin.id { routeFocusedPinID = nil; activeRoutePinID = nil }
             showFunctionSheet = false
         } else if marker.shape == .hex {
             handlePartnerFocus()
         } else {
             selectedMode = marker.glyph == "P" ? "Smart Parking" : "Nearby"
+            routeFocusedPinID = nil
+            activeRoutePinID = nil
             showFunctionSheet = true
         }
         nativeImpactLight()
@@ -9253,9 +9745,12 @@ private struct NativeMapExploreView: View {
 
     private func selectMode(_ mode: String) {
         selectedMode = mode
+        routeFocusedPinID = mode == "Route" ? selectedPin?.id : nil
+        activeRoutePinID = nil
         if mode == "Smart Parking" { selectedPin = pins.first(where: { $0.kind == .parking }) }
         if mode == "Tap Zones" { selectedPin = pins.first(where: { $0.kind == .partner }) }
         if mode == "Route" { selectedPin = pins.first }
+        if mode == "Route" { routeFocusedPinID = selectedPin?.id }
         nativeImpactLight()
     }
 
@@ -11623,6 +12118,7 @@ enum NativeMapParitySelfTests {
         precondition(NativeMapExploreView.verifiedZoneRadiusMeters == 120, "NativeMapParitySelfTests: VERIFIED_ZONE_RADIUS proximity gate drifted from React MapSection 120 m.")
         precondition(NativeMapExploreView.proximityOverrideEnvironmentKey == "BYT_NATIVE_MAP_PROXIMITY_METERS", "NativeMapParitySelfTests: proximity simulator override env key drifted.")
         precondition(NativeMapExploreView.suppressLocationPromptEnvironmentKey == "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT", "NativeMapParitySelfTests: screenshot location-prompt suppression env key drifted.")
+        precondition(NativeMapFocusHandoff.idKey == "bytspot_native_map_focus_id" && NativeMapFocusHandoff.modeKey == "bytspot_native_map_focus_mode", "NativeMapParitySelfTests: native venue-to-map focus handoff storage keys drifted.")
         precondition(BytspotTrustLevel.allCases.map(\.rawValue) == [0, 1, 2, 3, 4], "NativeMapParitySelfTests: Trust Ladder rung order drifted from native-trust-contract.json.")
         precondition(BytspotTrustCapability.initiateDirectScan.requiredLevel == .proximate, "NativeMapParitySelfTests: initiateDirectScan must require Trust Ladder L2 (proximate / within 120 m).")
         precondition(BytspotTrustCapability.saveToWallet.requiredLevel == .staticDiscovery && BytspotTrustCapability.createCheckoutHold.requiredLevel == .signedToken && BytspotTrustCapability.burnOneTimeAccess.requiredLevel == .nfcCounterVerified, "NativeMapParitySelfTests: trust capability matrix drifted from native-trust-contract.json.")
@@ -11909,6 +12405,9 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeValetElifeIntegrationContract.providerName == "Elife Transfer" && NativeValetElifeIntegrationContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain Elife API-proxy/no-SDK for App Clip size.")
         precondition(NativeValetElifeIntegrationContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
+        precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
+        precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Card •••• 4242"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
+        precondition(NativeParkingBookingContract.storageKey == "bytspot_native_parking_reservations", "NativeDiscoverParitySelfTests: Smart Parking reservation wallet storage key drifted.")
         precondition(NativeValetElifeIntegrationContract.luxuryServiceClass.bytspotTier == .black && NativeValetElifeIntegrationContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
         precondition(NativeValetElifeIntegrationContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
         precondition(NativeValetLivePanel.steps == ["Price", "Drivers", "Confirm"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Drivers → Confirm.")

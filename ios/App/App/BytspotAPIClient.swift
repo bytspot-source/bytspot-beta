@@ -134,12 +134,16 @@ struct NativeMutationSuccess: Codable, Equatable { var success: Bool?; var ok: B
 struct NativeMobilityQuoteRecord: Codable, Equatable, Identifiable {
     var id: String
     var provider: String?
+    var providerQuoteId: String?
     var serviceClass: String?
     var serviceTitle: String?
     var priceLabel: String?
     var etaLabel: String?
     var pickupLabel: String?
+    var dropoffLabel: String?
     var cancellationLabel: String?
+    var providerBookingMode: String?
+    var requiresAccountLink: Bool?
     var currency: String?
     var expiresAt: String?
 }
@@ -148,6 +152,7 @@ struct NativeMobilityRideRecord: Codable, Equatable, Identifiable {
     var id: String
     var quoteId: String?
     var provider: String?
+    var providerReservationId: String?
     var reservationReference: String?
     var status: String?
     var serviceClass: String?
@@ -158,8 +163,112 @@ struct NativeMobilityRideRecord: Codable, Equatable, Identifiable {
     var dropoffLabel: String?
     var vehicleLabel: String?
     var driverLabel: String?
+    var driverName: String?
+    var vehiclePlate: String?
+    var vehicleMakeModel: String?
+    var vehicleColor: String?
+    var trackingUrl: String?
     var createdAt: String?
+    var updatedAt: String?
+
+    var normalizedProviderReservationId: String? { Self.clean(providerReservationId) ?? Self.clean(reservationReference) }
+    var normalizedStatus: String { Self.clean(status)?.lowercased().replacingOccurrences(of: " ", with: "_") ?? "pending" }
+    var normalizedDriverName: String? { Self.cleanAssigned(driverName) ?? Self.cleanAssigned(driverLabel) }
+    var normalizedPlateLabel: String? { Self.clean(vehiclePlate) }
+    var normalizedTrackingURL: URL? { Self.clean(trackingUrl).flatMap(URL.init(string:)) }
+    var normalizedVehicleLine: String? {
+        let vehicle = Self.clean(vehicleMakeModel) ?? Self.clean(vehicleLabel) ?? Self.clean(serviceTitle)
+        let color = Self.clean(vehicleColor)
+        return [color, vehicle].compactMap { $0 }.joined(separator: " ").nilIfEmpty
+    }
+
+    init(id: String, quoteId: String? = nil, provider: String? = nil, providerReservationId: String? = nil, reservationReference: String? = nil, status: String? = nil, serviceClass: String? = nil, serviceTitle: String? = nil, priceLabel: String? = nil, etaLabel: String? = nil, pickupLabel: String? = nil, dropoffLabel: String? = nil, vehicleLabel: String? = nil, driverLabel: String? = nil, driverName: String? = nil, vehiclePlate: String? = nil, vehicleMakeModel: String? = nil, vehicleColor: String? = nil, trackingUrl: String? = nil, createdAt: String? = nil, updatedAt: String? = nil) {
+        self.id = id; self.quoteId = quoteId; self.provider = provider; self.providerReservationId = providerReservationId; self.reservationReference = reservationReference; self.status = status; self.serviceClass = serviceClass; self.serviceTitle = serviceTitle; self.priceLabel = priceLabel; self.etaLabel = etaLabel; self.pickupLabel = pickupLabel; self.dropoffLabel = dropoffLabel; self.vehicleLabel = vehicleLabel; self.driverLabel = driverLabel; self.driverName = driverName; self.vehiclePlate = vehiclePlate; self.vehicleMakeModel = vehicleMakeModel; self.vehicleColor = vehicleColor; self.trackingUrl = trackingUrl; self.createdAt = createdAt; self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey { case id, quoteId, quoteID, provider, providerReservationId, providerBookingId, externalReservationId, reservationReference, reservationCode, reference, bookingReference, status, serviceClass, serviceTitle, priceLabel, etaLabel, pickupLabel, dropoffLabel, vehicleLabel, vehicleName, vehicleMakeModel, vehicleColor, vehiclePlate, licensePlate, plateLabel, plate, driverLabel, driverName, driver, assignedDriver, vendorDriver, vehicle, car, template, trackingUrl, trackingURL, trackingLink, tracking, createdAt, updatedAt }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.string(.id) ?? c.string(.reservationReference) ?? c.string(.reservationCode) ?? "BYT-RIDE-\(Int(Date().timeIntervalSince1970))"
+        quoteId = c.string(.quoteId) ?? c.string(.quoteID)
+        provider = c.string(.provider)
+        providerReservationId = c.string(.providerReservationId) ?? c.string(.providerBookingId) ?? c.string(.externalReservationId) ?? c.nestedString(.template, ["providerReservationId", "providerBookingId", "externalReservationId"])
+        reservationReference = c.string(.reservationReference) ?? c.string(.reservationCode) ?? c.string(.bookingReference) ?? c.string(.reference) ?? providerReservationId
+        status = c.string(.status)
+        serviceClass = c.string(.serviceClass)
+        serviceTitle = c.string(.serviceTitle)
+        priceLabel = c.string(.priceLabel)
+        etaLabel = c.string(.etaLabel)
+        pickupLabel = c.string(.pickupLabel)
+        dropoffLabel = c.string(.dropoffLabel)
+        let decodedDriverName = c.string(.driverName) ?? c.nestedString(.driver, ["name", "displayName", "fullName", "driverName", "label"]) ?? c.nestedString(.assignedDriver, ["name", "displayName", "fullName", "driverName", "label"]) ?? c.nestedString(.vendorDriver, ["name", "displayName", "fullName", "driverName", "label"]) ?? c.nestedString(.template, ["driverName", "driverLabel"])
+        driverName = decodedDriverName ?? c.nestedNestedString(.template, "driver", ["name", "displayName", "fullName", "label"])
+        driverLabel = c.string(.driverLabel) ?? driverName
+        vehiclePlate = c.string(.vehiclePlate) ?? c.string(.licensePlate) ?? c.string(.plateLabel) ?? c.string(.plate) ?? c.nestedString(.vehicle, ["licensePlate", "plate", "plateLabel", "vehiclePlate"]) ?? c.nestedString(.car, ["licensePlate", "plate", "plateLabel", "vehiclePlate"]) ?? c.nestedString(.template, ["vehiclePlate", "licensePlate", "plateLabel", "plate"]) ?? c.nestedNestedString(.template, "vehicle", ["licensePlate", "plate", "plateLabel"])
+        vehicleColor = c.string(.vehicleColor) ?? c.nestedString(.vehicle, ["color", "vehicleColor"]) ?? c.nestedString(.car, ["color", "vehicleColor"]) ?? c.nestedNestedString(.template, "vehicle", ["color", "vehicleColor"])
+        vehicleMakeModel = c.string(.vehicleMakeModel) ?? c.string(.vehicleName) ?? c.nestedString(.vehicle, ["makeModel", "label", "name", "model"]) ?? c.nestedString(.car, ["makeModel", "label", "name", "model"]) ?? c.nestedString(.template, ["vehicleMakeModel", "vehicleName"]) ?? c.nestedNestedString(.template, "vehicle", ["makeModel", "label", "name", "model"])
+        vehicleLabel = c.string(.vehicleLabel) ?? vehicleMakeModel
+        trackingUrl = c.string(.trackingUrl) ?? c.string(.trackingURL) ?? c.string(.trackingLink) ?? c.nestedString(.tracking, ["url", "href", "link"]) ?? c.nestedString(.template, ["trackingUrl", "trackingURL", "trackingLink"])
+        createdAt = c.string(.createdAt)
+        updatedAt = c.string(.updatedAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(quoteId, forKey: .quoteId)
+        try c.encodeIfPresent(provider, forKey: .provider)
+        try c.encodeIfPresent(providerReservationId, forKey: .providerReservationId)
+        try c.encodeIfPresent(reservationReference, forKey: .reservationReference)
+        try c.encodeIfPresent(status, forKey: .status)
+        try c.encodeIfPresent(serviceClass, forKey: .serviceClass)
+        try c.encodeIfPresent(serviceTitle, forKey: .serviceTitle)
+        try c.encodeIfPresent(priceLabel, forKey: .priceLabel)
+        try c.encodeIfPresent(etaLabel, forKey: .etaLabel)
+        try c.encodeIfPresent(pickupLabel, forKey: .pickupLabel)
+        try c.encodeIfPresent(dropoffLabel, forKey: .dropoffLabel)
+        try c.encodeIfPresent(vehicleLabel, forKey: .vehicleLabel)
+        try c.encodeIfPresent(driverLabel, forKey: .driverLabel)
+        try c.encodeIfPresent(driverName, forKey: .driverName)
+        try c.encodeIfPresent(vehiclePlate, forKey: .vehiclePlate)
+        try c.encodeIfPresent(vehicleMakeModel, forKey: .vehicleMakeModel)
+        try c.encodeIfPresent(vehicleColor, forKey: .vehicleColor)
+        try c.encodeIfPresent(trackingUrl, forKey: .trackingUrl)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
+    }
+
+    private static func clean(_ value: String?) -> String? { value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+    private static func cleanAssigned(_ value: String?) -> String? {
+        guard let clean = clean(value) else { return nil }
+        let lower = clean.lowercased()
+        return lower.contains("pending") || lower.contains("dispatch") || lower.contains("matching") || lower.contains("assigned after") ? nil : clean
+    }
 }
+
+private struct NativeAnyCodingKey: CodingKey { var stringValue: String; var intValue: Int? = nil; init?(stringValue: String) { self.stringValue = stringValue }; init?(intValue: Int) { self.stringValue = "\(intValue)"; self.intValue = intValue } }
+
+private extension KeyedDecodingContainer where Key == NativeMobilityRideRecord.CodingKeys {
+    func string(_ key: Key) -> String? { (try? decodeIfPresent(String.self, forKey: key))?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+    func nestedString(_ key: Key, _ names: [String]) -> String? {
+        guard let nested = try? nestedContainer(keyedBy: NativeAnyCodingKey.self, forKey: key) else { return nil }
+        return nested.firstString(names)
+    }
+    func nestedNestedString(_ key: Key, _ child: String, _ names: [String]) -> String? {
+        guard let nested = try? nestedContainer(keyedBy: NativeAnyCodingKey.self, forKey: key), let childKey = NativeAnyCodingKey(stringValue: child), let child = try? nested.nestedContainer(keyedBy: NativeAnyCodingKey.self, forKey: childKey) else { return nil }
+        return child.firstString(names)
+    }
+}
+
+private extension KeyedDecodingContainer where Key == NativeAnyCodingKey {
+    func firstString(_ names: [String]) -> String? {
+        for name in names { if let key = NativeAnyCodingKey(stringValue: name), let value = (try? decodeIfPresent(String.self, forKey: key))?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty { return value } }
+        return nil
+    }
+}
+
+private extension String { var nilIfEmpty: String? { isEmpty ? nil : self } }
 
 enum NativeMobilityRouteContract {
     static let routes = ["mobility.quotes.create", "mobility.reservations.create", "mobility.reservations.cancel", "mobility.trips.status", "mobility.passenger.update"]

@@ -259,6 +259,24 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(records.first?.licensePlate, "BYT-424")
     }
 
+    func testMobilityRideDecodeNormalizesDriverAndPlateTemplate() throws {
+        let ride: [String: Any] = [
+            "id": "ride_1",
+            "providerBookingId": "ELF-123",
+            "status": "driver matching",
+            "driver": ["name": "Kwame Mensah"],
+            "vehicle": ["color": "Black", "makeModel": "Tesla Model Y", "licensePlate": "ATL-4821"],
+            "tracking": ["url": "https://track.example/ELF-123"]
+        ]
+        let record = try decode(NativeMobilityRideRecord.self, from: ["result": ["data": ["json": ride]]])
+        XCTAssertEqual(record.normalizedProviderReservationId, "ELF-123")
+        XCTAssertEqual(record.normalizedStatus, "driver_matching")
+        XCTAssertEqual(record.normalizedDriverName, "Kwame Mensah")
+        XCTAssertEqual(record.normalizedPlateLabel, "ATL-4821")
+        XCTAssertEqual(record.normalizedVehicleLine, "Black Tesla Model Y")
+        XCTAssertEqual(record.normalizedTrackingURL?.absoluteString, "https://track.example/ELF-123")
+    }
+
     func testTRPCDecodeUnwrapsPlainPaymentEnvelope() throws {
         let envelope: [String: Any] = ["result": ["data": ["id": "pm_1", "type": "card", "brand": "visa", "last4": "4242", "expiryMonth": "04", "expiryYear": "30", "isDefault": true]]]
         let record = try decode(NativePaymentMethodRecord.self, from: envelope)

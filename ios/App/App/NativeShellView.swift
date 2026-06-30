@@ -3706,7 +3706,20 @@ private struct NativeHomeDashboardView: View {
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested() }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
-            NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
+            let detail = Group {
+                if Self.isValetPremiumRide(venue) {
+                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess)
+                } else {
+                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
+                }
+            }
+            if #available(iOS 16.0, *) {
+                detail
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            } else {
+                detail
+            }
         }
         .sheet(isPresented: $showValetRideSheet) {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess)
@@ -4045,7 +4058,7 @@ private struct NativeHomeDashboardView: View {
             primaryCTAIcon: Self.primaryCTAIcon(for: card),
             secondaryCTATitle: Self.aiPickSecondaryCTA,
             primaryAction: { triggerPrimaryAIPick(card: card, venue: v) },
-            secondaryAction: { aiPickDetailVenue = v }
+            secondaryAction: { openAIPickDetails(card: card, venue: v) }
         )
         .accessibilityIdentifier("native-home-ai-pick")
     }
@@ -4140,9 +4153,18 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
-        if card.id == Self.valetRideServiceID { handleRideHandoff(); return }
+        if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
         if Self.primaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
         aiPickDetailVenue = venue
+    }
+
+    private func openAIPickDetails(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
+        if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
+        aiPickDetailVenue = venue
+    }
+
+    private static func isValetPremiumRide(_ venue: NativeVenueSummary) -> Bool {
+        venue.id == valetRideServiceID || venue.name.localizedCaseInsensitiveContains("Private Airport Transfer") || venue.name.localizedCaseInsensitiveContains("Valet Premium Ride")
     }
 
     static let valetRideServiceID = "service-valet-ride"
@@ -4515,8 +4537,24 @@ private struct NativeHomeHeroCard: View {
     }
 }
 
+private enum NativeRideProvider: String, CaseIterable, Identifiable {
+    case uber, lyft
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var icon: String { self == .uber ? "car.side.fill" : "car.fill" }
+}
+
+private struct NativeRideHandoffRoute {
+    let pickupName: String
+    let dropoffName: String
+    let pickupCoordinate: CLLocationCoordinate2D?
+    let dropoffCoordinate: CLLocationCoordinate2D?
+}
+
 private enum NativeRideHandoff {
     static let unavailableMessage = "Airport ride booking is unavailable. Concierge can help arrange the transfer."
+    static let routeRequiredMessage = "Select pickup and drop-off from search first so the ride app receives an exact route."
+    static let handoffMessage = "Opening ride app with your route. Booking and payment happen with the provider."
 
     @discardableResult
     @MainActor
@@ -4525,6 +4563,67 @@ private enum NativeRideHandoff {
         if UIApplication.shared.canOpenURL(uber) { UIApplication.shared.open(uber); return true }
         if UIApplication.shared.canOpenURL(lyft) { UIApplication.shared.open(lyft); return true }
         return false
+    }
+
+    @discardableResult
+    @MainActor
+    static func open(_ provider: NativeRideProvider, route: NativeRideHandoffRoute) -> Bool {
+        guard route.pickupCoordinate != nil, route.dropoffCoordinate != nil else { return false }
+        let app = appURL(provider, route: route)
+        if let app, UIApplication.shared.canOpenURL(app) { UIApplication.shared.open(app); return true }
+        guard let web = webURL(provider, route: route) else { return false }
+        UIApplication.shared.open(web)
+        return true
+    }
+
+    private static func appURL(_ provider: NativeRideProvider, route: NativeRideHandoffRoute) -> URL? {
+        switch provider {
+        case .uber: return URL(string: "uber://?\(query(uberItems(route)))")
+        case .lyft: return URL(string: "lyft://ridetype?\(query(lyftItems(route)))")
+        }
+    }
+
+    private static func webURL(_ provider: NativeRideProvider, route: NativeRideHandoffRoute) -> URL? {
+        switch provider {
+        case .uber: return URL(string: "https://m.uber.com/ul/?\(query(uberItems(route)))")
+        case .lyft: return URL(string: "https://www.lyft.com/ride?\(query(lyftItems(route)))")
+        }
+    }
+
+    private static func uberItems(_ route: NativeRideHandoffRoute) -> [URLQueryItem] {
+        guard let pickup = route.pickupCoordinate, let dropoff = route.dropoffCoordinate else { return [] }
+        return [
+            URLQueryItem(name: "action", value: "setPickup"),
+            URLQueryItem(name: "pickup[latitude]", value: coordinate(pickup.latitude)),
+            URLQueryItem(name: "pickup[longitude]", value: coordinate(pickup.longitude)),
+            URLQueryItem(name: "pickup[nickname]", value: route.pickupName),
+            URLQueryItem(name: "dropoff[latitude]", value: coordinate(dropoff.latitude)),
+            URLQueryItem(name: "dropoff[longitude]", value: coordinate(dropoff.longitude)),
+            URLQueryItem(name: "dropoff[nickname]", value: route.dropoffName)
+        ]
+    }
+
+    private static func lyftItems(_ route: NativeRideHandoffRoute) -> [URLQueryItem] {
+        guard let pickup = route.pickupCoordinate, let dropoff = route.dropoffCoordinate else { return [] }
+        return [
+            URLQueryItem(name: "id", value: "lyft"),
+            URLQueryItem(name: "pickup[latitude]", value: coordinate(pickup.latitude)),
+            URLQueryItem(name: "pickup[longitude]", value: coordinate(pickup.longitude)),
+            URLQueryItem(name: "destination[latitude]", value: coordinate(dropoff.latitude)),
+            URLQueryItem(name: "destination[longitude]", value: coordinate(dropoff.longitude))
+        ]
+    }
+
+    private static func query(_ items: [URLQueryItem]) -> String {
+        var components = URLComponents()
+        components.queryItems = items
+        return components.percentEncodedQuery ?? ""
+    }
+
+    private static func coordinate(_ value: CLLocationDegrees) -> String { String(format: "%.6f", value) }
+
+    fileprivate static func previewURLString(_ provider: NativeRideProvider, route: NativeRideHandoffRoute) -> String {
+        appURL(provider, route: route)?.absoluteString ?? ""
     }
 }
 
@@ -4576,6 +4675,33 @@ private struct NativeValetQuote: Identifiable, Equatable {
         self.eta = record.etaLabel ?? fallbackService.etaLabel
         self.pickup = record.pickupLabel ?? "Pickup confidence ready"
         self.cancellation = record.cancellationLabel ?? "Cancellation shown before dispatch"
+    }
+
+    var currencySymbol: String {
+        if let symbol = price.first(where: { !$0.isNumber && $0 != " " }) { return String(symbol) }
+        return "$"
+    }
+
+    var fareAnchor: Double? {
+        var current = ""
+        for character in price {
+            if character.isNumber || character == "." { current.append(character) }
+            else if !current.isEmpty { break }
+        }
+        return Double(current)
+    }
+
+    var fareBreakdown: [(String, String)] {
+        guard let anchor = fareAnchor, anchor > 0 else {
+            return [("Base fare", "Included"), ("Distance & time", "Metered"), ("Airport & access fees", "Pass-through"), ("Bytspot service & support", "Included")]
+        }
+        let symbol = currencySymbol
+        func money(_ value: Double) -> String { "\(symbol)\(Int(value.rounded()))" }
+        let base = anchor * 0.62
+        let distance = anchor * 0.22
+        let airport = anchor * 0.10
+        let service = anchor - base - distance - airport
+        return [("Base fare", money(base)), ("Distance & time", money(distance)), ("Airport & access fees", money(airport)), ("Bytspot service & support", money(service))]
     }
 }
 
@@ -4635,6 +4761,508 @@ private enum NativeValetElifeIntegrationContract {
     static let accentHex = BytspotTheme.cyanHex
 }
 
+private enum NativeValetQuoteHeadlineContract {
+    static let quoteReadyEyebrow = "QUOTE READY"
+    static let confirmedEyebrow = "CONFIRMED FARE"
+    static let fareCaption = "all-in fare"
+    static let focalFacts = ["Pickup", "Vehicle"]
+}
+
+private enum NativeValetLocationPickerContract {
+    static let useCurrentLocationTitle = "Use current location"
+    static let confirmPickupTitle = "Use this pickup"
+    static let confirmDropoffTitle = "Use this drop-off"
+    static let searchPlaceholderPickup = "Search pickup address or place"
+    static let searchPlaceholderDropoff = "Search drop-off address or place"
+    static let pickerIdentifier = "native-valet-location-picker"
+    static let currentLocationIdentifier = "native-valet-use-current-location"
+    static let confirmIdentifier = "native-valet-confirm-location"
+    static let pickupFieldIdentifier = "native-valet-location-field-pickup"
+    static let dropoffFieldIdentifier = "native-valet-location-field-dropoff"
+}
+
+private enum NativeValetLocationFieldKind: String, Identifiable {
+    case pickup, dropoff
+    var id: String { rawValue }
+    var title: String { self == .pickup ? "Set pickup" : "Set drop-off" }
+    var confirmTitle: String { self == .pickup ? NativeValetLocationPickerContract.confirmPickupTitle : NativeValetLocationPickerContract.confirmDropoffTitle }
+    var searchPlaceholder: String { self == .pickup ? NativeValetLocationPickerContract.searchPlaceholderPickup : NativeValetLocationPickerContract.searchPlaceholderDropoff }
+    var fieldIdentifier: String { self == .pickup ? NativeValetLocationPickerContract.pickupFieldIdentifier : NativeValetLocationPickerContract.dropoffFieldIdentifier }
+}
+
+struct NativeValetPlace: Equatable {
+    var name: String
+    var subtitle: String
+    var latitude: Double
+    var longitude: Double
+
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
+}
+
+@MainActor
+final class NativeValetSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published var results: [MKLocalSearchCompletion] = []
+    private let completer = MKLocalSearchCompleter()
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = [.address, .pointOfInterest]
+    }
+
+    func update(query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { results = []; return }
+        completer.queryFragment = trimmed
+    }
+
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        let items = completer.results
+        Task { @MainActor in self.results = items }
+    }
+
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        Task { @MainActor in self.results = [] }
+    }
+
+    func resolve(_ completion: MKLocalSearchCompletion) async -> NativeValetPlace? {
+        let request = MKLocalSearch.Request(completion: completion)
+        guard let response = try? await MKLocalSearch(request: request).start(), let item = response.mapItems.first else { return nil }
+        let coordinate = item.placemark.coordinate
+        let name = completion.title.isEmpty ? (item.name ?? "Selected location") : completion.title
+        return NativeValetPlace(name: name, subtitle: completion.subtitle, latitude: coordinate.latitude, longitude: coordinate.longitude)
+    }
+}
+
+@MainActor
+final class NativeValetLocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+    enum Status: Equatable { case idle, locating, denied, suppressed, failed }
+    @Published private(set) var status: Status = .idle
+    @Published private(set) var place: NativeValetPlace?
+    private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
+    private var isSuppressed: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if ["1", "true", "yes"].contains(environment["BYT_NATIVE_SUPPRESS_LOCATION_PROMPT"]?.lowercased() ?? "") { return true }
+        return environment["BYT_NATIVE_DISCOVER_DETAIL"]?.isEmpty == false
+    }
+
+    func requestCurrentLocation() {
+        if isSuppressed { status = .suppressed; return }
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            status = .locating
+            manager.requestWhenInUseAuthorization()
+        case .denied, .restricted:
+            status = .denied
+        default:
+            status = .locating
+            manager.requestLocation()
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            switch self.manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
+                if self.status == .locating { self.manager.requestLocation() }
+            case .denied, .restricted:
+                self.status = .denied
+            default:
+                break
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let coordinate = locations.last?.coordinate else { return }
+        Task { @MainActor in await self.reverseGeocode(coordinate) }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in if self.status == .locating { self.status = .failed } }
+    }
+
+    private func reverseGeocode(_ coordinate: CLLocationCoordinate2D) async {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let placemark = try? await geocoder.reverseGeocodeLocation(location).first
+        let name = placemark.map { Self.shortName(for: $0) } ?? "Current location"
+        let subtitle = placemark.map { Self.subtitle(for: $0) } ?? "Pinned to your current position"
+        place = NativeValetPlace(name: name, subtitle: subtitle, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        status = .idle
+    }
+
+    static func shortName(for placemark: CLPlacemark) -> String {
+        if let name = placemark.name, !name.isEmpty { return name }
+        let parts = [placemark.subThoroughfare, placemark.thoroughfare].compactMap { $0 }
+        return parts.isEmpty ? (placemark.locality ?? "Current location") : parts.joined(separator: " ")
+    }
+
+    static func subtitle(for placemark: CLPlacemark) -> String {
+        [placemark.locality, placemark.administrativeArea].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
+private final class NativeValetMapPin: NSObject, MKAnnotation {
+    enum Kind { case pickup, dropoff }
+    let kind: Kind
+    let coordinate: CLLocationCoordinate2D
+    var title: String? { kind == .pickup ? "Pickup" : "Drop-off" }
+    init(kind: Kind, coordinate: CLLocationCoordinate2D) { self.kind = kind; self.coordinate = coordinate }
+}
+
+private struct NativeValetMapView: UIViewRepresentable {
+    var pickup: CLLocationCoordinate2D?
+    var dropoff: CLLocationCoordinate2D?
+    var accent: UIColor
+    var showsRoute = true
+
+    func makeCoordinator() -> Coordinator { Coordinator(accent: accent) }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        map.isRotateEnabled = false
+        map.isPitchEnabled = false
+        map.pointOfInterestFilter = .excludingAll
+        map.showsUserLocation = false
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        context.coordinator.accent = accent
+        map.removeAnnotations(map.annotations)
+        var coordinates: [CLLocationCoordinate2D] = []
+        if let pickup { map.addAnnotation(NativeValetMapPin(kind: .pickup, coordinate: pickup)); coordinates.append(pickup) }
+        if let dropoff { map.addAnnotation(NativeValetMapPin(kind: .dropoff, coordinate: dropoff)); coordinates.append(dropoff) }
+        context.coordinator.refreshRoute(on: map, pickup: pickup, dropoff: dropoff, enabled: showsRoute)
+        fit(map, coordinates: coordinates)
+    }
+
+    private func fit(_ map: MKMapView, coordinates: [CLLocationCoordinate2D]) {
+        guard !coordinates.isEmpty else { return }
+        if coordinates.count == 1 {
+            map.setRegion(MKCoordinateRegion(center: coordinates[0], latitudinalMeters: 1400, longitudinalMeters: 1400), animated: false)
+            return
+        }
+        let union = coordinates
+            .map { MKMapRect(origin: MKMapPoint($0), size: MKMapSize(width: 1, height: 1)) }
+            .reduce(MKMapRect.null) { $0.union($1) }
+        map.setVisibleMapRect(union, edgePadding: UIEdgeInsets(top: 52, left: 52, bottom: 52, right: 52), animated: false)
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        var accent: UIColor
+        private var routedPair: String?
+        init(accent: UIColor) { self.accent = accent }
+
+        func refreshRoute(on map: MKMapView, pickup: CLLocationCoordinate2D?, dropoff: CLLocationCoordinate2D?, enabled: Bool) {
+            guard enabled, let pickup, let dropoff else { map.removeOverlays(map.overlays); routedPair = nil; return }
+            let key = "\(pickup.latitude),\(pickup.longitude)->\(dropoff.latitude),\(dropoff.longitude)"
+            if key == routedPair, !map.overlays.isEmpty { return }
+            map.removeOverlays(map.overlays)
+            routedPair = key
+            let request = MKDirections.Request()
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: pickup))
+            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: dropoff))
+            request.transportType = .automobile
+            MKDirections(request: request).calculate { [weak map] response, _ in
+                guard let map, let route = response?.routes.first else { return }
+                map.addOverlay(route.polyline)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            guard let polyline = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
+            let renderer = MKPolylineRenderer(polyline: polyline)
+            renderer.strokeColor = accent
+            renderer.lineWidth = 4
+            renderer.lineCap = .round
+            return renderer
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard let pin = annotation as? NativeValetMapPin else { return nil }
+            let reuse = "native-valet-map-pin"
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: reuse) as? MKMarkerAnnotationView ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: reuse)
+            view.annotation = annotation
+            view.markerTintColor = accent
+            view.glyphImage = UIImage(systemName: pin.kind == .pickup ? "smallcircle.filled.circle.fill" : "mappin")
+            view.titleVisibility = .adaptive
+            return view
+        }
+    }
+}
+
+private struct NativeValetRouteRail: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
+    }
+}
+
+/// Uber-style connected route card: a pickup dot and a drop-off pin joined by a
+/// dashed rail, each opening the map location picker. Visually distinct from the
+/// plain trip-detail text fields so the location entry reads as a map picker.
+private struct NativeValetRouteEntryCard: View {
+    let pickup: String
+    let pickupPlace: NativeValetPlace?
+    let dropoff: String
+    let dropoffPlace: NativeValetPlace?
+    let accent: Color
+    let onPickup: () -> Void
+    let onDropoff: () -> Void
+
+    private let rowHeight: CGFloat = 62
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            rail
+            VStack(spacing: 0) {
+                row(kind: .pickup, value: pickup, place: pickupPlace, action: onPickup)
+                Rectangle().fill(NativePolish.softBorder).frame(height: 1)
+                row(kind: .dropoff, value: dropoff, place: dropoffPlace, action: onDropoff)
+            }
+        }
+        .padding(14)
+        .background(
+            ZStack {
+                LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [accent.opacity(0.12), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(accent.opacity(0.34), lineWidth: 1.5))
+    }
+
+    private var rail: some View {
+        VStack(spacing: 0) {
+            Circle().fill(accent).frame(width: 13, height: 13)
+                .overlay(Circle().stroke(NativeTheme.background, lineWidth: 2.5))
+            NativeValetRouteRail()
+                .stroke(accent.opacity(0.55), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 6]))
+                .frame(width: 2.5)
+                .frame(maxHeight: .infinity)
+            RoundedRectangle(cornerRadius: 3.5, style: .continuous).fill(accent).frame(width: 13, height: 13)
+                .overlay(RoundedRectangle(cornerRadius: 3.5, style: .continuous).stroke(NativeTheme.background, lineWidth: 2.5))
+        }
+        .padding(.vertical, rowHeight / 2 - 6.5)
+        .frame(width: 14, height: rowHeight * 2 + 1)
+    }
+
+    private func row(kind: NativeValetLocationFieldKind, value: String, place: NativeValetPlace?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(kind == .pickup ? "PICKUP" : "DROP-OFF").font(.system(size: 10, weight: .black)).tracking(1).foregroundColor(accent)
+                    Text(value.isEmpty ? (kind == .pickup ? "Add pickup location" : "Add drop-off location") : value)
+                        .font(.system(size: 15.5, weight: .black))
+                        .foregroundColor(value.isEmpty ? NativeTheme.textTertiary : NativeProfileStyle.title)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    if let subtitle = place?.subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                }
+                Spacer(minLength: 0)
+                affordance(place: place)
+            }
+            .frame(height: rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(kind.fieldIdentifier)
+    }
+
+    private func affordance(place: NativeValetPlace?) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: place == nil ? "magnifyingglass" : "checkmark.seal.fill").font(.system(size: 11, weight: .black))
+            Text(place == nil ? "Search" : "Edit").font(.system(size: 11.5, weight: .black))
+        }
+        .foregroundColor(accent)
+        .padding(.horizontal, 11)
+        .frame(height: 30)
+        .background(accent.opacity(0.16))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(accent.opacity(0.4), lineWidth: 1))
+    }
+}
+
+private struct NativeValetLocationPicker: View {
+    let kind: NativeValetLocationFieldKind
+    let accent: Color
+    var initialPlace: NativeValetPlace?
+    let onConfirm: (NativeValetPlace) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var completer = NativeValetSearchCompleter()
+    @StateObject private var locator = NativeValetLocationProvider()
+    @State private var query = ""
+    @State private var selected: NativeValetPlace?
+    @State private var isResolving = false
+    @State private var note = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            searchField
+            if let place = selected {
+                confirmation(place)
+            } else {
+                results
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier(NativeValetLocationPickerContract.pickerIdentifier)
+        .onAppear { selected = initialPlace }
+        .onChange(of: query) { completer.update(query: $0) }
+        .onChange(of: locator.place) { newValue in if let resolved = newValue { selected = resolved; note = "" } }
+        .onChange(of: locator.status) { note = noteText(for: $0) }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(kind.title).nativeTitle(21)
+                Text("Search an address or place, or use your current location. We'll confirm it on the map.").nativeBody(size: 12.5)
+            }
+            Spacer(minLength: 0)
+            Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+            TextField(kind.searchPlaceholder, text: $query)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(NativeProfileStyle.title)
+                .disableAutocorrection(true)
+            if !query.isEmpty {
+                Button(action: { query = ""; completer.update(query: "") }) { Image(systemName: "xmark.circle.fill").font(.system(size: 15, weight: .bold)).foregroundColor(NativeTheme.textTertiary) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(NativeProfileStyle.insetSurface)
+        .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+    }
+
+    private var results: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 10) {
+                Button(action: useCurrentLocation) {
+                    row(icon: "location.fill", title: NativeValetLocationPickerContract.useCurrentLocationTitle, subtitle: locator.status == .locating ? "Locating…" : "Pin to where you are now")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(NativeValetLocationPickerContract.currentLocationIdentifier)
+                if isResolving {
+                    HStack(spacing: 8) { ProgressView().tint(accent); Text("Resolving location…").nativeBody(size: 12.5) }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                }
+                ForEach(completer.results.indices, id: \.self) { index in
+                    let completion = completer.results[index]
+                    Button(action: { select(completion) }) {
+                        row(icon: "mappin.circle.fill", title: completion.title, subtitle: completion.subtitle)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !note.isEmpty { Text(note).nativeBody(size: 12).frame(maxWidth: .infinity, alignment: .leading) }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func confirmation(_ place: NativeValetPlace) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            NativeValetMapView(pickup: place.coordinate, dropoff: nil, accent: UIColor(accent), showsRoute: false)
+                .frame(height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.22), lineWidth: 1))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(place.name).font(.system(size: 16.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
+                if !place.subtitle.isEmpty { Text(place.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .nativePanel()
+            HStack(spacing: 10) {
+                Button(action: { selected = nil }) { NativeCTA(title: "Search again", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }
+                    .buttonStyle(.plain)
+                Button(action: { onConfirm(place); dismiss() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 15, weight: .black))
+                        Text(kind.confirmTitle).font(.system(size: 15, weight: .black))
+                    }
+                    .foregroundColor(NativeProfileStyle.onVibrant)
+                    .frame(maxWidth: .infinity).frame(minHeight: 50)
+                    .background(LinearGradient(colors: [accent, accent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(NativeValetLocationPickerContract.confirmIdentifier)
+            }
+        }
+    }
+
+    private func row(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(accent.opacity(0.14)).frame(width: 36, height: 36)
+                Image(systemName: icon).font(.system(size: 16, weight: .black)).foregroundColor(accent)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.8)
+                if !subtitle.isEmpty { Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8) }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativeTheme.selectedControlSurface.opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private func select(_ completion: MKLocalSearchCompletion) {
+        isResolving = true
+        note = ""
+        Task {
+            let resolved = await completer.resolve(completion)
+            isResolving = false
+            if let resolved { selected = resolved } else { note = "Couldn't resolve that place. Try another result." }
+        }
+    }
+
+    private func useCurrentLocation() {
+        note = ""
+        locator.requestCurrentLocation()
+    }
+
+    private func noteText(for status: NativeValetLocationProvider.Status) -> String {
+        switch status {
+        case .denied: return "Location access is off. Enable it in Settings or search for an address."
+        case .suppressed: return "Location is paused for this preview. Search for an address instead."
+        case .failed: return "Couldn't get your location. Try searching for an address."
+        default: return ""
+        }
+    }
+}
+
 private struct NativeValetPremiumRideSheet: View {
     var initialVenue: NativeVenueSummary? = nil
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -4653,6 +5281,11 @@ private struct NativeValetPremiumRideSheet: View {
     @State private var liveQuote: NativeValetQuote?
     @State private var confirmedRide: NativeMobilityRideRecord?
     @State private var didRunAutorun = false
+    @State private var didPrepareCardDetailEntry = false
+    @State private var showFareBreakdown = false
+    @State private var pickupPlace: NativeValetPlace?
+    @State private var dropoffPlace: NativeValetPlace?
+    @State private var activeLocationField: NativeValetLocationFieldKind?
 
     private var quote: NativeValetQuote { liveQuote ?? .preview(for: selectedService) }
     private var mobilityAPI: NativeMobilityDataAPI { NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
@@ -4665,35 +5298,76 @@ private struct NativeValetPremiumRideSheet: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                hero
-                if let phase = livePhase { NativeValetLivePanel(phase: phase, accent: accent) }
-                if showsStatus {
-                    statusPanel
-                    quoteHeadline
-                    fulfillmentPanel
-                    routeSummaryPanel
-                } else if showsQuote {
-                    quoteHeadline
-                    routeSummaryPanel
-                    fulfillmentPanel
-                    if showsWallet { walletPanel }
-                } else {
-                    routePanel
-                    serviceSelector
-                    readinessPanel
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    hero
+                    if let phase = livePhase { NativeValetLivePanel(phase: phase, accent: accent) }
+                    if showsStatus {
+                        quoteHeadline
+                        routeMapPreview
+                        fareBreakdownPanel
+                        driverVendorPanel
+                    } else if showsQuote {
+                        quoteHeadline
+                        routeMapPreview
+                        if state == .quoteReady { thirdPartyRidePanel }
+                        fareBreakdownPanel
+                        driverVendorPanel
+                    } else {
+                        routePanel.id(Self.entryRouteAnchorID)
+                        thirdPartyRidePanel
+                        serviceSelector
+                        readinessPanel
+                    }
+                    if !statusMessage.isEmpty { statusBanner }
+                    primaryCTA
+                    secondaryActions
                 }
-                if !statusMessage.isEmpty { statusBanner }
-                primaryCTA
-                secondaryActions
+                .padding(18)
+                .padding(.bottom, 28)
             }
-            .padding(18)
-            .padding(.bottom, 28)
+            .onAppear { pinEntryToRouteSelector(using: scrollProxy) }
+            .onChange(of: state) { _ in pinEntryToRouteSelector(using: scrollProxy) }
         }
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-valet-premium-ride-sheet")
+        .onAppear { prepareCardDetailEntryIfNeeded() }
         .task { await runAutorunIfRequested() }
+        .sheet(item: $activeLocationField) { kind in
+            NativeValetLocationPicker(kind: kind, accent: accent, initialPlace: kind == .pickup ? pickupPlace : dropoffPlace) { place in
+                apply(place, to: kind)
+            }
+        }
+    }
+
+    private static let entryRouteAnchorID = "native-valet-entry-route-map"
+
+    private var isCardDetailEntry: Bool { initialVenue != nil }
+
+    private func prepareCardDetailEntryIfNeeded() {
+        guard isCardDetailEntry, !didPrepareCardDetailEntry else { return }
+        didPrepareCardDetailEntry = true
+        state = .intro
+        liveQuote = nil
+        confirmedRide = nil
+        statusMessage = ""
+        showFareBreakdown = false
+        activeLocationField = nil
+    }
+
+    private func pinEntryToRouteSelector(using proxy: ScrollViewProxy) {
+        guard !showsQuote, !showsStatus else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(Self.entryRouteAnchorID, anchor: .top) }
+        }
+    }
+
+    private func apply(_ place: NativeValetPlace, to kind: NativeValetLocationFieldKind) {
+        switch kind {
+        case .pickup: pickupPlace = place; pickup = place.name
+        case .dropoff: dropoffPlace = place; dropoff = place.name
+        }
     }
 
     private var hero: some View {
@@ -4794,9 +5468,10 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var routePanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Trip details", "Tell us the airport route first. We'll check price and driver availability next.")
-            NativeProfileFormField(title: "Pickup", placeholder: "Current venue / Midtown", text: $pickup, capitalization: .words)
-            NativeProfileFormField(title: "Drop-off", placeholder: "ATL airport or destination", text: $dropoff, capitalization: .words)
+            routeEntryMap
+            sectionHeader("Set route", "Choose pickup and drop-off.")
+            NativeValetRouteEntryCard(pickup: pickup, pickupPlace: pickupPlace, dropoff: dropoff, dropoffPlace: dropoffPlace, accent: accent, onPickup: { activeLocationField = .pickup }, onDropoff: { activeLocationField = .dropoff })
+            sectionHeader("Trip details", "Pickup time, riders, luggage, and flight.")
             NativeProfileFormField(title: "Pickup time", placeholder: "Today 10:30 PM", text: $pickupTime, capitalization: .words)
             HStack(spacing: 10) {
                 NativeProfileFormField(title: "Riders", placeholder: "1", text: $passengers, keyboard: .numberPad, capitalization: .never)
@@ -4808,21 +5483,91 @@ private struct NativeValetPremiumRideSheet: View {
         .nativePanel()
     }
 
-    private var routeSummaryPanel: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            sectionHeader("Trip summary", "These are the details sent for airport transfer pricing and driver matching.")
-            NativeWalletLine(title: "Route", subtitle: "\(pickup) → \(dropoff)", icon: "arrow.triangle.turn.up.right.circle.fill")
-            NativeWalletLine(title: "Pickup", subtitle: "\(pickupTime) · \(passengers) rider(s) · \(luggage) bag(s)", icon: "clock.fill")
-            NativeWalletLine(title: "Flight", subtitle: flightNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No flight number added" : flightNumber, icon: "airplane.departure")
+    private var routeEntryMap: some View {
+        Button(action: { activeLocationField = pickupPlace == nil ? .pickup : .dropoff }) {
+            NativeValetRouteMapPreview(pickup: pickup, dropoff: dropoff, pickupCoordinate: pickupPlace?.coordinate, dropoffCoordinate: dropoffPlace?.coordinate, etaLabel: quote.eta, accent: accent)
+                .overlay(alignment: .topLeading) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "map.fill").font(.system(size: 10.5, weight: .black))
+                        Text(bothPlacesResolved ? "TAP TO ADJUST ROUTE" : "TAP MAP TO SET ROUTE").font(.system(size: 10.5, weight: .black)).tracking(0.8).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .foregroundColor(NativeTheme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 26)
+                    .background(.ultraThinMaterial)
+                    .overlay(Capsule().stroke(accent.opacity(0.4), lineWidth: 1))
+                    .clipShape(Capsule())
+                    .padding(10)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(NativeValetRouteMapPreview.identifier)
+    }
+
+    private var bothPlacesResolved: Bool { pickupPlace != nil && dropoffPlace != nil }
+
+    private var thirdPartyRidePanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Ride apps", "Open Uber or Lyft with this route. Booking and payment happen in the provider app.")
+            HStack(spacing: 10) {
+                ForEach(NativeRideProvider.allCases) { provider in
+                    Button(action: { openThirdPartyRide(provider) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: provider.icon).font(.system(size: 13, weight: .black))
+                            Text("Open in \(provider.title)").font(.system(size: 12.5, weight: .black)).lineLimit(1).minimumScaleFactor(0.78)
+                        }
+                        .foregroundColor(NativeTheme.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 42)
+                        .background(NativeTheme.selectedControlSurface.opacity(0.72))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(accent.opacity(0.26), lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 7) {
+                Image(systemName: canOpenRideAppRoute ? "checkmark.seal.fill" : "mappin.and.ellipse")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(accent)
+                Text(canOpenRideAppRoute ? "Ready to hand off pickup and drop-off." : "Select exact pickup and drop-off first.")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+            }
         }
         .padding(16)
         .nativePanel()
     }
 
+    private var rideAppRoute: NativeRideHandoffRoute {
+        NativeRideHandoffRoute(
+            pickupName: pickupPlace?.name ?? pickup,
+            dropoffName: dropoffPlace?.name ?? dropoff,
+            pickupCoordinate: pickupPlace?.coordinate,
+            dropoffCoordinate: dropoffPlace?.coordinate
+        )
+    }
+
+    private var canOpenRideAppRoute: Bool { pickupPlace?.coordinate != nil && dropoffPlace?.coordinate != nil }
+
+    private func openThirdPartyRide(_ provider: NativeRideProvider) {
+        nativeImpactLight()
+        guard canOpenRideAppRoute else {
+            statusMessage = NativeRideHandoff.routeRequiredMessage
+            activeLocationField = pickupPlace?.coordinate == nil ? .pickup : .dropoff
+            return
+        }
+        if NativeRideHandoff.open(provider, route: rideAppRoute) {
+            statusMessage = NativeRideHandoff.handoffMessage
+        } else {
+            statusMessage = NativeRideHandoff.unavailableMessage
+        }
+    }
+
     private var quoteHeadline: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(showsStatus ? "CONFIRMED FARE" : "QUOTE READY").font(.system(size: 10.5, weight: .black)).tracking(1.3).foregroundColor(accent)
+                Text(showsStatus ? NativeValetQuoteHeadlineContract.confirmedEyebrow : NativeValetQuoteHeadlineContract.quoteReadyEyebrow).font(.system(size: 10.5, weight: .black)).tracking(1.3).foregroundColor(accent)
                 Spacer()
                 HStack(spacing: 5) {
                     Image(systemName: showsStatus ? "checkmark.seal.fill" : "lock.shield.fill").font(.system(size: 10.5, weight: .black))
@@ -4832,12 +5577,12 @@ private struct NativeValetPremiumRideSheet: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Text(quote.price).font(.system(size: 36, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
-                Text("all-in fare").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+                Text(NativeValetQuoteHeadlineContract.fareCaption).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
             }
             HStack(spacing: 12) {
-                headlineFact("Pickup", pickupTime, "clock.fill")
+                headlineFact(NativeValetQuoteHeadlineContract.focalFacts[0], pickupTime, "clock.fill")
                 Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 34)
-                headlineFact("Vehicle", quote.service.title, quote.service.systemImage)
+                headlineFact(NativeValetQuoteHeadlineContract.focalFacts[1], quote.service.title, quote.service.systemImage)
             }
         }
         .padding(18)
@@ -4863,41 +5608,65 @@ private struct NativeValetPremiumRideSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var fulfillmentPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Fulfillment & policy", "Bytspot transport vendors fulfill the ride over Elife's network. Your live driver is assigned after you confirm.")
-            NativeWalletLine(title: "Driver matching", subtitle: "Eligible Bytspot vendors accept the trip; Elife backs dispatch and global coverage.", icon: "person.2.badge.gearshape.fill")
-            NativeWalletLine(title: "Pickup confidence", subtitle: quote.pickup, icon: "mappin.circle.fill")
-            NativeWalletLine(title: "Cancellation", subtitle: quote.cancellation, icon: "checkmark.shield.fill")
+    private var routeMapPreview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("Route preview", "Pickup and drop-off mapped for your transfer. The live route is confirmed at pickup.")
+            NativeValetRouteMapPreview(pickup: pickup, dropoff: dropoff, pickupCoordinate: pickupPlace?.coordinate, dropoffCoordinate: dropoffPlace?.coordinate, etaLabel: quote.eta, accent: accent)
         }
         .padding(16)
         .nativePanel()
     }
 
-    private var walletPanel: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            sectionHeader("Confirm airport ride", "Reservation details are sent through Bytspot Mobility. Payment stays inside certified checkout.")
-            NativeWalletLine(title: "Passenger booking", subtitle: "Trip, flight, luggage, and contact details are attached to the reservation.", icon: "person.text.rectangle.fill")
-            NativeWalletLine(title: "Driver side", subtitle: "Transport vendors can accept eligible airport transfer gigs through the driver/vendor app.", icon: "steeringwheel")
-            NativeWalletLine(title: "Saved after confirmation", subtitle: "Booking credentials appear in My Access.", icon: "wallet.pass.fill")
-        }
-        .padding(16)
-        .nativePanel()
-    }
-
-    private var statusPanel: some View {
+    private var fareBreakdownPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Airport transfer status", "Track confirmation, driver assignment, and pickup details from Bytspot.")
-            HStack(spacing: 8) {
-                valetMetric("Booking", confirmedRide?.id ?? quote.id, "number")
-                valetMetric("Driver", "Pending", "person.crop.circle.badge.clock")
-                valetMetric("Pickup", pickupTime, "timer")
+            Button(action: { nativeImpactLight(); withAnimation(.easeInOut(duration: 0.2)) { showFareBreakdown.toggle() } }) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Estimated fare breakdown").nativeTitle(16)
+                        Text("Final total is locked before a driver is dispatched.").nativeBody(size: 12.5)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: showFareBreakdown ? "chevron.up" : "chevron.down").font(.system(size: 13, weight: .black)).foregroundColor(accent)
+                }
             }
-            NativeWalletLine(title: "Vehicle", subtitle: "\(selectedService.title) preference · driver details appear after assignment.", icon: selectedService.systemImage)
-            NativeWalletLine(title: "Status", subtitle: state == .tracking ? "Tracking in Bytspot" : "Confirmed · matching driver/vendor", icon: "waveform.path.ecg")
+            .buttonStyle(.plain)
+            if showFareBreakdown {
+                VStack(spacing: 0) {
+                    ForEach(Array(quote.fareBreakdown.enumerated()), id: \.offset) { _, row in
+                        fareBreakdownRow(row.0, row.1, emphasized: false)
+                    }
+                    Rectangle().fill(NativePolish.softBorder).frame(height: 1).padding(.vertical, 7)
+                    fareBreakdownRow("Total fare", quote.price, emphasized: true)
+                }
+            }
         }
         .padding(16)
         .nativePanel()
+        .accessibilityIdentifier("native-valet-fare-breakdown")
+    }
+
+    private func fareBreakdownRow(_ label: String, _ value: String, emphasized: Bool) -> some View {
+        HStack {
+            Text(label).font(.system(size: emphasized ? 14 : 13, weight: emphasized ? .black : .semibold)).foregroundColor(emphasized ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            Spacer(minLength: 8)
+            Text(value).font(.system(size: emphasized ? 15 : 13.5, weight: .black)).foregroundColor(emphasized ? accent : NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var driverVendorAssigned: Bool {
+        confirmedRide?.normalizedDriverName != nil || confirmedRide?.normalizedPlateLabel != nil
+    }
+
+    private var driverVendorPanel: some View {
+        NativeValetDriverVendorCard(
+            assigned: driverVendorAssigned,
+            driverName: confirmedRide?.normalizedDriverName,
+            vehicleLine: confirmedRide?.normalizedVehicleLine ?? selectedService.title,
+            plateLabel: confirmedRide?.normalizedPlateLabel,
+            trackingURL: confirmedRide?.normalizedTrackingURL,
+            accent: accent
+        )
     }
 
     private var statusBanner: some View {
@@ -5021,18 +5790,6 @@ private struct NativeValetPremiumRideSheet: View {
             .clipShape(Capsule())
     }
 
-    private func valetMetric(_ label: String, _ value: String, _ icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(accent)
-            Text(value).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.64)
-            Text(label.uppercased()).font(.system(size: 9.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(NativeTheme.selectedControlSurface.opacity(0.64))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
     private var primaryTitle: String {
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Price & Drivers"
@@ -5046,7 +5803,6 @@ private struct NativeValetPremiumRideSheet: View {
     }
 
     private var showsQuote: Bool { [.quoteReady, .authorizing, .booking, .confirmed, .tracking].contains(state) }
-    private var showsWallet: Bool { [.quoteReady, .authorizing, .booking, .confirmed, .tracking].contains(state) }
     private var showsStatus: Bool { [.confirmed, .tracking].contains(state) }
 
     private func advance() {
@@ -5085,17 +5841,48 @@ private struct NativeValetPremiumRideSheet: View {
             state = .booking
             statusMessage = "Confirming airport transfer through Bytspot Mobility."
             let ride = try await mobilityAPI.createReservation(input: reservationInput())
-            confirmedRide = ride
-            NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: ride, quote: quote, pickup: pickup, dropoff: dropoff))
+            let displayRide = ride.withDirectPreviewDriverTemplateIfNeeded(service: selectedService)
+            confirmedRide = displayRide
+            NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: displayRide, quote: quote, pickup: pickup, dropoff: dropoff))
             state = .confirmed
             statusMessage = "Airport transfer confirmed. Details are saved in My Access."
         } catch {
-            let fallback = NativeMobilityRideRecord(id: "BYT-RIDE-\(Int(Date().timeIntervalSince1970))", quoteId: quote.id, provider: NativeValetElifeIntegrationContract.providerName, reservationReference: nil, status: "pending", serviceClass: selectedService.rawValue, serviceTitle: selectedService.title, priceLabel: quote.price, etaLabel: quote.eta, pickupLabel: pickup, dropoffLabel: dropoff, vehicleLabel: selectedService.title, driverLabel: "Assigned after dispatch", createdAt: ISO8601DateFormatter().string(from: Date()))
+            let fallback = fallbackReservationRecord()
             confirmedRide = fallback
             NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: fallback, quote: quote, pickup: pickup, dropoff: dropoff))
             state = .confirmed
             statusMessage = "Airport transfer draft saved in My Access until live booking is available."
         }
+    }
+
+    private func fallbackReservationRecord() -> NativeMobilityRideRecord {
+        #if DEBUG
+        let previewDriverTemplate = Self.autorunMode == "confirm"
+        #else
+        let previewDriverTemplate = false
+        #endif
+        return NativeMobilityRideRecord(
+            id: "BYT-RIDE-\(Int(Date().timeIntervalSince1970))",
+            quoteId: quote.id,
+            provider: NativeValetElifeIntegrationContract.providerName,
+            providerReservationId: previewDriverTemplate ? "ELF-PREVIEW-4821" : nil,
+            reservationReference: previewDriverTemplate ? "ELF-PREVIEW-4821" : nil,
+            status: previewDriverTemplate ? "confirmed" : "pending",
+            serviceClass: selectedService.rawValue,
+            serviceTitle: selectedService.title,
+            priceLabel: quote.price,
+            etaLabel: quote.eta,
+            pickupLabel: pickup,
+            dropoffLabel: dropoff,
+            vehicleLabel: previewDriverTemplate ? "Black Tesla Model Y" : selectedService.title,
+            driverLabel: previewDriverTemplate ? "Kwame Mensah" : "Assigned after dispatch",
+            driverName: previewDriverTemplate ? "Kwame Mensah" : nil,
+            vehiclePlate: previewDriverTemplate ? "ATL-4821" : nil,
+            vehicleMakeModel: previewDriverTemplate ? "Tesla Model Y" : selectedService.title,
+            vehicleColor: previewDriverTemplate ? "Black" : nil,
+            trackingUrl: previewDriverTemplate ? "https://bytspot.app/rides/ELF-PREVIEW-4821" : nil,
+            createdAt: ISO8601DateFormatter().string(from: Date())
+        )
     }
 
     private func quoteInput() -> [String: Any] {
@@ -5122,13 +5909,23 @@ private struct NativeValetPremiumRideSheet: View {
         input["priceLabel"] = quote.price
         input["etaLabel"] = quote.eta
         input["pickupLabel"] = quote.pickup
+        input["dropoffLabel"] = dropoff
         input["cancellationLabel"] = quote.cancellation
         input["source"] = "native-private-airport-transfer"
+        input["expectedResponseTemplate"] = [
+            "providerReservationId": "string?",
+            "status": "confirmed|driver_matching|assigned|en_route|arrived|completed|cancelled",
+            "driverName": "string?",
+            "vehicleMakeModel": "string?",
+            "vehicleColor": "string?",
+            "vehiclePlate": "string?",
+            "trackingUrl": "url?"
+        ]
         return input
     }
 
     private func runAutorunIfRequested() async {
-        guard !didRunAutorun, let mode = Self.autorunMode else { return }
+        guard !isCardDetailEntry, !didRunAutorun, let mode = Self.autorunMode else { return }
         didRunAutorun = true
         try? await Task.sleep(nanoseconds: 450_000_000)
         state = .quoting
@@ -5141,12 +5938,33 @@ private struct NativeValetPremiumRideSheet: View {
         }
     }
 
-    private static var autorunMode: String? {
+    fileprivate static var autorunMode: String? {
         #if DEBUG
         let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_VALET_AUTORUN"]?.lowercased()
         return ["quote", "confirm"].contains(raw ?? "") ? raw : nil
         #else
         return nil
+        #endif
+    }
+}
+
+private extension NativeMobilityRideRecord {
+    func withDirectPreviewDriverTemplateIfNeeded(service: NativeValetServiceClass) -> NativeMobilityRideRecord {
+        #if DEBUG
+        guard NativeValetPremiumRideSheet.autorunMode == "confirm", normalizedDriverName == nil, normalizedPlateLabel == nil else { return self }
+        var ride = self
+        ride.driverName = "Kwame Mensah"
+        ride.driverLabel = "Kwame Mensah"
+        ride.vehiclePlate = "ATL-4821"
+        ride.vehicleMakeModel = "Tesla Model Y"
+        ride.vehicleColor = "Black"
+        ride.vehicleLabel = ride.vehicleLabel ?? service.title
+        ride.providerReservationId = ride.providerReservationId ?? "ELF-PREVIEW-4821"
+        ride.reservationReference = ride.reservationReference ?? ride.providerReservationId
+        ride.trackingUrl = ride.trackingUrl ?? "https://bytspot.app/rides/ELF-PREVIEW-4821"
+        return ride
+        #else
+        return self
         #endif
     }
 }
@@ -5182,7 +6000,7 @@ private struct NativeValetLivePanel: View {
     @State private var pulse = false
     @State private var shimmer = false
 
-    private let steps = ["Price", "Drivers", "Confirm"]
+    static let steps = ["Price", "Drivers", "Confirm"]
     private enum StepState { case done, active, pending }
 
     var body: some View {
@@ -5203,9 +6021,9 @@ private struct NativeValetLivePanel: View {
             }
             shimmerTrack
             HStack(spacing: 8) {
-                ForEach(Array(steps.enumerated()), id: \.offset) { index, label in
+                ForEach(Array(Self.steps.enumerated()), id: \.offset) { index, label in
                     stepChip(label, index: index)
-                    if index < steps.count - 1 {
+                    if index < Self.steps.count - 1 {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textTertiary.opacity(0.6))
                     }
                 }
@@ -5254,6 +6072,198 @@ private struct NativeValetLivePanel: View {
         case .quoting: return index <= 1 ? .active : .pending
         case .authorizing, .booking: return index <= 1 ? .done : .active
         }
+    }
+}
+
+private struct NativeValetMapGrid: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let columns = 5
+        let rows = 4
+        for index in 1..<columns {
+            let x = rect.width * CGFloat(index) / CGFloat(columns)
+            path.move(to: CGPoint(x: x, y: 0))
+            path.addLine(to: CGPoint(x: x, y: rect.height))
+        }
+        for index in 1..<rows {
+            let y = rect.height * CGFloat(index) / CGFloat(rows)
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: rect.width, y: y))
+        }
+        return path
+    }
+}
+
+private struct NativeValetRouteLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let start = CGPoint(x: rect.width * 0.16, y: rect.height * 0.30)
+        let end = CGPoint(x: rect.width * 0.84, y: rect.height * 0.72)
+        let control1 = CGPoint(x: rect.width * 0.42, y: rect.height * 0.18)
+        let control2 = CGPoint(x: rect.width * 0.60, y: rect.height * 0.88)
+        path.move(to: start)
+        path.addCurve(to: end, control1: control1, control2: control2)
+        return path
+    }
+}
+
+private struct NativeValetRouteMapPreview: View {
+    static let identifier = "native-valet-route-map"
+    let pickup: String
+    let dropoff: String
+    var pickupCoordinate: CLLocationCoordinate2D? = nil
+    var dropoffCoordinate: CLLocationCoordinate2D? = nil
+    let etaLabel: String
+    let accent: Color
+
+    var body: some View {
+        content
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.22), lineWidth: 1))
+            .accessibilityIdentifier(Self.identifier)
+    }
+
+    @ViewBuilder private var content: some View {
+        if let pickupCoordinate, let dropoffCoordinate {
+            NativeValetMapView(pickup: pickupCoordinate, dropoff: dropoffCoordinate, accent: UIColor(accent))
+                .overlay(etaOverlay)
+        } else {
+            GeometryReader { geo in
+                ZStack {
+                    LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    NativeValetMapGrid().stroke(NativePolish.softBorder.opacity(0.45), lineWidth: 1)
+                    NativeValetRouteLine().stroke(LinearGradient(colors: [accent.opacity(0.45), accent], startPoint: .topLeading, endPoint: .bottomTrailing), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 6]))
+                    pin(icon: "smallcircle.filled.circle.fill", rx: 0.16, ry: 0.30, geo: geo)
+                    pin(icon: "mappin.circle.fill", rx: 0.84, ry: 0.72, geo: geo)
+                }
+                .overlay(etaOverlay)
+            }
+        }
+    }
+
+    private var etaOverlay: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 6) {
+                Image(systemName: "clock.fill").font(.system(size: 10, weight: .black))
+                Text("Est. ride · \(etaLabel)").font(.system(size: 10.5, weight: .black)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundColor(NativeTheme.textPrimary)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 26)
+            .background(.ultraThinMaterial)
+            .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
+            .clipShape(Capsule())
+            .padding(.bottom, 10)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func pin(icon: String, rx: CGFloat, ry: CGFloat, geo: GeometryProxy) -> some View {
+        ZStack {
+            Circle().fill(accent.opacity(0.18)).frame(width: 30, height: 30)
+            Image(systemName: icon).font(.system(size: 20, weight: .black)).foregroundColor(accent)
+        }
+        .position(x: geo.size.width * rx, y: geo.size.height * ry)
+    }
+}
+
+private struct NativeValetDriverVendorCard: View {
+    static let matchingTitle = "Matching a Bytspot vendor"
+    static let verifiedBadge = "Bytspot Verified Vendor"
+    static let dispatchTag = "Elife dispatch"
+    static let identifier = "native-valet-driver-vendor-card"
+
+    let assigned: Bool
+    let driverName: String?
+    let vehicleLine: String
+    let plateLabel: String?
+    let trackingURL: URL?
+    let accent: Color
+    @Environment(\.openURL) private var openURL
+    @State private var pulse = false
+
+    private var title: String {
+        if assigned, let name = driverName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        return assigned ? "Bytspot vendor" : Self.matchingTitle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 13) {
+                ZStack {
+                    if !assigned {
+                        Circle().fill(accent.opacity(0.16)).frame(width: 54, height: 54).scaleEffect(pulse ? 1.45 : 0.9).opacity(pulse ? 0 : 0.85)
+                    }
+                    Circle().fill(accent.opacity(0.18)).frame(width: 50, height: 50)
+                    Image(systemName: assigned ? "person.fill" : "person.crop.circle.dashed").font(.system(size: 21, weight: .black)).foregroundColor(accent)
+                }
+                .frame(width: 54, height: 54)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title).font(.system(size: 15.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.8)
+                    Text(vehicleLine).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8)
+                    HStack(spacing: 6) {
+                        badge(Self.verifiedBadge, icon: "checkmark.seal.fill")
+                        badge(Self.dispatchTag, icon: "globe.americas.fill")
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            if assigned, let plate = plateLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !plate.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "number.square.fill").font(.system(size: 12, weight: .black)).foregroundColor(accent)
+                    Text("Plate \(plate)").font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 11)
+                .frame(minHeight: 32)
+                .background(accent.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(accent.opacity(0.22), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            if assigned, let trackingURL {
+                Button(action: { openURL(trackingURL) }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "location.fill.viewfinder").font(.system(size: 12, weight: .black))
+                        Text("Track provider ride").font(.system(size: 12.5, weight: .black)).lineLimit(1).minimumScaleFactor(0.8)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black))
+                    }
+                    .foregroundColor(accent)
+                    .padding(.horizontal, 11)
+                    .frame(minHeight: 34)
+                    .background(accent.opacity(0.10))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(accent.opacity(0.24), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            if !assigned {
+                HStack(spacing: 8) {
+                    Image(systemName: "dot.radiowaves.up.forward").font(.system(size: 12, weight: .black)).foregroundColor(accent)
+                    Text("Notifying eligible drivers near your pickup…").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(16)
+        .nativePanel()
+        .accessibilityIdentifier(Self.identifier)
+        .onAppear { if !assigned { withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true } } }
+    }
+
+    private func badge(_ text: String, icon: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9, weight: .black))
+            Text(text).font(.system(size: 10, weight: .black)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .foregroundColor(accent)
+        .padding(.horizontal, 8)
+        .frame(minHeight: 22)
+        .background(accent.opacity(0.10))
+        .overlay(Capsule().stroke(accent.opacity(0.20), lineWidth: 1))
+        .clipShape(Capsule())
     }
 }
 
@@ -10901,6 +11911,22 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
         precondition(NativeValetElifeIntegrationContract.luxuryServiceClass.bytspotTier == .black && NativeValetElifeIntegrationContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
         precondition(NativeValetElifeIntegrationContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
+        precondition(NativeValetLivePanel.steps == ["Price", "Drivers", "Confirm"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Drivers → Confirm.")
+        precondition(NativeValetLivePanel.Phase.quoting.title == "Finding your price & drivers" && NativeValetLivePanel.Phase.authorizing.title == "Preparing your confirmation" && NativeValetLivePanel.Phase.booking.title == "Confirming your ride", "NativeDiscoverParitySelfTests: Valet live-state phase titles drifted.")
+        precondition(NativeValetQuoteHeadlineContract.quoteReadyEyebrow == "QUOTE READY" && NativeValetQuoteHeadlineContract.confirmedEyebrow == "CONFIRMED FARE", "NativeDiscoverParitySelfTests: Quote Ready / Confirmed headline eyebrows drifted.")
+        precondition(NativeValetQuoteHeadlineContract.focalFacts == ["Pickup", "Vehicle"], "NativeDiscoverParitySelfTests: Quote Ready focal facts (price hero + pickup + vehicle) drifted.")
+        let valetFareBreakdown = NativeValetQuote.preview(for: .businessSedan).fareBreakdown
+        precondition(valetFareBreakdown.count == 4 && valetFareBreakdown.first?.0 == "Base fare", "NativeDiscoverParitySelfTests: Valet fare breakdown must list four components starting with base fare.")
+        precondition(NativeValetDriverVendorCard.matchingTitle == "Matching a Bytspot vendor" && NativeValetDriverVendorCard.verifiedBadge == "Bytspot Verified Vendor", "NativeDiscoverParitySelfTests: Valet driver-vendor card copy drifted.")
+        precondition(NativeValetRouteMapPreview.identifier == "native-valet-route-map" && NativeValetDriverVendorCard.identifier == "native-valet-driver-vendor-card", "NativeDiscoverParitySelfTests: Valet polish accessibility identifiers drifted.")
+        precondition(NativeValetLocationPickerContract.useCurrentLocationTitle == "Use current location", "NativeDiscoverParitySelfTests: Valet location picker current-location action copy drifted.")
+        precondition(NativeValetLocationFieldKind.pickup.confirmTitle == "Use this pickup" && NativeValetLocationFieldKind.dropoff.confirmTitle == "Use this drop-off", "NativeDiscoverParitySelfTests: Valet location picker confirm titles drifted.")
+        precondition(NativeValetLocationFieldKind.pickup.searchPlaceholder == "Search pickup address or place" && NativeValetLocationFieldKind.dropoff.searchPlaceholder == "Search drop-off address or place", "NativeDiscoverParitySelfTests: Valet location search placeholders drifted.")
+        precondition(NativeValetLocationPickerContract.pickerIdentifier == "native-valet-location-picker" && NativeValetLocationFieldKind.pickup.fieldIdentifier == "native-valet-location-field-pickup" && NativeValetLocationFieldKind.dropoff.fieldIdentifier == "native-valet-location-field-dropoff", "NativeDiscoverParitySelfTests: Valet location picker accessibility identifiers drifted.")
+        let rideRoute = NativeRideHandoffRoute(pickupName: "Midtown Atlanta", dropoffName: "ATL Airport", pickupCoordinate: CLLocationCoordinate2D(latitude: 33.7833, longitude: -84.3831), dropoffCoordinate: CLLocationCoordinate2D(latitude: 33.6407, longitude: -84.4277))
+        let uberURL = NativeRideHandoff.previewURLString(.uber, route: rideRoute)
+        let lyftURL = NativeRideHandoff.previewURLString(.lyft, route: rideRoute)
+        precondition(uberURL.contains("action=setPickup") && uberURL.contains("dropoff") && lyftURL.contains("destination"), "NativeDiscoverParitySelfTests: Uber/Lyft handoff URLs must carry pickup/drop-off route coordinates.")
     }
 }
 #endif

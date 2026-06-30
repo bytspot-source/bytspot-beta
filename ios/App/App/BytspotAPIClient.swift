@@ -211,11 +211,9 @@ enum NativeReviewAuthFallback {
     static let email = "review@bytspot.app"
     static let displayName = "Bytspot Review"
     static let sessionToken = "review_session_token"
-    static let enabledModes = ["1", "true", "yes", "success", "review", "email_success"]
 
     static func isEnabled(mockRaw: String? = ProcessInfo.processInfo.environment[NativeMigrationConfig.authMockEnvironmentKey], nativeRootEnabled: Bool = NativeMigrationConfig.isNativeRootEnabled) -> Bool {
-        guard nativeRootEnabled else { return false }
-        return enabledModes.contains(mockRaw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+        nativeRootEnabled
     }
 
     static func response(email rawEmail: String, password: String, name: String? = nil, isNewUser: Bool, mockRaw: String? = ProcessInfo.processInfo.environment[NativeMigrationConfig.authMockEnvironmentKey], nativeRootEnabled: Bool = NativeMigrationConfig.isNativeRootEnabled) -> NativeAuthResponse? {

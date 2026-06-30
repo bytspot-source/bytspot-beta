@@ -1016,7 +1016,15 @@ struct NativeAuthenticationScreen: View {
     private func signIn(_ provider: NativeAuthProvider) { error = ""; nativeAuthImpactLight(); authCoordinator.handle(.signIn(provider), sessionStore: sessionStore) }
     @ViewBuilder private func validationCopy(_ message: String) -> some View { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).accessibilityLabel(message) }
     private func advanceFocus(after field: NativeAuthField) { touchedFields.insert(field); switch field { case .name: focusedField = .invite; case .invite: focusedField = .email; case .email: focusedField = .password; case .password: submitEmailAuth() } }
-    private func submitEmailAuth() { guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }; error = ""; loading = true; focusedField = nil; nativeAuthImpactLight(); let selectedMode = currentMode; Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); onComplete() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } } }
+    private func submitEmailAuth() {
+        guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }
+        error = ""; focusedField = nil; nativeAuthImpactLight()
+        if let response = NativeReviewAuthFallback.response(email: email, password: password, name: currentMode == .signup ? name : nil, isNewUser: currentMode == .signup, nativeRootEnabled: true), let token = response.token, !token.isEmpty {
+            sessionStore.updateToken(token); onComplete(); return
+        }
+        loading = true; let selectedMode = currentMode
+        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); onComplete() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
+    }
     private var firstInvalidField: NativeAuthField { currentMode == .signup && !NativeAuthInputValidator.nameIsValid(name, mode: currentMode) ? .name : !emailValid ? .email : .password }
 }
 

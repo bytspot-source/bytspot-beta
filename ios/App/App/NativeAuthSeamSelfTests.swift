@@ -160,6 +160,10 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthRouteContract.passwordRecoveryRoutes.contains("/#/forgot-password"), "NativeAuthSplashSelfTests: password recovery route guard missing.")
         precondition(NativeAuthDataAPI.signupInput(email: "  USER@Example.com ", password: "12345678", name: " Ada ", ref: " ab12 ")["ref"] as? String == "AB12", "NativeAuthSplashSelfTests: signup invite ref normalization drifted.")
         precondition(NativeAuthDataAPI.loginInput(email: "  user@example.com ", password: "pw")["email"] as? String == "user@example.com", "NativeAuthSplashSelfTests: login email trimming drifted.")
+        precondition(NativeReviewAuthFallback.isEnabled(mockRaw: "review", nativeRootEnabled: true), "NativeAuthSplashSelfTests: review auth fallback must be opt-in for walkthroughs.")
+        precondition(!NativeReviewAuthFallback.isEnabled(mockRaw: "review", nativeRootEnabled: false), "NativeAuthSplashSelfTests: review auth fallback must stay behind native root.")
+        precondition(NativeReviewAuthFallback.response(email: " review@bytspot.app ", password: "review", isNewUser: false, mockRaw: "review", nativeRootEnabled: true)?.token == NativeReviewAuthFallback.sessionToken, "NativeAuthSplashSelfTests: review login fallback token drifted.")
+        precondition(NativeReviewAuthFallback.response(email: "member@example.com", password: "review", isNewUser: false, mockRaw: "review", nativeRootEnabled: true) == nil, "NativeAuthSplashSelfTests: review login fallback must require the review account.")
     }
 
     private static func assertPreviewHooksAreDeterministic() {

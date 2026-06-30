@@ -319,6 +319,8 @@ struct BytspotNativeShellView: View {
     @State private var pendingDiscoverFilter: String?
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
+    @State private var showValetPreviewSheet = false
+    @State private var didOpenRootValetPreview = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
@@ -347,6 +349,12 @@ struct BytspotNativeShellView: View {
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
         let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_PROFILE"] ?? nativeLaunchArgument("byt-native-preview-profile"))?.lowercased()
         return raw == "1" || raw == "true"
+    }
+
+    private static var previewValetRequested: Bool {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return false }
+        let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_VALET_PREVIEW"] ?? nativeLaunchArgument("byt-native-valet-preview"))?.lowercased()
+        return ["1", "true", "yes"].contains(raw ?? "")
     }
 
     private var effectiveAppearance: NativeAppearanceMode {
@@ -397,6 +405,7 @@ struct BytspotNativeShellView: View {
             }
             runDirectProfilePanelSmokeIfRequested()
             runProfilePanelBridgeSmokeIfRequested()
+            openRootValetPreviewIfRequested()
         }
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }
@@ -432,6 +441,17 @@ struct BytspotNativeShellView: View {
             NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) })
             .preferredColorScheme(effectivePreferredColorScheme)
         }
+        .sheet(isPresented: $showValetPreviewSheet) {
+            NativeValetPremiumRideSheet(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) })
+                .preferredColorScheme(effectivePreferredColorScheme)
+        }
+    }
+
+    private func openRootValetPreviewIfRequested() {
+        guard !didOpenRootValetPreview, Self.previewValetRequested else { return }
+        didOpenRootValetPreview = true
+        selectedTab = .home
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { showValetPreviewSheet = true }
     }
 
     private func openHybrid(_ route: BytspotHybridRoute) {
@@ -3144,7 +3164,7 @@ private struct NativeValetRideWalletSection: View {
         Group {
             if let ride {
                 VStack(alignment: .leading, spacing: 9) {
-                    NativeWalletLine(title: "Valet Premium Ride", subtitle: "\(ride.serviceTitle) · \(ride.status.capitalized) · \(ride.eta)", icon: "car.side.fill")
+                    NativeWalletLine(title: "Private Airport Transfer", subtitle: "\(ride.serviceTitle) · \(ride.status.capitalized) · \(ride.eta)", icon: "airplane.departure")
                     HStack(spacing: 8) {
                         NativeAccessWalletMetric(title: "Ride", value: ride.tier)
                         NativeAccessWalletMetric(title: "Fare", value: ride.price)
@@ -3639,12 +3659,13 @@ private struct NativeHomeDashboardView: View {
     @State private var guestHomePendingIntent: NativePostAuthIntent? = nil
     @State private var didScheduleAuthenticatedLaunchPicksCollapse = false
     @State private var showValetRideSheet = false
+    @State private var didOpenValetPreview = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
         QuickActionSpec(id: "food", title: "Food", subtitle: "Pickup & dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
         QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: "Available tonight", icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
-        QuickActionSpec(id: "valet-ride", title: "Book Ride", subtitle: "Elife quotes", icon: "car.side.fill", color: NativeTheme.cyan, target: .rideHandoff),
+        QuickActionSpec(id: "valet-ride", title: "Airport Ride", subtitle: "Price + drivers", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
         QuickActionSpec(id: "parking", title: "Parking", subtitle: "Before you arrive", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
         QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for help", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
     ]
@@ -3682,7 +3703,7 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
-        .onAppear(perform: scheduleAuthenticatedLaunchPicksCollapseIfNeeded)
+        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested() }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
             NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
@@ -4127,7 +4148,7 @@ private struct NativeHomeDashboardView: View {
     static let valetRideServiceID = "service-valet-ride"
 
     static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
-        if card.id == Self.valetRideServiceID { return "Plan Ride" }
+        if card.id == Self.valetRideServiceID { return "Book Transfer" }
         if card.type == "boutique_apartment" { return "View Stay" }
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
@@ -4334,6 +4355,15 @@ private struct NativeHomeDashboardView: View {
         showValetRideSheet = true
     }
 
+    private func openValetPreviewIfRequested() {
+        #if DEBUG
+        guard !didOpenValetPreview, NativeMigrationConfig.isNativeRootEnabled else { return }
+        guard ["1", "true", "yes"].contains(ProcessInfo.processInfo.environment["BYT_NATIVE_VALET_PREVIEW"]?.lowercased() ?? "") else { return }
+        didOpenValetPreview = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showValetRideSheet = true }
+        #endif
+    }
+
     private func submitSearch() {
         nativeImpactLight()
         openNativeTab(.discover)
@@ -4486,7 +4516,7 @@ private struct NativeHomeHeroCard: View {
 }
 
 private enum NativeRideHandoff {
-    static let unavailableMessage = "Secure ride handoff unavailable. Concierge can help with your premium transfer."
+    static let unavailableMessage = "Airport ride booking is unavailable. Concierge can help arrange the transfer."
 
     @discardableResult
     @MainActor
@@ -4505,20 +4535,22 @@ private enum NativeValetRideState: Equatable {
 private enum NativeValetServiceClass: String, CaseIterable, Identifiable {
     case firstClass, businessSUV, businessSedan, airportTransfer, vanShuttle
     var id: String { rawValue }
-    var title: String { ["firstClass": "First Class", "businessSUV": "Business SUV", "businessSedan": "Business Sedan", "airportTransfer": "Airport Transfer", "vanShuttle": "Van / Shuttle"][rawValue] ?? rawValue }
+    var title: String { ["firstClass": "First Class", "businessSUV": "SUV", "businessSedan": "Sedan", "airportTransfer": "Airport Transfer", "vanShuttle": "Van / Shuttle"][rawValue] ?? rawValue }
     var subtitle: String {
         switch self {
-        case .firstClass: return "Luxury black-car tier · executive fleet"
-        case .businessSUV: return "Premium SUV · luggage friendly"
-        case .businessSedan: return "Premium sedan · efficient transfer"
-        case .airportTransfer: return "Flight-aware pickup support"
-        case .vanShuttle: return "Crew, event, or airport group"
+        case .firstClass: return "VIP or executive transfer preference."
+        case .businessSUV: return "Best for luggage, families, and small groups."
+        case .businessSedan: return "Best for 1–3 passengers with light bags."
+        case .airportTransfer: return "Scheduled airport transfer request."
+        case .vanShuttle: return "Best for crews, groups, and extra luggage."
         }
     }
     var systemImage: String { self == .airportTransfer ? "airplane.departure" : self == .vanShuttle ? "bus.fill" : self == .businessSUV ? "car.2.fill" : "car.side.fill" }
     var bytspotTier: BytspotTier { self == .firstClass ? .black : .platinum }
     var quoteLabel: String { self == .firstClass ? "$180–$240" : self == .businessSUV ? "$92–$128" : self == .businessSedan ? "$68–$96" : self == .airportTransfer ? "$110–$160" : "$140–$220" }
     var etaLabel: String { self == .firstClass ? "18–25 min" : self == .businessSUV ? "10–16 min" : self == .businessSedan ? "8–14 min" : self == .airportTransfer ? "Scheduled" : "Quote window" }
+    var fitLabel: String { self == .firstClass ? "1–3 riders" : self == .businessSUV ? "3–5 riders" : self == .businessSedan ? "1–3 riders" : self == .airportTransfer ? "Flight ready" : "5–12 riders" }
+    var promiseLabel: String { self == .vanShuttle ? "Group fit" : self == .airportTransfer ? "Flight ready" : self == .businessSUV ? "Bag friendly" : self == .firstClass ? "VIP" : "Recommended" }
 }
 
 private struct NativeValetQuote: Identifiable, Equatable {
@@ -4610,9 +4642,11 @@ private struct NativeValetPremiumRideSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var state: NativeValetRideState = .intro
-    @State private var selectedService: NativeValetServiceClass = .firstClass
-    @State private var pickup = "Current venue / Midtown"
-    @State private var dropoff = "ATL airport or destination"
+    @State private var selectedService: NativeValetServiceClass = .businessSedan
+    @State private var pickup = "Midtown Atlanta"
+    @State private var dropoff = "ATL Airport"
+    @State private var pickupTime = "Today 10:30 PM"
+    @State private var flightNumber = ""
     @State private var passengers = "1"
     @State private var luggage = "1"
     @State private var statusMessage = ""
@@ -4623,18 +4657,34 @@ private struct NativeValetPremiumRideSheet: View {
     private var quote: NativeValetQuote { liveQuote ?? .preview(for: selectedService) }
     private var mobilityAPI: NativeMobilityDataAPI { NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var accent: Color { NativeTheme.cyan }
+    private var vehicleOptions: [NativeValetServiceClass] { [.businessSedan, .businessSUV, .firstClass, .vanShuttle] }
+    private var readinessSubtitle: String {
+        if sessionStore.isAuthenticated { return "We'll send your trip details to Bytspot Mobility, check Elife pricing, and match eligible transport drivers." }
+        if sessionStore.isGuest { return "Guests can preview the booking flow. Sign in before a prepaid reservation." }
+        return "Enter your airport trip first. Price and driver matching happen before confirmation."
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 hero
-                readinessPanel
-                serviceSelector
-                routePanel
-                if showsQuote { quotePanel }
-                if showsWallet { walletPanel }
-                if showsStatus { statusPanel }
-                if !statusMessage.isEmpty { Text(statusMessage).nativeBody(size: 12, color: NativeTheme.cyan) }
+                if let phase = livePhase { NativeValetLivePanel(phase: phase, accent: accent) }
+                if showsStatus {
+                    statusPanel
+                    quoteHeadline
+                    fulfillmentPanel
+                    routeSummaryPanel
+                } else if showsQuote {
+                    quoteHeadline
+                    routeSummaryPanel
+                    fulfillmentPanel
+                    if showsWallet { walletPanel }
+                } else {
+                    routePanel
+                    serviceSelector
+                    readinessPanel
+                }
+                if !statusMessage.isEmpty { statusBanner }
                 primaryCTA
                 secondaryActions
             }
@@ -4647,46 +4697,92 @@ private struct NativeValetPremiumRideSheet: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                NativeIcon(symbol: "car.side.fill", color: accent)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 13) {
+                NativeIcon(symbol: "airplane.circle.fill", color: accent)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Valet Premium Ride").nativeTitle(24)
-                    Text("Live Elife-powered transfer quotes before you book.").nativeBody(size: 13.5)
+                    Text("Private Airport Transfer").nativeTitle(23)
+                    Text("Upfront price, real driver matching, and a confirmed pickup — booked in a few taps.").nativeBody(size: 13)
                 }
-                Spacer()
-                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                Spacer(minLength: 0)
+                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
                     .buttonStyle(.plain)
             }
-            HStack(spacing: 7) {
-                valetChip("API-first", icon: "bolt.fill")
-                valetChip("No SDK", icon: "shippingbox.fill")
-                valetChip(selectedService.bytspotTier.displayName, icon: "seal.fill")
+            marketplaceBadge
+        }
+        .padding(18)
+        .background(
+            ZStack {
+                LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [accent.opacity(0.18), .clear], startPoint: .topTrailing, endPoint: .center)
             }
-            Text(NativeValetElifeIntegrationContract.providerFooter).nativeBody(size: 11.5, color: NativeTheme.textTertiary)
+        )
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(accent.opacity(0.30), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+        .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
+    }
+
+    private var marketplaceBadge: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "steeringwheel").font(.system(size: 12, weight: .black)).foregroundColor(accent)
+            Text("Bytspot vendors").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Image(systemName: "arrow.left.arrow.right").font(.system(size: 9.5, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+            Image(systemName: "globe.americas.fill").font(.system(size: 12, weight: .black)).foregroundColor(accent)
+            Text("Elife network").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Spacer(minLength: 0)
+            HStack(spacing: 5) {
+                Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
+                Text("LIVE").font(.system(size: 9, weight: .black)).tracking(1).foregroundColor(NativeTheme.emerald)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(NativeTheme.selectedControlSurface.opacity(0.55))
+        .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(Capsule())
+    }
+
+    private var readinessPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("How it works", readinessSubtitle)
+            VStack(alignment: .leading, spacing: 0) {
+                readinessStep("Enter your trip", "Pickup, drop-off, time, riders, and luggage.", "mappin.and.ellipse")
+                readinessConnector
+                readinessStep("We price & match", "Bytspot checks Elife pricing and matches transport vendors.", "person.2.fill")
+                readinessConnector
+                readinessStep("Confirm & track", "Confirm the fare and follow driver assignment in My Access.", "checkmark.shield.fill")
+            }
         }
         .padding(16)
         .nativePanel()
     }
 
-    private var readinessPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Know before you go", "Price, pickup confidence, vehicle tier, and ride status stay visible in Bytspot.")
-            HStack(spacing: 8) {
-                valetMetric("ETA", quote.eta, "clock.fill")
-                valetMetric("Fare", quote.price, "creditcard.fill")
-                valetMetric("Tier", selectedService.bytspotTier.displayName, "seal.fill")
+    private func readinessStep(_ title: String, _ subtitle: String, _ icon: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle().fill(accent.opacity(0.14)).frame(width: 34, height: 34)
+                Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(accent)
             }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text(subtitle).nativeBody(size: 12).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .nativePanel()
+    }
+
+    private var readinessConnector: some View {
+        Rectangle().fill(NativePolish.softBorder).frame(width: 1.5, height: 14)
+            .padding(.leading, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var serviceSelector: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Choose service", "Luxury rides route to Bytspot Black; business transfers stay Platinum.")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(NativeValetServiceClass.allCases) { service in
+            sectionHeader("Vehicle preference", "Bytspot recommends a fit from passengers and luggage. You can still choose a preference.")
+            VStack(spacing: 10) {
+                ForEach(vehicleOptions) { service in
                     Button(action: { nativeImpactLight(); selectedService = service; liveQuote = nil; confirmedRide = nil; state = .serviceSelection }) { serviceOption(service) }
                         .buttonStyle(.plain)
                 }
@@ -4698,27 +4794,80 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var routePanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Trip details", "Keep it light for App Clip: pickup, drop-off, riders, luggage.")
+            sectionHeader("Trip details", "Tell us the airport route first. We'll check price and driver availability next.")
             NativeProfileFormField(title: "Pickup", placeholder: "Current venue / Midtown", text: $pickup, capitalization: .words)
             NativeProfileFormField(title: "Drop-off", placeholder: "ATL airport or destination", text: $dropoff, capitalization: .words)
+            NativeProfileFormField(title: "Pickup time", placeholder: "Today 10:30 PM", text: $pickupTime, capitalization: .words)
             HStack(spacing: 10) {
                 NativeProfileFormField(title: "Riders", placeholder: "1", text: $passengers, keyboard: .numberPad, capitalization: .never)
                 NativeProfileFormField(title: "Luggage", placeholder: "1", text: $luggage, keyboard: .numberPad, capitalization: .never)
             }
+            NativeProfileFormField(title: "Flight number", placeholder: "Optional e.g. DL1234", text: $flightNumber, capitalization: .characters)
         }
         .padding(16)
         .nativePanel()
     }
 
-    private var quotePanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(liveQuote == nil ? "Quote preview" : "Live quote ready", liveQuote == nil ? "Preview shown until the Bytspot Elife proxy responds." : "Returned through the Bytspot mobility API proxy.")
-            HStack(spacing: 8) {
-                valetMetric("Vehicle", quote.service.title, quote.service.systemImage)
-                valetMetric("Pickup", "High", "location.fill")
-                valetMetric("Cancel", "Before dispatch", "arrow.uturn.backward.circle.fill")
+    private var routeSummaryPanel: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            sectionHeader("Trip summary", "These are the details sent for airport transfer pricing and driver matching.")
+            NativeWalletLine(title: "Route", subtitle: "\(pickup) → \(dropoff)", icon: "arrow.triangle.turn.up.right.circle.fill")
+            NativeWalletLine(title: "Pickup", subtitle: "\(pickupTime) · \(passengers) rider(s) · \(luggage) bag(s)", icon: "clock.fill")
+            NativeWalletLine(title: "Flight", subtitle: flightNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No flight number added" : flightNumber, icon: "airplane.departure")
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var quoteHeadline: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(showsStatus ? "CONFIRMED FARE" : "QUOTE READY").font(.system(size: 10.5, weight: .black)).tracking(1.3).foregroundColor(accent)
+                Spacer()
+                HStack(spacing: 5) {
+                    Image(systemName: showsStatus ? "checkmark.seal.fill" : "lock.shield.fill").font(.system(size: 10.5, weight: .black))
+                    Text(showsStatus ? "Confirmed" : "No charge yet").font(.system(size: 10.5, weight: .black))
+                }
+                .foregroundColor(NativeTheme.emerald)
             }
-            NativeWalletLine(title: "Pickup marker", subtitle: quote.pickup, icon: "mappin.and.ellipse")
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(quote.price).font(.system(size: 36, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
+                Text("all-in fare").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+            }
+            HStack(spacing: 12) {
+                headlineFact("Pickup", pickupTime, "clock.fill")
+                Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 34)
+                headlineFact("Vehicle", quote.service.title, quote.service.systemImage)
+            }
+        }
+        .padding(18)
+        .background(
+            ZStack {
+                LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [accent.opacity(0.16), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+        )
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(accent.opacity(0.32), lineWidth: 1.5))
+        .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+        .shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8)
+    }
+
+    private func headlineFact(_ label: String, _ value: String, _ icon: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label.uppercased()).font(.system(size: 9, weight: .black)).tracking(0.8).foregroundColor(NativeTheme.textTertiary)
+                Text(value).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.7)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var fulfillmentPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Fulfillment & policy", "Bytspot transport vendors fulfill the ride over Elife's network. Your live driver is assigned after you confirm.")
+            NativeWalletLine(title: "Driver matching", subtitle: "Eligible Bytspot vendors accept the trip; Elife backs dispatch and global coverage.", icon: "person.2.badge.gearshape.fill")
+            NativeWalletLine(title: "Pickup confidence", subtitle: quote.pickup, icon: "mappin.circle.fill")
             NativeWalletLine(title: "Cancellation", subtitle: quote.cancellation, icon: "checkmark.shield.fill")
         }
         .padding(16)
@@ -4727,10 +4876,10 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var walletPanel: some View {
         VStack(alignment: .leading, spacing: 11) {
-            sectionHeader("Authorize in My Access", "Payment stays certified; no card numbers are collected in Bytspot fields.")
-            NativeWalletLine(title: "Ride authorization", subtitle: "Pending ride pass saves to My Access after confirmation.", icon: "wallet.pass.fill")
-            NativeWalletLine(title: "App Clip tier", subtitle: "\(selectedService.title) routes as \(selectedService.bytspotTier.displayName).", icon: "seal.fill")
-            NativeWalletLine(title: "Provider path", subtitle: NativeValetElifeIntegrationContract.appClipMode, icon: "network")
+            sectionHeader("Confirm airport ride", "Reservation details are sent through Bytspot Mobility. Payment stays inside certified checkout.")
+            NativeWalletLine(title: "Passenger booking", subtitle: "Trip, flight, luggage, and contact details are attached to the reservation.", icon: "person.text.rectangle.fill")
+            NativeWalletLine(title: "Driver side", subtitle: "Transport vendors can accept eligible airport transfer gigs through the driver/vendor app.", icon: "steeringwheel")
+            NativeWalletLine(title: "Saved after confirmation", subtitle: "Booking credentials appear in My Access.", icon: "wallet.pass.fill")
         }
         .padding(16)
         .nativePanel()
@@ -4738,24 +4887,55 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var statusPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Ride status", "Track the transfer without losing the Bytspot environment.")
+            sectionHeader("Airport transfer status", "Track confirmation, driver assignment, and pickup details from Bytspot.")
             HStack(spacing: 8) {
                 valetMetric("Booking", confirmedRide?.id ?? quote.id, "number")
-                valetMetric("ETA", quote.eta, "timer")
-                valetMetric("Valet", "Assigned soon", "person.crop.circle.badge.checkmark")
+                valetMetric("Driver", "Pending", "person.crop.circle.badge.clock")
+                valetMetric("Pickup", pickupTime, "timer")
             }
-            NativeWalletLine(title: "Vehicle marker", subtitle: "\(selectedService.title) · details appear after dispatch.", icon: selectedService.systemImage)
-            NativeWalletLine(title: "Status", subtitle: state == .tracking ? "Tracking in Bytspot" : "Confirmed · waiting for dispatch", icon: "waveform.path.ecg")
+            NativeWalletLine(title: "Vehicle", subtitle: "\(selectedService.title) preference · driver details appear after assignment.", icon: selectedService.systemImage)
+            NativeWalletLine(title: "Status", subtitle: state == .tracking ? "Tracking in Bytspot" : "Confirmed · matching driver/vendor", icon: "waveform.path.ecg")
         }
         .padding(16)
         .nativePanel()
     }
 
+    private var statusBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill").font(.system(size: 13, weight: .black)).foregroundColor(accent)
+            Text(statusMessage).nativeBody(size: 12, color: NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(accent.opacity(0.08))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(accent.opacity(0.20), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private var primaryCTA: some View {
-        Button(action: advance) { NativeCTA(title: primaryTitle, color: state == .quoting || state == .authorizing || state == .booking ? NativeProfileStyle.muted : accent, foreground: state == .quoting || state == .authorizing || state == .booking ? .white : NativeProfileStyle.onVibrant) }
-            .buttonStyle(.plain)
-            .disabled(state == .quoting || state == .authorizing || state == .booking)
-            .accessibilityIdentifier("native-valet-primary-cta")
+        Button(action: advance) {
+            HStack(spacing: 9) {
+                if isWorking {
+                    ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
+                } else if let icon = primaryIcon {
+                    Image(systemName: icon).font(.system(size: 15, weight: .black))
+                }
+                Text(primaryTitle).font(.system(size: 15.5, weight: .black))
+            }
+            .foregroundColor(isWorking ? .white : NativeProfileStyle.onVibrant)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 52)
+            .background {
+                if isWorking { NativeProfileStyle.muted }
+                else { LinearGradient(colors: [accent, accent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing) }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: accent.opacity(isWorking ? 0 : 0.22), radius: 12, x: 0, y: 7)
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .accessibilityIdentifier("native-valet-primary-cta")
     }
 
     private var secondaryActions: some View {
@@ -4767,19 +4947,50 @@ private struct NativeValetPremiumRideSheet: View {
         }
     }
 
+    private var isWorking: Bool { [.quoting, .authorizing, .booking].contains(state) }
+
+    private var livePhase: NativeValetLivePanel.Phase? {
+        switch state {
+        case .quoting: return .quoting
+        case .authorizing: return .authorizing
+        case .booking: return .booking
+        default: return nil
+        }
+    }
+
+    private var primaryIcon: String? {
+        switch state {
+        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "magnifyingglass"
+        case .quoteReady: return "checkmark.shield.fill"
+        case .confirmed: return "location.fill"
+        case .tracking: return "wallet.pass.fill"
+        default: return nil
+        }
+    }
+
     private func serviceOption(_ service: NativeValetServiceClass) -> some View {
         let selected = selectedService == service
-        return VStack(alignment: .leading, spacing: 7) {
-            Image(systemName: service.systemImage).font(.system(size: 18, weight: .black)).foregroundColor(accent)
-            Text(service.title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.78)
-            Text(service.subtitle).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            Text(service.bytspotTier.displayName.uppercased()).font(.system(size: 9.5, weight: .black)).foregroundColor(accent).tracking(1)
+        return HStack(alignment: .top, spacing: 12) {
+            NativeIcon(symbol: service.systemImage, color: accent)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(service.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.82)
+                    Spacer(minLength: 6)
+                    if selected { Image(systemName: "checkmark.seal.fill").font(.system(size: 15, weight: .black)).foregroundColor(accent) }
+                }
+                Text(service.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 7) {
+                    valetMiniChip(service.fitLabel)
+                    valetMiniChip(service.promiseLabel)
+                    valetMiniChip(service.bytspotTier.displayName)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(13)
         .background(selected ? accent.opacity(0.10) : NativeTheme.selectedControlSurface.opacity(0.64))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(selected ? accent.opacity(0.58) : NativePolish.softBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(selected ? accent.opacity(0.62) : NativePolish.softBorder, lineWidth: selected ? 1.5 : 1))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
@@ -4797,6 +5008,19 @@ private struct NativeValetPremiumRideSheet: View {
             .clipShape(Capsule())
     }
 
+    private func valetMiniChip(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .black))
+            .foregroundColor(accent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 24)
+            .background(accent.opacity(0.09))
+            .overlay(Capsule().stroke(accent.opacity(0.18), lineWidth: 1))
+            .clipShape(Capsule())
+    }
+
     private func valetMetric(_ label: String, _ value: String, _ icon: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(accent)
@@ -4811,11 +5035,11 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var primaryTitle: String {
         switch state {
-        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Get Live Quote"
-        case .quoting: return "Checking Elife Fleet…"
-        case .quoteReady: return "Authorize Ride"
-        case .authorizing: return "Authorizing…"
-        case .booking: return "Securing Ride…"
+        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Price & Drivers"
+        case .quoting: return "Finding Price & Drivers…"
+        case .quoteReady: return "Confirm Ride"
+        case .authorizing: return "Preparing Confirmation…"
+        case .booking: return "Confirming Ride…"
         case .confirmed: return "Track Ride"
         case .tracking: return "Open My Access"
         }
@@ -4829,10 +5053,10 @@ private struct NativeValetPremiumRideSheet: View {
         nativeImpactLight()
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled:
-            state = .quoting; statusMessage = "Checking live Elife fleet availability through Bytspot."
+            state = .quoting; statusMessage = "Sending trip details to Bytspot Mobility to check Elife price and driver availability."
             Task { await requestLiveQuote() }
         case .quoteReady:
-            state = .authorizing; statusMessage = "Preparing secure wallet authorization."
+            state = .authorizing; statusMessage = "Preparing reservation confirmation and My Access credentials."
             Task { await authorizeRide() }
         case .confirmed:
             state = .tracking; statusMessage = "Tracking is active in Bytspot."
@@ -4848,35 +5072,36 @@ private struct NativeValetPremiumRideSheet: View {
             let record = try await mobilityAPI.createQuote(input: quoteInput())
             liveQuote = NativeValetQuote(record: record, fallbackService: selectedService)
             state = .quoteReady
-            statusMessage = "Live quote ready. Review price, pickup, and tier before authorization."
+            statusMessage = "Price ready. Driver matching starts when you confirm the airport ride."
         } catch {
             liveQuote = .preview(for: selectedService)
             state = .quoteReady
-            statusMessage = "Preview quote shown until the Elife sandbox route is deployed."
+            statusMessage = "Review preview shown. Live Elife pricing will replace this when the backend route is ready."
         }
     }
 
     private func authorizeRide() async {
         do {
             state = .booking
-            statusMessage = "Securing your Elife reservation through Bytspot."
+            statusMessage = "Confirming airport transfer through Bytspot Mobility."
             let ride = try await mobilityAPI.createReservation(input: reservationInput())
             confirmedRide = ride
             NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: ride, quote: quote, pickup: pickup, dropoff: dropoff))
             state = .confirmed
-            statusMessage = "Ride confirmed. Details are saved in My Access."
+            statusMessage = "Airport transfer confirmed. Details are saved in My Access."
         } catch {
             let fallback = NativeMobilityRideRecord(id: "BYT-RIDE-\(Int(Date().timeIntervalSince1970))", quoteId: quote.id, provider: NativeValetElifeIntegrationContract.providerName, reservationReference: nil, status: "pending", serviceClass: selectedService.rawValue, serviceTitle: selectedService.title, priceLabel: quote.price, etaLabel: quote.eta, pickupLabel: pickup, dropoffLabel: dropoff, vehicleLabel: selectedService.title, driverLabel: "Assigned after dispatch", createdAt: ISO8601DateFormatter().string(from: Date()))
             confirmedRide = fallback
             NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: fallback, quote: quote, pickup: pickup, dropoff: dropoff))
             state = .confirmed
-            statusMessage = "Ride draft saved in My Access until live booking is available."
+            statusMessage = "Airport transfer draft saved in My Access until live booking is available."
         }
     }
 
     private func quoteInput() -> [String: Any] {
         [
             "provider": "elife",
+            "bookingType": "private_airport_transfer",
             "serviceClass": selectedService.rawValue,
             "serviceTitle": selectedService.title,
             "bytspotTier": selectedService.bytspotTier.rawValue,
@@ -4884,7 +5109,9 @@ private struct NativeValetPremiumRideSheet: View {
             "dropoff": dropoff,
             "passengers": Int(passengers) ?? 1,
             "luggage": Int(luggage) ?? 0,
+            "pickupTimeLabel": pickupTime,
             "pickupTime": ISO8601DateFormatter().string(from: Date()),
+            "flightNumber": flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             "appClipMode": NativeValetElifeIntegrationContract.appClipMode
         ]
     }
@@ -4896,7 +5123,7 @@ private struct NativeValetPremiumRideSheet: View {
         input["etaLabel"] = quote.eta
         input["pickupLabel"] = quote.pickup
         input["cancellationLabel"] = quote.cancellation
-        input["source"] = "native-valet-premium-ride"
+        input["source"] = "native-private-airport-transfer"
         return input
     }
 
@@ -4905,7 +5132,7 @@ private struct NativeValetPremiumRideSheet: View {
         didRunAutorun = true
         try? await Task.sleep(nanoseconds: 450_000_000)
         state = .quoting
-        statusMessage = "Checking live Elife fleet availability through Bytspot."
+        statusMessage = "Sending trip details to Bytspot Mobility to check Elife price and driver availability."
         await requestLiveQuote()
         if mode == "confirm" {
             state = .authorizing
@@ -4921,6 +5148,112 @@ private struct NativeValetPremiumRideSheet: View {
         #else
         return nil
         #endif
+    }
+}
+
+private struct NativeValetLivePanel: View {
+    enum Phase: Equatable {
+        case quoting, authorizing, booking
+        var icon: String {
+            switch self {
+            case .quoting: return "dot.radiowaves.left.and.right"
+            case .authorizing: return "lock.shield.fill"
+            case .booking: return "paperplane.fill"
+            }
+        }
+        var title: String {
+            switch self {
+            case .quoting: return "Finding your price & drivers"
+            case .authorizing: return "Preparing your confirmation"
+            case .booking: return "Confirming your ride"
+            }
+        }
+        var subtitle: String {
+            switch self {
+            case .quoting: return "Bytspot is checking Elife pricing and matching transport vendors near your pickup."
+            case .authorizing: return "Locking the fare and generating your My Access credentials."
+            case .booking: return "Dispatching to Bytspot vendors on the Elife network."
+            }
+        }
+    }
+
+    let phase: Phase
+    let accent: Color
+    @State private var pulse = false
+    @State private var shimmer = false
+
+    private let steps = ["Price", "Drivers", "Confirm"]
+    private enum StepState { case done, active, pending }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(accent.opacity(0.16)).frame(width: 54, height: 54)
+                        .scaleEffect(pulse ? 1.5 : 0.85).opacity(pulse ? 0 : 0.9)
+                    Circle().fill(accent.opacity(0.18)).frame(width: 50, height: 50)
+                    Image(systemName: phase.icon).font(.system(size: 20, weight: .black)).foregroundColor(accent)
+                }
+                .frame(width: 54, height: 54)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(phase.title).font(.system(size: 15.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text(phase.subtitle).nativeBody(size: 12).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            shimmerTrack
+            HStack(spacing: 8) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, label in
+                    stepChip(label, index: index)
+                    if index < steps.count - 1 {
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textTertiary.opacity(0.6))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(16)
+        .nativePanel()
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true }
+            withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) { shimmer = true }
+        }
+        .accessibilityIdentifier("native-valet-live-panel")
+    }
+
+    private var shimmerTrack: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(NativeTheme.selectedControlSurface.opacity(0.6))
+                Capsule().fill(LinearGradient(colors: [accent.opacity(0), accent, accent.opacity(0)], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: geo.size.width * 0.42)
+                    .offset(x: shimmer ? geo.size.width * 0.62 : -geo.size.width * 0.42)
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private func stepChip(_ label: String, index: Int) -> some View {
+        let st = stepState(index)
+        return HStack(spacing: 6) {
+            ZStack {
+                Circle().fill(st == .pending ? NativeTheme.selectedControlSurface.opacity(0.8) : accent.opacity(st == .active ? 0.24 : 0.16)).frame(width: 20, height: 20)
+                if st == .done {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .black)).foregroundColor(accent)
+                } else {
+                    Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(st == .active ? accent : NativeTheme.textTertiary)
+                }
+            }
+            Text(label).font(.system(size: 11, weight: .black)).foregroundColor(st == .pending ? NativeTheme.textTertiary : NativeTheme.textPrimary)
+        }
+        .opacity(st == .pending ? 0.55 : 1)
+    }
+
+    private func stepState(_ index: Int) -> StepState {
+        switch phase {
+        case .quoting: return index <= 1 ? .active : .pending
+        case .authorizing, .booking: return index <= 1 ? .done : .active
+        }
     }
 }
 
@@ -5338,7 +5671,7 @@ private struct NativeDiscoverView: View {
     }
 
     private static func isValetPremiumRide(_ venue: NativeVenueSummary) -> Bool {
-        venue.id == NativeHomeDashboardView.valetRideServiceID || venue.name.localizedCaseInsensitiveContains("Valet Premium Ride")
+        venue.id == NativeHomeDashboardView.valetRideServiceID || venue.name.localizedCaseInsensitiveContains("Private Airport Transfer") || venue.name.localizedCaseInsensitiveContains("Valet Premium Ride")
     }
 
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
@@ -5710,7 +6043,7 @@ private struct NativeDiscoverFeatureCard: View {
 
     private var availabilityCopy: String {
         if displayCategory == "Event Pass" { return "Pass ready · digital" }
-        if isValetPremiumRideCard { return "Quote before booking" }
+        if isValetPremiumRideCard { return "Price + drivers" }
         if card.type == "mobility" { return card.availability.isEmpty ? "Plan ride" : card.availability }
         if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Request availability" : card.availability }
         let status = NativeVenueHours.openStatus(category: discoverHoursCategory)
@@ -5738,7 +6071,7 @@ private struct NativeDiscoverFeatureCard: View {
     private var bodyContextLine: String {
         if card.type == "coffee" { return "\(cleanDistance) · Quick walk" }
         if card.type == "boutique_apartment" { return cleanDistance == "Nearby" ? "Location shown after booking" : cleanDistance }
-        if isValetPremiumRideCard { return "Elife · Black car · Airport" }
+        if isValetPremiumRideCard { return "Bytspot + Elife · Airport" }
         if card.type == "mobility" { return displayMeta.isEmpty ? "Ride planning" : displayMeta }
         if card.title.localizedCaseInsensitiveContains("Broni") { return "Atlanta area" }
         if card.title.localizedCaseInsensitiveContains("GH Akwaaba") { return "Matchday pass" }
@@ -10159,9 +10492,9 @@ enum NativeHomeParitySelfTests {
 
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
-        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Book Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
-        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Elife quotes", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
-        precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "car.side.fill", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
+        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Airport Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
+        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Price + drivers", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
+        precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "airplane.departure", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
         precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet/Elife flow, not hybrid web.")
         precondition(actions[4].target == .nativeTab(.map) && actions[5].target == .nativeTab(.concierge), "NativeHomeParitySelfTests: Parking/Concierge must route to their native tabs.")
@@ -10170,7 +10503,7 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Plan Ride", "NativeHomeParitySelfTests: Valet Premium Ride CTA must use native quote-first copy.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Book Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native ride booking flow.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
@@ -10544,15 +10877,15 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.categoryLabels == ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"], "NativeDiscoverParitySelfTests: native category labels drifted.")
         precondition(NativeDiscoverView.categoryLabels.joined(separator: " → ") == NativeDiscoverView.categoryRailRegressionOrderDescription, "NativeDiscoverParitySelfTests: native category rail order drifted.")
         precondition(NativeDiscoverView.debugCategoryRailFilterOrder() == NativeDiscoverView.categoryRailRegressionFilterOrder, "NativeDiscoverParitySelfTests: native category rail filter mapping drifted.")
-        precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Momentum", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Valet Premium Ride", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from React App.tsx.")
+        precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Momentum", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from React App.tsx.")
         precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "boutique_apartment", "dining", "nightlife", "parking", "entertainment", "fitness", "mobility", "mobility", "service", "service"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")
         let valetRideCard = NativeTabContentSnapshot.canonicalMobilityCards.first { $0.id == "service-valet-ride" }!
-        precondition(valetRideCard.cta == "Plan Ride" && valetRideCard.availability == "Quote before booking", "NativeDiscoverParitySelfTests: Valet Premium Ride must be quote-first, not direct provider-launch.")
-        precondition(valetRideCard.metadataLine == "Elife · Black car · Airport", "NativeDiscoverParitySelfTests: Valet Premium Ride metadata must preserve Elife-powered premium transfer copy.")
-        precondition(valetRideCard.features.contains("Luxury maps to Black"), "NativeDiscoverParitySelfTests: Valet Premium Ride must keep luxury mapped to the Black tier.")
-        precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.title) == ["Valet Premium Ride", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility fallback cards drifted.")
+        precondition(valetRideCard.cta == "Book Transfer" && valetRideCard.availability == "Price + drivers", "NativeDiscoverParitySelfTests: airport transfer must check price/drivers before confirmation.")
+        precondition(valetRideCard.metadataLine == "Bytspot + Elife · Airport", "NativeDiscoverParitySelfTests: airport transfer metadata must preserve Bytspot/Elife fulfillment copy.")
+        precondition(valetRideCard.features.contains("Bytspot vendor matching"), "NativeDiscoverParitySelfTests: airport transfer must preserve Bytspot transport vendor matching.")
+        precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.title) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility fallback cards drifted.")
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.categoryLabel) == ["Mobility", "Mobility"], "NativeDiscoverParitySelfTests: Mobility cards must use the top-level Mobility category.")
-        precondition(NativeTabContentSnapshot.specialDiscoverCards.map(\.title).prefix(2) == ["Valet Premium Ride", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility cards must stay first in the native special Discover merge.")
+        precondition(NativeTabContentSnapshot.specialDiscoverCards.map(\.title).prefix(2) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility cards must stay first in the native special Discover merge.")
         let coffeeCard = NativeDiscoverView.curatedCards.first(where: { $0.type == "coffee" })!
         let paidServiceCard = NativeDiscoverView.curatedCards.first(where: { $0.entryType == "paid" })!
         precondition(coffeeCard.cta == "Open details", "NativeDiscoverParitySelfTests: Coffee Discover card CTA must open the detail sheet.")

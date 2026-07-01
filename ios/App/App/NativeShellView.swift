@@ -548,7 +548,6 @@ struct BytspotNativeShellView: View {
         hybridRoute = nil
         contextualDestination = nil
         pendingProfilePanel = nil
-        UserDefaults.standard.removeObject(forKey: NativeDiscoverView.detailDefaultsKey)
         selectedTab = .home
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { if postAuthHomeHoldGeneration == holdGeneration { selectedTab = .home } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.72) { if postAuthHomeHoldGeneration == holdGeneration { selectedTab = .home } }
@@ -579,7 +578,6 @@ struct BytspotNativeShellView: View {
     }
 
     private func openDiscoverFilter(_ filter: String) {
-        UserDefaults.standard.removeObject(forKey: NativeDiscoverView.detailDefaultsKey)
         UserDefaults.standard.removeObject(forKey: NativeDiscoverView.filterDefaultsKey)
         UserDefaults.standard.synchronize()
         pendingDiscoverFilter = filter
@@ -1209,7 +1207,7 @@ private struct NativeProfilePanelSheet: View {
     private var summary: String {
         switch panel {
         case .reservations: return "Parking bookings, stay dates, and arrival details stay organized here."
-        case .access: return "Verified patches, passes, and saved service requests are grouped in My Access."
+        case .access: return "Active parking reservations and valet ride receipts appear here when created."
         case .rewards: return "Membership progress, points, and badges help unlock better Bytspot perks."
         case .personalInformation: return "Manage profile details for this account. Guest changes stay on this iPhone."
         case .vehicles: return "Add vehicles for parking, valet, and smoother arrivals."
@@ -1235,7 +1233,7 @@ private struct NativeProfilePanelSheet: View {
         case .reservations:
             return [("Parking bookings", "0 active bookings are ready for arrival.", "car.fill"), ("Arrival windows", "Start time, end time, and stay dates will appear here.", "clock.fill"), ("Arrival-ready", "Parking, stays, and access remain easy to review.", "rectangle.stack.badge.person.crop.fill")]
         case .access:
-            return [("Verified patches", "Bytspot links, NFC taps, and QR access collect here.", "key.radiowaves.forward.fill"), ("Digital passes", "Venue and event access stay grouped by verified source.", "ticket.fill"), ("Service requests", "Saved patch requests stay visible for easy review.", "sparkles")]
+            return []
         case .rewards:
             return [("Bronze rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Parker progress", "Booking milestones unlock parking perks.", "chart.line.uptrend.xyaxis")]
         case .personalInformation:
@@ -1245,7 +1243,7 @@ private struct NativeProfilePanelSheet: View {
         case .paymentMethods:
             return [("Wallet status", "0 payment methods are attached to this account.", "creditcard.fill"), ("Secure setup", "Payment authorization starts only when you begin checkout.", "lock.shield.fill"), ("Protected details", "Card entry uses a secure payment sheet, not Profile text fields.", "checkmark.shield.fill")]
         case .savedSpots:
-            return [("Favorites", "Saved venues and parking zones will appear here.", "heart.fill"), ("Smart parking", "Favorites can inform nearby recommendations.", "parkingsign.circle.fill"), ("Easy access", "Saved spots stay available from Profile.", "checkmark.shield.fill")]
+            return [("Favorites", "Favorite places and parking zones will appear here.", "heart.fill"), ("Smart parking", "Favorites can inform nearby recommendations.", "parkingsign.circle.fill"), ("Easy access", "Saved spots stay available from Profile.", "checkmark.shield.fill")]
         case .placesVisited:
             return [("Timeline", "Recent check-ins and visits will be grouped by date.", "clock.fill"), ("Crowd memory", "Visited places can tune future recommendations.", "person.wave.2.fill"), ("Activity history", "Your recent places stay available from Profile.", "checkmark.shield.fill")]
         case .friends:
@@ -3227,8 +3225,6 @@ private struct NativeAccessWalletPreview: View {
     let openAccessPanel: () -> Void
     @EnvironmentObject private var sessionStore: BytspotSessionStore
 
-    static let walletCardTitles = ["Verified patches", "Service requests", "Digital passes"]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(spacing: 12) {
@@ -3239,17 +3235,8 @@ private struct NativeAccessWalletPreview: View {
                 }
                 Spacer()
             }
-            NativeAccessScannerPreview(openAccessPanel: openAccessPanel)
             NativeParkingReservationWalletSection()
             NativeValetRideWalletSection()
-            NativeWalletLine(title: "Patch keys", subtitle: "Bytspot links, QR scans, and tap-to-unlock access live here.", icon: "key.radiowaves.forward.fill")
-            NativeWalletLine(title: "Tickets & reservations", subtitle: "Booking confirmations stay in My Access.", icon: "ticket.fill")
-            NativeWalletLine(title: "Saved venues", subtitle: "Saved parking, services, and passes stay reachable from Account Center.", icon: "mappin.and.ellipse")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(Self.walletCardTitles, id: \.self) { title in
-                    NativeAccessWalletMetric(title: title, value: walletValue(for: title))
-                }
-            }
             Button(action: openAccessPanel) {
                 NativeCTA(title: "Open My Access", color: NativeTheme.emerald, foreground: .black)
             }
@@ -3262,116 +3249,6 @@ private struct NativeAccessWalletPreview: View {
         if sessionStore.isAuthenticated { return "Access, passes, and reservations are ready to use." }
         if sessionStore.isGuest { return "Guest mode keeps wallet actions on this iPhone." }
         return "Sign in or continue as guest to review saved access."
-    }
-
-    private func walletValue(for title: String) -> String {
-        switch title {
-        case "Verified patches": return sessionStore.isAuthenticated ? "Ready" : "Guest"
-        case "Service requests": return "Saved"
-        default: return "Ready"
-        }
-    }
-}
-
-private struct NativeAccessScannerPreview: View {
-    let openAccessPanel: () -> Void
-    @State private var selectedMethod = scannerMethods[0]
-    @State private var state = scannerStates[0]
-
-    static let scannerMethods = ["Auto", "NFC", "QR"]
-    static let scannerStates = ["Idle", "Scanning", "Verified", "Manual"]
-    static let scannerCapabilities = ["Tap access", "QR scan", "App Clip", "Access history"]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 11) {
-                ZStack {
-                    NativeTheme.brandGradient()
-                    Image(systemName: "wave.3.right.circle.fill").font(.system(size: 24, weight: .black)).foregroundColor(.white)
-                }
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Virtual Patch Scanner").nativeTitle(17)
-                    Text(scannerStatusCopy).nativeBody(size: 12)
-                }
-                Spacer()
-                Text(state.uppercased())
-                    .font(.system(size: 9.5, weight: .black))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(stateColor)
-                    .clipShape(Capsule())
-            }
-            HStack(spacing: 7) {
-                ForEach(Self.scannerMethods, id: \.self) { method in
-                    Button(action: { selectedMethod = method; state = "Idle"; nativeImpactLight() }) {
-                        Text(method)
-                            .font(.system(size: 11, weight: .black))
-                            .foregroundColor(selectedMethod == method ? .black : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(selectedMethod == method ? NativeTheme.cyan : Color.white.opacity(0.09))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            HStack(spacing: 7) {
-                ForEach(Self.scannerCapabilities, id: \.self) { label in
-                    Text(label).font(.system(size: 9.5, weight: .black)).foregroundColor(.white.opacity(0.82)).padding(.horizontal, 7).padding(.vertical, 5).background(Color.black.opacity(0.22)).clipShape(Capsule())
-                }
-            }
-            HStack(spacing: 9) {
-                Button(action: advanceState) { NativeCTA(title: primaryActionTitle, color: NativeTheme.cyan, foreground: .black) }
-                Button(action: openAccessPanel) { NativeCTA(title: "My Access", color: Color.white.opacity(0.10), foreground: .white) }
-            }
-        }
-        .padding(13)
-        .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.12), NativeTheme.cyan.opacity(0.07), Color.black.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativeTheme.emerald.opacity(0.18), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .accessibilityIdentifier("native-access-scanner-preview")
-    }
-
-    private var scannerStatusCopy: String {
-        switch state {
-        case "Scanning": return "Hold near a Bytspot patch or scan a QR code."
-        case "Verified": return "You're verified. Continue to My Access for passes and reservations."
-        case "Manual": return "Use My Access if scanning is not available on this device."
-        default: return "Choose Auto, NFC, or QR to check access."
-        }
-    }
-
-    private var stateColor: Color {
-        switch state {
-        case "Scanning": return NativeTheme.cyan
-        case "Verified": return NativeTheme.emerald
-        case "Manual": return NativeTheme.orange
-        default: return Color.white.opacity(0.82)
-        }
-    }
-
-    private var primaryActionTitle: String {
-        switch state {
-        case "Idle": return "Start Scan"
-        case "Scanning": return "Verify Access"
-        case "Verified": return "Scan Again"
-        default: return "Retry"
-        }
-    }
-
-    private func advanceState() {
-        nativeImpactLight()
-        withAnimation(.easeInOut(duration: 0.18)) {
-            switch state {
-            case "Idle": state = "Scanning"
-            case "Scanning": state = "Verified"
-            case "Verified": state = "Idle"
-            default: state = "Idle"
-            }
-        }
     }
 }
 
@@ -4854,12 +4731,414 @@ private enum NativeParkingReservationStore {
     }
 }
 
+private struct NativeStayRequestRecord: Codable, Equatable, Identifiable {
+    let id: String
+    let requestCode: String
+    let venueID: String
+    let venueName: String
+    let address: String
+    let arrivalLabel: String
+    let nightsLabel: String
+    let termsLabel: String
+    let createdAt: String
+    let status: String
+
+    var summaryLine: String { "\(arrivalLabel) · \(nightsLabel) · \(termsLabel)" }
+    var conciergePrompt: String { "Check dates for \(venueName): arrival \(arrivalLabel), length \(nightsLabel), rule review \(termsLabel). No booking or charge yet. Request code \(requestCode)." }
+
+    static func pending(venue: NativeVenueSummary, arrivalLabel: String, nightsLabel: String, termsLabel: String) -> Self {
+        let now = Date()
+        let code = "BYS\(Int(now.timeIntervalSince1970) % 1_000_000)"
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        return Self(id: "stay-\(Int(now.timeIntervalSince1970))", requestCode: code, venueID: venue.id, venueName: venue.name, address: venue.address, arrivalLabel: arrivalLabel, nightsLabel: nightsLabel, termsLabel: termsLabel, createdAt: timestamp, status: "pending availability")
+    }
+}
+
+private enum NativeStayRequestStore {
+    static let storageKey = "bytspot_native_stay_requests"
+    static let maxRecords = 12
+
+    static func all() -> [NativeStayRequestRecord] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let records = try? JSONDecoder().decode([NativeStayRequestRecord].self, from: data) else { return [] }
+        return records.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    static func latest() -> NativeStayRequestRecord? { all().first }
+
+    static func upsert(_ record: NativeStayRequestRecord) {
+        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
+        if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
+    }
+}
+
+private enum NativeConciergeHandoffStore {
+    static let promptKey = "bytspot_native_concierge_handoff_prompt"
+    static let sourceKey = "bytspot_native_concierge_handoff_source"
+
+    static func store(prompt: String, source: String) {
+        UserDefaults.standard.set(prompt, forKey: promptKey)
+        UserDefaults.standard.set(source, forKey: sourceKey)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: promptKey)
+        UserDefaults.standard.removeObject(forKey: sourceKey)
+    }
+}
+
 private enum NativeParkingBookingContract {
     static let title = "Reserve Parking Space"
     static let confirmedTitle = "Space Reserved"
     static let primaryCTA = "Pay & Reserve"
     static let storageKey = NativeParkingReservationStore.storageKey
     static let paymentMethods = ["Apple Pay", "Card •••• 4242"]
+}
+
+private enum NativeBoutiqueStayBookingContract {
+    static let title = "Check Dates"
+    static let readyTitle = "Request Sent"
+    static let primaryCTA = "Send Availability Request"
+    static let conciergeCTA = "Open Concierge"
+    static let storageKey = NativeStayRequestStore.storageKey
+    static let accessibilityID = "native-boutique-stay-booking-sheet"
+    static let dateSelectorID = "native-boutique-stay-date-selector"
+    static let liveStatusID = "native-boutique-stay-live-status"
+    static let nightOptions = ["1 night", "2 nights", "3 nights", "1 week"]
+    static let arrivalOptions = ["Tonight", "Tomorrow", "This weekend", "Choose dates"]
+    static let termOptions = ["Standard cancellation", "Flexible check-in requested", "Host approval required"]
+}
+
+private struct NativeBoutiqueStayBookingSheet: View {
+    let venue: NativeVenueSummary
+    let onContinueConcierge: (NativeStayRequestRecord) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedArrival = NativeBoutiqueStayBookingContract.arrivalOptions[0]
+    @State private var selectedCalendarDate = Date()
+    @State private var showsArrivalCalendar = false
+    @State private var selectedNights = NativeBoutiqueStayBookingContract.nightOptions[1]
+    @State private var selectedTerms = NativeBoutiqueStayBookingContract.termOptions[0]
+    @State private var pendingRequest: NativeStayRequestRecord?
+    @State private var submitted = false
+    @State private var statusLine = "Ready to send"
+
+    private let accent = NativeTheme.purple
+    private var horizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
+    private var arrivalPickerSelection: String { showsArrivalCalendar || !NativeBoutiqueStayBookingContract.arrivalOptions.contains(selectedArrival) ? "Choose dates" : selectedArrival }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                if submitted {
+                    confirmationHeader
+                    readyPanel
+                } else {
+                    bookingHeader
+                    liveStatusPanel
+                    stayTermsPanel
+                    termsPanel
+                    requestButton
+                }
+                secondaryActions
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.top, 14)
+            .padding(.bottom, 32)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier(NativeBoutiqueStayBookingContract.accessibilityID)
+    }
+
+    private var bookingHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 22, weight: .black))
+                .foregroundColor(NativeProfileStyle.onVibrant)
+                .frame(width: 48, height: 48)
+                .background(accent)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(NativeBoutiqueStayBookingContract.title).font(.system(size: 23, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.82)
+                Text(venue.name).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.82)
+                Text("Verify dates, total price, rules, and entry before any payment.").nativeBody(size: 12.5).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(Color.white.opacity(0.12)).background(.ultraThinMaterial).clipShape(Circle()) }
+                .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: NativeTheme.panelShadow, radius: 14, x: 0, y: 7)
+    }
+
+    private var confirmationHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "paperplane.circle.fill")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundColor(.black)
+                    .frame(width: 52, height: 52)
+                    .background(NativeTheme.cyan)
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Request received").font(.system(size: 24, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.82)
+                    Text("Concierge will verify the stay before any booking or payment.").nativeBody(size: 13).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(Color.white.opacity(0.12)).background(.ultraThinMaterial).clipShape(Circle()) }
+                    .buttonStyle(.plain)
+            }
+            HStack(spacing: 8) {
+                confirmationStep("1", "Sent", true)
+                confirmationStep("2", "Verify", false)
+                confirmationStep("3", "Confirm", false)
+            }
+        }
+        .padding(16)
+        .nativeGlassPanel(cornerRadius: 26, tint: NativeTheme.cyan, opacity: 0.08)
+    }
+
+    private var liveStatusPanel: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: submitted ? "paperplane.circle.fill" : "checkmark.shield.fill")
+                .font(.system(size: 16, weight: .black))
+                .foregroundColor(submitted ? NativeTheme.cyan : accent)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.10))
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(submitted ? "Sent to Concierge" : statusLine).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.82)
+                Text(submitted ? "No booking or charge yet." : "\(selectedArrival) · \(selectedNights) · \(selectedTerms)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2).minimumScaleFactor(0.78)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.24), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier(NativeBoutiqueStayBookingContract.liveStatusID)
+    }
+
+    private var stayTermsPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeader("Stay plan", "Choose the arrival window and length to verify.")
+            pickerGrid(title: "Arrival", options: NativeBoutiqueStayBookingContract.arrivalOptions, selected: arrivalPickerSelection) { selectArrival($0) }
+            if showsArrivalCalendar { arrivalCalendar }
+            pickerGrid(title: "Length", options: NativeBoutiqueStayBookingContract.nightOptions, selected: selectedNights) { selectNights($0) }
+        }
+        .padding(16)
+        .nativeGlassPanel(cornerRadius: NativePolish.cardRadius, tint: accent, opacity: 0.07)
+        .accessibilityIdentifier(NativeBoutiqueStayBookingContract.dateSelectorID)
+    }
+
+    private var termsPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeader("What Concierge verifies", "These must be confirmed before this becomes a booking.")
+            pickerGrid(title: "Rule to prioritize", options: NativeBoutiqueStayBookingContract.termOptions, selected: selectedTerms) { selectTerms($0) }
+            stayVerificationRow("Availability", "Host confirms the suite is open for \(selectedArrival.lowercased()).", "calendar.badge.checkmark")
+            stayVerificationRow("Final total", "Nightly rate, taxes, fees, and deposit are checked before payment.", "creditcard.fill")
+            stayVerificationRow("Entry", "Check-in instructions and access method are verified before arrival.", "key.fill")
+        }
+        .padding(16)
+        .nativeGlassPanel(cornerRadius: NativePolish.cardRadius, tint: accent, opacity: 0.07)
+    }
+
+    private var readyPanel: some View {
+        let request = pendingRequest ?? NativeStayRequestRecord.pending(venue: venue, arrivalLabel: selectedArrival, nightsLabel: selectedNights, termsLabel: selectedTerms)
+        return VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Stay request").nativeTitle(17)
+                    Text(request.status.capitalized).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+                }
+                Spacer(minLength: 8)
+                Text(request.requestCode).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 9).frame(height: 26).background(NativeTheme.cyan).clipShape(Capsule())
+            }
+            VStack(spacing: 8) {
+                confirmationReceiptRow("Property", request.venueName, "house.lodge.fill")
+                confirmationReceiptRow("Stay", "\(request.arrivalLabel) · \(request.nightsLabel)", "calendar.badge.clock")
+                confirmationReceiptRow("Priority", request.termsLabel, "doc.text.fill")
+                confirmationReceiptRow("Payment", "No charge · not booked", "creditcard.trianglebadge.exclamationmark.fill")
+            }
+            Text("Next: Concierge verifies availability, final total, cancellation policy, and entry details. You confirm only after those terms are ready.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Button(action: continueWithConcierge) { NativeCTA(title: NativeBoutiqueStayBookingContract.conciergeCTA, color: accent, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+        }
+        .padding(16)
+        .nativeGlassPanel(cornerRadius: NativePolish.cardRadius, tint: accent, opacity: 0.07)
+    }
+
+    private var requestButton: some View {
+        Button(action: createPendingRequest) {
+            HStack(spacing: 9) {
+                Image(systemName: "paperplane.fill").font(.system(size: 14, weight: .black))
+                Text(NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
+                Spacer(minLength: 0)
+                Text("$0 NOW").font(.system(size: 10, weight: .black, design: .monospaced)).tracking(1).padding(.horizontal, 8).frame(height: 23).background(Color.black.opacity(0.18)).clipShape(Capsule())
+            }
+            .foregroundColor(NativeProfileStyle.onVibrant)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: NativePolish.controlSize)
+            .background(LinearGradient(colors: [accent, accent.opacity(0.78)], startPoint: .leading, endPoint: .trailing))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.18), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: accent.opacity(0.24), radius: 12, x: 0, y: 7)
+        }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-boutique-stay-request-availability")
+    }
+
+    private var secondaryActions: some View {
+        HStack(spacing: 10) {
+            Button(action: { dismiss() }) { NativeCTA(title: submitted ? "Done" : "Cancel", color: Color.white.opacity(0.12), foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+        }
+    }
+
+    private var arrivalCalendar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "calendar").font(.system(size: 13, weight: .black)).foregroundColor(accent)
+                Text("Select arrival date").font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Spacer(minLength: 0)
+                Text(formattedArrivalDate(selectedCalendarDate)).font(.system(size: 11.5, weight: .black)).foregroundColor(.black).padding(.horizontal, 8).frame(height: 24).background(NativeTheme.cyan).clipShape(Capsule())
+            }
+            DatePicker("Arrival date", selection: $selectedCalendarDate, in: Date()..., displayedComponents: [.date])
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .tint(accent)
+                .onChange(of: selectedCalendarDate) { newDate in selectCalendarArrival(newDate) }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.22), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier("native-boutique-stay-arrival-calendar")
+    }
+
+    private func selectArrival(_ value: String) {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            if value == "Choose dates" {
+                showsArrivalCalendar = true
+                selectedArrival = formattedArrivalDate(selectedCalendarDate)
+            } else {
+                showsArrivalCalendar = false
+                selectedArrival = value
+            }
+            statusLine = "Arrival: \(selectedArrival)"
+        }
+    }
+
+    private func selectCalendarArrival(_ date: Date) {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            selectedArrival = formattedArrivalDate(date)
+            statusLine = "Arrival: \(selectedArrival)"
+        }
+    }
+
+    private func selectNights(_ value: String) { withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { selectedNights = value; statusLine = "Length: \(value)" } }
+    private func selectTerms(_ value: String) { withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { selectedTerms = value; statusLine = "Priority: \(value)" } }
+
+    private func formattedArrivalDate(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    private func createPendingRequest() {
+        nativeImpactLight()
+        let request = NativeStayRequestRecord.pending(venue: venue, arrivalLabel: selectedArrival, nightsLabel: selectedNights, termsLabel: selectedTerms)
+        NativeStayRequestStore.upsert(request)
+        pendingRequest = request
+        statusLine = "Request sent · no booking or charge"
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { submitted = true }
+    }
+
+    private func continueWithConcierge() {
+        nativeImpactLight()
+        let request = pendingRequest ?? NativeStayRequestRecord.pending(venue: venue, arrivalLabel: selectedArrival, nightsLabel: selectedNights, termsLabel: selectedTerms)
+        NativeStayRequestStore.upsert(request)
+        pendingRequest = request
+        onContinueConcierge(request)
+    }
+
+    private func pickerGrid(title: String, options: [String], selected: String, onSelect: @escaping (String) -> Void) -> some View {
+        let minWidth: CGFloat = title.localizedCaseInsensitiveContains("Rule") ? 168 : 132
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(.system(size: 10.5, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.textTertiary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth), spacing: 8)], spacing: 8) {
+                ForEach(options, id: \.self) { option in
+                    Button(action: { nativeImpactLight(); onSelect(option) }) {
+                        HStack(spacing: 6) {
+                            if selected == option { Image(systemName: "checkmark.circle.fill").font(.system(size: 12, weight: .black)) }
+                            Text(option).font(.system(size: 13, weight: .black)).lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.82)
+                        }
+                        .foregroundColor(selected == option ? NativeProfileStyle.onVibrant : NativeTheme.textPrimary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .background {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(selected == option ? accent.opacity(0.78) : Color.white.opacity(0.09))
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(selected == option ? accent.opacity(0.95) : Color.white.opacity(0.14), lineWidth: selected == option ? 1.4 : 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-boutique-stay-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))-\(option.lowercased().replacingOccurrences(of: " ", with: "-"))")
+                }
+            }
+        }
+    }
+
+    private func stayVerificationRow(_ title: String, _ subtitle: String, _ icon: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(accent).frame(width: 28, height: 28).background(accent.opacity(0.12)).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) { Text(title).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+        }
+        .padding(11)
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func confirmationStep(_ number: String, _ title: String, _ active: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(active ? "✓" : number).font(.system(size: 10.5, weight: .black))
+            Text(title).font(.system(size: 11.5, weight: .black)).lineLimit(1)
+        }
+        .foregroundColor(active ? .black : NativeTheme.textPrimary)
+        .frame(maxWidth: .infinity)
+        .frame(height: 30)
+        .background(active ? NativeTheme.cyan : Color.white.opacity(0.10))
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+
+    private func confirmationReceiptRow(_ title: String, _ value: String, _ icon: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 28, height: 28).background(NativeTheme.cyan.opacity(0.12)).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).textCase(.uppercase)
+                Text(value).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(11)
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) { Text(title).nativeTitle(16); Text(subtitle).nativeBody(size: 12.5) }
+    }
 }
 
 private enum NativeParkingQRCodeRenderer {
@@ -5190,7 +5469,7 @@ final class NativeValetLocationProvider: NSObject, ObservableObject, CLLocationM
     private var isSuppressed: Bool {
         let environment = ProcessInfo.processInfo.environment
         if ["1", "true", "yes"].contains(environment["BYT_NATIVE_SUPPRESS_LOCATION_PROMPT"]?.lowercased() ?? "") { return true }
-        return environment["BYT_NATIVE_DISCOVER_DETAIL"]?.isEmpty == false
+        return false
     }
 
     func requestCurrentLocation() {
@@ -6724,7 +7003,6 @@ private struct NativeDiscoverView: View {
     @State private var detailVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var guestSavePromptTitle: String?
-    @State private var didApplyDetailPreview = false
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
@@ -6759,8 +7037,6 @@ private struct NativeDiscoverView: View {
     static let visibleSectionOrder = ["filters", "feed"]
     static let filterRowCount = 3
     static let introCardDeckIndex = 0
-    static let detailEnvironmentKey = "BYT_NATIVE_DISCOVER_DETAIL"
-    static let detailDefaultsKey = "bytspot_native_discover_detail"
     static let filterEnvironmentKey = "BYT_NATIVE_DISCOVER_FILTER"
     static let filterDefaultsKey = "bytspot_native_discover_filter"
     static let entryFilterEnvironmentKey = "BYT_NATIVE_DISCOVER_ENTRY_FILTER"
@@ -6777,10 +7053,9 @@ private struct NativeDiscoverView: View {
             .padding(.bottom, 12)
         }
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore) }
-        .onAppear { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested(); applyParkingBookingPreviewIfRequested() }
-        .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyDetailPreviewIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .onAppear { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
-        .onChange(of: tabContentStore.snapshot.discoverCards.count) { _ in applyDetailPreviewIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
                 if Self.isValetPremiumRide(venue) {
@@ -6957,18 +7232,6 @@ private struct NativeDiscoverView: View {
         entryFilter == "all" || card.entryType == entryFilter
     }
 
-    private func applyDetailPreviewIfRequested() {
-        guard !didApplyDetailPreview, detailVenue == nil, let token = Self.previewDetailToken else { return }
-        let lower = token.lowercased()
-        let lookup = rankedCards + Self.curatedCards
-        let card = lookup.first { card in
-            card.id.lowercased() == lower || card.title.lowercased().contains(lower) || lower.contains(card.title.lowercased())
-        } ?? (lower == "service" ? lookup.first(where: { $0.type == "service" }) : nil)
-        guard let card else { return }
-        didApplyDetailPreview = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { detailVenue = venueForDetail(card) }
-    }
-
     private func applyParkingBookingPreviewIfRequested() {
         guard parkingBookingVenue == nil, let token = Self.previewParkingBookingToken else { return }
         let lower = token.lowercased()
@@ -6978,10 +7241,6 @@ private struct NativeDiscoverView: View {
         } ?? lookup.first(where: { $0.type == "parking" })
         guard let card else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { parkingBookingVenue = venueForDetail(card) }
-    }
-
-    private static var previewDetailToken: String? {
-        (ProcessInfo.processInfo.environment[detailEnvironmentKey] ?? nativeLaunchArgument("byt-native-discover-detail")).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     private static var previewParkingBookingToken: String? {
@@ -7002,7 +7261,6 @@ private struct NativeDiscoverView: View {
 
     private func applyShellFilterHandoffIfRequested() {
         guard let filter = Self.normalizedFilter(handoffFilter) else { return }
-        UserDefaults.standard.removeObject(forKey: Self.detailDefaultsKey)
         UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
         UserDefaults.standard.synchronize()
         detailVenue = nil
@@ -7413,7 +7671,7 @@ private struct NativeDiscoverFeatureCard: View {
         if displayCategory == "Event Pass" { return "Pass ready · digital" }
         if isValetPremiumRideCard { return "Price + drivers" }
         if card.type == "mobility" { return card.availability.isEmpty ? "Plan ride" : card.availability }
-        if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Request availability" : card.availability }
+        if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Check dates" : card.availability }
         let status = NativeVenueHours.openStatus(category: discoverHoursCategory)
         let hours = NativeVenueHours.hours(for: discoverHoursCategory)
         if status.isOpen {
@@ -7668,9 +7926,9 @@ enum NativeVenueDetailPresentation {
         if isBoutiqueApartmentVenue(venue) {
             return NativeVenueDetailSection(
                 title: "Stay details",
-                subtitle: "A curated short stay with secure entry, host support, and booking next steps.",
+                subtitle: "Check dates, price, rules, and entry before any booking.",
                 systemImage: "house.fill",
-                highlights: ["Short stay", "Sleeps 2", "Secure entry", "Host support"]
+                highlights: ["Dates required", "Sleeps 2", "Price review", "Entry details"]
             )
         }
         if isCoffeeVenue(venue) {
@@ -7846,24 +8104,34 @@ private struct NativeVenueDetailView: View {
     @State private var guestPromptCTA = "Sign in to save"
     @State private var selectedMediaIndex = 0
     @State private var showParkingBooking = false
+    @State private var showStayBooking = false
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
     private var ratingText: String { venue.rating.map { String(format: "%.1f", $0) } ?? "4.9" }
     private var crowdText: String { venue.crowd.map { "\($0.label)" + ($0.waitMins.map { " · \($0)m wait" } ?? "") } ?? "Live crowd pending" }
     private var entryText: String { venue.parking.priceLabel == "—" ? "Free entry" : venue.parking.priceLabel }
+    private var isBoutiqueStay: Bool { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) }
+    private var detailHorizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
+    private var stayDetailHeroHeight: CGFloat { min(max(UIScreen.main.bounds.height * 0.24, 180), 228) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                hero
-                metricsRow
-                actionGrid
+            VStack(alignment: .leading, spacing: isBoutiqueStay ? 12 : 18) {
+                if isBoutiqueStay {
+                    stayProductHero
+                    actionGrid
+                } else {
+                    hero
+                    metricsRow
+                    actionGrid
+                }
                 if let statusMessage { statusBanner(statusMessage) }
                 if showsInfoSection { infoSection }
-                if let section = NativeVenueDetailPresentation.detailSection(for: venue) { detailSpotlight(section) }
+                if !isBoutiqueStay, let section = NativeVenueDetailPresentation.detailSection(for: venue) { detailSpotlight(section) }
             }
-            .padding(18)
+            .padding(.horizontal, detailHorizontalPadding)
+            .padding(.top, max(10, detailHorizontalPadding - 4))
             .padding(.bottom, 28)
         }
         .background(NativeTheme.background.ignoresSafeArea())
@@ -7874,6 +8142,76 @@ private struct NativeVenueDetailView: View {
         .sheet(isPresented: $showParkingBooking) {
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
         }
+        .sheet(isPresented: $showStayBooking) {
+            NativeBoutiqueStayBookingSheet(venue: venue, onContinueConcierge: continueBoutiqueStayWithConcierge)
+        }
+    }
+
+    private var stayProductHero: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                NativeRemoteImage(url: venue.imageUrl, fallbackColors: [NativeTheme.purple.opacity(0.45), NativeTheme.cyan.opacity(0.18), Color.black.opacity(0.76)], fallbackEmoji: "🏡", emojiSize: 128, emojiOpacity: 0.20)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: stayDetailHeroHeight)
+                    .clipped()
+                LinearGradient(colors: [Color.black.opacity(0.02), Color.black.opacity(0.24), Color.black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("BOUTIQUE STAY").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(.white.opacity(0.78)).tracking(1.1)
+                    Text(venue.name).font(.system(size: 24, weight: .black)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.82)
+                    HStack(spacing: 6) { Image(systemName: "mappin.circle.fill"); Text(venue.address) }
+                        .font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.84)).lineLimit(1).minimumScaleFactor(0.78)
+                }
+                .padding(15)
+            }
+            .overlay(alignment: .topTrailing) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .black)).foregroundColor(.white).frame(width: 38, height: 38).background(Color.black.opacity(0.48)).overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)).clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close details")
+                .padding(14)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Ready to check dates").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        Text("Verify availability, price, policy, and entry before booking.").nativeBody(size: 12).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Text("$0 NOW").font(.system(size: 10.5, weight: .black, design: .monospaced)).foregroundColor(.black).tracking(1).padding(.horizontal, 9).frame(height: 25).background(NativeTheme.cyan).clipShape(Capsule())
+                }
+                HStack(spacing: 8) {
+                    stayDetailAmenity("bed.double.fill", "Private")
+                    stayDetailAmenity("key.fill", "Entry")
+                    stayDetailAmenity("person.crop.circle.badge.checkmark", "Host")
+                    stayDetailAmenity("shield.checkered", "Review")
+                }
+                Button(action: openStayBookingFlow) {
+                    HStack(spacing: 9) {
+                        Image(systemName: "calendar.badge.clock").font(.system(size: 14, weight: .black))
+                        Text(NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .black))
+                    }
+                    .foregroundColor(NativeProfileStyle.onVibrant)
+                    .padding(.horizontal, 15)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 48)
+                    .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.purple.opacity(0.78)], startPoint: .leading, endPoint: .trailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Text("Not booked · not charged until verified terms are accepted.").font(.system(size: 11.2, weight: .semibold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(13)
+        }
+        .background(Color.white.opacity(0.08))
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: NativeTheme.panelShadow, radius: 16, x: 0, y: 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Boutique stay detail for \(venue.name)")
     }
 
     private var hero: some View {
@@ -7973,10 +8311,6 @@ private struct NativeVenueDetailView: View {
                 metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
                 metric("ticket.fill", entryText, "pass", NativeTheme.cyan)
                 metric("checkmark.circle.fill", "Ready", "digital", NativeTheme.emerald)
-            } else if NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
-                metric("house.fill", "Stay", "short-term", NativeTheme.purple)
-                metric("lock.shield.fill", "Secure", "access", NativeTheme.emerald)
             } else if NativeVenueDetailPresentation.isMobilityVenue(venue) {
                 metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
                 metric(venue.name.localizedCaseInsensitiveContains("group") ? "bus.fill" : "car.side.fill", venue.name.localizedCaseInsensitiveContains("group") ? "Group" : "Ride", "mobility", NativeTheme.orange)
@@ -8020,7 +8354,7 @@ private struct NativeVenueDetailView: View {
         if NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
             priorityIDs = ["getTickets", "save", "share", "bookRide"]
         } else if NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) {
-            priorityIDs = ["getTickets", "call", "navigate", "save", "share", "concierge"]
+            priorityIDs = ["call", "navigate", "save", "share", "concierge"]
         } else if NativeVenueDetailPresentation.isMobilityVenue(venue) {
             priorityIDs = ["bookRide", "save", "share", "concierge"]
         } else if NativeVenueDetailPresentation.isCoffeeVenue(venue) {
@@ -8062,10 +8396,11 @@ private struct NativeVenueDetailView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 14)
-        .frame(minHeight: 58)
-        .background(NativePolish.elevatedSurface)
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(locked ? NativePolish.softBorder : actionAccent(action).opacity(0.26), lineWidth: 1))
+        .padding(.vertical, isBoutiqueStay ? 10 : 14)
+        .frame(minHeight: isBoutiqueStay ? 50 : 58)
+        .background(isBoutiqueStay ? Color.white.opacity(0.08) : NativePolish.elevatedSurface)
+        .background { if isBoutiqueStay { Color.clear.background(.ultraThinMaterial) } }
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(locked ? NativePolish.softBorder : actionAccent(action).opacity(isBoutiqueStay ? 0.34 : 0.26), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -8075,6 +8410,18 @@ private struct NativeVenueDetailView: View {
             Text(value).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.72)
             Text(label).font(.system(size: 10.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func stayDetailAmenity(_ icon: String, _ label: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.purple).frame(width: 30, height: 30).background(NativeTheme.purple.opacity(0.12)).clipShape(Circle())
+            Text(label).font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.09))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
 
     private func infoRow(_ icon: String, _ title: String, _ primary: String, _ secondary: String, _ color: Color) -> some View {
@@ -8141,6 +8488,10 @@ private struct NativeVenueDetailView: View {
             showParkingBooking = true
             return
         }
+        if action.id == "getTickets", isBoutiqueStay {
+            openStayBookingFlow()
+            return
+        }
         guard sessionStore.isAuthenticated else {
             let title = NativeVenueDetailPresentation.actionTitle(for: action, venue: venue)
             presentGuestPrompt(title: "Sign in to \(title.lowercased())", subtitle: "We'll keep \(venue.name), receipts, routes, and arrival details tied to your account.", cta: "Sign in")
@@ -8148,7 +8499,7 @@ private struct NativeVenueDetailView: View {
         }
         if capability == .saveToWallet {
             if NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) {
-                statusMessage = "Concierge can help check availability and booking next steps for \(venue.name)."
+                statusMessage = "Check dates first. No stay is booked yet for \(venue.name)."
                 openNativeTab?(.concierge)
                 return
             }
@@ -8194,6 +8545,20 @@ private struct NativeVenueDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
     }
 
+    private func openStayBookingFlow() {
+        nativeImpactLight()
+        showStayBooking = true
+    }
+
+    private func continueBoutiqueStayWithConcierge(_ request: NativeStayRequestRecord) {
+        nativeImpactLight()
+        NativeConciergeHandoffStore.store(prompt: request.conciergePrompt, source: "boutique_stay")
+        showStayBooking = false
+        statusMessage = "Stay date request sent for \(request.venueName)."
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.concierge) }
+    }
+
     private func submitCheckIn() async {
         guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
         didCheckIn = true
@@ -8210,7 +8575,7 @@ private struct NativeVenueDetailView: View {
     private var categoryDetailIcon: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "house.fill" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "cup.and.saucer.fill" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "fork.knife" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "ticket.fill" : venue.discoverType == "mobility" ? "car.side.fill" : venue.discoverType == "parking" ? "parkingsign.circle.fill" : "sparkles" }
     private var categoryDetailTitle: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Boutique Stay" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Coffee" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Dining" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Pass" : venue.discoverType == "mobility" ? "Mobility" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Services" : venue.discoverType == "parking" ? "Parking" : "Details" }
     private var categoryPrimaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Short stay · Furnished" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Coffee · Brunch" : NativeVenueDetailPresentation.isDiningVenue(venue) ? entryText : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? entryText : venue.discoverType == "mobility" ? "Ride · Transfer" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Trusted local service" : entryText }
-    private var categorySecondaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Availability, host contact, and booking support" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Quick walk, calm reset, or meetup" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Menu, pickup, or delivery" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Digital pass ready" : venue.discoverType == "mobility" ? "Ride-sharing, private transfer, or group transport" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Save, share, or ask Concierge" : venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spaces nearby" : "Save, share, or ask Concierge" }
+    private var categorySecondaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Dates, price, rules, and entry must be verified" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Quick walk, calm reset, or meetup" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Menu, pickup, or delivery" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Digital pass ready" : venue.discoverType == "mobility" ? "Ride-sharing, private transfer, or group transport" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Save, share, or ask Concierge" : venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spaces nearby" : "Save, share, or ask Concierge" }
     private var categoryEmoji: String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "mobility": "🚘", "service": "🛎️", "boutique_apartment": "🏡"][venue.discoverType] ?? "📍" }
     private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
     private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
@@ -8507,7 +8872,6 @@ private struct NativeMapExploreView: View {
             "BYT_NATIVE_PROFILE_PANEL_SMOKE",
             "BYT_NATIVE_CONCIERGE_PROMPT",
             "BYT_NATIVE_DISCOVER_FILTER",
-            "BYT_NATIVE_DISCOVER_DETAIL",
             selectedPinEnvironmentKey,
             pairedPatchEnvironmentKey,
             partnerLensEnvironmentKey,
@@ -8961,7 +9325,7 @@ private struct NativeMapExploreView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("native-map-nonpartner-navigate")
+            .accessibilityIdentifier(pin.kind == .parking ? "native-map-parking-reserve" : "native-map-nonpartner-navigate")
             if isRouteActive(pin) { routeActivationPanel(for: pin) }
             HStack(spacing: 8) {
                 ForEach(Self.nonPartnerCardSecondaryLabels, id: \.self) { label in
@@ -10364,10 +10728,12 @@ private struct NativeConciergeView: View {
     @State private var showHistory = false
     @State private var isTyping = false
     @State private var didRunPreviewPrompt = false
+    @State private var consumedNativeHandoffPrompt = ""
     @State private var nextMessageID = 2
     @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown.", isUser: false)]
     @State private var historyTitles: [String] = []
     @State private var connectionState = "ready"
+    @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @Environment(\.colorScheme) private var colorScheme
 
@@ -10381,6 +10747,7 @@ private struct NativeConciergeView: View {
     static let suggestionPrompts = ["Find parking nearby", "Book a private chef", "Access my booking", "What’s open now?"]
     static let handoffActionTitles = ["Open Discover", "Show on Map", "Open My Access"]
     static let composerPlaceholder = "Message Concierge…"
+    static let nativeHandoffPromptKey = NativeConciergeHandoffStore.promptKey
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10392,7 +10759,8 @@ private struct NativeConciergeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(conciergeRadialBackground.ignoresSafeArea())
-        .onAppear(perform: runPreviewPromptIfNeeded)
+        .onAppear { runPreviewPromptIfNeeded(); consumeNativeHandoffIfNeeded() }
+        .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
         .accessibilityIdentifier("native-concierge-preview")
     }
 
@@ -10610,6 +10978,14 @@ private struct NativeConciergeView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
     }
 
+    private func consumeNativeHandoffIfNeeded() {
+        let prompt = handoffPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty, prompt != consumedNativeHandoffPrompt else { return }
+        consumedNativeHandoffPrompt = prompt
+        NativeConciergeHandoffStore.clear()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
+    }
+
     private func resetConversation() {
         nativeImpactLight()
         withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
@@ -10633,7 +11009,7 @@ private struct NativeConciergeView: View {
     }
 
     private func isComplex(_ query: String) -> Bool {
-        ["private chef", "book", "booking", "reservation", "access my booking", "refund", "vip", "event", "catering", "specialist", "human"].contains { query.localizedCaseInsensitiveContains($0) }
+        ["private chef", "book", "booking", "reservation", "availability", "stay", "host", "access my booking", "refund", "vip", "event", "catering", "specialist", "human"].contains { query.localizedCaseInsensitiveContains($0) }
     }
 
     private func inferHandoffs(_ query: String) -> [HandoffAction] {
@@ -10641,7 +11017,7 @@ private struct NativeConciergeView: View {
         var actions: [HandoffAction] = []
         if q.contains("parking") || q.contains("nearby") || q.contains("map") { actions.append(.map) }
         if q.contains("open") || q.contains("discover") || q.contains("chef") || q.contains("food") || q.contains("service") || q.contains("stay") || q.contains("ride") { actions.append(.discover) }
-        if q.contains("book") || q.contains("reservation") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
+        if q.contains("book") || q.contains("reservation") || q.contains("availability") || q.contains("stay") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
         return actions.isEmpty ? [.discover, .map] : actions
     }
 
@@ -10652,6 +11028,7 @@ private struct NativeConciergeView: View {
         if q.contains("open") { text = "I’ll look for what’s open now around Midtown and keep parking or access close by if you need it." }
         if q.contains("access") { text = "I can pull up My Access for passes, saved requests, and booking details tied to this account." }
         if q.contains("chef") { text = "I can help start a private chef request from Services and keep the request visible in My Access." }
+        if q.contains("stay") || q.contains("availability") || q.contains("check dates") { text = "I have the stay request. I’ll verify dates, total price, cancellation, and entry before confirmation." }
         if complex { text += "\n\nConnecting you to a Concierge specialist for the details." }
         return text
     }
@@ -12250,10 +12627,6 @@ enum NativeAccessParitySelfTests {
     }
 
     private static func run() {
-        precondition(NativeAccessScannerPreview.scannerMethods == ["Auto", "NFC", "QR"], "NativeAccessParitySelfTests: scanner method selector drifted.")
-        precondition(NativeAccessScannerPreview.scannerStates == ["Idle", "Scanning", "Verified", "Manual"], "NativeAccessParitySelfTests: scanner states drifted.")
-        precondition(NativeAccessScannerPreview.scannerCapabilities == ["Tap access", "QR scan", "App Clip", "Access history"], "NativeAccessParitySelfTests: scanner capabilities drifted.")
-        precondition(NativeAccessWalletPreview.walletCardTitles == ["Verified patches", "Service requests", "Digital passes"], "NativeAccessParitySelfTests: wallet card labels drifted.")
         guard let url = URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum&service=platinum-dining&venue=Broni%20Home%20Taste&use=event&intent=guest&party=2"),
               let route = BytspotPatchRoute(url: url) else {
             preconditionFailure("NativeAccessParitySelfTests: Broni access route fixture failed to parse.")
@@ -12374,8 +12747,6 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.visibleSectionOrder == ["filters", "feed"], "NativeDiscoverParitySelfTests: Discover header/search/scaffold sections must stay removed.")
         precondition(NativeDiscoverView.filterRowCount == 3, "NativeDiscoverParitySelfTests: Discover filter system must remain three rows.")
         precondition(NativeDiscoverView.introCardDeckIndex == 0, "NativeDiscoverParitySelfTests: swipe onboarding card must stay first in the deck.")
-        precondition(NativeDiscoverView.detailEnvironmentKey == "BYT_NATIVE_DISCOVER_DETAIL", "NativeDiscoverParitySelfTests: Discover detail screenshot env key drifted.")
-        precondition(NativeDiscoverView.detailDefaultsKey == "bytspot_native_discover_detail", "NativeDiscoverParitySelfTests: Discover detail defaults key drifted.")
         precondition(NativeDiscoverView.filterEnvironmentKey == "BYT_NATIVE_DISCOVER_FILTER", "NativeDiscoverParitySelfTests: Discover filter screenshot env key drifted.")
         precondition(NativeDiscoverView.entryFilterEnvironmentKey == "BYT_NATIVE_DISCOVER_ENTRY_FILTER", "NativeDiscoverParitySelfTests: Discover entry-filter screenshot env key drifted.")
         precondition(NativeDiscoverIntroCard.compactHeight == 112, "NativeDiscoverParitySelfTests: Discover swipe guide should stay compact.")
@@ -12408,6 +12779,13 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
         precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Card •••• 4242"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
         precondition(NativeParkingBookingContract.storageKey == "bytspot_native_parking_reservations", "NativeDiscoverParitySelfTests: Smart Parking reservation wallet storage key drifted.")
+        precondition(NativeBoutiqueStayBookingContract.title == "Check Dates" && NativeBoutiqueStayBookingContract.primaryCTA == "Send Availability Request", "NativeDiscoverParitySelfTests: Boutique Stay Check Dates must open a direct availability request flow.")
+        precondition(NativeBoutiqueStayBookingContract.dateSelectorID == "native-boutique-stay-date-selector" && NativeBoutiqueStayBookingContract.liveStatusID == "native-boutique-stay-live-status", "NativeDiscoverParitySelfTests: Boutique Stay date selector and live status identifiers drifted.")
+        precondition(NativeBoutiqueStayBookingContract.conciergeCTA == "Open Concierge", "NativeDiscoverParitySelfTests: Boutique Stay sent-state CTA must route booking intent through native Concierge.")
+        precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_stay_requests", "NativeDiscoverParitySelfTests: Boutique Stay request storage key drifted.")
+        let stayRequest = NativeStayRequestRecord.pending(venue: NativeVenueSummary(id: "stay", name: "Midtown Boutique Suite", category: "boutique_apartment", address: "Midtown", distance: "Nearby", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil), arrivalLabel: "Tonight", nightsLabel: "2 nights", termsLabel: "Standard cancellation")
+        precondition(stayRequest.status == "pending availability" && stayRequest.conciergePrompt.contains("No booking or charge yet"), "NativeDiscoverParitySelfTests: Boutique Stay pending request must create a clear Concierge availability prompt.")
+        precondition(NativeConciergeView.nativeHandoffPromptKey == "bytspot_native_concierge_handoff_prompt", "NativeDiscoverParitySelfTests: Concierge native handoff prompt key drifted.")
         precondition(NativeValetElifeIntegrationContract.luxuryServiceClass.bytspotTier == .black && NativeValetElifeIntegrationContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
         precondition(NativeValetElifeIntegrationContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
         precondition(NativeValetLivePanel.steps == ["Price", "Drivers", "Confirm"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Drivers → Confirm.")
@@ -12473,7 +12851,20 @@ enum NativePhase4TabContentSelfTests {
 }
 #endif
 
-private extension View { func nativePanel() -> some View { self.background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)).background(.ultraThinMaterial).overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous)).shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8) } }
+private extension View {
+    func nativePanel() -> some View {
+        self.background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)).background(.ultraThinMaterial).overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous)).shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8)
+    }
+
+    func nativeGlassPanel(cornerRadius: CGFloat = NativePolish.cardRadius, tint: Color = NativeTheme.cyan, opacity: Double = 0.08) -> some View {
+        self.background(tint.opacity(opacity))
+            .background(Color.white.opacity(0.07))
+            .background(.ultraThinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: NativeTheme.softShadow.opacity(0.72), radius: 14, x: 0, y: 7)
+    }
+}
 private extension Text {
     func nativeTitle(_ size: CGFloat) -> some View { self.font(.system(size: size, weight: .black)).foregroundColor(NativeTheme.textPrimary) }
     func nativeBody(size: CGFloat = 13.5, color: Color = NativeTheme.textSecondary) -> some View { self.font(.system(size: size, weight: .semibold)).foregroundColor(color).lineSpacing(2) }

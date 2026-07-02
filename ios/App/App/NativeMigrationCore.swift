@@ -10,12 +10,10 @@ enum NativeMigrationConfig {
     static let previewTokenEnvironmentKey = "BYT_NATIVE_PREVIEW_TOKEN"
     static let defaultsKey = "bytspot_native_root_enabled"
 
-    /// Non-shipping migration gate. Release builds continue to use Capacitor unless
-    /// a simulator/dev runtime explicitly opts into the native root.
-    static var isNativeRootEnabled: Bool {
-        ProcessInfo.processInfo.environment[environmentKey] == "1"
-            || UserDefaults.standard.bool(forKey: defaultsKey)
-    }
+    /// The migration is complete: the SwiftUI shell is the unconditional root
+    /// and Capacitor is removed from the iOS target. Kept as a constant so the
+    /// dev-only self-tests and preview hooks that key off it remain wired.
+    static var isNativeRootEnabled: Bool { true }
 }
 
 enum NativePatchRouteKind: String, Equatable {

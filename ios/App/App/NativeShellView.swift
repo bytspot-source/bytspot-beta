@@ -3,8 +3,6 @@ import UIKit
 import MapKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
-import Capacitor
-import WebKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, discover, map, concierge
@@ -26,14 +24,6 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
         case .concierge: return "sparkles"
         }
     }
-    var hybridRoute: BytspotHybridRoute {
-        switch self {
-        case .home: return .home
-        case .discover: return .discover
-        case .map: return .map
-        case .concierge: return .concierge
-        }
-    }
 }
 
 enum BytspotHybridRoute: String, Identifiable {
@@ -50,217 +40,41 @@ enum BytspotHybridRoute: String, Identifiable {
         case .concierge: return "Concierge Chat"
         }
     }
-    var reactTab: String {
-        switch self {
-        case .access: return "profile"
-        default: return rawValue
-        }
-    }
-    var focus: String? { self == .access ? "reservations" : nil }
 }
-
-/// JS→native message channel used by the React-side scanner (NFC / QR / virtual)
-/// to notify the SwiftUI shell of a verified patch URL. Mirror this literal on
-/// the React side when posting via `window.webkit.messageHandlers`.
-/// Locked by `NativeMapParitySelfTests`.
-let nativePatchScanBridgeChannel = "bytspotNativePatchScanned"
-/// JS→native channel used by legacy React Profile cards when they are shown in
-/// the Capacitor bridge. It prevents Profile summary actions from navigating
-/// deeper into React under the "Back to native" hybrid overlay.
-let nativeProfilePanelBridgeChannel = "bytspotNativeProfilePanel"
 
 private func nativeLaunchArgument(_ name: String) -> String? {
     let prefix = "--\(name)="
     return ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix(prefix) }).map { String($0.dropFirst(prefix.count)) }.flatMap { $0.isEmpty ? nil : $0 }
 }
 
-/// DEBUG-only env hook that injects a synthetic JS-bridge post into the
-/// Capacitor webView so we can validate the full round-trip
-/// (JS → WKScriptMessageHandler → NativeIncomingURLCenter → notifyPatchScanned
+/// DEBUG-only env hook that injects a synthetic scanned-patch URL into the
+/// incoming-URL pipeline (NativeIncomingURLCenter → notifyPatchScanned
 /// → .patch destination → markPaired) without an NFC tap. Locked by
 /// `NativePatchRouteSelfTests.assertScanSourceContract`.
 let nativePatchScanBridgeSmokeURLEnvironmentKey = "BYT_NATIVE_BRIDGE_SMOKE_URL"
-/// DEBUG-only simulator hook that opens the React Profile inside the hybrid
-/// bridge and clicks its summary card. This exercises the real React DOM handler
-/// before Swift dismisses the "Back to native" cover and opens the native panel.
-let nativeProfilePanelBridgeSmokeEnvironmentKey = "BYT_NATIVE_PROFILE_PANEL_BRIDGE_SMOKE"
 /// DEBUG-only simulator hook that opens a native Profile panel directly on launch.
-/// This verifies native menu-row panel destinations without entering the React bridge.
+/// This verifies native menu-row panel destinations.
 let nativeProfilePanelDirectSmokeEnvironmentKey = "BYT_NATIVE_PROFILE_PANEL_SMOKE"
 
-final class NativeBridgeStore: NSObject, ObservableObject, WKScriptMessageHandler {
-    let bridgeViewController = CAPBridgeViewController()
+/// Cross-cutting navigation intent store shared by the AppDelegate URL pipeline
+/// and the SwiftUI shell. It previously owned the Capacitor bridge webview; the
+/// iOS app is pure native now and this only carries tab/panel routing requests.
+final class NativeBridgeStore: ObservableObject {
     @Published var requestedTab: BytspotNativeTab?
     @Published var requestedHybridRoute: BytspotHybridRoute?
     @Published var requestedProfilePanel: NativeProfilePanel?
-    @Published private(set) var currentRoute: BytspotHybridRoute = .home
-    private var lastInjectedRoute: BytspotHybridRoute?
-    private var patchScanBridgeInstalled = false
-    private weak var installedUserContentController: WKUserContentController?
-
-    override init() {
-        super.init()
-        bridgeViewController.loadViewIfNeeded()
-        installPatchScanBridge()
-    }
-
-    func preloadBridge() {
-        bridgeViewController.loadViewIfNeeded()
-        installPatchScanBridge()
-    }
-
-    /// Registers the `bytspotNativePatchScanned` WKScriptMessageHandler on the
-    /// Capacitor webView so the React-side scanner can hand verified patch URLs
-    /// back to `NativeNavigationCoordinator` via `NativeIncomingURLCenter`.
-    /// Idempotent — safe to call repeatedly.
-    private func installPatchScanBridge() {
-        guard let userContent = bridgeViewController.webView?.configuration.userContentController else { return }
-        guard !patchScanBridgeInstalled || installedUserContentController !== userContent else { return }
-        userContent.removeScriptMessageHandler(forName: nativePatchScanBridgeChannel)
-        userContent.add(self, name: nativePatchScanBridgeChannel)
-        userContent.removeScriptMessageHandler(forName: nativeProfilePanelBridgeChannel)
-        userContent.add(self, name: nativeProfilePanelBridgeChannel)
-        patchScanBridgeInstalled = true
-        installedUserContentController = userContent
-    }
-
-    nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == nativeProfilePanelBridgeChannel {
-            handleNativeProfilePanelMessage(message.body)
-            return
-        }
-        guard message.name == nativePatchScanBridgeChannel else { return }
-        let payload = message.body as? [String: Any]
-        guard let urlString = payload?["url"] as? String, let url = URL(string: urlString) else { return }
-        // Publish through the existing incoming-URL pipeline so the SwiftUI root's
-        // navigation coordinator runs the same code path as a universal link.
-        NativeIncomingURLCenter.publish(url, scanSource: NativePatchScanSource(rawValue: (payload?["source"] as? String) ?? "") ?? .nfc)
-    }
-
-    private nonisolated func handleNativeProfilePanelMessage(_ body: Any) {
-        let payload = body as? [String: Any]
-        let rawPanel = (payload?["panel"] as? String) ?? (body as? String)
-        guard let rawPanel, let panel = NativeProfilePanel(rawValue: rawPanel) else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.requestedProfilePanel = panel
-        }
-    }
 
     /// DEBUG-only smoke hook. Reads `BYT_NATIVE_BRIDGE_SMOKE_URL` and, if set,
-    /// injects a synthetic `window.webkit.messageHandlers.bytspotNativePatchScanned.postMessage(...)`
-    /// into the Capacitor webView after a short delay. Exercises the actual
-    /// WKScriptMessageHandler path the React-side scanner uses, end-to-end.
+    /// publishes it through the incoming-URL pipeline after a short delay,
+    /// exercising the same funnel a real NFC tap uses.
     func injectPatchScanBridgeSmokeTestIfRequested() {
         #if DEBUG
         guard let urlString = ProcessInfo.processInfo.environment[nativePatchScanBridgeSmokeURLEnvironmentKey],
-              !urlString.isEmpty else { return }
-        let escaped = urlString.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
-        let js = "window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(nativePatchScanBridgeChannel) && window.webkit.messageHandlers.\(nativePatchScanBridgeChannel).postMessage({url:'\(escaped)',source:'nfc'});"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
-            self?.bridgeViewController.webView?.evaluateJavaScript(js, completionHandler: nil)
+              !urlString.isEmpty, let url = URL(string: urlString) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            NativeIncomingURLCenter.publish(url, scanSource: .nfc)
         }
         #endif
-    }
-
-    func injectProfilePanelBridgeSmokeClickIfRequested() {
-        #if DEBUG
-        guard let rawPanel = ProcessInfo.processInfo.environment[nativeProfilePanelBridgeSmokeEnvironmentKey]?.lowercased(),
-              NativeProfilePanel(rawValue: rawPanel) != nil else { return }
-        let testID = rawPanel == "reservations" ? "profile-reservations-summary" : rawPanel == "access" ? "profile-access-summary" : "profile-rewards-summary"
-        let js = """
-        (function () {
-          try {
-            localStorage.setItem('bytspot_intro_seen', 'true');
-            localStorage.setItem('bytspot_auth_token', 'guest_session');
-            localStorage.setItem('bytspot_user', JSON.stringify({ id: 'guest', name: 'Guest' }));
-            localStorage.setItem('bytspot_user_name', 'Guest');
-            window.dispatchEvent(new CustomEvent('bytspot:native-tab', { detail: { tab: 'profile', focus: '', url: '' } }));
-            var attempts = 0;
-            var timer = window.setInterval(function () {
-              attempts += 1;
-              var element = document.querySelector('[data-testid="\(testID)"]');
-              if (element && typeof element.click === 'function') {
-                window.clearInterval(timer);
-                element.click();
-                return;
-              }
-              if (attempts >= 24) {
-                window.clearInterval(timer);
-                var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(nativeProfilePanelBridgeChannel);
-                if (handler && typeof handler.postMessage === 'function') { handler.postMessage({ panel: '\(rawPanel)' }); }
-              }
-            }, 500);
-          } catch (error) { console.warn('native profile panel smoke failed', error); }
-        })();
-        """
-        for delay in [5.0, 12.0, 18.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.installPatchScanBridge()
-                self?.bridgeViewController.webView?.evaluateJavaScript(js, completionHandler: nil)
-            }
-        }
-        #endif
-    }
-
-    func open(_ route: BytspotHybridRoute, force: Bool = false, handoffURL: URL? = nil) {
-        if currentRoute != route { currentRoute = route }
-        bridgeViewController.loadViewIfNeeded()
-        installPatchScanBridge()
-        guard let webView = bridgeViewController.webView else { return }
-        guard force || lastInjectedRoute != route else { return }
-        lastInjectedRoute = route
-        let detail: [String: String] = ["tab": route.reactTab, "focus": route.focus ?? "", "url": handoffURL?.absoluteString ?? ""]
-        let detailJSON = jsonObject(detail)
-        let tabJSON = jsonString(route.reactTab)
-        let focusJSON = jsonString(route.focus ?? "")
-        let handoffJSON = jsonString(handoffURL?.absoluteString ?? "")
-        let script = """
-        (function () {
-          try {
-            window.history.replaceState({}, '', '/');
-            localStorage.setItem('bytspot_native_tab', \(tabJSON));
-            localStorage.setItem('bytspot_native_focus', \(focusJSON));
-            if (\(handoffJSON)) {
-              localStorage.setItem('bytspot_native_handoff_url', \(handoffJSON));
-              window.dispatchEvent(new CustomEvent('bytspot:native-handoff', { detail: \(detailJSON) }));
-            }
-            window.dispatchEvent(new CustomEvent('bytspot:native-tab', { detail: \(detailJSON) }));
-          } catch (error) { console.warn('native tab route failed', error); }
-        })();
-        """
-        webView.evaluateJavaScript(script, completionHandler: nil)
-    }
-
-    @discardableResult
-    func handleExternalURL(_ url: URL) -> Bool {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
-        let rawPath = url.scheme == "bytspot" && !(components.host ?? "").isEmpty
-            ? "\(components.host ?? "")\(components.path)"
-            : components.path
-        let path = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-        let target: BytspotNativeTab?
-        let route: BytspotHybridRoute?
-        if path == "map" || path.hasPrefix("map/") { target = .map; route = .map }
-        else if path == "discover" || path.hasPrefix("venue/") { target = .discover; route = .discover }
-        else if path == "concierge" || path.hasPrefix("concierge/") { target = .concierge; route = .concierge }
-        else if path == "profile" || path.hasPrefix("profile/") { target = .home; route = .profile }
-        else if path == "access" || path.hasPrefix("booking") { target = .home; route = .access }
-        else { target = nil; route = nil }
-        guard let target, let route else { return false }
-        requestedTab = target
-        open(route, force: true, handoffURL: url)
-        if (route == .profile || route == .access) && !NativeMigrationConfig.isNativeRootEnabled { requestedHybridRoute = route }
-        return true
-    }
-
-    private func jsonString(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let result = String(data: data, encoding: .utf8) else { return "\"\"" }
-        return result
-    }
-
-    private func jsonObject(_ value: [String: String]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let result = String(data: data, encoding: .utf8) else { return "{}" }
-        return result
     }
 }
 
@@ -312,7 +126,6 @@ struct BytspotNativeShellView: View {
     var preferHomeAfterLaunch: Bool = false
     @State private var selectedTab: BytspotNativeTab = Self.previewInitialTab
     @State private var activeTier: BytspotTier = BytspotTheme.defaultTier
-    @State private var hybridRoute: BytspotHybridRoute?
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
     @State private var pendingPostAuthIntent: NativePostAuthIntent?
@@ -386,7 +199,7 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, prewarmBridge: { bridgeStore.preloadBridge() }, activeTier: activeTier, membership: membershipStore.membership)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membership: membershipStore.membership)
                             .environmentObject(pairingStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) })
@@ -409,18 +222,15 @@ struct BytspotNativeShellView: View {
                 selectedTab = .home
                 DispatchQueue.main.async { suppressInitialTabRequestAfterLaunch = false }
             }
-            bridgeStore.open(selectedTab.hybridRoute)
             if Self.previewProfileRequested, contextualDestination == nil {
                 contextualDestination = .profile
             }
             runDirectProfilePanelSmokeIfRequested()
-            runProfilePanelBridgeSmokeIfRequested()
             openRootValetPreviewIfRequested()
             openRootBoutiqueStayPreviewIfRequested()
         }
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }
-            bridgeStore.open(tab.hybridRoute)
         }
         .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedTab = nil; return }; selectedTab = tab }
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { route in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedHybridRoute = nil; return }; handleRequestedHybridRoute(route) }
@@ -440,10 +250,6 @@ struct BytspotNativeShellView: View {
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
         }
         .preferredColorScheme(effectivePreferredColorScheme)
-        .fullScreenCover(item: $hybridRoute) { route in
-            NativeHybridBridgeScreen(route: route, bridgeStore: bridgeStore)
-                .preferredColorScheme(effectivePreferredColorScheme)
-        }
         .fullScreenCover(isPresented: $showNativeAuth) {
             NativeAuthenticationScreen(mode: nativeAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: completeNativeAuth, onBack: { showNativeAuth = false })
                 .preferredColorScheme(.dark)
@@ -481,22 +287,12 @@ struct BytspotNativeShellView: View {
     }
 
     private func openHybrid(_ route: BytspotHybridRoute) {
-        if Self.shouldRouteHybridRequestNatively(route) {
-            openNativeEquivalent(for: route)
-            return
-        }
-        bridgeStore.open(route)
-        hybridRoute = route
+        openNativeEquivalent(for: route)
     }
 
     private func handleRequestedHybridRoute(_ route: BytspotHybridRoute) {
-        if Self.shouldRouteHybridRequestNatively(route) {
-            bridgeStore.requestedHybridRoute = nil
-            hybridRoute = nil
-            openNativeEquivalent(for: route)
-            return
-        }
-        hybridRoute = route
+        bridgeStore.requestedHybridRoute = nil
+        openNativeEquivalent(for: route)
     }
 
     private func openNativeEquivalent(for route: BytspotHybridRoute) {
@@ -504,16 +300,23 @@ struct BytspotNativeShellView: View {
         case .profile:
             openNativeProfile()
         case .access:
-            hybridRoute = nil
             selectedTab = .home
             contextualDestination = .accessWallet
-        default:
-            break
+        case .home:
+            selectNativeTab(.home)
+        case .discover:
+            selectNativeTab(.discover)
+        case .map:
+            selectNativeTab(.map)
+        case .concierge:
+            selectNativeTab(.concierge)
         }
     }
 
+    /// Every legacy hybrid route now resolves to a native surface — the React
+    /// hybrid overlay is retired along with the Capacitor bridge.
     static func shouldRouteHybridRequestNatively(_ route: BytspotHybridRoute) -> Bool {
-        (route == .profile || route == .access) && NativeMigrationConfig.isNativeRootEnabled
+        true
     }
 
     private func openNativeProfile() {
@@ -525,7 +328,6 @@ struct BytspotNativeShellView: View {
     }
 
     private func openNativeAuth(mode: NativeAuthMode, pendingIntent: NativePostAuthIntent?) {
-        hybridRoute = nil
         contextualDestination = nil
         pendingPostAuthIntent = pendingIntent
         pendingPostAuthIntentRaw = pendingIntent?.rawValue ?? ""
@@ -546,7 +348,6 @@ struct BytspotNativeShellView: View {
         pendingPostAuthIntent = nil
         pendingPostAuthIntentRaw = ""
         showNativeAuth = false
-        hybridRoute = nil
         contextualDestination = nil
         pendingProfilePanel = nil
         switch intent {
@@ -569,7 +370,6 @@ struct BytspotNativeShellView: View {
         bridgeStore.requestedHybridRoute = nil
         navigation.requestedTab = nil
         navigation.requestedDestination = nil
-        hybridRoute = nil
         contextualDestination = nil
         pendingProfilePanel = nil
         selectedTab = .home
@@ -586,7 +386,6 @@ struct BytspotNativeShellView: View {
     private func openNativeProfile(panel: NativeProfilePanel?) {
         nativeImpactLight()
         pendingProfilePanel = panel
-        hybridRoute = nil
         if contextualDestination == .profile { contextualDestination = nil }
         DispatchQueue.main.async {
             contextualDestination = .profile
@@ -608,15 +407,6 @@ struct BytspotNativeShellView: View {
         selectNativeTab(.discover)
     }
 
-    private func runProfilePanelBridgeSmokeIfRequested() {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment[nativeProfilePanelBridgeSmokeEnvironmentKey] != nil else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            openHybrid(.profile)
-            bridgeStore.injectProfilePanelBridgeSmokeClickIfRequested()
-        }
-        #endif
-    }
 
     private func runDirectProfilePanelSmokeIfRequested() {
         #if DEBUG
@@ -741,43 +531,6 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
-    }
-}
-
-private struct NativeHybridBridgeScreen: View {
-    let route: BytspotHybridRoute
-    @ObservedObject var bridgeStore: NativeBridgeStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            HybridBridgeView(bridgeStore: bridgeStore, route: route).ignoresSafeArea()
-            Button(action: { dismiss() }) {
-                Label("Back to Bytspot", systemImage: "xmark")
-                    .font(.system(size: 12, weight: .black))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.black.opacity(0.82))
-                    .clipShape(Capsule())
-            }
-            .padding(.top, 12)
-            .padding(.trailing, 12)
-        }
-        .onAppear { bridgeStore.open(route) }
-    }
-}
-
-private struct HybridBridgeView: UIViewControllerRepresentable {
-    @ObservedObject var bridgeStore: NativeBridgeStore
-    let route: BytspotHybridRoute
-
-    func makeUIViewController(context: Context) -> CAPBridgeViewController {
-        bridgeStore.bridgeViewController
-    }
-
-    func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {
-        bridgeStore.preloadBridge()
     }
 }
 
@@ -9378,9 +9131,6 @@ private struct NativeMapExploreView: View {
     let openNativeAuth: () -> Void
     let openNativeProfile: (NativeProfilePanel?) -> Void
     let openNativeAccess: () -> Void
-    /// Advisory-only hybrid bridge pre-warm, fired when the parker crosses into
-    /// the pre-stage ring. Defaults to a no-op so previews/tests need not wire it.
-    var prewarmBridge: () -> Void = {}
     let activeTier: BytspotTier
     /// Premium-membership entitlement (orthogonal to tier). Drives whether the
     /// Map Functions sheet's premium rows unlock or show the upgrade nudge.
@@ -9413,7 +9163,6 @@ private struct NativeMapExploreView: View {
     @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
     @State private var guestMapPromptCTA = "Sign in to save"
     @State private var gateLatched = false
-    @State private var bridgePrewarmed = false
     @StateObject private var headingProvider = NativeMapHeadingProvider()
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -9538,22 +9287,6 @@ private struct NativeMapExploreView: View {
             horizontalAccuracy: currentHorizontalAccuracy,
             wasInZone: gateLatched
         )
-    }
-
-    /// Advisory descent pre-warm: when the parker first crosses INTO the pre-stage
-    /// ring (still outside the L2 arm radius), warm the hybrid bridge so the
-    /// eventual L2→L3 handoff is instant. Strictly advisory — pre-warming grants
-    /// no trust, and the handoff still passes through the load-bearing
-    /// directScanPermitted gate. Latched so it fires once per approach and re-arms
-    /// only after the parker leaves the descent profile. No-op under the override.
-    private func refreshDescentPrewarm() {
-        guard Self.previewProximityMetersOverride == nil else { return }
-        let stage = Self.descentStage(nearestVerifiedMeters: nearestVerifiedDistanceMeters)
-        if stage >= .preStage {
-            if !bridgePrewarmed { bridgePrewarmed = true; prewarmBridge() }
-        } else if stage == .faraway {
-            bridgePrewarmed = false
-        }
     }
 
     private func can(_ capability: BytspotTrustCapability) -> Bool {
@@ -9738,10 +9471,10 @@ private struct NativeMapExploreView: View {
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
         .accessibilityIdentifier("native-map-explore")
-        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); refreshDescentPrewarm(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
+        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
-        .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch(); refreshDescentPrewarm() }
+        .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch() }
         .onDisappear { headingProvider.stopLocating() }
     }
 
@@ -13219,7 +12952,7 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativeHomeDashboardView.defaultLaunchMapDestination == NativeHomeDashboardView.launchPreviewPicks.first?.0, "NativePostAuthIntentSelfTests: Map continuation must target the top launch pick.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")
-        precondition(!BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && !BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: generic browse routes must remain available.")
+        precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: browse routes must resolve to native tabs — the React hybrid overlay is retired.")
     }
 }
 #endif

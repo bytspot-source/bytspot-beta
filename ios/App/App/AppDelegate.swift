@@ -1,5 +1,4 @@
 import UIKit
-import Capacitor
 import SwiftUI
 
 @UIApplicationMain
@@ -9,16 +8,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let appWindow = UIWindow(frame: UIScreen.main.bounds)
-        // App Store release invariant: the downloaded app must open directly into
-        // the bundled React app through Capacitor. The SwiftUI root remains an
-        // explicit simulator/dev opt-in until native parity gates are green.
-        if NativeMigrationConfig.isNativeRootEnabled {
-            appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
-        } else {
-            let root = CAPBridgeViewController()
-            root.view.backgroundColor = .black
-            appWindow.rootViewController = root
-        }
+        // App Store release invariant: the app is pure native SwiftUI — no
+        // Capacitor/React webview. The SwiftUI shell is the unconditional root.
+        appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
         appWindow.makeKeyAndVisible()
         window = appWindow
         return true
@@ -47,24 +39,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Called when the app was launched with a url. Feel free to add additional processing here,
-        // but if you want the App API to support tracking app url opens, make sure to keep this call
-        if NativeMigrationConfig.isNativeRootEnabled {
-            NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
-            return true
-        }
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        // Custom-scheme deep links (bytspot://…) route through the native
+        // incoming-URL pipeline consumed by the SwiftUI navigation coordinator.
+        NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
+        return true
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Called when the app was launched with an activity, including Universal Links.
-        // Feel free to add additional processing here, but if you want the App API to support
-        // tracking app url opens, make sure to keep this call
-        if NativeMigrationConfig.isNativeRootEnabled, let url = userActivity.webpageURL {
-            NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
-            return true
-        }
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        // Universal Links (https://bytspot.app/…) route through the same native
+        // incoming-URL pipeline as deep links and in-app patch scans.
+        guard let url = userActivity.webpageURL else { return false }
+        NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
+        return true
     }
 
 }

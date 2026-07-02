@@ -40,7 +40,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     var status: NativeAuthStatus {
         switch self {
         case .requiresLegacyFallback(let provider): return .requiresLegacyFallback(provider: provider)
-        case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure. React auth fallback remains available.")
+        case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
 }
@@ -68,7 +68,7 @@ enum NativeAuthStatus: Equatable {
         switch self {
         case .ready: return "Native session is ready."
         case .authenticating(let provider): return "Preparing \(provider.title) through the native adapter seam."
-        case .requiresLegacyFallback(let provider): return "\(provider.title) is still handled by the production React/Capacitor auth bridge."
+        case .requiresLegacyFallback(let provider): return "\(provider.title) is not configured for native production on this build."
         case .signedIn(let provider, let displayName): return "DEBUG \(provider.title) mock signed in\(displayName.map { " as \($0)" } ?? "")."
         case .guest: return "Guest session enabled for native migration preview."
         case .signedOut: return "Signed out locally."
@@ -132,7 +132,7 @@ final class NativeAuthCoordinator: ObservableObject {
         } catch let error as NativeAuthAdapterError {
             status = error.status
         } catch {
-            status = .failed(message: "Native auth adapter failed. React auth fallback remains available.")
+            status = .failed(message: "Native auth adapter failed. Use email sign-in or try again later.")
         }
     }
 }

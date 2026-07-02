@@ -13,7 +13,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
         appWindow.makeKeyAndVisible()
         window = appWindow
+        publishLaunchOptions(launchOptions)
         return true
+    }
+
+    private func publishLaunchOptions(_ launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
+        guard let launchOptions else { return }
+        if let url = launchOptions[.url] as? URL {
+            NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
+        }
+        if let activityDictionary = launchOptions[.userActivityDictionary] as? [AnyHashable: Any] {
+            for value in activityDictionary.values { publishLaunchUserActivityValue(value) }
+        }
+    }
+
+    private func publishLaunchUserActivityValue(_ value: Any) {
+        if let activity = value as? NSUserActivity, let url = activity.webpageURL {
+            NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
+        } else if let activities = value as? [NSUserActivity] {
+            for activity in activities { if let url = activity.webpageURL { NativeIncomingURLCenter.publish(url, scanSource: .universalLink) } }
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

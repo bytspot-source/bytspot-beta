@@ -93,13 +93,14 @@ final class NativeNavigationCoordinator: ObservableObject {
         let path = normalizedPath(url: url, components: components)
 
         if path == "map" || path.hasPrefix("map/") { requestedTab = .map; return true }
-        if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
+        if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("v/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
-        if path == "booking/success" || path == "booking/cancelled" {
+        if path.hasPrefix("booking/") {
             requestedTab = .home
-            requestedDestination = .booking(status: path.hasSuffix("success") ? "success" : "cancelled", url: url)
+            let status = path.split(separator: "/").dropFirst().first.map(String.init) ?? "update"
+            requestedDestination = .booking(status: status, url: url)
             return true
         }
         if ["privacy", "terms", "disclaimer"].contains(path) {
@@ -112,6 +113,7 @@ final class NativeNavigationCoordinator: ObservableObject {
             requestedDestination = .patch(patchRoute)
             return true
         }
+        if path == "patch" || path == "clip" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         return false
     }
 

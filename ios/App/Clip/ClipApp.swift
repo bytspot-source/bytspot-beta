@@ -88,6 +88,31 @@ struct ClipGroupEventInvite: Equatable {
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
+    var handoffURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bytspot.app"
+        components.path = "/group/\(id)"
+        components.queryItems = [
+            URLQueryItem(name: "tier", value: tier.rawValue),
+            URLQueryItem(name: "title", value: title),
+            URLQueryItem(name: "type", value: groupType),
+            URLQueryItem(name: "participants", value: "\(participantCount)"),
+            URLQueryItem(name: "timing", value: timing.rawValue),
+            URLQueryItem(name: "scheduled", value: scheduledDate),
+            URLQueryItem(name: "host", value: hostName),
+            URLQueryItem(name: "location", value: locationLabel),
+            URLQueryItem(name: "theme", value: theme),
+            URLQueryItem(name: "guestSummary", value: guestSummary),
+            URLQueryItem(name: "activities", value: activityHighlights.joined(separator: ",")),
+            URLQueryItem(name: "hero", value: heroImageURL?.absoluteString),
+            URLQueryItem(name: "thumbnail", value: thumbnailURL?.absoluteString),
+            URLQueryItem(name: "video", value: videoURL?.absoluteString),
+            URLQueryItem(name: "source", value: "app_clip"),
+            URLQueryItem(name: "handoff", value: "1")
+        ].filter { $0.value?.isEmpty == false }
+        return components.url
+    }
 
     static func from(pathParts: [String], queryItems: [URLQueryItem], tier: BytspotTier) -> Self? {
         guard pathParts.first?.lowercased() == "group", pathParts.count >= 2 else { return nil }
@@ -279,6 +304,9 @@ final class ClipInvocationModel: ObservableObject {
     /// Universal Link used when the Clip hands off to the installed full app.
     /// If the full app is not installed, the view layer falls back to SKOverlay.
     var mainAppHandoffURL: URL? {
+        if case .groupEvent(let invite) = flow {
+            return invite.handoffURL
+        }
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
         components.scheme = "https"

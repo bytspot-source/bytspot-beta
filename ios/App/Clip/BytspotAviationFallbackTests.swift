@@ -196,6 +196,9 @@ enum BytspotAviationFallbackTests {
         precondition(platinum?.hostName == "Platinum Dinner Host", "Phase4F App Clip: Platinum private group host metadata missing.")
         precondition(platinum?.hasPlayableVideo == true, "Phase4F App Clip: Platinum private group must expose DEBUG HLS loop.")
         precondition(platinum?.activityHighlights.contains("12h live window") == true, "Phase4F App Clip: Platinum private group highlights missing live window.")
+        precondition(platinum?.handoffURL?.path == "/group/platinum-private-dinner", "Phase4F App Clip: private group handoff must preserve /group route.")
+        precondition(platinum?.handoffURL?.absoluteString.contains("handoff=1") == true, "Phase4F App Clip: private group handoff URL must mark handoff intent.")
+        precondition(platinum?.handoffURL?.absoluteString.contains("activities=12h%20live%20window") == true || platinum?.handoffURL?.absoluteString.contains("activities=12h+live+window") == true, "Phase4F App Clip: handoff URL must carry private group activity metadata.")
 
         let green = ClipGroupEventInvite.from(pathParts: ["group", "green-family"], queryItems: [
             URLQueryItem(name: "title", value: "Green Family Group"),

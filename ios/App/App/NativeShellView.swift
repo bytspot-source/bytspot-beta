@@ -268,7 +268,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) })
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier)
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
@@ -525,6 +525,7 @@ private struct NativeContextualDestinationView: View {
     let consumeInitialProfilePanel: () -> Void
     let openNativeProfilePanel: (NativeProfilePanel?) -> Void
     let openAccess: () -> Void
+    let activeTier: BytspotTier
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -546,7 +547,7 @@ private struct NativeContextualDestinationView: View {
                             .navigationBarHidden(true)
                     } else {
                         ScrollView {
-                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel)
+                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel, activeTier: activeTier)
                                 .environmentObject(sessionStore)
                                 .environmentObject(authCoordinator)
                                 .environmentObject(apiState)
@@ -837,6 +838,7 @@ private struct NativeProfileHeaderCard: View {
 private struct NativeProfileAccountView: View {
     let initialPanel: NativeProfilePanel?
     let consumeInitialPanel: () -> Void
+    let activeTier: BytspotTier
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var activePanel: NativeProfilePanel?
     @State private var didConsumeInitialPanel = false
@@ -851,7 +853,7 @@ private struct NativeProfileAccountView: View {
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
-            NativeProfileNetworkCard(sessionStore: sessionStore)
+            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier)
             NativeProfileMenuGroup(section: .appSettings, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Sensitive account actions are separated from everyday controls.")
             NativeProfileMenuGroup(section: .safetyLegal, openPanel: { activePanel = $0 })
@@ -2922,6 +2924,7 @@ private struct NativeProfileNetworkCard: View {
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     let sessionStore: BytspotSessionStore
+    let activeTier: BytspotTier
     @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
     @State private var activeGroup = NativeGroupEventStore.primaryLiveEvent()
     @State private var networkStatus: String?
@@ -2932,7 +2935,7 @@ private struct NativeProfileNetworkCard: View {
     static let title = "Groups & Invites"
     static let actionTitles = ["Start Private Group", "Share Invite", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
-    private var currentTier: BytspotTier { .green }
+    private var currentTier: BytspotTier { activeTier }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
 
     var body: some View {
@@ -2983,12 +2986,12 @@ private struct NativeProfileNetworkCard: View {
 
     private var startGroupBlock: some View {
         VStack(alignment: .leading, spacing: 11) {
-            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Green includes 1 live group · up to \(entitlement.participantCapacity) people · \(entitlement.liveDurationHours)h live", icon: "person.3.sequence.fill", color: NativeTheme.emerald)
+            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "\(currentTier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s") · up to \(entitlement.participantCapacity) people · \(entitlement.liveDurationHours)h live", icon: "person.3.sequence.fill", color: tierAccent)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in
                         Button(action: { selectedGroupType = type }) {
-                            Text(type).font(.system(size: 12, weight: .black)).foregroundColor(selectedGroupType == type ? .black : NativeProfileStyle.title).padding(.horizontal, 11).frame(height: 32).background(selectedGroupType == type ? NativeTheme.emerald : NativeProfileStyle.insetSurface).clipShape(Capsule())
+                            Text(type).font(.system(size: 12, weight: .black)).foregroundColor(selectedGroupType == type ? .black : NativeProfileStyle.title).padding(.horizontal, 11).frame(height: 32).background(selectedGroupType == type ? tierAccent : NativeProfileStyle.insetSurface).clipShape(Capsule())
                         }.buttonStyle(.plain)
                     }
                 }
@@ -2998,7 +3001,7 @@ private struct NativeProfileNetworkCard: View {
                     .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 42)
-                    .background(LinearGradient(colors: [NativeTheme.emerald, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
+                    .background(LinearGradient(colors: [tierAccent, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             }.buttonStyle(.plain)
         }
@@ -3031,6 +3034,14 @@ private struct NativeProfileNetworkCard: View {
         .background(NativeProfileStyle.insetSurface.opacity(0.74))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
+    }
+
+    private var tierAccent: Color {
+        switch currentTier {
+        case .green: return NativeTheme.emerald
+        case .platinum: return NativeTheme.cyan
+        case .black: return NativeTheme.orange
+        }
     }
 
     private var matchedOfferPreview: some View {
@@ -3315,6 +3326,11 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var eventName: String
     @State private var timing: NativeGroupEventTimingState = .now
     @State private var inviteNote = ""
+    @State private var hostName = "Bytspot Member"
+    @State private var scheduledDate = "Tonight · live now"
+    @State private var locationLabel = "Host-selected private table"
+    @State private var theme = "Premium dinner"
+    @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
     @State private var allowNearbyOffers = true
 
     init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
@@ -3335,6 +3351,7 @@ private struct NativeGroupEventSetupSheet: View {
                 typeSelector
                 inputField(title: "Event name", placeholder: "Dinner Group", text: $eventName)
                 timingSelector
+                logisticsFields
                 inputField(title: "Invite note", placeholder: "Pull up when you can — food order going in soon.", text: $inviteNote, lineLimit: 3)
                 privacyControls
                 goLiveButton
@@ -3355,7 +3372,7 @@ private struct NativeGroupEventSetupSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Text("GROUP EVENT TEMPLATE").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
             Text("Confirm details before going live.").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-            Text("Green includes \(entitlement.activeEventLimit) live group, up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Text("\(tier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s"), up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -3380,6 +3397,18 @@ private struct NativeGroupEventSetupSheet: View {
                 }
             }
             Text("This Week and Weekly unlock with Platinum/Black.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
+        }
+    }
+
+    private var logisticsFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Logistics & experience")
+            inputField(title: "Host", placeholder: "Kojo Asante", text: $hostName)
+            inputField(title: "Schedule", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
+            inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
+            inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
+            inputField(title: "Highlights", placeholder: "Chef menu, Private arrival, Invite-only offers", text: $activityHighlightsText, lineLimit: 2)
+            Text("These details travel in the private invite URL so the App Clip can render context without a network round-trip. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
         }
     }
 
@@ -3451,7 +3480,8 @@ private struct NativeGroupEventSetupSheet: View {
 
     private func goLive() {
         guard canGoLive else { return }
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, hostName: "Bytspot Member", tier: tier)
+        let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, hostName: hostName, tier: tier, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights)
         onCreate(record)
         dismiss()
     }
@@ -3540,8 +3570,16 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     let inviteNote: String?
     let privacyStatus: NativeGroupEventPrivacyStatus
     let privateAssociation: NativeGroupEventPrivateAssociation
+    let scheduledDate: String
+    let locationLabel: String
+    let theme: String
+    let guestSummary: String
+    let activityHighlights: [String]
+    let heroImageURLString: String?
+    let thumbnailURLString: String?
+    let videoURLString: String?
 
-    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none) {
+    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil) {
         self.id = id
         self.title = title
         self.groupType = groupType
@@ -3553,19 +3591,29 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.inviteNote = inviteNote
         self.privacyStatus = privacyStatus
         self.privateAssociation = privateAssociation
+        let fallback = Self.richDefaults(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
+        self.scheduledDate = Self.clean(scheduledDate) ?? fallback.schedule
+        self.locationLabel = Self.clean(locationLabel) ?? fallback.location
+        self.theme = Self.clean(theme) ?? fallback.theme
+        self.guestSummary = Self.clean(guestSummary) ?? fallback.guests
+        self.activityHighlights = (activityHighlights?.filter { !Self.clean($0, maxLength: 64).isNilOrEmpty } ?? []).isEmpty ? fallback.highlights : activityHighlights ?? fallback.highlights
+        self.heroImageURLString = heroImageURLString ?? fallback.hero
+        self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
+        self.videoURLString = videoURLString ?? fallback.video
     }
 
     static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
         Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Pull up when you can.", privacyStatus: .privateInvite, privateAssociation: .host)
     }
 
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, hostName: String, tier: BytspotTier = .green) -> Self {
+    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
-        return Self(id: "group-\(slug)-\(Int(Date().timeIntervalSince1970))", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host)
+        let entitlement = NativeGroupEventContract.entitlement(for: tier)
+        return Self(id: "group-\(slug)-\(Int(Date().timeIntervalSince1970))", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
@@ -3584,7 +3632,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
 
     private static let hiddenFromPublicGroupTypes = Set(["dinner", "family"])
 
-    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, inviteNote, privacyStatus, privateAssociation }
+    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -3599,7 +3647,45 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         inviteNote = try c.decodeIfPresent(String.self, forKey: .inviteNote)
         privacyStatus = try c.decodeIfPresent(NativeGroupEventPrivacyStatus.self, forKey: .privacyStatus) ?? .privateInvite
         privateAssociation = try c.decodeIfPresent(NativeGroupEventPrivateAssociation.self, forKey: .privateAssociation) ?? .host
+        let fallback = Self.richDefaults(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
+        scheduledDate = try c.decodeIfPresent(String.self, forKey: .scheduledDate) ?? fallback.schedule
+        locationLabel = try c.decodeIfPresent(String.self, forKey: .locationLabel) ?? fallback.location
+        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? fallback.theme
+        guestSummary = try c.decodeIfPresent(String.self, forKey: .guestSummary) ?? fallback.guests
+        activityHighlights = try c.decodeIfPresent([String].self, forKey: .activityHighlights) ?? fallback.highlights
+        heroImageURLString = try c.decodeIfPresent(String.self, forKey: .heroImageURLString) ?? fallback.hero
+        thumbnailURLString = try c.decodeIfPresent(String.self, forKey: .thumbnailURLString) ?? fallback.thumbnail
+        videoURLString = try c.decodeIfPresent(String.self, forKey: .videoURLString) ?? fallback.video
     }
+
+    private static func richDefaults(tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, location: String, theme: String, guests: String, highlights: [String], hero: String?, thumbnail: String?, video: String?) {
+        let schedule = timing == .now ? "Tonight · live now" : timing.label
+        let guests = "\(participantCount) joined · invite-only"
+        let type = clean(groupType, maxLength: 40) ?? "Private"
+        let hero = "https://bytspot.app/media/app-clip/\(tier.rawValue)-private-group-hero.jpg"
+        let thumbnail = "https://bytspot.app/media/app-clip/\(tier.rawValue)-private-group-poster.jpg"
+        let video: String?
+        #if DEBUG
+        video = tier == .green ? nil : "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8"
+        #else
+        video = nil
+        #endif
+        switch tier {
+        case .black: return (schedule, "Private arrival lounge", "Elite Guarantee · \(type)", guests, ["48h+ live window", "42+ guest capacity", "Concierge verified"], hero, thumbnail, video)
+        case .platinum: return (schedule, "Host-selected private table", "Premium \(type.lowercased())", guests, ["12h live window", "Up to 12 guests", "Host-led arrival"], hero, thumbnail, video)
+        case .green: return (schedule, "Local private spot", "Local \(type.lowercased())", guests, ["2h local window", "Up to 5 guests", "Neighbor verified"], hero, thumbnail, video)
+        }
+    }
+
+    private static func clean(_ value: String?, maxLength: Int = 96) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(maxLength))
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var isNilOrEmpty: Bool { self?.isEmpty ?? true }
 }
 
 enum NativeGroupEventStore {
@@ -3662,8 +3748,17 @@ enum NativeGroupEventContract {
             URLQueryItem(name: "title", value: event.title),
             URLQueryItem(name: "type", value: event.groupType),
             URLQueryItem(name: "participants", value: "\(event.participantCount)"),
+            URLQueryItem(name: "scheduled", value: event.scheduledDate),
+            URLQueryItem(name: "host", value: event.hostName),
+            URLQueryItem(name: "location", value: event.locationLabel),
+            URLQueryItem(name: "theme", value: event.theme),
+            URLQueryItem(name: "guestSummary", value: event.guestSummary),
+            URLQueryItem(name: "activities", value: event.activityHighlights.joined(separator: ",")),
+            URLQueryItem(name: "hero", value: event.heroImageURLString),
+            URLQueryItem(name: "thumbnail", value: event.thumbnailURLString),
+            URLQueryItem(name: "video", value: event.videoURLString),
             URLQueryItem(name: "source", value: "app_clip")
-        ]
+        ].filter { $0.value?.isEmpty == false }
         return components.url ?? URL(string: "https://bytspot.app")!
     }
 
@@ -3675,14 +3770,58 @@ enum NativeGroupEventContract {
         let id = parts[1]
         let title = queryValue(in: query, names: ["title", "event"]) ?? id.replacingOccurrences(of: "-", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
         let groupType = queryValue(in: query, names: ["type", "groupType"]) ?? title.replacingOccurrences(of: " Group", with: "")
-        let tier = queryValue(in: query, names: ["tier"]).flatMap(BytspotTier.init(rawValue:)) ?? .green
-        let timing = queryValue(in: query, names: ["timing", "when"]).flatMap(NativeGroupEventTimingState.init(rawValue:)) ?? .now
+        let tier = parseTier(queryValue(in: query, names: ["tier"])) ?? .green
+        let timing = parseTiming(queryValue(in: query, names: ["timing", "when"])) ?? .now
         let participantCount = Int(queryValue(in: query, names: ["participants", "p"]) ?? "1") ?? 1
-        return NativeGroupEventRecord(id: id, title: title, groupType: groupType, hostName: "Private Host", tier: tier, timing: timing, participantCount: participantCount, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .privateInvite, privateAssociation: .joinedViaInvite)
+        let hostName = queryValue(in: query, names: ["host", "hostName"]) ?? "Private Host"
+        return NativeGroupEventRecord(
+            id: id,
+            title: title,
+            groupType: groupType,
+            hostName: hostName,
+            tier: tier,
+            timing: timing,
+            participantCount: participantCount,
+            allowNearbyOffers: true,
+            inviteNote: nil,
+            privacyStatus: .privateInvite,
+            privateAssociation: .joinedViaInvite,
+            scheduledDate: queryValue(in: query, names: ["scheduled", "scheduledDate", "date", "startTime"]),
+            locationLabel: queryValue(in: query, names: ["location", "locationLabel", "address"]),
+            theme: queryValue(in: query, names: ["theme", "eventTheme"]),
+            guestSummary: queryValue(in: query, names: ["guestSummary", "guests"]),
+            activityHighlights: queryArray(in: query, names: ["activities", "activityHighlights", "highlights"]),
+            heroImageURLString: queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]),
+            thumbnailURLString: queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]),
+            videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"])
+        )
     }
 
     private static func queryValue(in items: [URLQueryItem], names: [String]) -> String? {
         items.first { item in names.contains { $0.caseInsensitiveCompare(item.name) == .orderedSame } }?.value
+    }
+
+    private static func queryArray(in items: [URLQueryItem], names: [String]) -> [String]? {
+        guard let raw = queryValue(in: items, names: names) else { return nil }
+        let values = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return values.isEmpty ? nil : values
+    }
+
+    private static func parseTier(_ raw: String?) -> BytspotTier? {
+        guard let raw else { return nil }
+        return BytspotTier(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    private static func parseTiming(_ raw: String?) -> NativeGroupEventTimingState? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "-", with: "_").replacingOccurrences(of: " ", with: "_")
+        switch normalized {
+        case "now", "live", "live_now": return .now
+        case "today": return .today
+        case "thisweek", "this_week": return .thisWeek
+        case "weekly", "week": return .weekly
+        default: return NativeGroupEventTimingState(rawValue: raw)
+        }
     }
 
     static func homepageBanner(for event: NativeGroupEventRecord) -> NativeGroupEventBannerSnapshot {

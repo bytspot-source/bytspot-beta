@@ -444,15 +444,60 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertTrue(url.contains("title=Family%20Dinner"))
         XCTAssertTrue(url.contains("type=Family"))
         XCTAssertTrue(url.contains("participants=3"))
+        XCTAssertTrue(url.contains("scheduled="))
+        XCTAssertTrue(url.contains("host=Bytspot%20Member"))
+        XCTAssertTrue(url.contains("location="))
+        XCTAssertTrue(url.contains("theme="))
+        XCTAssertTrue(url.contains("guestSummary="))
+        XCTAssertTrue(url.contains("activities="))
+        XCTAssertTrue(url.contains("hero=https"))
+        XCTAssertTrue(url.contains("thumbnail=https"))
         XCTAssertTrue(url.contains("source=app_clip"))
+    }
+
+    func testTieredGroupCreationCarriesPlatinumAndBlackMetadataIntoInviteURLs() {
+        let platinum = NativeGroupEventRecord.created(
+            type: "Dinner",
+            title: "Platinum Dinner Group",
+            timing: .weekly,
+            inviteNote: "Host-led arrival.",
+            allowNearbyOffers: true,
+            hostName: "Kojo Asante",
+            tier: .platinum,
+            scheduledDate: "Tonight · 8:00 PM",
+            locationLabel: "Host-selected private table",
+            theme: "Premium dinner",
+            activityHighlights: ["Chef menu", "Private arrival"]
+        )
+        XCTAssertEqual(platinum.tier, .platinum)
+        XCTAssertEqual(platinum.timing, .weekly)
+        XCTAssertEqual(platinum.hostName, "Kojo Asante")
+        XCTAssertEqual(platinum.guestSummary, "1 joined · up to 25 guests")
+        let platinumURL = NativeGroupEventContract.inviteURL(for: platinum).absoluteString
+        XCTAssertTrue(platinumURL.contains("tier=platinum"))
+        XCTAssertTrue(platinumURL.contains("scheduled=Tonight"))
+        XCTAssertTrue(platinumURL.contains("host=Kojo%20Asante"))
+        XCTAssertTrue(platinumURL.contains("location=Host-selected%20private%20table"))
+        XCTAssertTrue(platinumURL.contains("theme=Premium%20dinner"))
+        XCTAssertTrue(platinumURL.contains("activities=Chef%20menu,Private%20arrival"))
+
+        let black = NativeGroupEventRecord.created(type: "Family", hostName: "Black Host", tier: .black)
+        XCTAssertEqual(black.tier, .black)
+        XCTAssertTrue(black.guestSummary.contains("100 guests"))
+        XCTAssertTrue(NativeGroupEventContract.inviteURL(for: black).absoluteString.contains("tier=black"))
     }
 
     @MainActor
     func testGroupInviteURLRoutesToAppClipStyleJoinDestination() {
-        let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=platinum&timing=now&source=app_clip&participants=12"
+        let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=Platinum&timing=this-week&source=app_clip&participants=12&scheduled=Tonight%20%C2%B7%208%3A00%20PM&host=Kojo%20Asante&location=Host-selected%20private%20table&theme=Premium%20dinner&activities=Chef%20menu,Private%20arrival"
         let invite = NativeGroupEventProbe.parsedInvite(urlString: urlString)
         XCTAssertEqual(invite?.id, "platinum-private-dinner")
         XCTAssertEqual(invite?.tier, .platinum)
+        XCTAssertEqual(invite?.timing, .thisWeek)
+        XCTAssertEqual(invite?.hostName, "Kojo Asante")
+        XCTAssertEqual(invite?.locationLabel, "Host-selected private table")
+        XCTAssertEqual(invite?.theme, "Premium dinner")
+        XCTAssertEqual(invite?.activityHighlights, ["Chef menu", "Private arrival"])
         XCTAssertEqual(invite?.privateAssociation, .joinedViaInvite)
 
         let coordinator = NativeNavigationCoordinator()

@@ -179,25 +179,7 @@ struct ClipGroupEventJoinView: View {
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
-    private var inviteURL: URL? {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "bytspot.app"
-        components.path = "/group/\(invite.id)"
-        components.queryItems = [
-            URLQueryItem(name: "tier", value: invite.tier.rawValue),
-            URLQueryItem(name: "title", value: invite.title),
-            URLQueryItem(name: "type", value: invite.groupType),
-            URLQueryItem(name: "participants", value: "\(invite.participantCount)"),
-            URLQueryItem(name: "timing", value: invite.timing.rawValue),
-            URLQueryItem(name: "scheduled", value: invite.scheduledDate),
-            URLQueryItem(name: "host", value: invite.hostName),
-            URLQueryItem(name: "location", value: invite.locationLabel),
-            URLQueryItem(name: "theme", value: invite.theme),
-            URLQueryItem(name: "source", value: "app_clip")
-        ]
-        return components.url
-    }
+    private var inviteURL: URL? { invite.handoffURL }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -316,7 +298,7 @@ struct ClipGroupEventJoinView: View {
         VStack(spacing: 10) {
             Button(action: joinGroup) { cta(joined ? "Joined" : "Join Instantly", foreground: .black, background: accent) }.buttonStyle(.plain)
             Button(action: copyInvite) { cta("Copy Invite Link", foreground: .white, background: Color.white.opacity(0.10)) }.buttonStyle(.plain)
-            Button(action: { showOverlay = true }) { cta("Open in Bytspot", foreground: .white, background: secondary.opacity(0.34)) }.buttonStyle(.plain)
+            Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) { cta("Open in Bytspot", foreground: .white, background: secondary.opacity(0.34)) }.buttonStyle(.plain)
             if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
         }
     }

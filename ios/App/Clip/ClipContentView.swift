@@ -177,13 +177,21 @@ struct ClipGroupEventJoinView: View {
     @State private var joined = false
     @State private var statusMessage = ""
     @State private var showShareSheet = false
+    @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 31
+    @ScaledMetric(relativeTo: .title2) private var sectionTitleFontSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .headline) private var bodyFontSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .caption) private var chipFontSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .body) private var topControlSize: CGFloat = 50
+    @ScaledMetric(relativeTo: .body) private var guestAvatarSize: CGFloat = 56
+    @ScaledMetric(relativeTo: .body) private var hostAvatarSize: CGFloat = 62
+    @ScaledMetric(relativeTo: .body) private var ctaHeight: CGFloat = 54
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
     private var inviteURL: URL? { invite.handoffURL }
     private var ink: Color { Color(red: 0.075, green: 0.082, blue: 0.105) }
     private var mutedInk: Color { Color.black.opacity(0.58) }
-    private var avatarCount: Int { min(max(invite.participantCount, 1), 5) }
+    private var avatarCount: Int { min(max(invite.participantCount, 0), 5) }
     private var overflowCount: Int { max(invite.participantCount - avatarCount, 0) }
 
     var body: some View {
@@ -249,17 +257,17 @@ struct ClipGroupEventJoinView: View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 9) {
                 Label(invite.locationLabel, systemImage: "mappin.circle.fill")
-                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .font(.system(size: max(bodyFontSize, 18), weight: .heavy, design: .rounded))
                     .foregroundColor(ink.opacity(0.72))
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
                 Text(invite.title)
-                    .font(.system(size: 31, weight: .black, design: .rounded))
+                    .font(.system(size: titleFontSize, weight: .black, design: .rounded))
                     .foregroundColor(ink)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(eventBlurb)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: bodyFontSize, weight: .semibold, design: .rounded))
                     .foregroundColor(ink.opacity(0.82))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -279,7 +287,7 @@ struct ClipGroupEventJoinView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Guest List")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: sectionTitleFontSize, weight: .black, design: .rounded))
                         .foregroundColor(ink)
                     Text(invite.guestSummary)
                         .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -297,18 +305,27 @@ struct ClipGroupEventJoinView: View {
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: -10) {
-                ForEach(0..<avatarCount, id: \.self) { index in
-                    avatarBubble(index: index, size: 56)
+            if avatarCount > 0 {
+                HStack(spacing: -10) {
+                    ForEach(0..<avatarCount, id: \.self) { index in
+                        avatarBubble(index: index, size: guestAvatarSize)
+                    }
+                    if overflowCount > 0 {
+                        Text("+\(overflowCount)")
+                            .font(.system(size: min(guestAvatarSize * 0.38, 24), weight: .black, design: .rounded))
+                            .foregroundColor(ink)
+                            .frame(width: guestAvatarSize, height: guestAvatarSize)
+                            .background(glassCircle(tint: .white.opacity(0.18)))
+                            .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1.2))
+                    }
                 }
-                if overflowCount > 0 {
-                    Text("+\(overflowCount)")
-                        .font(.system(size: 21, weight: .black, design: .rounded))
-                        .foregroundColor(ink)
-                        .frame(width: 56, height: 56)
-                        .background(glassCircle(tint: .white.opacity(0.18)))
-                        .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1.2))
-                }
+            } else {
+                Text("Host is setting up the guest list")
+                    .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(glassCapsule(tint: .white.opacity(0.14)))
             }
         }
     }
@@ -318,7 +335,7 @@ struct ClipGroupEventJoinView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Photo Album")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: sectionTitleFontSize, weight: .black, design: .rounded))
                         .foregroundColor(ink)
                     Text(invite.displayPosterURL == nil ? "Ready for memories" : "1 photo")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -360,23 +377,28 @@ struct ClipGroupEventJoinView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Activity")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: sectionTitleFontSize, weight: .black, design: .rounded))
                         .foregroundColor(ink)
                     Text("1 update")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundColor(mutedInk)
                 }
                 Spacer()
-                Label("Comment", systemImage: "lock.fill")
-                    .font(.system(size: 16, weight: .black, design: .rounded))
-                    .foregroundColor(mutedInk)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 13)
-                    .background(glassCapsule(tint: .white.opacity(0.12)))
+                Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                    Label("Comment", systemImage: "lock.fill")
+                        .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
+                        .foregroundColor(mutedInk)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: .white.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Comments locked in App Clip")
+                .accessibilityHint("Open full Bytspot to comment")
             }
 
             HStack(alignment: .top, spacing: 14) {
-                avatarBubble(index: 0, size: 62)
+                avatarBubble(index: 0, size: hostAvatarSize)
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "crown.fill")
                             .font(.system(size: 10, weight: .black))
@@ -431,10 +453,13 @@ struct ClipGroupEventJoinView: View {
             HStack(spacing: 10) {
                 Button(action: joinGroup) {
                     Label(joined ? "You're in" : "Join guest list", systemImage: joined ? "checkmark.circle.fill" : "sparkles")
-                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
                         .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
+                        .frame(minHeight: ctaHeight)
                         .background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
                         .shadow(color: accent.opacity(0.30), radius: 18, x: 0, y: 10)
@@ -445,11 +470,12 @@ struct ClipGroupEventJoinView: View {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 20, weight: .black))
                         .foregroundColor(ink)
-                        .frame(width: 54, height: 54)
+                        .frame(width: ctaHeight, height: ctaHeight)
                         .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Share invite")
+                .accessibilityHint("Opens the iOS share sheet")
             }
             Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
                 Text("Open full Bytspot for chat, photos, and offers")
@@ -458,6 +484,7 @@ struct ClipGroupEventJoinView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
+            .accessibilityHint("Opens this group in the full Bytspot app")
             if !statusMessage.isEmpty {
                 Text(statusMessage)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -520,7 +547,7 @@ struct ClipGroupEventJoinView: View {
             Image(systemName: systemName)
                 .font(.system(size: 20, weight: .black))
                 .foregroundColor(ink)
-                .frame(width: 50, height: 50)
+                .frame(width: topControlSize, height: topControlSize)
                 .background(glassCircle(tint: .white.opacity(0.12)))
         }
         .buttonStyle(.plain)
@@ -529,7 +556,7 @@ struct ClipGroupEventJoinView: View {
 
     private func glassChip(_ text: String, icon: String) -> some View {
         Label(text, systemImage: icon)
-            .font(.system(size: 11, weight: .black, design: .rounded))
+            .font(.system(size: chipFontSize, weight: .black, design: .rounded))
             .foregroundColor(ink.opacity(0.78))
             .lineLimit(1)
             .minimumScaleFactor(0.78)

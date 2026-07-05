@@ -100,6 +100,8 @@ enum BytspotAviationFallbackTests {
         }
 
         runPhase3LuxuryFlowContract()
+        assertRichMediaContextContract()
+        assertPrivateGroupRichInviteContract()
         assertPartnerCardParity()
     }
 
@@ -163,6 +165,45 @@ enum BytspotAviationFallbackTests {
         precondition(items == ClipLineItem.broniHomeTasteFavorites, "Phase3 App Clip: Broni Home Taste line item table drifted.")
         precondition(items.first?.label == "Jollof Rice with Chicken", "Phase3 App Clip: Broni first favorite must stay Jollof Rice with Chicken.")
         precondition(items.contains { $0.label == "Banku and Fried Fish/Tilapia" }, "Phase3 App Clip: Broni fish/tilapia favorite missing.")
+    }
+
+    private static func assertRichMediaContextContract() {
+        guard let black = ClipLocalService.fallbacks(for: .black).first,
+              let platinum = ClipLocalService.fallbacks(for: .platinum).first(where: { $0.id == "platinum-entry" }),
+              let green = ClipLocalService.fallbacks(for: .green).first else {
+            preconditionFailure("Phase4E App Clip: tier fallback catalogs missing rich-media fixtures.")
+        }
+        precondition(black.theme == "Elite Guarantee", "Phase4E App Clip: Black service must expose Elite Guarantee theme.")
+        precondition(black.videoURL != nil, "Phase4E App Clip: Black service must expose DEBUG HLS preview loop.")
+        precondition(platinum.hostName == "Platinum Host Team", "Phase4E App Clip: Platinum service must expose host metadata.")
+        precondition(platinum.guestSummary == "Up to 12 guests", "Phase4E App Clip: Platinum guest summary drifted.")
+        precondition(green.theme == "Local community", "Phase4E App Clip: Green service must keep Local theme.")
+        precondition(green.videoURL == nil, "Phase4E App Clip: Green catalog should use photo-first local thumbnails, not autoplay video.")
+
+        let vendors = ClipVendor.fallbacks(for: platinum, tier: .platinum)
+        precondition(vendors.first?.hasPlayableVideo == true, "Phase4E App Clip: Platinum first vendor must expose playable HLS metadata.")
+        precondition(vendors.first?.locationLabel == "Premium entry gate", "Phase4E App Clip: Platinum event vendor location context drifted.")
+    }
+
+    private static func assertPrivateGroupRichInviteContract() {
+        let platinum = ClipGroupEventInvite.from(pathParts: ["group", "platinum-private-dinner"], queryItems: [
+            URLQueryItem(name: "title", value: "Platinum Dinner Group"),
+            URLQueryItem(name: "type", value: "Dinner"),
+            URLQueryItem(name: "participants", value: "12"),
+            URLQueryItem(name: "timing", value: "now")
+        ], tier: .platinum)
+        precondition(platinum?.theme == "Premium dinner", "Phase4F App Clip: Platinum private group theme drifted.")
+        precondition(platinum?.hostName == "Platinum Dinner Host", "Phase4F App Clip: Platinum private group host metadata missing.")
+        precondition(platinum?.hasPlayableVideo == true, "Phase4F App Clip: Platinum private group must expose DEBUG HLS loop.")
+        precondition(platinum?.activityHighlights.contains("12h live window") == true, "Phase4F App Clip: Platinum private group highlights missing live window.")
+
+        let green = ClipGroupEventInvite.from(pathParts: ["group", "green-family"], queryItems: [
+            URLQueryItem(name: "title", value: "Green Family Group"),
+            URLQueryItem(name: "type", value: "Family"),
+            URLQueryItem(name: "participants", value: "5")
+        ], tier: .green)
+        precondition(green?.hasPlayableVideo == false, "Phase4F App Clip: Green private groups should remain photo-first.")
+        precondition(green?.theme == "Local family", "Phase4F App Clip: Green private group theme drifted.")
     }
 }
 #endif

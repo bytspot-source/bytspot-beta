@@ -163,21 +163,21 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     func testVenueDetailHeaderBadgesStayConsumerFacing() {
         XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: nil)))
-        XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: "DISCOVER-VERIFIED")))
-        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking", patchId: "DISCOVER-VERIFIED")), "MEMBER SERVICE")
+        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: "DISCOVER-VERIFIED")), "DINING")
+        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking", patchId: "DISCOVER-VERIFIED")), "DINING")
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")), "VERIFIED PATCH")
     }
 
     func testVenueDetailCategorySectionsArePurposeBuilt() {
         let broni = NativeVenueDetailPresentation.detailSection(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"))
-        XCTAssertEqual(broni?.title, "Dining highlights")
+        XCTAssertEqual(broni?.title, "Included")
         XCTAssertEqual(broni?.systemImage, "fork.knife")
         XCTAssertTrue(broni?.highlights.contains("Jollof + chicken") == true)
 
         let gh = NativeVenueDetailPresentation.detailSection(for: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access"))
-        XCTAssertEqual(gh?.title, "Pass access")
+        XCTAssertEqual(gh?.title, "Included")
         XCTAssertEqual(gh?.systemImage, "ticket.fill")
-        XCTAssertTrue(gh?.highlights.contains("Digital pass") == true)
+        XCTAssertTrue(gh?.highlights.contains("Digital pass delivery") == true)
     }
 
     func testVenueHoursCoffeeParity() {
@@ -371,7 +371,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
-        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "walk_10")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")
     }
 }
@@ -389,5 +389,188 @@ final class NativeAppearanceModeContractTests: XCTestCase {
         XCTAssertNil(NativeAppearanceMode.system.preferredColorScheme)
         XCTAssertEqual(NativeAppearanceMode.dark.uiUserInterfaceStyle, .dark)
         XCTAssertEqual(NativeAppearanceMode.light.uiUserInterfaceStyle, .light)
+    }
+}
+
+final class NativeGroupEventContractTests: XCTestCase {
+    func testConsumerTierEntitlementsFollowGreenPlatinumBlackHierarchy() {
+        let green = NativeGroupEventProbe.entitlementSnapshot(tier: .green)
+        XCTAssertEqual(green.activeEventLimit, 1)
+        XCTAssertEqual(green.participantCapacity, 5)
+        XCTAssertEqual(green.liveDurationHours, 2)
+        XCTAssertEqual(green.allowedTimingStates.map(\.label), ["Now", "Today"])
+        XCTAssertFalse(green.allowsCustomBannerImage)
+
+        let platinum = NativeGroupEventProbe.entitlementSnapshot(tier: .platinum)
+        XCTAssertEqual(platinum.activeEventLimit, 3)
+        XCTAssertEqual(platinum.participantCapacity, 25)
+        XCTAssertEqual(platinum.liveDurationHours, 12)
+        XCTAssertTrue(platinum.allowedTimingStates.contains(.weekly))
+
+        let black = NativeGroupEventProbe.entitlementSnapshot(tier: .black)
+        XCTAssertEqual(black.activeEventLimit, 10)
+        XCTAssertEqual(black.participantCapacity, 100)
+        XCTAssertEqual(black.liveDurationHours, 48)
+        XCTAssertEqual(black.offerPriority, "Exclusive matched offers")
+    }
+
+    func testVendorLTOTierEntitlementsScaleBroadcastAndAnalytics() {
+        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .green).activeOfferLimit, 1)
+        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .platinum).activeOfferLimit, 5)
+        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .black).activeOfferLimit, 20)
+        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .green).analyticsLevel, "Views + claims")
+        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .black).boostAccess, "Featured boosts")
+    }
+
+    func testHomepageBannerUsesInstantAccessBytspotCopy() {
+        let banner = NativeGroupEventProbe.homepageBanner(tier: .black)
+        XCTAssertEqual(banner.sectionTitle, "Live Event Happening Now")
+        XCTAssertEqual(banner.eyebrow, "LIVE NOW")
+        XCTAssertEqual(banner.title, "Family Dinner")
+        XCTAssertEqual(banner.tierBadge, "Black")
+        XCTAssertEqual(banner.privacyBadge, "Private Group")
+        XCTAssertEqual(banner.ctaTitle, "Open Group")
+        XCTAssertTrue(banner.subtitle.contains("48h live window"))
+
+        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).eyebrow, "WEEKLY")
+        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).ctaTitle, "Join Instantly")
+    }
+
+    func testInviteURLIsAppClipInstantJoinFriendly() {
+        let url = NativeGroupEventProbe.inviteURLString(tier: .green)
+        XCTAssertTrue(url.hasPrefix("https://bytspot.app/group/family-dinner?"))
+        XCTAssertTrue(url.contains("tier=green"))
+        XCTAssertTrue(url.contains("timing=now"))
+        XCTAssertTrue(url.contains("title=Family%20Dinner"))
+        XCTAssertTrue(url.contains("type=Family"))
+        XCTAssertTrue(url.contains("participants=3"))
+        XCTAssertTrue(url.contains("source=app_clip"))
+    }
+
+    @MainActor
+    func testGroupInviteURLRoutesToAppClipStyleJoinDestination() {
+        let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=platinum&timing=now&source=app_clip&participants=12"
+        let invite = NativeGroupEventProbe.parsedInvite(urlString: urlString)
+        XCTAssertEqual(invite?.id, "platinum-private-dinner")
+        XCTAssertEqual(invite?.tier, .platinum)
+        XCTAssertEqual(invite?.privateAssociation, .joinedViaInvite)
+
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: URL(string: urlString)!))
+        XCTAssertEqual(coordinator.requestedTab, .home)
+        if case .groupEvent(let routedInvite) = coordinator.requestedDestination {
+            XCTAssertEqual(routedInvite.id, "platinum-private-dinner")
+            XCTAssertEqual(routedInvite.privateAssociation, .joinedViaInvite)
+        } else {
+            XCTFail("Group invite links must route to the App Clip-style group destination, not Profile.")
+        }
+    }
+
+    func testGroupEventStorePersistsPrimaryLiveEvent() {
+        NativeGroupEventStore.clear()
+        XCTAssertNil(NativeGroupEventStore.primaryLiveEvent())
+        let record = NativeGroupEventRecord.created(type: "Dinner", hostName: "Bytspot Member", tier: .green)
+        NativeGroupEventStore.upsert(record)
+        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.title, "Dinner Group")
+        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.tier, .green)
+        NativeGroupEventStore.clear()
+    }
+
+    func testPreLiveTemplateDetailsFlowIntoCreatedRecord() {
+        let record = NativeGroupEventRecord.created(
+            type: "Birthday",
+            title: "Ama's Birthday Dinner",
+            timing: .today,
+            inviteNote: "Meet at 7 — offer claim before ordering.",
+            allowNearbyOffers: false,
+            hostName: "Bytspot Member",
+            tier: .green
+        )
+        XCTAssertEqual(record.title, "Ama's Birthday Dinner")
+        XCTAssertEqual(record.timing, .today)
+        XCTAssertEqual(record.inviteNote, "Meet at 7 — offer claim before ordering.")
+        XCTAssertFalse(record.allowNearbyOffers)
+    }
+
+    func testHomepagePrivacyHidesDinnerAndFamilyWithoutPrivateAssociation() {
+        let unaffiliatedFamily = NativeGroupEventRecord(id: "family-public", title: "Family Dinner", groupType: "Family", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
+        XCTAssertTrue(unaffiliatedFamily.requiresPrivateHomepageAssociation)
+        XCTAssertFalse(unaffiliatedFamily.isHomepageVisibleToCurrentViewer)
+
+        let unaffiliatedDinner = NativeGroupEventRecord(id: "dinner-public", title: "Dinner Group", groupType: "Dinner", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
+        XCTAssertTrue(unaffiliatedDinner.requiresPrivateHomepageAssociation)
+        XCTAssertFalse(unaffiliatedDinner.isHomepageVisibleToCurrentViewer)
+
+        let joinedFamily = NativeGroupEventRecord(id: "family-joined", title: "Family Dinner", groupType: "Family", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .joinedViaInvite)
+        XCTAssertTrue(joinedFamily.isHomepageVisibleToCurrentViewer)
+    }
+
+    func testHomepageRetrievalSkipsPrivateUnaffiliatedEvents() {
+        NativeGroupEventStore.clear()
+        let privatePickup = NativeGroupEventRecord(id: "pickup-private", title: "Pickup Group", groupType: "Pickup", hostName: "Host", tier: .green, timing: .now, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .privateInvite, privateAssociation: .none)
+        let publicPickup = NativeGroupEventRecord(id: "pickup-public", title: "Pickup Crew", groupType: "Pickup", hostName: "Host", tier: .green, timing: .now, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
+        NativeGroupEventStore.upsert(publicPickup)
+        NativeGroupEventStore.upsert(privatePickup)
+        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.id, "pickup-private")
+        XCTAssertEqual(NativeGroupEventStore.primaryHomepageVisibleEvent()?.id, "pickup-public")
+        NativeGroupEventStore.clear()
+    }
+}
+
+/// CI-runnable promotion of the launch-time `NativeMenuParitySelfTests` order +
+/// ledger checks. These lock the same pure contract the `precondition` self-tests
+/// do — so drift is caught on every PR, not only when the opt-in
+/// `BYT_NATIVE_ROOT=1` simulator root boots — reaching the private order/checkout
+/// types through the internal `NativeMenuCheckoutProbe` façade.
+final class NativeMenuCheckoutTests: XCTestCase {
+    private func fixture() -> (venue: NativeVenueSummary, menu: PartnerMenu, firstItem: MenuItem) {
+        let venue = NativeVenueSummary(id: "broni", name: "Broni Home Taste", category: "dining", address: "Authentic Ghanaian Home Cooking", distance: "Dining", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)
+        let menu = PartnerMenu.sample(for: venue)
+        return (venue, menu, menu.sections.first!.items.first!)
+    }
+
+    func testPlacedOrderSnapshotMirrorsSelectedLineItems() {
+        let (venue, menu, firstItem) = fixture()
+        let placement = NativeMenuCheckoutProbe.placeOrder(menu: menu, quantities: [firstItem.id: 2], paymentLabel: NativeMenuCheckoutProbe.paymentMethods[0], authenticated: true)
+        let order = placement.order
+        XCTAssertEqual(order.status, "confirmed")
+        XCTAssertEqual(order.totalLabel, PartnerMenu.formatPrice(cents: firstItem.priceCents * 2, currencyCode: menu.currencyCode))
+        XCTAssertEqual(order.itemCountLabel, "2 items")
+        XCTAssertEqual(order.venueName, venue.name)
+        XCTAssertTrue(order.orderCode.hasPrefix("BYO"), "Menu order code must use the BYO prefix.")
+        XCTAssertTrue(order.itemSummary.contains("2× \(firstItem.name)"), "Order summary must reflect the selected quantity × item name.")
+    }
+
+    func testConfirmedOrderSurfacesInMyAccessLedger() {
+        let (venue, menu, firstItem) = fixture()
+        let placement = NativeMenuCheckoutProbe.placeOrder(menu: menu, quantities: [firstItem.id: 2], paymentLabel: NativeMenuCheckoutProbe.paymentMethods[0], authenticated: true)
+        let ledger = placement.ledger
+        XCTAssertEqual(ledger.title, "Menu Order")
+        XCTAssertEqual(ledger.venue, venue.name)
+        XCTAssertEqual(ledger.statusBadge, "CONFIRMED")
+        XCTAssertEqual(ledger.reservation, "Confirmed")
+        XCTAssertEqual(ledger.actionTitle, "View order in My Access")
+        XCTAssertEqual(ledger.window, placement.order.fulfillmentLabel)
+        XCTAssertEqual(ledger.payment, "\(placement.order.paymentLabel) · \(placement.order.totalLabel)")
+    }
+
+    func testEmptyCartOrderIsZeroedButStillWellFormed() {
+        let (_, menu, _) = fixture()
+        let order = NativeMenuCheckoutProbe.placeOrder(menu: menu, quantities: [:], paymentLabel: NativeMenuCheckoutProbe.paymentMethods[0], authenticated: true).order
+        XCTAssertEqual(order.itemCountLabel, "0 items")
+        XCTAssertEqual(order.totalLabel, "$0")
+        XCTAssertEqual(order.itemSummary, "Menu order")
+    }
+
+    func testFulfillmentLabelReflectsAuthenticationState() {
+        let (_, menu, firstItem) = fixture()
+        let quantities = [firstItem.id: 1]
+        XCTAssertEqual(NativeMenuCheckoutProbe.placeOrder(menu: menu, quantities: quantities, paymentLabel: NativeMenuCheckoutProbe.paymentMethods[0], authenticated: true).order.fulfillmentLabel, "Ready for pickup · ~20 min")
+        XCTAssertEqual(NativeMenuCheckoutProbe.placeOrder(menu: menu, quantities: quantities, paymentLabel: NativeMenuCheckoutProbe.paymentMethods[0], authenticated: false).order.fulfillmentLabel, "Ready for pickup · confirm on arrival")
+    }
+
+    func testCheckoutOffersTheSharedNativePaymentMethods() {
+        XCTAssertEqual(NativeMenuCheckoutProbe.paymentMethods, ["Apple Pay", "Card •••• 4242"])
+        XCTAssertTrue(NativeMenuCheckoutProbe.sharesNativeCheckoutPaymentMethods, "Menu checkout must offer the same payment methods as other native checkouts.")
     }
 }

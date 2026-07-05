@@ -4,6 +4,7 @@ import SwiftUI
 enum NativeContextualDestination: Identifiable, Equatable {
     case profile
     case accessWallet
+    case groupEvent(NativeGroupEventRecord)
     case patch(BytspotPatchRoute)
     case booking(status: String, url: URL)
     case legal(title: String, url: URL)
@@ -12,6 +13,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "profile"
         case .accessWallet: return "access-wallet"
+        case .groupEvent(let event): return "group-event-\(event.id)"
         case .patch(let route): return "patch-\(route.patchId)"
         case .booking(let status, let url): return "booking-\(status)-\(url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
@@ -22,6 +24,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Profile"
         case .accessWallet: return "Access Wallet"
+        case .groupEvent(let event): return event.title
         case .patch(let route): return "Patch \(route.patchId)"
         case .booking(let status, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
@@ -32,6 +35,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Account, payments, preferences, and saved access."
         case .accessWallet: return "Tickets, reservations, patch access, and App Clip handoffs live here."
+        case .groupEvent(let event): return "\(event.timing.bannerEyebrow) · \(event.tier.displayName) private group"
         case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
         case .booking(let status, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
@@ -42,6 +46,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return .profile
         case .accessWallet, .patch, .booking: return .access
+        case .groupEvent: return .home
         case .legal: return .home
         }
     }
@@ -50,6 +55,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "ACCOUNT"
         case .accessWallet: return "WALLET"
+        case .groupEvent: return "APP CLIP GROUP"
         case .patch(let route): return route.tier.eyebrow
         case .booking(let status, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
@@ -97,6 +103,11 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
+        if path.hasPrefix("group/"), let invite = NativeGroupEventContract.groupInvite(from: url) {
+            requestedTab = .home
+            requestedDestination = .groupEvent(invite)
+            return true
+        }
         if path.hasPrefix("booking/") {
             requestedTab = .home
             let status = path.split(separator: "/").dropFirst().first.map(String.init) ?? "update"

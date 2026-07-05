@@ -79,7 +79,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // experience can route + theme + price-floor independently of the Clip bundle.
 // Keep cases/detect/min-cents/eyebrow/defaultSubtitle in sync with
 // ios/App/Clip/ClipPatchVerifier.swift.
-enum BytspotTier: String, Equatable, CaseIterable {
+enum BytspotTier: String, Equatable, CaseIterable, Codable {
     case black
     case platinum
     case green

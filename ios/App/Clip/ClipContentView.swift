@@ -77,6 +77,9 @@ struct ClipContentView: View {
                 case .catalog:
                     ClipCatalogView(showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
+                case .groupEvent(let invite):
+                    ClipGroupEventJoinView(invite: invite, showOverlay: $showOverlay)
+                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -168,6 +171,180 @@ private struct ClipBookingContext {
     }
 }
 
+struct ClipGroupEventJoinView: View {
+    let invite: ClipGroupEventInvite
+    @Binding var showOverlay: Bool
+    @State private var joined = false
+    @State private var statusMessage = ""
+
+    private var accent: Color { ClipTheme.accent(for: invite.tier) }
+    private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
+    private var inviteURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bytspot.app"
+        components.path = "/group/\(invite.id)"
+        components.queryItems = [
+            URLQueryItem(name: "tier", value: invite.tier.rawValue),
+            URLQueryItem(name: "title", value: invite.title),
+            URLQueryItem(name: "type", value: invite.groupType),
+            URLQueryItem(name: "participants", value: "\(invite.participantCount)"),
+            URLQueryItem(name: "timing", value: invite.timing.rawValue),
+            URLQueryItem(name: "scheduled", value: invite.scheduledDate),
+            URLQueryItem(name: "host", value: invite.hostName),
+            URLQueryItem(name: "location", value: invite.locationLabel),
+            URLQueryItem(name: "theme", value: invite.theme),
+            URLQueryItem(name: "source", value: "app_clip")
+        ]
+        return components.url
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                hero
+                logisticsCard
+                activityHighlightsCard
+                privacyGrid
+                primaryActions
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 28)
+        }
+        .accessibilityIdentifier("clip-group-event-join")
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Text(invite.timing.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
+                Spacer()
+                Text(invite.tier.displayName).font(.system(size: 11, weight: .black)).foregroundColor(.black).padding(.horizontal, 10).padding(.vertical, 6).background(accent).clipShape(Capsule())
+            }
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [accent.opacity(0.78), secondary.opacity(0.46), ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if invite.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: invite.videoURL, posterURL: invite.displayPosterURL, tint: accent).opacity(0.72)
+                } else if let url = invite.displayPosterURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }.opacity(0.58)
+                }
+                RadialGradient(colors: [accent.opacity(0.42), .clear], center: .topLeading, startRadius: 20, endRadius: 210)
+                LinearGradient(colors: [Color.black.opacity(0.05), Color.black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+                Image(systemName: "person.3.sequence.fill").font(.system(size: 96, weight: .black)).foregroundColor(.black.opacity(0.18)).offset(x: 176, y: -18)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("PRIVATE \(invite.groupType.uppercased())").font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.78)).tracking(1.2)
+                        if invite.hasPlayableVideo { Label("HLS LOOP", systemImage: "play.circle.fill").font(.system(size: 9.5, weight: .black)).foregroundColor(.white.opacity(0.82)) }
+                    }
+                    Text(invite.title).font(.system(size: 32, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
+                    Text("\(invite.guestSummary) · Instant App Clip access").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.82))
+                    HStack(spacing: -8) {
+                        ForEach(0..<min(invite.participantCount, 4), id: \.self) { idx in
+                            Circle().fill([accent, secondary, ClipTheme.cyan, ClipTheme.violet][idx % 4]).frame(width: 28, height: 28).overlay(Circle().stroke(Color.black.opacity(0.40), lineWidth: 2))
+                        }
+                        Text(" invite verified").font(.system(size: 11.5, weight: .black)).foregroundColor(.white.opacity(0.72)).padding(.leading, 12)
+                    }
+                }.padding(20)
+            }
+            .frame(height: 258)
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(accent.opacity(0.30), lineWidth: 1))
+            .shadow(color: accent.opacity(0.18), radius: 24, x: 0, y: 18)
+        }
+    }
+
+    private var logisticsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("EVENT LOGISTICS").font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.3)
+            HStack(spacing: 8) {
+                statPill(icon: "calendar.badge.clock", title: invite.scheduledDate)
+                statPill(icon: "person.crop.circle.badge.checkmark", title: invite.hostName)
+            }
+            statPill(icon: "location.fill", title: invite.locationLabel, expand: true)
+        }
+        .padding(15)
+        .background(glassBackground)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var activityHighlightsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(invite.theme.uppercased()).font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.2)
+                    Text("Experience context").font(.system(size: 18, weight: .black)).foregroundColor(.white)
+                }
+                Spacer()
+                Image(systemName: invite.tier == .black ? "shield.lefthalf.filled" : invite.tier == .platinum ? "sparkles" : "leaf.fill").font(.system(size: 22, weight: .black)).foregroundColor(accent)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 138), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(invite.activityHighlights.prefix(4), id: \.self) { item in
+                    Text(item).clipChip(color: Color.white.opacity(0.08), foreground: .white.opacity(0.88))
+                }
+            }
+        }
+        .padding(15)
+        .background(glassBackground)
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(accent.opacity(0.18), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var privacyGrid: some View {
+        VStack(spacing: 10) {
+            infoCard(title: "Join without sharing contacts", subtitle: "Your phone number, address book, and member list are not exposed to vendors or other invitees.", icon: "lock.shield.fill")
+            infoCard(title: "Offers use context, not contacts", subtitle: "Matched offers can use timing, tier, and nearby intent — never private contact data.", icon: "tag.fill")
+        }
+    }
+
+    private func infoCard(title: String, subtitle: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 34, height: 34).background(accent.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 16, weight: .black)).foregroundColor(.white)
+                Text(subtitle).font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(15)
+        .background(ClipTheme.panel.opacity(0.92))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var primaryActions: some View {
+        VStack(spacing: 10) {
+            Button(action: joinGroup) { cta(joined ? "Joined" : "Join Instantly", foreground: .black, background: accent) }.buttonStyle(.plain)
+            Button(action: copyInvite) { cta("Copy Invite Link", foreground: .white, background: Color.white.opacity(0.10)) }.buttonStyle(.plain)
+            Button(action: { showOverlay = true }) { cta("Open in Bytspot", foreground: .white, background: secondary.opacity(0.34)) }.buttonStyle(.plain)
+            if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
+        }
+    }
+
+    private var glassBackground: some ShapeStyle {
+        LinearGradient(colors: [ClipTheme.panelElevated.opacity(0.96), ClipTheme.panel.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private func statPill(icon: String, title: String, expand: Bool = false) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 12, weight: .black)).foregroundColor(accent)
+            Text(title).font(.system(size: 11.5, weight: .black)).foregroundColor(.white.opacity(0.86)).lineLimit(1).minimumScaleFactor(0.78)
+        }
+        .frame(maxWidth: expand ? .infinity : nil, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(Color.white.opacity(0.07))
+        .clipShape(Capsule())
+    }
+
+    private func cta(_ title: String, foreground: Color, background: Color) -> some View {
+        Text(title).font(.system(size: 15, weight: .black)).foregroundColor(foreground).frame(maxWidth: .infinity).frame(height: 50).background(background).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func joinGroup() { impactMedium(); joined = true; statusMessage = "You're in. Group updates and matched offers will appear here." }
+    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied for instant App Clip join." }
+}
+
 // MARK: - Screen 1: Catalog
 
 struct ClipCatalogView: View {
@@ -250,7 +427,9 @@ struct ClipCatalogView: View {
                     colors: [service.tintColor.opacity(0.78), service.tintColor.opacity(0.18), Color.black.opacity(0.55)],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
-                if let url = service.heroImageURL {
+                if service.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: service.videoURL, posterURL: service.displayPosterURL, tint: service.tintColor)
+                } else if let url = service.displayPosterURL {
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFill()
                     } placeholder: { Color.clear }
@@ -259,7 +438,7 @@ struct ClipCatalogView: View {
                 LinearGradient(colors: [.clear, Color.black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
                 VStack {
                     HStack {
-                        Text(service.source == "live" ? "LIVE" : "MEMBER SERVICE")
+                        Text(serviceBadgeText(service))
                                 .font(.system(size: 9, weight: .black))
                                 .tracking(0.8)
                                 .foregroundColor(invocation.hasPremiumMembershipAccess ? .black : .white)
@@ -300,6 +479,12 @@ struct ClipCatalogView: View {
                         .font(.system(size: 12, weight: .black, design: .monospaced))
                         .foregroundColor(service.tintColor)
                 }
+                if let context = serviceTileContext(service) {
+                    Text(context)
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(.white.opacity(0.66))
+                        .lineLimit(1)
+                }
                 Text(service.subtitle)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(.white.opacity(0.62))
@@ -317,9 +502,17 @@ struct ClipCatalogView: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [Color.black, ClipTheme.violet.opacity(0.34), ClipTheme.magenta.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if service.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: service.videoURL, posterURL: service.displayPosterURL, tint: ClipTheme.gold)
+                        .opacity(0.62)
+                } else if let url = service.displayPosterURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                        .opacity(0.54)
+                }
                 RadialGradient(colors: [ClipTheme.gold.opacity(0.16), .clear], center: .topTrailing, startRadius: 12, endRadius: 150)
+                LinearGradient(colors: [.clear, Color.black.opacity(0.70)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack { Text("BLACK · FLIGHT DESK").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
+                    HStack { Text("BLACK · ELITE GUARANTEE").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
                         .font(.system(size: 9.5, weight: .black))
                         .foregroundColor(ClipTheme.gold)
                     Spacer()
@@ -335,7 +528,7 @@ struct ClipCatalogView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.title).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
                 Text(service.priceLabel ?? "Quote ready").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
-                Text("Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
+                Text(serviceTileContext(service) ?? "Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
             }.padding(12)
         }
         .background(LinearGradient(colors: [ClipTheme.panelElevated, Color.black.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -450,6 +643,22 @@ struct ClipCatalogView: View {
     private func isBlackAviation(_ service: ClipLocalService) -> Bool {
         invocation.tier == .black && ((service.category ?? service.id).lowercased().contains("aviation") || service.id.lowercased().contains("jet"))
     }
+
+    private func serviceBadgeText(_ service: ClipLocalService) -> String {
+        if service.source == "live" { return "LIVE" }
+        switch invocation.tier {
+        case .black: return "ELITE GUARANTEE"
+        case .platinum: return "PLATINUM HOST"
+        case .green: return "LOCAL"
+        }
+    }
+
+    private func serviceTileContext(_ service: ClipLocalService) -> String? {
+        let parts = [service.scheduledDate, service.guestSummary, service.theme]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
+    }
 }
 
 // MARK: - Screen 2: Vendor list
@@ -548,20 +757,22 @@ struct ClipVendorListView: View {
         return AnyView(VStack(alignment: .leading, spacing: 11) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [service.tintColor.opacity(0.75), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let url = posterURL(for: vendor) {
+                if vendor.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: vendor.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
+                } else if let url = posterURL(for: vendor) {
                     AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                         .clipped()
                 }
                 LinearGradient(colors: [.clear, Color.black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
-                        Text("SERVICES").clipChip(color: Color.black.opacity(0.60), foreground: .white)
+                        Text(vendor.theme ?? "SERVICES").clipChip(color: Color.black.opacity(0.60), foreground: .white)
                         Spacer()
-                        Text("MEMBER SERVICE").clipChip(color: service.tintColor, foreground: .black)
+                        Text(vendorTierBadge).clipChip(color: service.tintColor, foreground: .black)
                     }
                     Spacer()
                     HStack(spacing: 8) {
-                        Image(systemName: vendor.media?.hasPlayableVideo == true ? "play.circle.fill" : service.iconName)
+                        Image(systemName: vendor.hasPlayableVideo ? "play.circle.fill" : service.iconName)
                             .font(.system(size: 19, weight: .black))
                             .foregroundColor(.white)
                         Text(vendor.name).font(.system(size: 20, weight: .heavy)).foregroundColor(.white).lineLimit(2)
@@ -577,6 +788,9 @@ struct ClipVendorListView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(vendor.tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.70)).lineLimit(2)
+                if let context = vendorContextLine(vendor) {
+                    Text(context).font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.58)).lineLimit(1)
+                }
                 HStack(spacing: 8) {
                     if let rating = vendor.rating {
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
@@ -591,7 +805,7 @@ struct ClipVendorListView: View {
                 }.padding(.top, 2)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 7)], alignment: .leading, spacing: 7) {
-                ForEach(vendor.includedHighlights.prefix(4), id: \.self) { highlight in
+                ForEach(vendorDisplayHighlights(vendor).prefix(4), id: \.self) { highlight in
                     Text(highlight).clipChip(color: Color.white.opacity(0.08), foreground: .white.opacity(0.86))
                 }
             }
@@ -626,6 +840,27 @@ struct ClipVendorListView: View {
 
     private func posterURL(for vendor: ClipVendor) -> URL? {
         vendor.displayPosterURL ?? service.heroImageURL
+    }
+
+    private var vendorTierBadge: String {
+        switch invocation.tier {
+        case .black: return "ELITE GUARANTEE"
+        case .platinum: return "PLATINUM"
+        case .green: return "LOCAL"
+        }
+    }
+
+    private func vendorContextLine(_ vendor: ClipVendor) -> String? {
+        let parts = [vendor.scheduledDate, vendor.hostName, vendor.locationLabel, vendor.guestSummary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
+    }
+
+    private func vendorDisplayHighlights(_ vendor: ClipVendor) -> [String] {
+        let combined = vendor.activityHighlights + vendor.includedHighlights
+        var seen = Set<String>()
+        return combined.filter { seen.insert($0).inserted }
     }
 
     private func blackAviationVendorRow(_ vendor: ClipVendor) -> some View {
@@ -773,7 +1008,7 @@ struct ClipCheckoutView: View {
     private var vendorHero: some View {
         if isGhAkwaabaProduct {
             ghAkwaabaProductBanner
-        } else if vendor.media?.hasPlayableVideo == true {
+        } else if vendor.hasPlayableVideo {
             vendorHeroVideo
         } else {
             vendorHeroCompact
@@ -810,8 +1045,8 @@ struct ClipCheckoutView: View {
     private var ghAkwaabaProductBanner: some View {
         ZStack(alignment: .bottomLeading) {
             LinearGradient(colors: [ClipTheme.violet.opacity(0.72), ClipTheme.cyan.opacity(0.32), Color.black.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if vendor.media?.hasPlayableVideo == true {
-                ClipAutoLoopingPlayer(videoURL: vendor.media?.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
+            if vendor.hasPlayableVideo {
+                ClipAutoLoopingPlayer(videoURL: vendor.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
             } else if let url = posterURL(for: vendor) {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .clipped()
@@ -854,6 +1089,9 @@ struct ClipCheckoutView: View {
                 Text(vendor.name).font(.system(size: 17, weight: .heavy)).foregroundColor(.white).lineLimit(1)
                 Text(service.title).font(.system(size: 12.5, weight: .black)).foregroundColor(service.tintColor)
                 Text(vendor.availability).font(.system(size: 11.5, weight: .bold)).foregroundColor(.white.opacity(0.65))
+                if let context = checkoutVendorContextLine {
+                    Text(context).font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.58)).lineLimit(1)
+                }
             }
             Spacer()
         }
@@ -866,7 +1104,7 @@ struct ClipCheckoutView: View {
     private var vendorHeroVideo: some View {
         ZStack(alignment: .bottomLeading) {
             ClipAutoLoopingPlayer(
-                videoURL: vendor.media?.videoPlaybackURL,
+                videoURL: vendor.videoPlaybackURL,
                 posterURL: posterURL(for: vendor),
                 tint: service.tintColor
             )
@@ -889,6 +1127,12 @@ struct ClipCheckoutView: View {
                 Text(vendor.availability)
                     .font(.system(size: 11.5, weight: .bold))
                     .foregroundColor(.white.opacity(0.78))
+                if let context = checkoutVendorContextLine {
+                    Text(context)
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(.white.opacity(0.70))
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
@@ -899,6 +1143,13 @@ struct ClipCheckoutView: View {
 
     private func posterURL(for vendor: ClipVendor) -> URL? {
         vendor.displayPosterURL ?? service.heroImageURL
+    }
+
+    private var checkoutVendorContextLine: String? {
+        let parts = [vendor.scheduledDate, vendor.hostName, vendor.locationLabel, vendor.guestSummary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
     }
 
     private var includedCard: some View {

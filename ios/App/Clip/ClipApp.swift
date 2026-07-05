@@ -56,8 +56,116 @@ struct BytspotClipApp: App {
     }
 }
 
+enum ClipGroupEventTimingState: String, Equatable {
+    case now, today, thisWeek, weekly
+
+    var eyebrow: String {
+        switch self {
+        case .now: return "LIVE NOW"
+        case .today: return "TODAY"
+        case .thisWeek: return "THIS WEEK"
+        case .weekly: return "WEEKLY"
+        }
+    }
+}
+
+struct ClipGroupEventInvite: Equatable {
+    let id: String
+    let title: String
+    let tier: BytspotTier
+    let timing: ClipGroupEventTimingState
+    let participantCount: Int
+    let groupType: String
+    let scheduledDate: String
+    let hostName: String
+    let locationLabel: String
+    let theme: String
+    let guestSummary: String
+    let activityHighlights: [String]
+    let videoURL: URL?
+    let heroImageURL: URL?
+    let thumbnailURL: URL?
+
+    var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
+    var hasPlayableVideo: Bool { videoURL != nil }
+
+    static func from(pathParts: [String], queryItems: [URLQueryItem], tier: BytspotTier) -> Self? {
+        guard pathParts.first?.lowercased() == "group", pathParts.count >= 2 else { return nil }
+        let id = pathParts[1]
+        let title = queryValue(in: queryItems, names: ["title", "event"]) ?? id.replacingOccurrences(of: "-", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
+        let timingRaw = queryValue(in: queryItems, names: ["timing", "when"]) ?? "now"
+        let timing = ClipGroupEventTimingState(rawValue: timingRaw) ?? .now
+        let participantCount = Int(queryValue(in: queryItems, names: ["participants", "p"]) ?? "1") ?? 1
+        let groupType = queryValue(in: queryItems, names: ["type", "groupType"]) ?? inferredGroupType(from: title)
+        let fallback = tierFallback(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
+        return Self(
+            id: id,
+            title: title,
+            tier: tier,
+            timing: timing,
+            participantCount: participantCount,
+            groupType: groupType,
+            scheduledDate: queryValue(in: queryItems, names: ["scheduled", "scheduledDate", "date", "startTime"]) ?? fallback.schedule,
+            hostName: queryValue(in: queryItems, names: ["host", "hostName"]) ?? fallback.host,
+            locationLabel: queryValue(in: queryItems, names: ["location", "locationLabel", "address"]) ?? fallback.location,
+            theme: queryValue(in: queryItems, names: ["theme", "eventTheme"]) ?? fallback.theme,
+            guestSummary: queryValue(in: queryItems, names: ["guestSummary", "guests"]) ?? fallback.guests,
+            activityHighlights: queryArray(in: queryItems, names: ["activities", "activityHighlights", "highlights"]) ?? fallback.highlights,
+            videoURL: queryURL(in: queryItems, names: ["video", "videoUrl", "hls", "hlsUrl"]) ?? fallback.video,
+            heroImageURL: queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"]),
+            thumbnailURL: queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? fallback.poster
+        )
+    }
+
+    private static func queryValue(in items: [URLQueryItem], names: [String]) -> String? {
+        let normalized = Set(names.map { $0.lowercased() })
+        return items.first { item in normalized.contains(item.name.lowercased()) }?.value
+    }
+
+    private static func queryURL(in items: [URLQueryItem], names: [String]) -> URL? {
+        queryValue(in: items, names: names).flatMap(URL.init(string:))
+    }
+
+    private static func queryArray(in items: [URLQueryItem], names: [String]) -> [String]? {
+        guard let raw = queryValue(in: items, names: names) else { return nil }
+        let values = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return values.isEmpty ? nil : values
+    }
+
+    private static func inferredGroupType(from title: String) -> String {
+        let lower = title.lowercased()
+        if lower.contains("family") { return "Family" }
+        if lower.contains("dinner") { return "Dinner" }
+        if lower.contains("birthday") { return "Birthday" }
+        return "Private"
+    }
+
+    private static func tierFallback(tier: BytspotTier, timing: ClipGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, host: String, location: String, theme: String, guests: String, highlights: [String], video: URL?, poster: URL?) {
+        let schedule = timing == .now ? "Tonight · live now" : timing.eyebrow.capitalized
+        let guests = "\(participantCount) joined · invite-only"
+        let privateType = groupType.isEmpty ? "Private" : groupType
+        switch tier {
+        case .black:
+            return (schedule, "Bytspot Black Host", "Private arrival lounge", "Elite Guarantee · \(privateType)", guests, ["48h+ live window", "42+ guest capacity", "Concierge verified"], previewLoopURL(), URL(string: "https://bytspot.app/media/app-clip/black-private-group-poster.jpg"))
+        case .platinum:
+            return (schedule, "Platinum Dinner Host", "Host-selected table", "Premium \(privateType.lowercased())", guests, ["12h live window", "Up to 12 guests", "Host-led arrival"], previewLoopURL(), URL(string: "https://bytspot.app/media/app-clip/platinum-private-group-poster.jpg"))
+        case .green:
+            return (schedule, "Neighborhood Host", "Local private spot", "Local \(privateType.lowercased())", guests, ["2h local window", "Up to 5 guests", "Neighbor verified"], nil, URL(string: "https://bytspot.app/media/app-clip/green-private-group-poster.jpg"))
+        }
+    }
+
+    private static func previewLoopURL() -> URL? {
+        #if DEBUG
+        return URL(string: "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8")
+        #else
+        return nil
+        #endif
+    }
+}
+
 enum ClipFlowStep: Equatable {
     case catalog
+    case groupEvent(ClipGroupEventInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
@@ -131,6 +239,10 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
+        if let groupInvite = ClipGroupEventInvite.from(pathParts: pathParts, queryItems: items, tier: detectedTier) {
+            flow = .groupEvent(groupInvite)
+            return
+        }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
         services = ClipLocalService.fallbacks(for: detectedTier)
@@ -201,6 +313,15 @@ final class ClipInvocationModel: ObservableObject {
         switch step.lowercased() {
         case "catalog":
             flow = .catalog
+            return true
+        case "group", "group_event", "join_group":
+            let fallback = ClipGroupEventInvite.from(pathParts: ["group", "family-dinner"], queryItems: [
+                URLQueryItem(name: "title", value: "Family Dinner"),
+                URLQueryItem(name: "type", value: "Family"),
+                URLQueryItem(name: "participants", value: "3"),
+                URLQueryItem(name: "timing", value: "now")
+            ], tier: tier)
+            if let fallback { flow = .groupEvent(fallback) }
             return true
         case "vendors":
             guard let service = services.first else { return false }

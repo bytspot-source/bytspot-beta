@@ -142,6 +142,7 @@ struct BytspotNativeAppRoot: View {
         NativeConciergeParitySelfTests.runIfRequested()
         NativePhase4TabContentSelfTests.runIfRequested()
         NativeContactSyncSelfTests.runIfRequested()
+        NativeMenuParitySelfTests.runIfRequested()
         #endif
     }
 
@@ -425,7 +426,7 @@ struct NativeJourneyTheme {
     }
 }
 
-private extension View {
+extension View {
     /// CSS-style transparent card: use for landing feature pills and inner rows.
     /// No iOS Material and no dark tint; it should read as transparent over the page.
     func nativeLaunchTransparentCard(radius: CGFloat, fillOpacity: Double = 0.05, borderOpacity: Double = 0.10) -> some View {

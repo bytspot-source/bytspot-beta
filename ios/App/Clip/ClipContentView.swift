@@ -180,97 +180,229 @@ struct ClipGroupEventJoinView: View {
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
     private var inviteURL: URL? { invite.handoffURL }
+    private var ink: Color { Color(red: 0.075, green: 0.082, blue: 0.105) }
+    private var mutedInk: Color { Color.black.opacity(0.58) }
+    private var avatarCount: Int { min(max(invite.participantCount, 1), 5) }
+    private var overflowCount: Int { max(invite.participantCount - avatarCount, 0) }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                hero
-                logisticsCard
-                activityHighlightsCard
-                privacyGrid
-                primaryActions
+        ZStack(alignment: .bottom) {
+            eventBackdrop
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 21) {
+                    topControls
+                    eventHeader
+                    guestList
+                    photoAlbum
+                    activityFeed
+                    privacyGrid
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 132)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 28)
+            primaryActions
         }
         .accessibilityIdentifier("clip-group-event-join")
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                Text(invite.timing.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
-                Spacer()
-                Text(invite.tier.displayName).font(.system(size: 11, weight: .black)).foregroundColor(.black).padding(.horizontal, 10).padding(.vertical, 6).background(accent).clipShape(Capsule())
-            }
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [accent.opacity(0.78), secondary.opacity(0.46), ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var eventBackdrop: some View {
+        GeometryReader { proxy in
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.72, green: 0.86, blue: 1.0), Color(red: 0.95, green: 0.79, blue: 0.72), Color(red: 0.97, green: 0.98, blue: 1.0)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if invite.hasPlayableVideo {
-                    ClipAutoLoopingPlayer(videoURL: invite.videoURL, posterURL: invite.displayPosterURL, tint: accent).opacity(0.72)
+                    ClipAutoLoopingPlayer(videoURL: invite.videoURL, posterURL: invite.displayPosterURL, tint: accent)
+                        .opacity(0.32)
                 } else if let url = invite.displayPosterURL {
-                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }.opacity(0.58)
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                        .opacity(0.34)
                 }
-                RadialGradient(colors: [accent.opacity(0.42), .clear], center: .topLeading, startRadius: 20, endRadius: 210)
-                LinearGradient(colors: [Color.black.opacity(0.05), Color.black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
-                Image(systemName: "person.3.sequence.fill").font(.system(size: 96, weight: .black)).foregroundColor(.black.opacity(0.18)).offset(x: 176, y: -18)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("PRIVATE \(invite.groupType.uppercased())").font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.78)).tracking(1.2)
-                        if invite.hasPlayableVideo { Label("HLS LOOP", systemImage: "play.circle.fill").font(.system(size: 9.5, weight: .black)).foregroundColor(.white.opacity(0.82)) }
-                    }
-                    Text(invite.title).font(.system(size: 32, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                    Text("\(invite.guestSummary) · Instant App Clip access").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.82))
-                    HStack(spacing: -8) {
-                        ForEach(0..<min(invite.participantCount, 4), id: \.self) { idx in
-                            Circle().fill([accent, secondary, ClipTheme.cyan, ClipTheme.violet][idx % 4]).frame(width: 28, height: 28).overlay(Circle().stroke(Color.black.opacity(0.40), lineWidth: 2))
-                        }
-                        Text(" invite verified").font(.system(size: 11.5, weight: .black)).foregroundColor(.white.opacity(0.72)).padding(.leading, 12)
-                    }
-                }.padding(20)
+                RadialGradient(colors: [accent.opacity(0.36), .clear], center: .topLeading, startRadius: 8, endRadius: 360)
+                RadialGradient(colors: [secondary.opacity(0.30), .clear], center: .bottomTrailing, startRadius: 20, endRadius: 440)
+                Rectangle().fill(.ultraThinMaterial).opacity(0.32)
             }
-            .frame(height: 258)
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(accent.opacity(0.30), lineWidth: 1))
-            .shadow(color: accent.opacity(0.18), radius: 24, x: 0, y: 18)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
+    }
+
+    private var topControls: some View {
+        HStack(spacing: 12) {
+            glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
+            Spacer()
+            Text("Bytspot")
+                .font(.system(size: 13, weight: .black, design: .rounded))
+                .foregroundColor(ink.opacity(0.42))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(glassCapsule())
+            Spacer()
+            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: "Copy invite", action: copyInvite)
+            glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
         }
     }
 
-    private var logisticsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("EVENT LOGISTICS").font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.3)
+    private var eventHeader: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 9) {
+                Label(invite.locationLabel, systemImage: "mappin.circle.fill")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                Text(invite.title)
+                    .font(.system(size: 31, weight: .black, design: .rounded))
+                    .foregroundColor(ink)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(eventBlurb)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(ink.opacity(0.82))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 8) {
-                statPill(icon: "calendar.badge.clock", title: invite.scheduledDate)
-                statPill(icon: "person.crop.circle.badge.checkmark", title: invite.hostName)
+                glassChip("\(invite.timing.eyebrow)", icon: "clock.fill")
+                glassChip(invite.tier.displayName, icon: "sparkles")
+                glassChip(invite.groupType, icon: "lock.fill")
             }
-            statPill(icon: "location.fill", title: invite.locationLabel, expand: true)
         }
-        .padding(15)
-        .background(glassBackground)
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.top, 14)
     }
 
-    private var activityHighlightsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+    private var guestList: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(invite.theme.uppercased()).font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.2)
-                    Text("Experience context").font(.system(size: 18, weight: .black)).foregroundColor(.white)
+                    Text("Guest List")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundColor(ink)
+                    Text(invite.guestSummary)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(mutedInk)
                 }
                 Spacer()
-                Image(systemName: invite.tier == .black ? "shield.lefthalf.filled" : invite.tier == .platinum ? "sparkles" : "leaf.fill").font(.system(size: 22, weight: .black)).foregroundColor(accent)
+                Button(action: { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                    Text("View all")
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .foregroundColor(ink.opacity(0.82))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: accent.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 138), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(invite.activityHighlights.prefix(4), id: \.self) { item in
-                    Text(item).clipChip(color: Color.white.opacity(0.08), foreground: .white.opacity(0.88))
+
+            HStack(spacing: -10) {
+                ForEach(0..<avatarCount, id: \.self) { index in
+                    avatarBubble(index: index, size: 56)
+                }
+                if overflowCount > 0 {
+                    Text("+\(overflowCount)")
+                        .font(.system(size: 21, weight: .black, design: .rounded))
+                        .foregroundColor(ink)
+                        .frame(width: 56, height: 56)
+                        .background(glassCircle(tint: .white.opacity(0.18)))
+                        .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1.2))
                 }
             }
         }
-        .padding(15)
-        .background(glassBackground)
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(accent.opacity(0.18), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var photoAlbum: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Photo Album")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundColor(ink)
+                    Text(invite.displayPosterURL == nil ? "Ready for memories" : "1 photo")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(mutedInk)
+                }
+                Spacer()
+                Button(action: copyInvite) {
+                    Label("Share album", systemImage: "link")
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .foregroundColor(ink.opacity(0.86))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: secondary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            ZStack(alignment: .bottomLeading) {
+                if let url = invite.displayPosterURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { albumPlaceholder }
+                } else {
+                    albumPlaceholder
+                }
+                LinearGradient(colors: [.clear, Color.black.opacity(0.48)], startPoint: .center, endPoint: .bottom)
+                Text(invite.theme)
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(12)
+            }
+            .frame(width: 178, height: 132)
+            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Color.white.opacity(0.46), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 8)
+        }
+    }
+
+    private var activityFeed: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Activity")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundColor(ink)
+                    Text("1 update")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(mutedInk)
+                }
+                Spacer()
+                Label("Comment", systemImage: "lock.fill")
+                    .font(.system(size: 16, weight: .black, design: .rounded))
+                    .foregroundColor(mutedInk)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 13)
+                    .background(glassCapsule(tint: .white.opacity(0.12)))
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                avatarBubble(index: 0, size: 62)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(.white)
+                            .frame(width: 25, height: 25)
+                            .background(Circle().fill(Color.black))
+                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("\(invite.hostName) sent a Text Blast 📣")
+                        .font(.system(size: 21, weight: .regular, design: .rounded))
+                        .foregroundColor(ink.opacity(0.88))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(invite.title)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundColor(ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(invite.locationLabel, systemImage: "mappin.and.ellipse")
+                        Label(invite.scheduledDate, systemImage: "clock")
+                        ForEach(invite.activityHighlights.prefix(3), id: \.self) { item in
+                            Label(item, systemImage: "checkmark.seal.fill")
+                        }
+                    }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                }
+            }
+        }
     }
 
     private var privacyGrid: some View {
@@ -284,47 +416,143 @@ struct ClipGroupEventJoinView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 34, height: 34).background(accent.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 16, weight: .black)).foregroundColor(.white)
-                Text(subtitle).font(.system(size: 12.5, weight: .bold)).foregroundColor(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(.system(size: 16, weight: .black, design: .rounded)).foregroundColor(ink)
+                Text(subtitle).font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundColor(mutedInk).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(15)
-        .background(ClipTheme.panel.opacity(0.92))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.14)))
     }
 
     private var primaryActions: some View {
-        VStack(spacing: 10) {
-            Button(action: joinGroup) { cta(joined ? "Joined" : "Join Instantly", foreground: .black, background: accent) }.buttonStyle(.plain)
-            Button(action: copyInvite) { cta("Copy Invite Link", foreground: .white, background: Color.white.opacity(0.10)) }.buttonStyle(.plain)
-            Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) { cta("Open in Bytspot", foreground: .white, background: secondary.opacity(0.34)) }.buttonStyle(.plain)
-            if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Button(action: joinGroup) {
+                    Label(joined ? "You're in" : "Join guest list", systemImage: joined ? "checkmark.circle.fill" : "sparkles")
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+                        .shadow(color: accent.opacity(0.30), radius: 18, x: 0, y: 10)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: copyInvite) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundColor(ink)
+                        .frame(width: 54, height: 54)
+                        .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
+                }
+                .buttonStyle(.plain)
+            }
+            Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                Text("Open full Bytspot for chat, photos, and offers")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(ink.opacity(0.68))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            if !statusMessage.isEmpty {
+                Text(statusMessage)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 13)
+        .padding(.bottom, 12)
+        .background(Rectangle().fill(.ultraThinMaterial).overlay(Color.white.opacity(0.20)))
+    }
+
+    private var eventBlurb: String {
+        let highlights = invite.activityHighlights.prefix(2).joined(separator: " · ")
+        let groupDescriptor = invite.groupType.lowercased() == "private" ? "invite-only" : "private \(invite.groupType.lowercased())"
+        if highlights.isEmpty {
+            return "A \(groupDescriptor) moment hosted by \(invite.hostName). Tap in instantly, keep the group private, and continue in Bytspot."
+        }
+        return "A \(groupDescriptor) moment hosted by \(invite.hostName). \(highlights)."
+    }
+
+    private var albumPlaceholder: some View {
+        ZStack {
+            LinearGradient(colors: [accent.opacity(0.85), secondary.opacity(0.74), Color.white.opacity(0.74)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 40, weight: .black))
+                .foregroundColor(.white.opacity(0.88))
         }
     }
 
-    private var glassBackground: some ShapeStyle {
-        LinearGradient(colors: [ClipTheme.panelElevated.opacity(0.96), ClipTheme.panel.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private func statPill(icon: String, title: String, expand: Bool = false) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).font(.system(size: 12, weight: .black)).foregroundColor(accent)
-            Text(title).font(.system(size: 11.5, weight: .black)).foregroundColor(.white.opacity(0.86)).lineLimit(1).minimumScaleFactor(0.78)
+    private func avatarBubble(index: Int, size: CGFloat) -> some View {
+        let initials = ["B", "Y", "T", "S", "P"][index % 5]
+        return ZStack {
+            Circle().fill(LinearGradient(colors: avatarColors(index), startPoint: .topLeading, endPoint: .bottomTrailing))
+            Circle().fill(.ultraThinMaterial).opacity(0.12)
+            Text(initials)
+                .font(.system(size: size * 0.34, weight: .heavy, design: .rounded))
+                .foregroundColor(ink.opacity(0.84))
         }
-        .frame(maxWidth: expand ? .infinity : nil, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(0.07))
-        .clipShape(Capsule())
+        .frame(width: size, height: size)
+        .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 1.4))
+        .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
     }
 
-    private func cta(_ title: String, foreground: Color, background: Color) -> some View {
-        Text(title).font(.system(size: 15, weight: .black)).foregroundColor(foreground).frame(maxWidth: .infinity).frame(height: 50).background(background).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    private func avatarColors(_ index: Int) -> [Color] {
+        let palettes: [[Color]] = [[accent, .white], [secondary, ClipTheme.cyan], [ClipTheme.pink, accent], [Color.white, ClipTheme.emerald], [ClipTheme.violet, Color.white]]
+        return palettes[index % palettes.count]
     }
 
-    private func joinGroup() { impactMedium(); joined = true; statusMessage = "You're in. Group updates and matched offers will appear here." }
-    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied for instant App Clip join." }
+    private func glassIconButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 20, weight: .black))
+                .foregroundColor(ink)
+                .frame(width: 50, height: 50)
+                .background(glassCircle(tint: .white.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func glassChip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundColor(ink.opacity(0.78))
+            .lineLimit(1)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(glassCapsule(tint: accent.opacity(0.06)))
+    }
+
+    private func glassPanel(cornerRadius: CGFloat, tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.thinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(tint))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color.white.opacity(0.52), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.08), radius: 18, x: 0, y: 10)
+    }
+
+    private func glassCapsule(tint: Color = .white.opacity(0.10)) -> some View {
+        Capsule()
+            .fill(.thinMaterial)
+            .overlay(Capsule().fill(tint))
+            .overlay(Capsule().stroke(Color.white.opacity(0.48), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.07), radius: 12, x: 0, y: 6)
+    }
+
+    private func glassCircle(tint: Color) -> some View {
+        Circle()
+            .fill(.thinMaterial)
+            .overlay(Circle().fill(tint))
+            .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1))
+    }
+
+    private func joinGroup() { impactMedium(); joined = true; statusMessage = "You're in. Guest updates, photos, and matched offers will appear here." }
+    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
 }
 
 // MARK: - Screen 1: Catalog

@@ -176,6 +176,7 @@ struct ClipGroupEventJoinView: View {
     @Binding var showOverlay: Bool
     @State private var joined = false
     @State private var statusMessage = ""
+    @State private var showShareSheet = false
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
@@ -186,7 +187,7 @@ struct ClipGroupEventJoinView: View {
     private var overflowCount: Int { max(invite.participantCount - avatarCount, 0) }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             eventBackdrop
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 21) {
@@ -199,10 +200,11 @@ struct ClipGroupEventJoinView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
-                .padding(.bottom, 132)
+                .padding(.bottom, 24)
             }
-            primaryActions
         }
+        .safeAreaInset(edge: .bottom) { primaryActions }
+        .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: shareInviteItems) }
         .accessibilityIdentifier("clip-group-event-join")
     }
 
@@ -238,7 +240,7 @@ struct ClipGroupEventJoinView: View {
                 .padding(.vertical, 9)
                 .background(glassCapsule())
             Spacer()
-            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: "Copy invite", action: copyInvite)
+            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: "Share invite", action: shareInvite)
             glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
         }
     }
@@ -263,7 +265,7 @@ struct ClipGroupEventJoinView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 8)], alignment: .leading, spacing: 8) {
                 glassChip("\(invite.timing.eyebrow)", icon: "clock.fill")
                 glassChip(invite.tier.displayName, icon: "sparkles")
                 glassChip(invite.groupType, icon: "lock.fill")
@@ -323,7 +325,7 @@ struct ClipGroupEventJoinView: View {
                         .foregroundColor(mutedInk)
                 }
                 Spacer()
-                Button(action: copyInvite) {
+                Button(action: shareInvite) {
                     Label("Share album", systemImage: "link")
                         .font(.system(size: 16, weight: .black, design: .rounded))
                         .foregroundColor(ink.opacity(0.86))
@@ -439,7 +441,7 @@ struct ClipGroupEventJoinView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button(action: copyInvite) {
+                Button(action: shareInvite) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 20, weight: .black))
                         .foregroundColor(ink)
@@ -447,6 +449,7 @@ struct ClipGroupEventJoinView: View {
                         .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Share invite")
             }
             Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
                 Text("Open full Bytspot for chat, photos, and offers")
@@ -476,6 +479,12 @@ struct ClipGroupEventJoinView: View {
             return "A \(groupDescriptor) moment hosted by \(invite.hostName). Tap in instantly, keep the group private, and continue in Bytspot."
         }
         return "A \(groupDescriptor) moment hosted by \(invite.hostName). \(highlights)."
+    }
+
+    private var shareInviteItems: [Any] {
+        var items: [Any] = ["Join \(invite.title) on Bytspot"]
+        if let inviteURL { items.append(inviteURL) }
+        return items
     }
 
     private var albumPlaceholder: some View {
@@ -523,6 +532,8 @@ struct ClipGroupEventJoinView: View {
             .font(.system(size: 11, weight: .black, design: .rounded))
             .foregroundColor(ink.opacity(0.78))
             .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
             .background(glassCapsule(tint: accent.opacity(0.06)))
@@ -552,6 +563,7 @@ struct ClipGroupEventJoinView: View {
     }
 
     private func joinGroup() { impactMedium(); joined = true; statusMessage = "You're in. Guest updates, photos, and matched offers will appear here." }
+    private func shareInvite() { impactLight(); showShareSheet = true }
     private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
 }
 

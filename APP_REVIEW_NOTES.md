@@ -22,7 +22,7 @@ Thank you for reviewing Bytspot.
 - This submission build is focused on the Parker consumer experience. Non-consumer business tools and operations utilities are not available in the review build.
 - The iOS App target is pure native SwiftUI. It does not launch, embed, or package a Capacitor/React webview, web bundle, Cordova config, or Capacitor SwiftPM bridge.
 - The repository root still contains Capacitor npm packages for the separate React web beta only. Those packages are not linked into the iOS App target or bundled in the App Store submission.
-- Parker Home shows consumer-facing Explorer, Insider, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
+- Parker Home shows consumer-facing Explorer, My Access, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
 - Location permission is optional. The app can still be reviewed without granting location access.
 - This build does not request notification permission.
 - The app does **not** use background location.

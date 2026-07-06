@@ -2031,11 +2031,11 @@ private struct NativeNotificationSettingsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeProfilePanelStat(value: enabledCount, label: "Enabled", color: NativeTheme.cyan)
-            NativeWalletLine(title: "Push Notifications", subtitle: "Push alerts can include reservations, reminders, deals, insider updates, and nearby spots.", icon: "bell.fill")
+            NativeWalletLine(title: "Push Notifications", subtitle: "Push alerts can include reservations, reminders, deals, profile updates, and nearby spots.", icon: "bell.fill")
             NativePreferenceToggleRow(title: "Reservation Updates", subtitle: "Confirmations, changes, and cancellations.", icon: "calendar.badge.checkmark", color: NativeTheme.purple, isOn: $pushReservations)
             NativePreferenceToggleRow(title: "Promotions & Deals", subtitle: "Special offers and discounts.", icon: "tag.fill", color: NativeTheme.pink, isOn: $pushPromotions)
             NativePreferenceToggleRow(title: "Reminders", subtitle: "Parking session expiration alerts.", icon: "clock.badge.exclamationmark.fill", color: NativeTheme.orange, isOn: $pushReminders)
-            NativePreferenceToggleRow(title: "Insider Updates", subtitle: "New posts and venue information.", icon: "newspaper.fill", color: NativeTheme.cyan, isOn: $pushInsider)
+            NativePreferenceToggleRow(title: "Profile Updates", subtitle: "New posts and venue information.", icon: "newspaper.fill", color: NativeTheme.cyan, isOn: $pushInsider)
             NativePreferenceToggleRow(title: "Nearby Spots", subtitle: "Available parking near your location.", icon: "mappin.and.ellipse", color: NativeTheme.emerald, isOn: $pushNearby)
             NativeWalletLine(title: "Email Notifications", subtitle: "Email can include confirmations, promos, newsletters, and receipts.", icon: "envelope.fill")
             NativePreferenceToggleRow(title: "Reservation Confirmations", subtitle: "Booking details and receipts.", icon: "mail.stack.fill", color: NativeTheme.cyan, isOn: $emailReservations)
@@ -2109,7 +2109,7 @@ private struct NativeLocationPrivacyPanel: View {
             NativePreferenceToggleRow(title: "Enhanced Indoor Accuracy", subtitle: "Uses Wi‑Fi and Bluetooth signals to improve drop-off/retrieval inside garages.", icon: "dot.radiowaves.left.and.right", color: NativeTheme.purple, isOn: $enhancedIndoorAccuracy)
             NativePreferenceToggleRow(title: "Background Location", subtitle: "Allow valet return-trip tracking when needed. iOS may ask for Always Allow before this turns on.", icon: "location.circle.fill", color: NativeTheme.orange, isOn: $backgroundLocation)
             NativePreferenceToggleRow(title: "Location for Offers & Promotions", subtitle: "Use general location for special offers near partner venues.", icon: "gift.fill", color: NativeTheme.pink, isOn: $locationForOffers)
-            NativePreferenceToggleRow(title: "Venue Recommendations", subtitle: "Show restaurants, shops, and attractions based on current location in Insider.", icon: "sparkles", color: NativeTheme.emerald, isOn: $venueRecommendations)
+            NativePreferenceToggleRow(title: "Venue Recommendations", subtitle: "Show restaurants, shops, and attractions based on current location in Discover and Profile.", icon: "sparkles", color: NativeTheme.emerald, isOn: $venueRecommendations)
             NativePreferenceToggleRow(title: "Active Job Tracking", subtitle: "Shows when an active valet flow is using location for return-trip help.", icon: "car.rear.road.lane", color: NativeTheme.cyan, isOn: $activeJobTracking)
             NativeWalletLine(title: "Transparency & Privacy", subtitle: activeJobTracking ? "Tracking is ON for an active valet flow." : "Tracking is OFF; no active valet job is using location.", icon: activeJobTracking ? "checkmark.circle.fill" : "xmark.circle.fill")
             NativeWalletLine(title: "Your Privacy is Protected", subtitle: "Location controls are explicit and can be changed from Profile or iOS Settings.", icon: "shield.fill")
@@ -5363,13 +5363,13 @@ private struct NativeHomeDashboardView: View {
         let city = "Midtown"
         switch hour {
         case 5..<11:
-            return ("Morning, \(city) Provider Collective", "Fresh starts in \(city) ☀️")
+            return ("Morning in \(city)", "Fresh starts in \(city) ☀️")
         case 11..<17:
-            return ("Afternoon, \(city) Provider Collective", "Afternoon in \(city) ☕️")
+            return ("Afternoon in \(city)", "Coffee, parking, and local plans ☕️")
         case 17..<22:
-            return ("Evening, \(city) Provider Collective", "Evening in \(city) 🌆")
+            return ("Evening in \(city)", "Dinner, access, and routes nearby 🌆")
         default:
-            return ("Late night, \(city) Provider Collective", "Late night in \(city) 🌙")
+            return ("Late night in \(city)", "Open spots and safer routes nearby 🌙")
         }
     }
 
@@ -5765,7 +5765,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var rightNowSection: some View {
-        NativeHorizontalSection(title: "Right Now in Midtown", subtitle: "Live") {
+        NativeHorizontalSection(title: "Right Now in Midtown", subtitle: nativeContentFreshnessLabel) {
             ForEach(Array(tabContentStore.snapshot.venues.filter { $0.crowd != nil }.prefix(6))) { venue in
                 NativeMiniCard(eyebrow: crowdBadge(venue.crowd), title: venue.name, subtitle: venue.crowd?.waitMins.map { "~\($0)m wait" } ?? venue.address, iconText: categoryEmoji(venue.discoverType), accent: crowdColor(venue.crowd)) { openNativeTab(.map) }
             }
@@ -5774,7 +5774,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var trendingNowSection: some View {
-        NativeHorizontalSection(title: "🔥 Trending Now", subtitle: "Live crowd") {
+        NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
             ForEach(Array(tabContentStore.snapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
                 NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
             }
@@ -5805,12 +5805,28 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nearbySection: some View {
-        NativeHorizontalSection(title: "Nearby", subtitle: "Live") {
+        NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
             ForEach(Array(tabContentStore.snapshot.venues.prefix(6))) { venue in
                 NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
             }
         }
         .accessibilityIdentifier("native-home-nearby")
+    }
+
+    private var nativeContentFreshnessLabel: String {
+        switch tabContentStore.snapshot.source {
+        case .live: return "Live"
+        case .mixed: return "Live + curated"
+        case .fallback: return "Curated"
+        }
+    }
+
+    private var nativeCrowdFreshnessLabel: String {
+        switch tabContentStore.snapshot.source {
+        case .live: return "Live crowd"
+        case .mixed: return "Live + curated"
+        case .fallback: return "Curated"
+        }
     }
 
     private var weatherSmartCard: some View {
@@ -8970,7 +8986,7 @@ private struct NativeDiscoverView: View {
     private var accessTierRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach([("all", "All"), ("free", "Free"), ("paid", "Paid")], id: \.0) { value, title in
+                ForEach([("all", "Free + Paid"), ("free", "Free"), ("paid", "Paid")], id: \.0) { value, title in
                     NativeDiscoverFilterChip(
                         title: title,
                         active: entryFilter == value,
@@ -9398,15 +9414,19 @@ private struct NativeDiscoverFeatureCard: View {
                             .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
                             .lineLimit(2)
                         Text(card.subtitle)
-                            .font(.system(size: 14, weight: .black))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.86) : NativeTheme.textSecondary)
                             .lineLimit(1)
                         Text(displayMeta)
-                            .font(.system(size: 13, weight: .black))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.92) : NativeTheme.textPrimary.opacity(0.86))
                             .lineLimit(1)
                     }
+                    .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(heroTitleBacking)
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .padding(20)
             }
@@ -9416,7 +9436,7 @@ private struct NativeDiscoverFeatureCard: View {
 
             VStack(alignment: .leading, spacing: 13) {
                 Text(decisionLine)
-                    .font(.system(size: 14, weight: .black))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(NativeTheme.textPrimary.opacity(0.86))
                     .lineLimit(2)
 
@@ -9512,7 +9532,7 @@ private struct NativeDiscoverFeatureCard: View {
                 .fill(availabilityAccent)
                 .frame(width: 7, height: 7)
             Text(availabilityCopy)
-                .font(.system(size: 12, weight: .black))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundColor(NativeTheme.textPrimary.opacity(0.82))
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
@@ -9606,23 +9626,33 @@ private struct NativeDiscoverFeatureCard: View {
 
     private var heroContrastWash: some View {
         ZStack {
-            Color.black.opacity(colorScheme == .dark ? 0.08 : 0.025)
+            Color.black.opacity(colorScheme == .dark ? 0.14 : 0.04)
                 .blendMode(.multiply)
             LinearGradient(
                 gradient: Gradient(stops: colorScheme == .dark ? [
                     .init(color: Color.black.opacity(0.00), location: 0.00),
-                    .init(color: Color.black.opacity(0.08), location: 0.42),
-                    .init(color: Color.black.opacity(0.80), location: 1.00)
+                    .init(color: Color.black.opacity(0.18), location: 0.42),
+                    .init(color: Color.black.opacity(0.88), location: 1.00)
                 ] : [
                     .init(color: Color.white.opacity(0.00), location: 0.00),
-                    .init(color: Color.white.opacity(0.10), location: 0.46),
-                    .init(color: Color.white.opacity(0.84), location: 1.00)
+                    .init(color: Color.white.opacity(0.18), location: 0.42),
+                    .init(color: Color.white.opacity(0.92), location: 1.00)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
         .allowsHitTesting(false)
+    }
+
+    private var heroTitleBacking: some ShapeStyle {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color.black.opacity(0.54), Color.black.opacity(0.34)]
+                : [Color.white.opacity(0.90), Color.white.opacity(0.76)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private var patchVerifiedBadge: some View {
@@ -11744,7 +11774,7 @@ private struct NativeMapExploreView: View {
                     )
                     NativeMapSheetActionButton(
                         title: "Ask Concierge",
-                        subtitle: "Human + AI routing",
+                        subtitle: "Assisted routing",
                         icon: "sparkles",
                         accent: NativeTheme.purple,
                         isPrimary: false,
@@ -13298,7 +13328,7 @@ private struct NativeConciergeView: View {
     static let messageBubbleFontSize: CGFloat = 14
     static let statusLabels = ["Live", "Thinking", "Offline mode", "Local help"]
     static let headerTitle = "Bytspot Concierge"
-    static let statusLabel = "Human + AI"
+    static let statusLabel = "Assist"
     static let suggestionPrompts = ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"]
     static let handoffActionTitles = ["Open Discover", "Show on Map", "Check Dates"]
     static let composerPlaceholder = "Message Concierge…"
@@ -13355,6 +13385,7 @@ private struct NativeConciergeView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(statusColor)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.86)
                     }
                 }
                 Spacer()
@@ -15263,7 +15294,7 @@ enum NativeBookingParitySelfTests {
 
 #if DEBUG
 /// DEBUG-only guard for native Profile/account parity anchors against the React
-/// ProfileSection menu, Insider, My Access, and reservations surfaces.
+/// ProfileSection menu, My Access, Discover, and reservations surfaces.
 /// Runs only when the opt-in SwiftUI root is enabled via BYT_NATIVE_ROOT=1.
 enum NativeAccountParitySelfTests {
     static func runIfRequested() {
@@ -15417,7 +15448,7 @@ enum NativeDiscoverParitySelfTests {
 
 #if DEBUG
 /// DEBUG-only guard for native Concierge parity anchors against the current
-/// Human + AI concierge preview shell.
+/// Assisted concierge preview shell.
 /// Runs only when the opt-in SwiftUI root is enabled via BYT_NATIVE_ROOT=1.
 enum NativeConciergeParitySelfTests {
     static func runIfRequested() {
@@ -15427,7 +15458,7 @@ enum NativeConciergeParitySelfTests {
 
     private static func run() {
         precondition(NativeConciergeView.headerTitle == "Bytspot Concierge", "NativeConciergeParitySelfTests: Concierge header title drifted.")
-        precondition(NativeConciergeView.statusLabel == "Human + AI", "NativeConciergeParitySelfTests: Concierge status label drifted.")
+        precondition(NativeConciergeView.statusLabel == "Assist", "NativeConciergeParitySelfTests: Concierge status label drifted.")
         precondition(NativeConciergeView.statusLabels == ["Live", "Thinking", "Offline mode", "Local help"], "NativeConciergeParitySelfTests: Concierge status transitions drifted.")
         precondition(NativeConciergeView.transcriptBaseHex == 0x050507, "NativeConciergeParitySelfTests: Concierge transcript base color drifted.")
         precondition(NativeConciergeView.messageBubbleMaxWidthRatio == 0.84 && NativeConciergeView.messageBubbleCornerRadius == 22 && NativeConciergeView.messageBubbleFontSize == 14, "NativeConciergeParitySelfTests: Concierge bubble metrics drifted.")

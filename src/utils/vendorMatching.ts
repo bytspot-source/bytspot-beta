@@ -202,6 +202,10 @@ function discoverSourceForCard(card: DiscoverCard): Extract<BytspotProviderSourc
   return 'bytspot_discover';
 }
 
+export function markCuratedFallbackDiscoverCards<T extends DiscoverCard>(cards: readonly T[]): (T & { discoverSource: 'bytspot_curated'; curatedFallback: true })[] {
+  return cards.map((card) => ({ ...card, discoverSource: 'bytspot_curated' as const, curatedFallback: true as const }));
+}
+
 function parseGooglePriceLevel(priceLevel?: number | string): number | undefined {
   if (typeof priceLevel === 'number') return priceLevel;
   const match = String(priceLevel ?? '').match(/[0-4]/);

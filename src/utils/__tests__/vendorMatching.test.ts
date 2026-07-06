@@ -7,6 +7,7 @@ import {
   adaptYelpBusinessToMatchDocument,
   buildVendorInvertedIndex,
   getRankedDiscoverCardsWithSimplex,
+  markCuratedFallbackDiscoverCards,
   matchVendorsWithSimplex,
   PLACE_ENRICH_RPC_CONTRACT,
   rankDiscoverCardsWithSimplex,
@@ -137,6 +138,25 @@ test('Discover card adapter preserves source-specific attribution and provider i
   assert.equal(vendor.vendorServiceId, 'svc-live');
   assert.equal(vendor.vendorId, 'vendor-live');
   assert.ok(vendor.tags.includes('live'));
+});
+
+test('Home fallback fixture cards are explicitly marked as curated before ranking', () => {
+  const [homeFallback] = markCuratedFallbackDiscoverCards([{
+    id: 61_001,
+    type: 'coffee',
+    name: 'Morning Coffee Walk',
+    image: 'coffee.jpg',
+    distance: '0.4 mi',
+    description: 'Low-key cafés and brunch spots within a quick walk.',
+    location: 'Near you',
+    features: ['Coffee', 'Brunch', 'Quick walk'],
+  }]);
+  const document = adaptDiscoverCardToMatchDocument(homeFallback);
+
+  assert.equal(homeFallback.curatedFallback, true);
+  assert.equal(homeFallback.discoverSource, 'bytspot_curated');
+  assert.equal(document.source, 'bytspot_curated');
+  assert.equal(document.attribution?.label, 'Bytspot curated');
 });
 
 test('rankDiscoverCardsWithSimplex powers Discover ordering from onboarding tokens', () => {

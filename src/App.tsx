@@ -76,7 +76,7 @@ import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
-import { rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
+import { markCuratedFallbackDiscoverCards, rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
@@ -615,7 +615,7 @@ export default function App() {
     const existingServiceIds = new Set(discoverApiCards.map(card => card.vendorServiceId).filter(Boolean));
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
-    const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : CURATED_HOME_DISCOVERY_CARDS;
+    const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : markCuratedFallbackDiscoverCards(CURATED_HOME_DISCOVERY_CARDS);
     const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
     return rankDiscoverCardsWithSimplex([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], {
       preferences: userPreferences,

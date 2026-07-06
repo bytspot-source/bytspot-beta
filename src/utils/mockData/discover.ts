@@ -3,6 +3,7 @@
 import type { BytspotProviderSource, BytspotVendorMatchDocument } from '../vendorMatching.ts';
 
 export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service' | 'boutique_apartment';
+export type DiscoverCardSource = Extract<BytspotProviderSource, 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated'>;
 
 export interface DiscoverCard {
   id: number;
@@ -50,7 +51,7 @@ export interface DiscoverCard {
   isOpen?: boolean | null;
   vendorServiceId?: string;
   vendorId?: string;
-  discoverSource?: BytspotProviderSource;
+  discoverSource?: DiscoverCardSource;
   matchDocument?: BytspotVendorMatchDocument;
   patchId?: string | null;
   patchUid?: string | null;

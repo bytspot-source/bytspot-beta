@@ -25,13 +25,13 @@ See live crowd levels, find parking faster, and discover the best spots around A
 Bytspot shows you what's happening right now around Atlanta Midtown — live crowd levels, parking availability, and the best spots near you.
 
 LIVE CROWD INTELLIGENCE
-See how packed venues are before you go. Real-time crowd data means you'll never walk into a 45-minute wait again. Check bars, restaurants, coffee shops, and entertainment venues at a glance.
+See how packed venues are before you go. Live crowd signals help you time your night and skip the longest waits. Check bars, restaurants, coffee shops, and entertainment venues at a glance.
 
 SMART PARKING
 Find available parking near any venue instantly. Compare prices, see walk times, and reserve your spot — all before you leave home. Save time and money with AI-powered parking recommendations.
 
 SMART CONCIERGE
-Ask our AI anything: "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Get personalized recommendations based on your preferences, live conditions, and real-time data.
+Ask our AI anything: "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Sign in to chat with the AI concierge; guests get instant local suggestions.
 
 DISCOVER & EXPLORE
 Swipe through curated venue cards with live photos, ratings, and crowd indicators. Filter by dining, nightlife, coffee, shopping, fitness, and more. Every card shows you what's happening right now, not last week.
@@ -40,16 +40,15 @@ PERSONALIZED FOR YOU
 Bytspot learns your preferences over time. Your vibe quiz results, favorite cuisine types, and saved spots all shape your recommendations — no two users see the same feed.
 
 SAVE & SHARE
-Bookmark your favorite spots and get notified when they're packed or quiet. Share venues with friends using the native share sheet.
+Bookmark your favorite spots and share venues with friends using the native share sheet.
 
 FEATURES:
-• Real-time crowd levels for venues and parking
-• Smart concierge recommendations
+• Live crowd levels for venues and parking
+• AI concierge chat (signed-in) with instant local help for guests
 • Live parking availability with pricing
 • Venue discovery with swipeable cards
 • Personalized feed based on your preferences
 • Optional sign-in with guest browsing available
-• Push notifications for saved venue alerts
 • Native haptic feedback and share sheet
 • Works offline with cached data
 • Dark mode optimized

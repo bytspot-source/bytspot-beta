@@ -403,23 +403,6 @@ struct NativeAuthResponse: Codable, Equatable {
     var isNewUser: Bool?
 }
 
-enum NativeReviewAuthFallback {
-    static let email = "review@bytspot.app"
-    static let displayName = "Bytspot Review"
-    static let sessionToken = "review_session_token"
-
-    static func isEnabled(mockRaw: String? = ProcessInfo.processInfo.environment[NativeMigrationConfig.authMockEnvironmentKey], nativeRootEnabled: Bool = NativeMigrationConfig.isNativeRootEnabled) -> Bool {
-        nativeRootEnabled
-    }
-
-    static func response(email rawEmail: String, password: String, name: String? = nil, isNewUser: Bool, mockRaw: String? = ProcessInfo.processInfo.environment[NativeMigrationConfig.authMockEnvironmentKey], nativeRootEnabled: Bool = NativeMigrationConfig.isNativeRootEnabled) -> NativeAuthResponse? {
-        let normalizedEmail = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard isEnabled(mockRaw: mockRaw, nativeRootEnabled: nativeRootEnabled), normalizedEmail == email, !password.isEmpty else { return nil }
-        let normalizedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativeAuthResponse(token: sessionToken, user: NativeAuthUserRecord(id: "review", email: email, name: normalizedName?.isEmpty == false ? normalizedName : displayName), isNewUser: isNewUser)
-    }
-}
-
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
@@ -430,13 +413,11 @@ struct NativeAuthDataAPI {
     var client: BytspotAPIClient
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
-        if let response = NativeReviewAuthFallback.response(email: email, password: password, name: name, isNewUser: true) { return response }
-        return try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.signup", method: "POST", input: Self.signupInput(email: email, password: password, name: name, ref: ref))
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.signup", method: "POST", input: Self.signupInput(email: email, password: password, name: name, ref: ref))
     }
 
     func login(email: String, password: String) async throws -> NativeAuthResponse {
-        if let response = NativeReviewAuthFallback.response(email: email, password: password, isNewUser: false) { return response }
-        return try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.login", method: "POST", input: Self.loginInput(email: email, password: password))
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.login", method: "POST", input: Self.loginInput(email: email, password: password))
     }
 
     static func signupInput(email: String, password: String, name: String, ref: String?) -> [String: Any] {

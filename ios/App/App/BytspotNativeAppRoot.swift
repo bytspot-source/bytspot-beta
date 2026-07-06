@@ -1022,9 +1022,6 @@ struct NativeAuthenticationScreen: View {
     private func submitEmailAuth() {
         guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }
         error = ""; focusedField = nil; nativeAuthImpactLight()
-        if let response = NativeReviewAuthFallback.response(email: email, password: password, name: currentMode == .signup ? name : nil, isNewUser: currentMode == .signup, nativeRootEnabled: true), let token = response.token, !token.isEmpty {
-            sessionStore.updateToken(token); onComplete(); return
-        }
         loading = true; let selectedMode = currentMode
         Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); onComplete() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
     }

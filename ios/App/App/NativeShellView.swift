@@ -9413,20 +9413,20 @@ private struct NativeDiscoverFeatureCard: View {
                             .font(.system(size: 24, weight: .black))
                             .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
                             .lineLimit(2)
+                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.65) : Color.white.opacity(0.55), radius: 2, x: 0, y: 1)
                         Text(card.subtitle)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.86) : NativeTheme.textSecondary)
                             .lineLimit(1)
+                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.42), radius: 1.5, x: 0, y: 1)
                         Text(displayMeta)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.92) : NativeTheme.textPrimary.opacity(0.86))
                             .lineLimit(1)
+                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.50) : Color.white.opacity(0.38), radius: 1.5, x: 0, y: 1)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(heroTitleBacking)
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .padding(20)
             }
@@ -9631,28 +9631,18 @@ private struct NativeDiscoverFeatureCard: View {
             LinearGradient(
                 gradient: Gradient(stops: colorScheme == .dark ? [
                     .init(color: Color.black.opacity(0.00), location: 0.00),
-                    .init(color: Color.black.opacity(0.18), location: 0.42),
-                    .init(color: Color.black.opacity(0.88), location: 1.00)
+                    .init(color: Color.black.opacity(0.10), location: 0.42),
+                    .init(color: Color.black.opacity(0.52), location: 1.00)
                 ] : [
                     .init(color: Color.white.opacity(0.00), location: 0.00),
-                    .init(color: Color.white.opacity(0.18), location: 0.42),
-                    .init(color: Color.white.opacity(0.92), location: 1.00)
+                    .init(color: Color.white.opacity(0.04), location: 0.42),
+                    .init(color: Color.white.opacity(0.28), location: 1.00)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
         .allowsHitTesting(false)
-    }
-
-    private var heroTitleBacking: some ShapeStyle {
-        LinearGradient(
-            colors: colorScheme == .dark
-                ? [Color.black.opacity(0.54), Color.black.opacity(0.34)]
-                : [Color.white.opacity(0.90), Color.white.opacity(0.76)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 
     private var patchVerifiedBadge: some View {

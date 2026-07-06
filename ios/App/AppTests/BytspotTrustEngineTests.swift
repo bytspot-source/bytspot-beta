@@ -560,6 +560,73 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertEqual(NativeGroupEventStore.primaryHomepageVisibleEvent()?.id, "pickup-public")
         NativeGroupEventStore.clear()
     }
+
+    // MARK: - Host approval mode (record Codable + tRPC wire value)
+
+    func testApprovalModeCodableRoundTripAndWireValue() throws {
+        let approval = NativeGroupEventRecord.created(type: "Dinner", requiresApproval: true, hostName: "Host", tier: .green)
+        XCTAssertTrue(approval.requiresApproval)
+        XCTAssertEqual(approval.approvalMode, "approval")
+
+        let open = NativeGroupEventRecord.created(type: "Dinner", requiresApproval: false, hostName: "Host", tier: .green)
+        XCTAssertFalse(open.requiresApproval)
+        XCTAssertEqual(open.approvalMode, "open")
+
+        // Encode → decode preserves requiresApproval and its wire value.
+        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONEncoder().encode(approval))
+        XCTAssertTrue(decoded.requiresApproval)
+        XCTAssertEqual(decoded.approvalMode, "approval")
+
+        // Backward compatibility: legacy payloads without the key default to open.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try JSONEncoder().encode(approval)) as? [String: Any])
+        object.removeValue(forKey: "requiresApproval")
+        let legacy = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONSerialization.data(withJSONObject: object))
+        XCTAssertFalse(legacy.requiresApproval)
+        XCTAssertEqual(legacy.approvalMode, "open")
+    }
+
+    func testGroupEventDataAPIUsesRawTRPCWireFormat() throws {
+        // Mutation body is the raw input dictionary — NOT the {"json":…} envelope.
+        let body = try NativeGroupEventDataAPI.rawMutationBody(["id": "family-dinner", "approvalMode": "approval"])
+        let bodyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(bodyObject["id"] as? String, "family-dinner")
+        XCTAssertEqual(bodyObject["approvalMode"] as? String, "approval")
+        XCTAssertNil(bodyObject["json"], "Mutation body must be raw, not the {\"json\":…} envelope.")
+
+        // Query carries the raw input in `?input=<url-encoded json>`.
+        let prefix = "/trpc/groupEvents.host?input="
+        let path = try NativeGroupEventDataAPI.rawQueryPath("/trpc/groupEvents.host", input: ["eventId": "family-dinner"])
+        XCTAssertTrue(path.hasPrefix(prefix))
+        let decodedQuery = try XCTUnwrap(String(path.dropFirst(prefix.count)).removingPercentEncoding)
+        let queryObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(decodedQuery.utf8)) as? [String: Any])
+        XCTAssertEqual(queryObject["eventId"] as? String, "family-dinner")
+        XCTAssertNil(queryObject["json"], "Query input must be raw, not the {\"json\":…} envelope.")
+    }
+
+    // MARK: - Unguessable invite slug (private events must not be enumerable)
+
+    func testCreatedInviteSlugIsUnguessableAndURLSafe() {
+        let a = NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", tier: .green)
+        let b = NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", tier: .green)
+
+        // Two events of the same type/second must not collide — rules out the old
+        // predictable `group-<type>-<unix-seconds>` scheme.
+        XCTAssertNotEqual(a.id, b.id)
+
+        let prefix = "group-dinner-"
+        XCTAssertTrue(a.id.hasPrefix(prefix))
+        let suffix = String(a.id.dropFirst(prefix.count))
+        XCTAssertEqual(suffix.count, 22, "Random suffix must carry high entropy.")
+        XCTAssertFalse(suffix.allSatisfy { $0.isNumber }, "Suffix must not be a plain timestamp.")
+
+        // URL-path safe: only lowercase/uppercase letters, digits, and hyphens.
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
+        XCTAssertTrue(a.id.allSatisfy { allowed.contains($0) })
+
+        // Entropy sanity: many tokens stay unique.
+        let tokens = Set((0..<200).map { _ in NativeGroupEventRecord.inviteToken() })
+        XCTAssertEqual(tokens.count, 200)
+    }
 }
 
 /// CI-runnable promotion of the launch-time `NativeMenuParitySelfTests` order +

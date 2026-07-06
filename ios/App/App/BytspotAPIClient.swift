@@ -364,14 +364,25 @@ struct NativeGroupEventDataAPI {
     }
 
     private func mutation<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
-        let body = try JSONSerialization.data(withJSONObject: input)
-        return try Self.decode(type, from: try await client.json(path: path, method: "POST", body: body))
+        try Self.decode(type, from: try await client.json(path: path, method: "POST", body: Self.rawMutationBody(input)))
     }
 
     private func query<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
+        try Self.decode(type, from: try await client.json(path: Self.rawQueryPath(path, input: input)))
+    }
+
+    /// Raw (untransformed) mutation body: the input dictionary serialized directly,
+    /// NOT wrapped in the `{"json":…}` envelope, matching the transformer-less backend.
+    static func rawMutationBody(_ input: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: input)
+    }
+
+    /// Raw query path: `path?input=<url-encoded raw json>`, again without the
+    /// `{"json":…}` envelope.
+    static func rawQueryPath(_ path: String, input: [String: Any]) throws -> String {
         let inputData = try JSONSerialization.data(withJSONObject: input)
         let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return try Self.decode(type, from: try await client.json(path: "\(path)?input=\(encoded)"))
+        return "\(path)?input=\(encoded)"
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {

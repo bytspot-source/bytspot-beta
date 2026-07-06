@@ -3833,6 +3833,14 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Pull up when you can.", privacyStatus: .privateInvite, privateAssociation: .host)
     }
 
+    /// Cryptographically-random, URL-safe suffix so private invite slugs can't be
+    /// enumerated. `randomElement()` draws from the system CSPRNG; 22 chars over a
+    /// 62-symbol alphabet is ~131 bits of entropy.
+    static func inviteToken(length: Int = 22) -> String {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        return String((0..<length).compactMap { _ in alphabet.randomElement() })
+    }
+
     static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
@@ -3840,7 +3848,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Int(Date().timeIntervalSince1970))", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle)
+        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }

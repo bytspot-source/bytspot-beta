@@ -869,6 +869,9 @@ struct ClipPatchVerifier {
 
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        if let token = Self.authToken {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.timeoutInterval = 8
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw VerifyError.network("No response") }

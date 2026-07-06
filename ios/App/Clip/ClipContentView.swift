@@ -173,7 +173,7 @@ private struct ClipBookingContext {
 }
 
 struct ClipGroupEventJoinView: View {
-    enum JoinState: Equatable { case idle, joining, joined, pending, failed(String) }
+    enum JoinState: Equatable { case idle, joining, joined, pending, declined, failed(String) }
 
     let invite: ClipGroupEventInvite
     @Binding var showOverlay: Bool
@@ -589,7 +589,7 @@ struct ClipGroupEventJoinView: View {
                         .opacity(membership == .joining ? 0.7 : 1)
                 }
                 .buttonStyle(.plain)
-                .disabled(membership == .joining || membership == .joined)
+                .disabled(membership == .joining || membership == .joined || membership == .declined)
 
                 Button(action: shareInvite) {
                     Image(systemName: "square.and.arrow.up")
@@ -738,6 +738,7 @@ struct ClipGroupEventJoinView: View {
         case .joining: return "Joining…"
         case .joined: return "You're in"
         case .pending: return "Request sent"
+        case .declined: return "Not approved"
         default: return "Join guest list"
         }
     }
@@ -747,14 +748,16 @@ struct ClipGroupEventJoinView: View {
         case .joining: return "hourglass"
         case .joined: return "checkmark.circle.fill"
         case .pending: return "clock.badge.checkmark"
+        case .declined: return "xmark.circle.fill"
         default: return "sparkles"
         }
     }
 
     // Sign in with Apple -> auth.appleSignIn (persists the JWT) -> groupEvents.join.
-    // Open events return "joined"; approval-gated events return "pending".
+    // Open events return "joined"; approval-gated events return "pending". A guest
+    // the host previously declined stays "declined" on re-join (no fall-through).
     private func joinGroup() {
-        guard membership != .joining, membership != .joined else { return }
+        guard membership != .joining, membership != .joined, membership != .declined else { return }
         impactMedium()
         membership = .joining
         statusMessage = "Signing you in with Apple…"
@@ -773,13 +776,20 @@ struct ClipGroupEventJoinView: View {
                 name: credential.fullName
             )
             let status = try await verifier.joinGroupEvent(eventId: invite.id)
-            if status == "pending" {
-                membership = .pending
-                statusMessage = "Request sent. \(invite.hostName) will approve you shortly."
-            } else {
+            switch status {
+            case "joined":
                 membership = .joined
                 statusMessage = "You're in. Guest updates, photos, and matched offers will appear here."
                 await loadGuests()
+            case "pending":
+                membership = .pending
+                statusMessage = "Request sent. \(invite.hostName) will approve you shortly."
+            case "declined":
+                membership = .declined
+                statusMessage = "\(invite.hostName) isn't accepting this request. Reach out to the host directly."
+            default:
+                membership = .failed("Unexpected response. Try again.")
+                statusMessage = "Unexpected response. Try again."
             }
         } catch {
             let message = joinErrorText(from: error)

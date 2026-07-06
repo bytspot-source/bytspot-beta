@@ -2932,6 +2932,11 @@ private struct NativeProfileNetworkCard: View {
     @State private var showInviteAccess = false
     @State private var showHostDashboard = false
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
+    // Invite ids confirmed to exist on the server (groupEvents.create succeeded).
+    // Sharing an invite the backend hasn't accepted yet would hand out a link the
+    // App Clip can't join (groupEvents.join → NOT_FOUND), so share stays gated on
+    // this until publish confirms.
+    @State private var publishedGroupEventIDs: Set<String> = []
 
     static let title = "Groups & Invites"
     static let actionTitles = ["Start Private Group", "Share Invite", "Find friends"]
@@ -2988,7 +2993,10 @@ private struct NativeProfileNetworkCard: View {
                 if #available(iOS 16.0, *) { dashboard.presentationDetents([.large]).presentationDragIndicator(.visible) } else { dashboard }
             }
         }
-        .onAppear(perform: openInviteAccessPreviewIfRequested)
+        .onAppear {
+            openInviteAccessPreviewIfRequested()
+            reconcileActiveGroupPublishState()
+        }
     }
 
     private var startGroupBlock: some View {
@@ -3168,14 +3176,22 @@ private struct NativeProfileNetworkCard: View {
         NativeGroupEventStore.upsert(record)
         activeGroup = record
         selectedGroupType = record.title.replacingOccurrences(of: " Group", with: "")
-        networkStatus = "\(record.title) is live. Share the invite for instant App Clip join."
+        // A host must be signed in for the server to accept the event; until then
+        // it's only a local draft and its invite can't be joined.
+        guard sessionStore.isAuthenticated else {
+            networkStatus = "\(record.title) is saved as a draft on this device. Sign in to publish it so guests can join via the App Clip."
+            return
+        }
+        networkStatus = "Publishing \(record.title)… guests can join as soon as it syncs."
         publishGroupEvent(record)
     }
 
     // Mirror the local event to the server so App Clip guests can join and, for
-    // approval events, appear in the host dashboard. Local upsert stays the
-    // source of truth, so the card keeps working if the network is unavailable.
-    private func publishGroupEvent(_ record: NativeGroupEventRecord) {
+    // approval events, appear in the host dashboard. Local upsert stays the source
+    // of truth for display, but only a confirmed publish marks the invite as
+    // shareable (publishedGroupEventIDs). `announce` controls whether we surface a
+    // status message (silent on background reconciliation).
+    private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
         guard sessionStore.isAuthenticated else { return }
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         var input: [String: Any] = [
@@ -3195,23 +3211,56 @@ private struct NativeProfileNetworkCard: View {
             let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             do {
                 _ = try await api.create(input: input)
-                networkStatus = record.requiresApproval
-                    ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
-                    : "\(record.title) is live. Share the invite for instant App Clip join."
+                publishedGroupEventIDs.insert(record.id)
+                if announce {
+                    networkStatus = record.requiresApproval
+                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
+                        : "\(record.title) is live. Share the invite for instant App Clip join."
+                }
             } catch {
-                networkStatus = "\(record.title) is live on this device. It'll sync for App Clip joins when you're back online."
+                publishedGroupEventIDs.remove(record.id)
+                if announce {
+                    networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
+                }
             }
         }
     }
 
+    private func isPublished(_ group: NativeGroupEventRecord) -> Bool {
+        publishedGroupEventIDs.contains(group.id)
+    }
+
+    // Guard every share entry point: never hand out an invite the backend hasn't
+    // accepted. Kicks a publish retry when authenticated, or prompts sign-in.
+    private func ensureShareable(_ group: NativeGroupEventRecord) -> Bool {
+        if isPublished(group) { return true }
+        if sessionStore.isAuthenticated {
+            networkStatus = "Publishing \(group.title)… try sharing again in a moment so guests can join."
+            publishGroupEvent(group)
+        } else {
+            networkStatus = "Sign in to publish \(group.title) before sharing — guests can't join an unpublished invite."
+        }
+        return false
+    }
+
+    // On reappear, silently (re)publish an authenticated host's active group so a
+    // draft created offline/pre-auth becomes shareable once it syncs. create is an
+    // idempotent host-owned upsert, so re-calling it is safe.
+    private func reconcileActiveGroupPublishState() {
+        guard let group = activeGroup, sessionStore.isAuthenticated, !isPublished(group) else { return }
+        publishGroupEvent(group, announce: false)
+    }
+
     private func copyInvite(_ group: NativeGroupEventRecord) {
         nativeImpactLight()
+        guard ensureShareable(group) else { return }
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
         networkStatus = "Invite link copied — non-app users can join instantly in the App Clip."
     }
 
     private func openInviteAccess(_ group: NativeGroupEventRecord, mode: NativeGroupInviteAccessMode) {
         nativeImpactLight()
+        guard ensureShareable(group) else { return }
         inviteAccessMode = mode
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
         showInviteAccess = true
@@ -3224,10 +3273,15 @@ private struct NativeProfileNetworkCard: View {
 
     private func openInviteAccessPreviewIfRequested() {
         #if DEBUG
-        guard let group = activeGroup else { return }
+        guard activeGroup != nil else { return }
         let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_INVITE_PREVIEW"]?.lowercased() ?? ""
         guard raw == "qr" || raw == "nfc" else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { openInviteAccess(group, mode: raw == "nfc" ? .nfc : .qr) }
+        // DEBUG preview bypasses the publish gate so the invite sheet renders for
+        // UI inspection without a live server round-trip.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            inviteAccessMode = raw == "nfc" ? .nfc : .qr
+            showInviteAccess = true
+        }
         #endif
     }
 }

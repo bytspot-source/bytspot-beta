@@ -85,6 +85,8 @@ struct ClipGroupEventInvite: Equatable {
     let videoURL: URL?
     let heroImageURL: URL?
     let thumbnailURL: URL?
+    let photoURLs: [URL]
+    let instagramHandle: String?
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
@@ -107,7 +109,9 @@ struct ClipGroupEventInvite: Equatable {
             URLQueryItem(name: "activities", value: activityHighlights.joined(separator: ",")),
             URLQueryItem(name: "hero", value: heroImageURL?.absoluteString),
             URLQueryItem(name: "thumbnail", value: thumbnailURL?.absoluteString),
+            URLQueryItem(name: "photos", value: photoURLs.map { $0.absoluteString }.joined(separator: ",")),
             URLQueryItem(name: "video", value: videoURL?.absoluteString),
+            URLQueryItem(name: "instagram", value: instagramHandle),
             URLQueryItem(name: "source", value: "app_clip"),
             URLQueryItem(name: "handoff", value: "1")
         ].filter { $0.value?.isEmpty == false }
@@ -123,6 +127,11 @@ struct ClipGroupEventInvite: Equatable {
         let participantCount = Int(queryValue(in: queryItems, names: ["participants", "p"]) ?? "1") ?? 1
         let groupType = queryValue(in: queryItems, names: ["type", "groupType"]) ?? inferredGroupType(from: title)
         let fallback = tierFallback(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
+        let heroImageURL = queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"])
+        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? fallback.poster
+        var seenPhotos = Set<URL>()
+        let photoURLs = (queryURLs(in: queryItems, names: ["photos", "album", "gallery"]) ?? [heroImageURL, thumbnailURL].compactMap { $0 })
+            .filter { seenPhotos.insert($0).inserted }
         return Self(
             id: id,
             title: title,
@@ -137,9 +146,20 @@ struct ClipGroupEventInvite: Equatable {
             guestSummary: queryValue(in: queryItems, names: ["guestSummary", "guests"]) ?? fallback.guests,
             activityHighlights: queryArray(in: queryItems, names: ["activities", "activityHighlights", "highlights"]) ?? fallback.highlights,
             videoURL: queryURL(in: queryItems, names: ["video", "videoUrl", "hls", "hlsUrl"]) ?? fallback.video,
-            heroImageURL: queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"]),
-            thumbnailURL: queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? fallback.poster
+            heroImageURL: heroImageURL,
+            thumbnailURL: thumbnailURL,
+            photoURLs: photoURLs,
+            instagramHandle: normalizedInstagram(queryValue(in: queryItems, names: ["instagram", "ig", "instagramHandle", "social"]))
         )
+    }
+
+    private static func normalizedInstagram(_ raw: String?) -> String? {
+        guard var handle = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else { return nil }
+        if let url = URL(string: handle), let host = url.host, host.lowercased().contains("instagram.com") {
+            handle = url.path.split(separator: "/").first.map(String.init) ?? handle
+        }
+        handle = handle.replacingOccurrences(of: "@", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        return handle.isEmpty ? nil : handle
     }
 
     private static func queryValue(in items: [URLQueryItem], names: [String]) -> String? {
@@ -155,6 +175,12 @@ struct ClipGroupEventInvite: Equatable {
         guard let raw = queryValue(in: items, names: names) else { return nil }
         let values = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return values.isEmpty ? nil : values
+    }
+
+    private static func queryURLs(in items: [URLQueryItem], names: [String]) -> [URL]? {
+        guard let raw = queryValue(in: items, names: names) else { return nil }
+        let urls = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { URL(string: $0) }
+        return urls.isEmpty ? nil : urls
     }
 
     private static func inferredGroupType(from title: String) -> String {

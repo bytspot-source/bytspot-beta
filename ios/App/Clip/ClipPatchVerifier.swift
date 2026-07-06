@@ -1,5 +1,64 @@
 import Foundation
 
+// MARK: - ClipAuthStore
+// Shared JWT storage for the Clip. Writes/reads the App Group suite
+// (group.com.bytspot.app) so the installed full app can pick up the guest's
+// session after handoff, while also mirroring to `UserDefaults.standard` so the
+// Clip keeps working before the App Group entitlement is provisioned.
+enum ClipAuthStore {
+    static let appGroupSuiteName = "group.com.bytspot.app"
+    static let tokenKey = "bytspot_auth_token"
+
+    private static var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: appGroupSuiteName)
+    }
+
+    static func store(token: String) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        sharedDefaults?.set(trimmed, forKey: tokenKey)
+        UserDefaults.standard.set(trimmed, forKey: tokenKey)
+    }
+
+    static var token: String? {
+        let candidates = [
+            sharedDefaults?.string(forKey: tokenKey),
+            UserDefaults.standard.string(forKey: tokenKey),
+            UserDefaults.standard.string(forKey: "BytspotAuthToken")
+        ]
+        return candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && $0 != "guest_session" && $0 != "beta_guest" }
+    }
+}
+
+/// Result of a successful Sign in with Apple exchange (`auth.appleSignIn`).
+struct ClipGuestSession {
+    let token: String
+    let userId: String?
+    let name: String?
+    let email: String?
+    let isNewUser: Bool
+}
+
+/// A single joined guest from `groupEvents.guests`. `profileImage` is optional;
+/// the view falls back to `initials` (server-provided) when it is absent.
+struct ClipGroupEventGuest: Identifiable, Equatable {
+    let userId: String
+    let name: String
+    let profileImage: URL?
+    let initials: String
+
+    var id: String { userId }
+}
+
+/// Public-facing joined guest list for an invite (`groupEvents.guests`).
+struct ClipGroupEventGuestList: Equatable {
+    let eventId: String
+    let count: Int
+    let guests: [ClipGroupEventGuest]
+}
+
 // MARK: - BytspotTier
 // Service-level axis (independent of providerType). Drives URL routing, the
 // tRPC `tier` filter, fallback service catalogs, and the visual identity
@@ -678,6 +737,62 @@ struct ClipPatchVerifier {
         return ClipPatchVendorPayload(context: context, service: service, vendor: vendor)
     }
 
+    /// Exchange an Apple identity token for a Bytspot session (`auth.appleSignIn`).
+    /// On success the JWT is persisted via `ClipAuthStore` so subsequent
+    /// authenticated calls (e.g. `groupEvents.join`) attach it automatically.
+    func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> ClipGuestSession {
+        var input: [String: Any] = ["identityToken": identityToken, "ref": "app_clip"]
+        if let email, !email.isEmpty { input["email"] = email }
+        if let name, !name.isEmpty { input["name"] = name }
+        let payload = try await postTRPC("auth.appleSignIn", input: input)
+        guard let root = payload as? [String: Any],
+              let token = Self.string(root["token"]) else { throw VerifyError.decode }
+        ClipAuthStore.store(token: token)
+        let user = root["user"] as? [String: Any]
+        return ClipGuestSession(
+            token: token,
+            userId: Self.string(user?["id"]),
+            name: Self.string(user?["name"]),
+            email: Self.string(user?["email"]),
+            isNewUser: (root["isNewUser"] as? Bool) ?? false
+        )
+    }
+
+    /// Join a private group event (`groupEvents.join`). Returns the resulting
+    /// membership status: `"joined"` for open events or `"pending"` for
+    /// approval-gated ones.
+    func joinGroupEvent(eventId: String, message: String? = nil) async throws -> String {
+        var input: [String: Any] = ["eventId": eventId]
+        if let message, !message.isEmpty { input["message"] = message }
+        let payload = try await postTRPC("groupEvents.join", input: input)
+        guard let root = payload as? [String: Any],
+              let status = Self.string(root["status"]) else { throw VerifyError.decode }
+        return status
+    }
+
+    /// Fetch the joined guest list for an invite (`groupEvents.guests`).
+    /// Used for pull-on-open rendering of real name + photo bubbles.
+    func groupEventGuests(eventId: String) async throws -> ClipGroupEventGuestList {
+        let payload = try await getTRPC("groupEvents.guests", input: ["eventId": eventId])
+        guard let root = payload as? [String: Any] else { throw VerifyError.decode }
+        let rows = (root["guests"] as? [[String: Any]]) ?? []
+        let guests = rows.compactMap { row -> ClipGroupEventGuest? in
+            guard let userId = Self.string(row["userId"]) else { return nil }
+            let name = Self.string(row["name"]) ?? "Guest"
+            return ClipGroupEventGuest(
+                userId: userId,
+                name: name,
+                profileImage: Self.url(row["profileImage"]),
+                initials: Self.string(row["initials"]) ?? String(name.prefix(1)).uppercased()
+            )
+        }
+        return ClipGroupEventGuestList(
+            eventId: Self.string(root["eventId"]) ?? eventId,
+            count: Self.int(root["count"]) ?? guests.count,
+            guests: guests
+        )
+    }
+
     func verify(token: String?) async throws -> VerifyResult {
         guard let token, !token.isEmpty else { throw VerifyError.missingToken }
 
@@ -1010,14 +1125,5 @@ struct ClipPatchVerifier {
 
     private func string(_ value: Any?) -> String? { Self.string(value) }
 
-    private static var authToken: String? {
-        let defaults = UserDefaults.standard
-        let candidates = [
-            defaults.string(forKey: "bytspot_auth_token"),
-            defaults.string(forKey: "BytspotAuthToken")
-        ]
-        return candidates
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && $0 != "guest_session" && $0 != "beta_guest" }
-    }
+    private static var authToken: String? { ClipAuthStore.token }
 }

@@ -304,6 +304,82 @@ struct NativeMobilityDataAPI {
     }
 }
 
+struct NativeGroupEventServerRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var hostId: String?
+    var title: String?
+    var groupType: String?
+    var tier: String?
+    var timing: String?
+    var scheduledDate: String?
+    var location: String?
+    var theme: String?
+    var instagramHandle: String?
+    var allowNearbyOffers: Bool?
+    var approvalMode: String?
+    var createdAt: String?
+}
+
+struct NativeGroupEventGuestRecord: Codable, Equatable, Identifiable {
+    var userId: String
+    var name: String?
+    var profileImage: String?
+    var initials: String?
+    var status: String?
+    var message: String?
+    var joinedAt: String?
+
+    var id: String { userId }
+    var displayName: String { name?.isEmpty == false ? name! : "Guest" }
+    var avatarInitials: String { initials?.isEmpty == false ? initials! : String(displayName.prefix(1)).uppercased() }
+}
+
+struct NativeGroupEventHostView: Codable, Equatable {
+    var event: NativeGroupEventServerRecord
+    var guests: [NativeGroupEventGuestRecord]
+    var pending: [NativeGroupEventGuestRecord]
+}
+
+struct NativeGroupEventDecision: Codable, Equatable {
+    var userId: String?
+    var status: String?
+}
+
+/// Host-side group-event API. The backend runs tRPC without a data transformer,
+/// so inputs travel raw (query `?input=<json>`, mutation body `<json>`) rather
+/// than through BytspotAPIClient.trpcPayload's `{"json":…}` wrapper.
+struct NativeGroupEventDataAPI {
+    let client: BytspotAPIClient
+
+    func create(input: [String: Any]) async throws -> NativeGroupEventServerRecord {
+        try await mutation(NativeGroupEventServerRecord.self, path: "/trpc/groupEvents.create", input: input)
+    }
+
+    func host(eventId: String) async throws -> NativeGroupEventHostView {
+        try await query(NativeGroupEventHostView.self, path: "/trpc/groupEvents.host", input: ["eventId": eventId])
+    }
+
+    func decide(eventId: String, userId: String, decision: String) async throws -> NativeGroupEventDecision {
+        try await mutation(NativeGroupEventDecision.self, path: "/trpc/groupEvents.decide", input: ["eventId": eventId, "userId": userId, "decision": decision])
+    }
+
+    private func mutation<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
+        let body = try JSONSerialization.data(withJSONObject: input)
+        return try Self.decode(type, from: try await client.json(path: path, method: "POST", body: body))
+    }
+
+    private func query<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
+        let inputData = try JSONSerialization.data(withJSONObject: input)
+        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return try Self.decode(type, from: try await client.json(path: "\(path)?input=\(encoded)"))
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {
+        let data = try JSONSerialization.data(withJSONObject: BytspotAPIClient.unwrapTRPCData(raw))
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
 struct NativeAuthUserRecord: Codable, Equatable {
     var id: String?
     var email: String?

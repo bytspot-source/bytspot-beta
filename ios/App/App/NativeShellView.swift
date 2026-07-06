@@ -2930,6 +2930,7 @@ private struct NativeProfileNetworkCard: View {
     @State private var networkStatus: String?
     @State private var showGroupSetup = false
     @State private var showInviteAccess = false
+    @State private var showHostDashboard = false
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
 
     static let title = "Groups & Invites"
@@ -2981,6 +2982,12 @@ private struct NativeProfileNetworkCard: View {
                 if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
             }
         }
+        .sheet(isPresented: $showHostDashboard) {
+            if let activeGroup {
+                let dashboard = NativeGroupEventHostDashboardView(event: activeGroup, sessionStore: sessionStore)
+                if #available(iOS 16.0, *) { dashboard.presentationDetents([.large]).presentationDragIndicator(.visible) } else { dashboard }
+            }
+        }
         .onAppear(perform: openInviteAccessPreviewIfRequested)
     }
 
@@ -3027,6 +3034,17 @@ private struct NativeProfileNetworkCard: View {
                 Button(action: { openInviteAccess(group, mode: .qr) }) { groupActionLabel("Show QR", icon: "qrcode") }.buttonStyle(.plain)
                 Button(action: { openInviteAccess(group, mode: .nfc) }) { groupActionLabel("NFC", icon: "dot.radiowaves.left.and.right") }.buttonStyle(.plain)
             }
+            Button(action: { openHostDashboard(group) }) {
+                HStack(spacing: 7) {
+                    Image(systemName: "person.2.badge.gearshape.fill").font(.system(size: 13, weight: .black))
+                    Text(group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests").font(.system(size: 13, weight: .black))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.buttonStyle(.plain)
             matchedOfferPreview
             Text(NativeGroupEventContract.matchedOfferExplanation).nativeBody(size: 11.5, color: NativeProfileStyle.muted)
         }
@@ -3151,6 +3169,39 @@ private struct NativeProfileNetworkCard: View {
         activeGroup = record
         selectedGroupType = record.title.replacingOccurrences(of: " Group", with: "")
         networkStatus = "\(record.title) is live. Share the invite for instant App Clip join."
+        publishGroupEvent(record)
+    }
+
+    // Mirror the local event to the server so App Clip guests can join and, for
+    // approval events, appear in the host dashboard. Local upsert stays the
+    // source of truth, so the card keeps working if the network is unavailable.
+    private func publishGroupEvent(_ record: NativeGroupEventRecord) {
+        guard sessionStore.isAuthenticated else { return }
+        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
+        var input: [String: Any] = [
+            "id": record.id,
+            "title": record.title,
+            "groupType": record.groupType,
+            "tier": record.tier.rawValue,
+            "timing": record.timing.rawValue,
+            "allowNearbyOffers": record.allowNearbyOffers,
+            "approvalMode": record.approvalMode,
+            "scheduledDate": record.scheduledDate,
+            "location": record.locationLabel,
+            "theme": record.theme,
+        ]
+        if let handle = record.instagramHandle, !handle.isEmpty { input["instagramHandle"] = handle }
+        Task { @MainActor in
+            let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
+            do {
+                _ = try await api.create(input: input)
+                networkStatus = record.requiresApproval
+                    ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
+                    : "\(record.title) is live. Share the invite for instant App Clip join."
+            } catch {
+                networkStatus = "\(record.title) is live on this device. It'll sync for App Clip joins when you're back online."
+            }
+        }
     }
 
     private func copyInvite(_ group: NativeGroupEventRecord) {
@@ -3164,6 +3215,11 @@ private struct NativeProfileNetworkCard: View {
         inviteAccessMode = mode
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
         showInviteAccess = true
+    }
+
+    private func openHostDashboard(_ group: NativeGroupEventRecord) {
+        nativeImpactLight()
+        showHostDashboard = true
     }
 
     private func openInviteAccessPreviewIfRequested() {
@@ -3318,6 +3374,160 @@ private struct NativeGroupInviteAccessSheet: View {
     }
 }
 
+private struct NativeGroupEventHostDashboardView: View {
+    let event: NativeGroupEventRecord
+    let sessionStore: BytspotSessionStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var guests: [NativeGroupEventGuestRecord] = []
+    @State private var pending: [NativeGroupEventGuestRecord] = []
+    @State private var loading = true
+    @State private var statusMessage: String?
+    @State private var decidingUserId: String?
+
+    private var accent: Color {
+        switch event.tier {
+        case .green: return NativeTheme.emerald
+        case .platinum: return NativeTheme.cyan
+        case .black: return NativeTheme.orange
+        }
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                if loading { HStack { ProgressView().tint(accent); Text("Loading live guest list…").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body) } }
+                if let statusMessage { Text(statusMessage).nativeBody(size: 12, color: NativeTheme.orange) }
+                if event.requiresApproval { pendingSection }
+                guestSection
+            }
+            .padding(20)
+            .padding(.bottom, 18)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-group-event-host-dashboard")
+        .task { await load() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MANAGE GUESTS").font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.1)
+                Text(event.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text(event.requiresApproval ? "Approval required · you review each request" : "Open invite · guests join instantly").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
+            }
+            Spacer(minLength: 0)
+            Button(action: { dismiss() }) { Text("Done").font(.system(size: 14, weight: .black)).foregroundColor(accent) }.buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private var pendingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Pending requests (\(pending.count))")
+            if pending.isEmpty {
+                Text("No pending requests right now.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.muted).frame(maxWidth: .infinity, alignment: .leading).padding(13).background(NativeProfileStyle.insetSurface.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                ForEach(pending) { guestRow($0, showActions: true) }
+            }
+        }
+    }
+
+    private var guestSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Joined (\(guests.count))")
+            if guests.isEmpty {
+                Text("No guests have joined yet. Share the invite to get started.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.muted).frame(maxWidth: .infinity, alignment: .leading).padding(13).background(NativeProfileStyle.insetSurface.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                ForEach(guests) { guestRow($0, showActions: false) }
+            }
+        }
+    }
+
+    private func guestRow(_ guest: NativeGroupEventGuestRecord, showActions: Bool) -> some View {
+        HStack(spacing: 11) {
+            avatar(for: guest)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(guest.displayName).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                if let message = guest.message, !message.isEmpty {
+                    Text(message).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+            if showActions {
+                if decidingUserId == guest.userId {
+                    ProgressView().tint(accent)
+                } else {
+                    HStack(spacing: 8) {
+                        Button(action: { Task { await decide(guest, approve: false) } }) { decisionLabel("Decline", filled: false) }.buttonStyle(.plain)
+                        Button(action: { Task { await decide(guest, approve: true) } }) { decisionLabel("Approve", filled: true) }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(NativeProfileStyle.insetSurface.opacity(0.74))
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+    }
+
+    private func avatar(for guest: NativeGroupEventGuestRecord) -> some View {
+        ZStack {
+            if let raw = guest.profileImage, let url = URL(string: raw) {
+                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { accent.opacity(0.25) }
+            } else {
+                accent.opacity(0.22)
+                Text(guest.avatarInitials).font(.system(size: 15, weight: .black)).foregroundColor(accent)
+            }
+        }
+        .frame(width: 40, height: 40)
+        .clipShape(Circle())
+    }
+
+    private func decisionLabel(_ title: String, filled: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 12.5, weight: .black))
+            .foregroundColor(filled ? .black : accent)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(filled ? accent : Color.clear)
+            .overlay(Capsule().stroke(accent.opacity(filled ? 0 : 0.55), lineWidth: 1.2))
+            .clipShape(Capsule())
+    }
+
+    private func setupLabel(_ title: String) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1.0)
+    }
+
+    @MainActor private func load() async {
+        loading = true
+        defer { loading = false }
+        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
+        let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        do {
+            let view = try await api.host(eventId: event.id)
+            guests = view.guests
+            pending = view.pending
+            statusMessage = nil
+        } catch {
+            statusMessage = "Couldn't load the live guest list. Reopen when you're back online."
+        }
+    }
+
+    @MainActor private func decide(_ guest: NativeGroupEventGuestRecord, approve: Bool) async {
+        nativeImpactLight()
+        decidingUserId = guest.userId
+        defer { decidingUserId = nil }
+        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
+        let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        do {
+            _ = try await api.decide(eventId: event.id, userId: guest.userId, decision: approve ? "approve" : "decline")
+            await load()
+        } catch {
+            statusMessage = "Couldn't update \(guest.displayName). Try again."
+        }
+    }
+}
+
 private struct NativeGroupEventSetupSheet: View {
     let tier: BytspotTier
     let onCreate: (NativeGroupEventRecord) -> Void
@@ -3331,7 +3541,9 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var locationLabel = "Host-selected private table"
     @State private var theme = "Premium dinner"
     @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
+    @State private var instagramHandle = ""
     @State private var allowNearbyOffers = true
+    @State private var requiresApproval = false
 
     init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
         self.tier = tier
@@ -3408,6 +3620,7 @@ private struct NativeGroupEventSetupSheet: View {
             inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
             inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
             inputField(title: "Highlights", placeholder: "Chef menu, Private arrival, Invite-only offers", text: $activityHighlightsText, lineLimit: 2)
+            inputField(title: "Instagram", placeholder: "@yourhandle", text: $instagramHandle)
             Text("These details travel in the private invite URL so the App Clip can render context without a network round-trip. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
         }
     }
@@ -3420,6 +3633,16 @@ private struct NativeGroupEventSetupSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow nearby offers").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Text(NativeGroupEventContract.matchedOfferExplanation).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(NativeTheme.emerald)
+            .padding(13)
+            .background(NativePolish.elevatedSurface.opacity(0.78))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Toggle(isOn: $requiresApproval) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Require approval to join").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text("Guests request access from the App Clip and stay pending until you approve them.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .tint(NativeTheme.emerald)
@@ -3481,7 +3704,7 @@ private struct NativeGroupEventSetupSheet: View {
     private func goLive() {
         guard canGoLive else { return }
         let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, hostName: hostName, tier: tier, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights)
+        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle)
         onCreate(record)
         dismiss()
     }
@@ -3567,6 +3790,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     let timing: NativeGroupEventTimingState
     let participantCount: Int
     let allowNearbyOffers: Bool
+    let requiresApproval: Bool
     let inviteNote: String?
     let privacyStatus: NativeGroupEventPrivacyStatus
     let privateAssociation: NativeGroupEventPrivateAssociation
@@ -3578,8 +3802,9 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     let heroImageURLString: String?
     let thumbnailURLString: String?
     let videoURLString: String?
+    let instagramHandle: String?
 
-    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil) {
+    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil) {
         self.id = id
         self.title = title
         self.groupType = groupType
@@ -3588,6 +3813,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.timing = timing
         self.participantCount = participantCount
         self.allowNearbyOffers = allowNearbyOffers
+        self.requiresApproval = requiresApproval
         self.inviteNote = inviteNote
         self.privacyStatus = privacyStatus
         self.privateAssociation = privateAssociation
@@ -3600,23 +3826,27 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.heroImageURLString = heroImageURLString ?? fallback.hero
         self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
         self.videoURLString = videoURLString ?? fallback.video
+        self.instagramHandle = Self.clean(instagramHandle, maxLength: 64).map { $0.replacingOccurrences(of: "@", with: "") }
     }
 
     static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
         Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Pull up when you can.", privacyStatus: .privateInvite, privateAssociation: .host)
     }
 
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil) -> Self {
+    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Int(Date().timeIntervalSince1970))", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights)
+        return Self(id: "group-\(slug)-\(Int(Date().timeIntervalSince1970))", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
+
+    /// Wire value for the groupEvents router's `approvalMode` enum ('open' | 'approval').
+    var approvalMode: String { requiresApproval ? "approval" : "open" }
 
     var requiresPrivateHomepageAssociation: Bool {
         privacyStatus == .privateInvite || Self.hiddenFromPublicGroupTypes.contains(normalizedGroupType)
@@ -3632,7 +3862,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
 
     private static let hiddenFromPublicGroupTypes = Set(["dinner", "family"])
 
-    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString }
+    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -3644,6 +3874,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         timing = try c.decode(NativeGroupEventTimingState.self, forKey: .timing)
         participantCount = try c.decode(Int.self, forKey: .participantCount)
         allowNearbyOffers = try c.decode(Bool.self, forKey: .allowNearbyOffers)
+        requiresApproval = try c.decodeIfPresent(Bool.self, forKey: .requiresApproval) ?? false
         inviteNote = try c.decodeIfPresent(String.self, forKey: .inviteNote)
         privacyStatus = try c.decodeIfPresent(NativeGroupEventPrivacyStatus.self, forKey: .privacyStatus) ?? .privateInvite
         privateAssociation = try c.decodeIfPresent(NativeGroupEventPrivateAssociation.self, forKey: .privateAssociation) ?? .host
@@ -3656,6 +3887,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         heroImageURLString = try c.decodeIfPresent(String.self, forKey: .heroImageURLString) ?? fallback.hero
         thumbnailURLString = try c.decodeIfPresent(String.self, forKey: .thumbnailURLString) ?? fallback.thumbnail
         videoURLString = try c.decodeIfPresent(String.self, forKey: .videoURLString) ?? fallback.video
+        instagramHandle = try c.decodeIfPresent(String.self, forKey: .instagramHandle)
     }
 
     private static func richDefaults(tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, location: String, theme: String, guests: String, highlights: [String], hero: String?, thumbnail: String?, video: String?) {
@@ -3757,6 +3989,7 @@ enum NativeGroupEventContract {
             URLQueryItem(name: "hero", value: event.heroImageURLString),
             URLQueryItem(name: "thumbnail", value: event.thumbnailURLString),
             URLQueryItem(name: "video", value: event.videoURLString),
+            URLQueryItem(name: "instagram", value: event.instagramHandle),
             URLQueryItem(name: "source", value: "app_clip")
         ].filter { $0.value?.isEmpty == false }
         return components.url ?? URL(string: "https://bytspot.app")!
@@ -3793,7 +4026,8 @@ enum NativeGroupEventContract {
             activityHighlights: queryArray(in: query, names: ["activities", "activityHighlights", "highlights"]),
             heroImageURLString: queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]),
             thumbnailURLString: queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]),
-            videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"])
+            videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"]),
+            instagramHandle: queryValue(in: query, names: ["instagram", "ig", "instagramHandle", "social"])
         )
     }
 

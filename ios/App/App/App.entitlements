@@ -18,5 +18,9 @@
 	<array>
 		<string>applinks:bytspot.app</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.bytspot.app</string>
+	</array>
 </dict>
 </plist>

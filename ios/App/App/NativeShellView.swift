@@ -13620,10 +13620,15 @@ private struct NativeConciergeView: View {
         if connectionState == "thinking" { return "Thinking" }
         if connectionState == "offline" { return "Offline mode" }
         if connectionState == "fallback" { return "Local help" }
-        return "Live"
+        return sessionStore.canAttachBearerToken ? "Live" : "Local help"
     }
 
-    private var statusColor: Color { connectionState == "fallback" ? NativeTheme.cyan : connectionState == "offline" ? NativeTheme.orange : connectionState == "thinking" ? NativeTheme.cyan : NativeTheme.emerald }
+    private var statusColor: Color {
+        if connectionState == "fallback" { return NativeTheme.cyan }
+        if connectionState == "offline" { return NativeTheme.orange }
+        if connectionState == "thinking" { return NativeTheme.cyan }
+        return sessionStore.canAttachBearerToken ? NativeTheme.emerald : NativeTheme.cyan
+    }
     private var cityName: String { "Midtown" }
 
     private var conciergeRadialBackground: some View {

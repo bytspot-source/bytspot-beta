@@ -682,7 +682,7 @@ final class NativeMenuCheckoutTests: XCTestCase {
     }
 
     func testCheckoutOffersTheSharedNativePaymentMethods() {
-        XCTAssertEqual(NativeMenuCheckoutProbe.paymentMethods, ["Apple Pay", "Card •••• 4242"])
+        XCTAssertEqual(NativeMenuCheckoutProbe.paymentMethods, ["Apple Pay", "Credit / Debit Card"])
         XCTAssertTrue(NativeMenuCheckoutProbe.sharesNativeCheckoutPaymentMethods, "Menu checkout must offer the same payment methods as other native checkouts.")
     }
 }

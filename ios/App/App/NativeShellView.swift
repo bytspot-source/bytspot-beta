@@ -6460,7 +6460,7 @@ private enum NativeParkingBookingContract {
     static let confirmedTitle = "Space Reserved"
     static let primaryCTA = "Pay & Reserve"
     static let storageKey = NativeParkingReservationStore.storageKey
-    static let paymentMethods = ["Apple Pay", "Card •••• 4242"]
+    static let paymentMethods = ["Apple Pay", "Credit / Debit Card"]
 }
 
 private enum NativeBoutiqueStayBookingContract {
@@ -6480,7 +6480,7 @@ private enum NativeBoutiqueStayBookingContract {
     static let dateSelectorID = "native-boutique-stay-date-selector"
     static let liveStatusID = "native-boutique-stay-live-status"
     static let paymentSummaryID = "native-boutique-stay-payment-summary"
-    static let paymentMethods = ["Apple Pay", "Card •••• 4242"]
+    static let paymentMethods = ["Apple Pay", "Credit / Debit Card"]
     static let nightOptions = ["1 night", "2 nights", "3 nights", "1 week"]
     static let arrivalOptions = ["Tonight", "Tomorrow", "This weekend", "Choose dates"]
     static let termOptions = ["Standard cancellation", "Flexible check-in requested", "Host approval required"]
@@ -7167,7 +7167,7 @@ private struct NativeParkingBookingSheet: View {
 
     private func paymentShortLabel(_ label: String) -> String {
         if label.localizedCaseInsensitiveContains("Apple") { return "Apple Pay" }
-        if label.contains("4242") { return "•••• 4242" }
+        if label.localizedCaseInsensitiveContains("card") { return "Card" }
         return label
     }
 
@@ -9520,6 +9520,7 @@ private struct NativeDiscoverFeatureCard: View {
         if isValetPremiumRideCard { return "Price + drivers" }
         if card.type == "mobility" { return card.availability.isEmpty ? "Plan ride" : card.availability }
         if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Check dates" : card.availability }
+        guard NativeVenueHours.hasVerifiedHours(for: discoverHoursCategory) else { return "Hours pending · Contact to confirm" }
         let status = NativeVenueHours.openStatus(category: discoverHoursCategory)
         let hours = NativeVenueHours.hours(for: discoverHoursCategory)
         if status.isOpen {
@@ -9539,6 +9540,7 @@ private struct NativeDiscoverFeatureCard: View {
         if copy.contains("open now") { return NativeTheme.emerald }
         if copy.contains("closing") { return NativeTheme.orange }
         if copy.contains("opens soon") { return NativeTheme.cyan }
+        if copy.contains("hours pending") { return Color(hex: 0x9CA3AF) }
         return Color(hex: 0xEF4444)
     }
 
@@ -9906,6 +9908,7 @@ enum NativeVenueHours {
     }
 
     static func openStatus(category: String, hour: Int, minute: Int, weekday: Int) -> NativeVenueOpenStatus {
+        guard hasVerifiedHours(for: category) else { return NativeVenueOpenStatus(label: "Hours pending", isOpen: false, detail: "Contact venue to confirm") }
         let hours = hours(for: category)
         guard hours.days.contains(weekday) else { return NativeVenueOpenStatus(label: "Opens \(timeLabel(hours.open))", isOpen: false, detail: hoursDetail(hours)) }
         let now = hour * 60 + minute
@@ -9922,6 +9925,11 @@ enum NativeVenueHours {
     static func hours(for category: String) -> Hours {
         let normalized = category.lowercased()
         return categoryHours.first(where: { normalized.contains($0.key) })?.value ?? categoryHours[normalized] ?? categoryHours["default"]!
+    }
+
+    static func hasVerifiedHours(for category: String) -> Bool {
+        let normalized = category.lowercased()
+        return categoryHours.contains { $0.key != "default" && normalized.contains($0.key) }
     }
 
     static func hoursDetail(_ hours: Hours) -> String { "Daily · \(timeLabel(hours.open))–\(timeLabel(hours.close))" }
@@ -10226,7 +10234,7 @@ private struct NativeVenueDetailView: View {
     private var infoSection: some View {
         VStack(spacing: 10) {
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
-                infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, NativeTheme.cyan)
+                infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? Color(hex: 0x9CA3AF) : NativeTheme.cyan)
             }
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) && venue.distance != "Pass" && venue.distance != "Service" {
                 infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Atlanta Midtown" : "\(venue.distance) away", NativeTheme.orange)
@@ -10602,7 +10610,7 @@ private enum NativeMenuCheckoutContract {
     static let primaryCTA = "Pay & Send Order"
     static let storageKey = NativeMenuOrderStore.storageKey
     static let accessibilityID = "native-menu-checkout-sheet"
-    static let paymentMethods = ["Apple Pay", "Card •••• 4242"]
+    static let paymentMethods = ["Apple Pay", "Credit / Debit Card"]
 }
 
 private struct NativeMenuCheckoutSheet: View {
@@ -15065,6 +15073,7 @@ enum NativeMapParitySelfTests {
         precondition(NativeVenueDetailPresentation.headerBadgeTitle(for: NativeVenueSummary(id: "patch", name: "Approved Patch Venue", category: "dining", address: "Atlanta", distance: "0.4 mi", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)) == "VERIFIED PATCH", "NativeMapParitySelfTests: real patch/vendor-approved details must claim VERIFIED PATCH authentication.")
         precondition(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label == "Open Now", "NativeMapParitySelfTests: coffee venue must read Open Now at 8am (parity with venueHours.ts).")
         precondition(NativeVenueHours.openStatus(category: "coffee", hour: 5, minute: 0, weekday: 3).isOpen == false, "NativeMapParitySelfTests: coffee venue must read closed at 5am (parity with venueHours.ts).")
+        precondition(NativeVenueHours.openStatus(category: "gallery", hour: 12, minute: 0, weekday: 3).label == "Hours pending", "NativeMapParitySelfTests: unverified categories must show the gray Hours pending tone, never fabricated default hours.")
         precondition(NativeMapExploreView.verifiedZoneRadiusMeters == 120, "NativeMapParitySelfTests: VERIFIED_ZONE_RADIUS proximity gate drifted from React MapSection 120 m.")
         precondition(NativeMapExploreView.proximityOverrideEnvironmentKey == "BYT_NATIVE_MAP_PROXIMITY_METERS", "NativeMapParitySelfTests: proximity simulator override env key drifted.")
         precondition(NativeMapExploreView.suppressLocationPromptEnvironmentKey == "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT", "NativeMapParitySelfTests: screenshot location-prompt suppression env key drifted.")
@@ -15285,7 +15294,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.account.items.allSatisfy { $0.badge == nil }, "NativeAccountParitySelfTests: account rows should not show noisy NATIVE badges.")
         precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Authorized checkout methods", "Cars used for parking and valet"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
-        precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Card •••• 4242"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
+        precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
         precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Start Private Group", "Share Invite", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
@@ -15362,7 +15371,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeValetElifeIntegrationContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
         precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
-        precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Card •••• 4242"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
+        precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
         precondition(NativeParkingBookingContract.storageKey == "bytspot_native_parking_reservations", "NativeDiscoverParitySelfTests: Smart Parking reservation wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.title == "Check Dates" && NativeBoutiqueStayBookingContract.primaryCTA == "Pay & Request", "NativeDiscoverParitySelfTests: Boutique Stay checkout must make payment authorization explicit.")
         precondition(NativeBoutiqueStayBookingContract.authorizationTitle == "Payment authorization" && NativeBoutiqueStayBookingContract.hostConfirmOutcome == "Payment is captured" && NativeBoutiqueStayBookingContract.hostDeclineOutcome == "No charge is made", "NativeDiscoverParitySelfTests: Boutique Stay ledger outcome copy drifted.")

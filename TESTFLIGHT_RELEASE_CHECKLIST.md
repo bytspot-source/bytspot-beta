@@ -1,21 +1,22 @@
 # Bytspot — TestFlight / Release Checklist
 
+> The submission target is the pure native SwiftUI app (`ios/App/App.xcodeproj`, App + Clip targets). The npm/web commands apply only to the separate React web beta and are not part of this release gate.
+
 ## 1. Build Readiness
 
-- [ ] `main` includes the latest App Review cleanup commit
-- [ ] iOS app icon matches the final Bytspot brand mark
-- [ ] `Info.plist` privacy strings are present and current
-- [ ] Apple-review safety gates are enabled in `src/utils/reviewBuild.ts`
+- [ ] Release branch includes the latest App Review cleanup commits (backdoor removal, privacy manifests, Concierge live wiring)
+- [ ] iOS app icon matches the final Bytspot brand mark (App and Clip)
+- [ ] `ios/App/App/Info.plist` and `ios/App/Clip/Info.plist` privacy strings are present and current
+- [ ] `PrivacyInfo.xcprivacy` present in both App and Clip targets and matches actual data collection (email/name, contacts, payment, purchases, phone, address, other data, precise location not-linked)
+- [ ] Marketing version and build number bumped for both App and Clip targets (versions must match)
 
 ## 2. Local Verification
 
-- [ ] Run `npm run type-check`
-- [ ] Run `npm run test:unit`
-- [ ] Run `npm run lint`
-- [ ] Run `npm run build`
-- [ ] Run `npm run build:app-store`
-- [ ] Run `npm run test:e2e:apple-review`
-- [ ] Confirm no reviewer-visible `Beta`, internal planning metrics, Provider/Admin dashboard copy, or incomplete checkout copy remains in app UI
+- [ ] Build: `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- [ ] Tests: `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test` (AppTests must be green; DEBUG parity self-tests run on launch)
+- [ ] Lint manifests: `plutil -lint ios/App/App/PrivacyInfo.xcprivacy ios/App/Clip/PrivacyInfo.xcprivacy`
+- [ ] AASA live check: `curl https://bytspot.app/.well-known/apple-app-site-association` shows `applinks` + `appclips` + `webcredentials` for `MK4J6M36S8.com.bytspot.app(.Clip)`
+- [ ] Confirm no reviewer-visible `Beta`, internal planning metrics, Provider/Admin dashboard copy, placeholder payment instruments, or fabricated hours remain in app UI
 
 ## 3. App Store Connect Metadata
 
@@ -41,15 +42,18 @@
 
 - [ ] Paste `APP_REVIEW_NOTES.md` into App Store Connect review notes
 - [ ] Confirm guest path still works: `Get Started` → `Continue as Guest`
-- [ ] Confirm legal routes open correctly
+- [ ] Confirm legal routes open correctly (Profile → legal links)
 - [ ] Confirm Home shows consumer tier cards, not internal priority/score cards
+- [ ] Confirm Concierge shows `Local help` for guests and `Live` only when signed in
 
 ## 6. TestFlight / Upload
 
-- [ ] Confirm build number increments correctly in CI
+- [ ] Archive from Xcode (App scheme, Any iOS Device) or CI; App Clip is embedded automatically
+- [ ] Confirm build number increments correctly
 - [ ] Upload / process build in TestFlight
-- [ ] Verify splash, launch, guest entry, Home, Discover, Map, Profile
+- [ ] Verify splash, launch, guest entry, and the Home · Discover · Map · Concierge tabs; open Profile from Home
 - [ ] Verify parking preview flow on device
+- [ ] Verify App Clip invocation from a group-event invite link (RSVP without full app)
 - [ ] Verify no hidden internal routes are accessible in review build
 
 ## 7. Go / No-Go

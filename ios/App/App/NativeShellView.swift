@@ -1155,7 +1155,7 @@ private struct NativeProfilePanelSheet: View {
         case .parkingPreferences:
             return [("Parking type", "Choose covered, outdoor, garage, or street parking.", "parkingsign.circle.fill"), ("Smart services", "Set auto-reserve, auto-extend, expiry, nearby, budget, and distance preferences.", "car.fill"), ("Parking match", "Preferences help surface better parking options.", "checkmark.shield.fill")]
         case .notifications:
-            return [("Push", "Reservations, promotions, reminders, insider, and nearby categories.", "bell.badge.fill"), ("Email + SMS", "Reservation, promo, newsletter, receipt, reminder, and emergency categories.", "message.fill"), ("Alert control", "Choose the updates you want to receive.", "checkmark.shield.fill")]
+            return [("Push", "Reservations, reminders, deals, profile updates, and nearby categories.", "bell.badge.fill"), ("Email + SMS", "Reservation, promo, newsletter, receipt, reminder, and emergency categories.", "message.fill"), ("Alert control", "Choose the updates you want to receive.", "checkmark.shield.fill")]
         case .locationPrivacy:
             return [("Permission status", "Primary location remains managed in iOS Settings.", "location.fill"), ("Optional location", "Enhanced accuracy, valet return help, offers, and venue recommendations are opt-in.", "hand.raised.fill"), ("Privacy controls", "You can change these choices anytime.", "checkmark.shield.fill")]
         case .generalSettings:

@@ -96,10 +96,47 @@ test('Simplex matcher ranks vendor/user cultural matches before generic nearby r
   });
 
   assert.equal(ranked[0].document.id, vendor.id);
+  assert.equal(ranked[0].document.source, 'bytspot_vendor');
+  assert.equal(ranked[0].document.vendorServiceId, 'svc-broni');
+  assert.equal(ranked[0].document.vendorId, 'vendor-broni');
   assert.ok(ranked[0].matchedTokens.includes('jollof'));
   assert.ok(ranked[0].simplex.lambdaSim > ranked[1].simplex.lambdaSim);
   assert.equal(VENDOR_MATCH_RPC_CONTRACT.route, 'vendors.match');
   assert.equal(PLACE_ENRICH_RPC_CONTRACT.route, 'places.enrich');
+});
+
+test('Discover card adapter preserves source-specific attribution and provider identity', () => {
+  const curated = adaptDiscoverCardToMatchDocument({
+    id: 42,
+    type: 'service',
+    name: 'Curated Chef Pick',
+    image: 'chef.jpg',
+    distance: 'Nearby',
+    description: 'Internal fallback dinner service',
+    serviceCategory: 'Private Chef',
+    features: ['Chef table', 'Fallback fixture'],
+    curatedFallback: true,
+  });
+  const generic = adaptDiscoverCardToMatchDocument({ id: 43, type: 'coffee', name: 'Generic Cafe', image: 'coffee.jpg', distance: '0.3 mi' });
+  const vendor = adaptDiscoverCardToMatchDocument({
+    id: 44,
+    type: 'service',
+    name: 'Live Vendor Card',
+    image: 'service.jpg',
+    distance: '1 mi',
+    vendorServiceId: 'svc-live',
+    vendorId: 'vendor-live',
+    serviceCategory: 'Dining',
+  });
+
+  assert.equal(curated.source, 'bytspot_curated');
+  assert.equal(curated.attribution?.label, 'Bytspot curated');
+  assert.ok(curated.tags.includes('curated'));
+  assert.equal(generic.source, 'bytspot_discover');
+  assert.equal(vendor.source, 'bytspot_vendor');
+  assert.equal(vendor.vendorServiceId, 'svc-live');
+  assert.equal(vendor.vendorId, 'vendor-live');
+  assert.ok(vendor.tags.includes('live'));
 });
 
 test('rankDiscoverCardsWithSimplex powers Discover ordering from onboarding tokens', () => {

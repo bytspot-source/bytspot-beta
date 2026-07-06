@@ -26,9 +26,15 @@ export interface BytspotMediaItem {
 }
 
 export interface BytspotVendorMatchDocument {
+  /** Canonical normalized document consumed by Simplex ranking and AI discovery.
+   *  Treat this shape as the cross-platform source of truth; native shells should
+   *  preserve these semantics even when rendering lighter UI card models.
+   */
   id: string;
   source: BytspotProviderSource;
   providerId?: string;
+  vendorServiceId?: string;
+  vendorId?: string;
   name: string;
   description?: string;
   categories: string[];
@@ -152,6 +158,12 @@ const CATEGORY_SYNONYMS: Record<string, string[]> = {
   apartment: ['boutique', 'stay', 'suite', 'lodging', 'furnished', 'host', 'checkin', 'booking'],
 };
 
+const BYTSPOT_PROVIDER_LABELS: Record<Extract<BytspotProviderSource, 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated'>, string> = {
+  bytspot_vendor: 'Bytspot vendor',
+  bytspot_discover: 'Bytspot',
+  bytspot_curated: 'Bytspot curated',
+};
+
 function normalizeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'item';
 }
@@ -172,6 +184,22 @@ function uniqueTokens(values: unknown[]): string[] {
     CATEGORY_SYNONYMS[token]?.forEach((synonym) => tokens.add(synonym));
   });
   return [...tokens];
+}
+
+function stableCompact(values: unknown[]): string[] {
+  const items = new Set<string>();
+  values.flatMap((value) => Array.isArray(value) ? value : [value]).forEach((value) => {
+    const text = String(value ?? '').trim();
+    if (text) items.add(text);
+  });
+  return [...items];
+}
+
+function discoverSourceForCard(card: DiscoverCard): Extract<BytspotProviderSource, 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated'> {
+  if (card.discoverSource === 'bytspot_vendor' || card.discoverSource === 'bytspot_curated' || card.discoverSource === 'bytspot_discover') return card.discoverSource;
+  if (card.curatedFallback) return 'bytspot_curated';
+  if (card.vendorServiceId || card.vendorId || card.vendorServiceStatus) return 'bytspot_vendor';
+  return 'bytspot_discover';
 }
 
 function parseGooglePriceLevel(priceLevel?: number | string): number | undefined {
@@ -285,20 +313,42 @@ export function adaptYelpBusinessToMatchDocument(business: YelpFusionCandidate):
 
 export function adaptVendorServiceToMatchDocument(service: VendorDiscoveryService, options: { distanceMeters?: number; verified?: boolean } = {}): BytspotVendorMatchDocument {
   const providerId = service.id;
-  const categories = [service.category, service.vendor.displayName, service.patch?.label].filter(Boolean) as string[];
+  const verified = options.verified ?? Boolean(service.patch);
+  const marketplaceTrust = [
+    service.vendor.onboardingStatus === 'active' ? 'Connect-ready provider' : service.vendor.onboardingStatus,
+    verified ? 'Patch-verified' : undefined,
+    service.patch?.label,
+  ];
+  const categories = stableCompact([service.category, service.vendor.displayName, service.patch?.label, marketplaceTrust]);
   return {
     id: `vendor:${providerId}`,
     source: 'bytspot_vendor',
     providerId,
+    vendorServiceId: service.id,
+    vendorId: service.vendor.id,
     name: service.title,
     description: service.subtitle ?? service.description ?? undefined,
     categories,
-    tags: uniqueTokens([service.title, service.subtitle, service.description, service.category, service.vendor.displayName, service.availability]),
+    tags: uniqueTokens([
+      service.id,
+      service.vendor.id,
+      service.title,
+      service.subtitle,
+      service.description,
+      service.category,
+      service.vendor.displayName,
+      service.vendor.onboardingStatus,
+      service.patch?.id,
+      service.patch?.uid,
+      service.patch?.label,
+      service.availability,
+      marketplaceTrust,
+    ]),
     rating: service.rating,
     reviewCount: service.bookingCount,
     priceLevel: service.priceCents > 20000 ? 4 : service.priceCents > 10000 ? 3 : service.priceCents > 4000 ? 2 : 1,
     isOpen: service.vendor.onboardingStatus === 'active' ? true : null,
-    verified: options.verified ?? Boolean(service.patch),
+    verified,
     distanceMeters: options.distanceMeters,
     media: [],
     attribution: { source: 'bytspot_vendor', label: 'Bytspot vendor' },
@@ -306,15 +356,37 @@ export function adaptVendorServiceToMatchDocument(service: VendorDiscoveryServic
 }
 
 export function adaptDiscoverCardToMatchDocument(card: DiscoverCard): BytspotVendorMatchDocument {
+  if (card.matchDocument) return card.matchDocument;
+  const source = discoverSourceForCard(card);
   const providerId = card.vendorServiceId ?? card.placeId ?? String(card.id);
+  const vendorId = card.vendorId;
+  const categories = stableCompact([card.type, card.serviceCategory, card.location, ...(card.features ?? [])]);
   return {
     id: `discover:${providerId}`,
-    source: 'bytspot_discover',
+    source,
     providerId,
+    vendorServiceId: card.vendorServiceId,
+    vendorId,
     name: card.name,
     description: card.description ?? card.serviceSubtitle,
-    categories: [card.type, card.serviceCategory, ...(card.features ?? [])].filter(Boolean) as string[],
-    tags: uniqueTokens([card.name, card.type, card.description, card.serviceCategory, card.serviceSubtitle, card.location, ...(card.features ?? [])]),
+    categories,
+    tags: uniqueTokens([
+      card.id,
+      card.vendorServiceId,
+      card.vendorId,
+      card.placeId,
+      source,
+      card.name,
+      card.type,
+      card.description,
+      card.serviceCategory,
+      card.serviceSubtitle,
+      card.location,
+      card.availability,
+      card.vendorServiceStatus,
+      card.curatedFallback ? 'curated fallback fixture' : undefined,
+      ...(card.features ?? []),
+    ]),
     address: card.location,
     latitude: card._lat,
     longitude: card._lng,
@@ -326,13 +398,13 @@ export function adaptDiscoverCardToMatchDocument(card: DiscoverCard): BytspotVen
     distanceMeters: parseDistanceMeters(card.distance),
     media: [card.image, ...(card.photoUrls ?? [])].filter(Boolean).slice(0, 6).map((url, index) => ({
       id: `discover:${providerId}:photo:${index}`,
-      source: 'bytspot_discover' as const,
+      source,
       kind: 'image' as const,
       url,
       altText: `${card.name} photo ${index + 1}`,
       priority: 50 - index,
     })),
-    attribution: { source: 'bytspot_discover', label: 'Bytspot' },
+    attribution: { source, label: BYTSPOT_PROVIDER_LABELS[source] },
   };
 }
 

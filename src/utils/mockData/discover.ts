@@ -1,5 +1,7 @@
 /** Discover card types and empty production seed. */
 
+import type { BytspotProviderSource, BytspotVendorMatchDocument } from '../vendorMatching.ts';
+
 export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service' | 'boutique_apartment';
 
 export interface DiscoverCard {
@@ -48,6 +50,8 @@ export interface DiscoverCard {
   isOpen?: boolean | null;
   vendorServiceId?: string;
   vendorId?: string;
+  discoverSource?: BytspotProviderSource;
+  matchDocument?: BytspotVendorMatchDocument;
   patchId?: string | null;
   patchUid?: string | null;
   serviceCategory?: string;
@@ -59,6 +63,7 @@ export interface DiscoverCard {
   providerPayoutEstimateCents?: number;
   platformFeeCents?: number;
   vendorServiceStatus?: 'active' | 'draft' | 'archived';
+  curatedFallback?: boolean;
 }
 
 export const discoverCards: DiscoverCard[] = [];

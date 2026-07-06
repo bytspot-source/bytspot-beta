@@ -1,4 +1,5 @@
 import type { DiscoverCard } from './mockData';
+import { adaptVendorServiceToMatchDocument } from './vendorMatching.ts';
 import { resolveVenuePhoto } from './venuePhoto.ts';
 import type { VirtualPatchSavedServiceRequest } from './virtualPatch';
 
@@ -127,12 +128,25 @@ export function vendorServiceToCard(
 ): DiscoverCard {
   const patchVerified = opts.patchVerified || !!service.patch;
   const price = formatPrice(service.priceCents, service.currency || 'USD');
+  const image = resolveVenuePhoto({ category: 'entertainment', name: service.title });
+  const distanceMeters = typeof opts.distanceMeters === 'number' && Number.isFinite(opts.distanceMeters) ? opts.distanceMeters : undefined;
+  const matchDocument = {
+    ...adaptVendorServiceToMatchDocument(service, { verified: patchVerified, distanceMeters }),
+    media: [{
+      id: `vendor:${service.id}:photo:0`,
+      source: 'bytspot_vendor' as const,
+      kind: 'image' as const,
+      url: image,
+      altText: `${service.title} service photo`,
+      priority: 50,
+    }],
+  };
 
   return {
     id: stableNumericId(service.id, 30_000 + index),
     type: 'service',
     name: service.title,
-    image: resolveVenuePhoto({ category: 'entertainment', name: service.title }),
+    image,
     distance: formatMetersDistance(opts.distanceMeters),
     price,
     rating: service.rating,
@@ -157,6 +171,8 @@ export function vendorServiceToCard(
     availability: service.availability ?? (service.availableSpots ? `${service.availableSpots} spots left` : 'Available'),
     vendorServiceId: service.id,
     vendorId: service.vendor.id,
+    discoverSource: 'bytspot_vendor',
+    matchDocument,
     patchId: service.patch?.id ?? null,
     patchUid: service.patch?.uid ?? null,
     platformFeeCents: service.cashFlow?.platformFeeCents,

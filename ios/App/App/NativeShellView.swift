@@ -1200,7 +1200,7 @@ private struct NativeArrivalLedgerItem: Identifiable {
     let createdAt: String
 
     static func parking(_ reservation: NativeParkingReservationRecord) -> Self {
-        Self(id: "parking-\(reservation.id)", title: "Parking Reserved", venue: reservation.spotName, window: reservation.accessWindowLabel, payment: "\(reservation.paymentLabel) · \(reservation.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "Open QR in My Access", createdAt: reservation.createdAt)
+        Self(id: "parking-\(reservation.id)", title: "Parking Reserved", venue: reservation.spotName, window: reservation.accessWindowLabel, payment: "\(reservation.paymentDisplayLabel) · \(reservation.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "Open QR in My Access", createdAt: reservation.createdAt)
     }
 
     static func stay(_ stay: NativeStayRequestRecord) -> Self {
@@ -1214,7 +1214,7 @@ private struct NativeArrivalLedgerItem: Identifiable {
     }
 
     static func order(_ order: NativeMenuOrderRecord) -> Self {
-        Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentLabel) · \(order.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
+        Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
     }
 }
 
@@ -4713,7 +4713,7 @@ private struct NativeParkingReservationWalletSection: View {
                     }
                     NativeTransactionLedger(entries: [
                         NativeTransactionLedgerEntry("Access window", reservation.accessWindowLabel),
-                        NativeTransactionLedgerEntry("Payment", "\(reservation.paymentLabel) · \(reservation.totalLabel)"),
+                        NativeTransactionLedgerEntry("Payment", "\(reservation.paymentDisplayLabel) · \(reservation.totalLabel)"),
                         NativeTransactionLedgerEntry("Reservation", "Confirmed", valueColor: NativeTransactionVisuals.confirmedAccent)
                     ])
                     Text("Vehicle: \(reservation.vehicleLabel) · Scan QR at entry · \(reservation.address)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
@@ -6322,6 +6322,14 @@ private enum NativeValetRideWalletStore {
     }
 }
 
+private enum NativePaymentDisplay {
+    /// Rewrites the retired "Card •••• 4242" placeholder persisted by older
+    /// builds; real card labels (e.g. "Visa •••• 1234") pass through unchanged.
+    static func sanitized(_ raw: String) -> String {
+        raw == "Card •••• 4242" ? "Credit / Debit Card" : raw
+    }
+}
+
 private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable {
     let id: String
     let reservationCode: String
@@ -6340,6 +6348,7 @@ private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable 
     let status: String
 
     var accessWindowLabel: String { Self.windowLabel(startTime: startTime, endTime: endTime) }
+    var paymentDisplayLabel: String { NativePaymentDisplay.sanitized(paymentLabel) }
 
     static func confirmed(venue: NativeVenueSummary, durationHours: Int, vehicleLabel: String, paymentLabel: String) -> Self {
         let now = Date()
@@ -6406,7 +6415,7 @@ private struct NativeStayRequestRecord: Codable, Equatable, Identifiable {
     let longitude: Double?
 
     var summaryLine: String { "\(arrivalLabel) · \(nightsLabel) · \(termsLabel)" }
-    var paymentMethodLabel: String { paymentLabel ?? NativeBoutiqueStayBookingContract.paymentMethods[0] }
+    var paymentMethodLabel: String { NativePaymentDisplay.sanitized(paymentLabel ?? NativeBoutiqueStayBookingContract.paymentMethods[0]) }
     var totalDueLabel: String { totalLabel ?? NativeBoutiqueStayBookingContract.estimatedTotalLabel(for: nightsLabel) }
     var checkInLabel: String { checkInWindowLabel ?? "\(arrivalLabel) · 3:00 PM" }
     var checkOutLabel: String { checkOutWindowLabel ?? NativeBoutiqueStayBookingContract.checkOutLabel(arrival: arrivalLabel, nights: nightsLabel) }
@@ -7110,7 +7119,7 @@ private struct NativeParkingBookingSheet: View {
             sectionHeader("Reservation confirmed", "One parking space is held for this garage.")
             NativeWalletLine(title: record.reservationCode, subtitle: "\(record.spotName) · \(record.accessWindowLabel) · \(record.vehicleLabel)", icon: "checkmark.seal.fill")
             NativeTransactionLedger(entries: [
-                NativeTransactionLedgerEntry("Payment method", paymentShortLabel(record.paymentLabel)),
+                NativeTransactionLedgerEntry("Payment method", paymentShortLabel(record.paymentDisplayLabel)),
                 NativeTransactionLedgerEntry("Amount charged", record.totalLabel),
                 NativeTransactionLedgerEntry("Reservation", "Confirmed", valueColor: NativeTransactionVisuals.confirmedAccent)
             ])
@@ -10562,6 +10571,8 @@ private struct NativeMenuOrderRecord: Codable, Equatable, Identifiable {
     let createdAt: String
     let status: String
 
+    var paymentDisplayLabel: String { NativePaymentDisplay.sanitized(paymentLabel) }
+
     static func confirmed(menu: PartnerMenu, quantities: [String: Int], paymentLabel: String, authenticated: Bool) -> Self {
         let items = NativePartnerMenuView.lineItems(for: menu, quantities: quantities)
         let totalCents = items.reduce(0) { $0 + $1.subtotalCents }
@@ -10755,7 +10766,7 @@ private struct NativeMenuCheckoutSheet: View {
             sectionHeader("Order confirmed", "Your order was sent to \(record.venueName).")
             NativeWalletLine(title: record.orderCode, subtitle: "\(record.itemCountLabel) · \(record.itemSummary)", icon: "checkmark.seal.fill")
             NativeTransactionLedger(entries: [
-                NativeTransactionLedgerEntry("Payment method", record.paymentLabel),
+                NativeTransactionLedgerEntry("Payment method", record.paymentDisplayLabel),
                 NativeTransactionLedgerEntry("Amount charged", record.totalLabel),
                 NativeTransactionLedgerEntry("Fulfillment", record.fulfillmentLabel),
                 NativeTransactionLedgerEntry("Order", "Confirmed", valueColor: NativeTransactionVisuals.confirmedAccent)
@@ -11096,7 +11107,7 @@ enum NativeMenuCheckoutProbe {
     static func placeOrder(menu: PartnerMenu, quantities: [String: Int], paymentLabel: String, authenticated: Bool) -> Placement {
         let record = NativeMenuOrderRecord.confirmed(menu: menu, quantities: quantities, paymentLabel: paymentLabel, authenticated: authenticated)
         let item = NativeArrivalLedgerItem.order(record)
-        let order = OrderSnapshot(orderCode: record.orderCode, venueName: record.venueName, itemCountLabel: record.itemCountLabel, itemSummary: record.itemSummary, totalLabel: record.totalLabel, paymentLabel: record.paymentLabel, fulfillmentLabel: record.fulfillmentLabel, status: record.status)
+        let order = OrderSnapshot(orderCode: record.orderCode, venueName: record.venueName, itemCountLabel: record.itemCountLabel, itemSummary: record.itemSummary, totalLabel: record.totalLabel, paymentLabel: record.paymentDisplayLabel, fulfillmentLabel: record.fulfillmentLabel, status: record.status)
         let ledger = LedgerSnapshot(title: item.title, venue: item.venue, window: item.window, payment: item.payment, reservation: item.reservation, statusBadge: item.statusBadge, actionTitle: item.actionTitle)
         return Placement(order: order, ledger: ledger)
     }
@@ -15373,6 +15384,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
         precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
         precondition(NativeParkingBookingContract.storageKey == "bytspot_native_parking_reservations", "NativeDiscoverParitySelfTests: Smart Parking reservation wallet storage key drifted.")
+        precondition(NativePaymentDisplay.sanitized("Card •••• 4242") == "Credit / Debit Card" && NativePaymentDisplay.sanitized("Visa •••• 1234") == "Visa •••• 1234" && NativePaymentDisplay.sanitized("Apple Pay") == "Apple Pay", "NativeDiscoverParitySelfTests: legacy persisted payment labels must be sanitized without touching real instruments.")
         precondition(NativeBoutiqueStayBookingContract.title == "Check Dates" && NativeBoutiqueStayBookingContract.primaryCTA == "Pay & Request", "NativeDiscoverParitySelfTests: Boutique Stay checkout must make payment authorization explicit.")
         precondition(NativeBoutiqueStayBookingContract.authorizationTitle == "Payment authorization" && NativeBoutiqueStayBookingContract.hostConfirmOutcome == "Payment is captured" && NativeBoutiqueStayBookingContract.hostDeclineOutcome == "No charge is made", "NativeDiscoverParitySelfTests: Boutique Stay ledger outcome copy drifted.")
         precondition(NativeBoutiqueStayBookingContract.availabilityTitle == "Requesting Availability" && NativeBoutiqueStayBookingContract.confirmationTitle == "Confirming Reservation", "NativeDiscoverParitySelfTests: Boutique Stay must distinguish availability request from reservation confirmation.")

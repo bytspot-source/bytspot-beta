@@ -13270,6 +13270,7 @@ private struct NativeConciergeView: View {
     @State private var connectionState = "ready"
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @Environment(\.colorScheme) private var colorScheme
 
     static let transcriptBaseHex = 0x050507
@@ -13481,26 +13482,46 @@ private struct NativeConciergeView: View {
         let handoffs = inferHandoffs(text)
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             messages.append(ConciergeMessage(id: createMessageID(), text: text, isUser: true))
-            messages.append(ConciergeMessage(id: createMessageID(), text: response(for: text, complex: complex), isUser: false, handoffs: handoffs, escalated: complex, sourceQuery: text))
         }
         historyTitles = Array(([text] + historyTitles).prefix(12))
         draft = ""
-        if complex {
-            isTyping = false
-            connectionState = "ready"
-        } else {
-            isTyping = true
-            connectionState = "thinking"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
-                guard isTyping else { return }
+        isTyping = true
+        connectionState = "thinking"
+        let history = messages.suffix(10).map { ["role": $0.isUser ? "user" : "assistant", "content": $0.text] }
+        let canUseLiveConcierge = sessionStore.canAttachBearerToken
+        let token = sessionStore.token
+        Task {
+            var liveReply: String?
+            if canUseLiveConcierge {
+                liveReply = await Self.fetchLiveReply(history: history, token: token)
+            }
+            await MainActor.run {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: handoffs, sourceQuery: text))
+                    if let liveReply {
+                        messages.append(ConciergeMessage(id: createMessageID(), text: liveReply, isUser: false, handoffs: handoffs, escalated: complex, sourceQuery: text))
+                        connectionState = "ready"
+                    } else {
+                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: handoffs, escalated: complex, sourceQuery: text))
+                        connectionState = "fallback"
+                    }
                     isTyping = false
-                    connectionState = "fallback"
                 }
             }
         }
         nativeImpactLight()
+    }
+
+    /// Calls the production `concierge.chat` tRPC mutation (raw body — the backend
+    /// is transformer-less, matching `NativeGroupEventsAPI.rawMutationBody`).
+    /// Returns nil on any failure so the caller can fall back to local help.
+    private static func fetchLiveReply(history: [[String: String]], token: String?) async -> String? {
+        let client = BytspotAPIClient(tokenProvider: { token })
+        guard let body = try? JSONSerialization.data(withJSONObject: ["messages": history]) else { return nil }
+        guard let payload = try? await client.json(path: "/trpc/concierge.chat", method: "POST", body: body) else { return nil }
+        guard let result = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any],
+              let reply = (result["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reply.isEmpty else { return nil }
+        return reply
     }
 
     private func createMessageID() -> Int { defer { nextMessageID += 1 }; return nextMessageID }
@@ -13556,18 +13577,6 @@ private struct NativeConciergeView: View {
         if q.contains("open") || q.contains("discover") || q.contains("chef") || q.contains("food") || q.contains("service") || q.contains("stay") || q.contains("ride") { actions.append(.discover) }
         if q.contains("book") || q.contains("reservation") || q.contains("availability") || q.contains("stay") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
         return actions.isEmpty ? [.discover, .map] : actions
-    }
-
-    private func response(for query: String, complex: Bool) -> String {
-        let q = query.lowercased()
-        var text = "I’m on it — I’ll use Midtown context and narrow this down for you."
-        if q.contains("parking") { text = "I found parking options nearby. Start with Midtown Smart Parking for available spots, then use Map to compare arrival routes." }
-        if q.contains("open") { text = "I’ll look for what’s open now around Midtown and keep parking or access close by if you need it." }
-        if q.contains("access") { text = "I can pull up My Access for passes, saved requests, and booking details tied to this account." }
-        if q.contains("chef") { text = "I can help start a private chef request from Services and keep the request visible in My Access." }
-        if isStayQuery(q) { text = "I found the stay flow for \(resolvedStayVenue(for: query).name). Tap Check Dates to request availability with payment method, total due, and host-confirmation terms shown before submission." }
-        if complex { text += "\n\nConnecting you to a Concierge specialist for the details." }
-        return text
     }
 
     private func localFallbackResponse(for query: String) -> String {

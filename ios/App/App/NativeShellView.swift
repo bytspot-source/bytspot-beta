@@ -7956,13 +7956,7 @@ private struct NativeValetPremiumRideSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     hero
                     if let phase = livePhase { NativeValetLivePanel(phase: phase, accent: accent) }
-                    if showsStatus {
-                        requestReceivedPanel
-                        quoteHeadline
-                        routeMapPreview
-                        fareBreakdownPanel
-                        driverVendorPanel
-                    } else if showsQuote {
+                    if showsQuote {
                         quoteHeadline
                         routeMapPreview
                         if state == .quoteReady { thirdPartyRidePanel }
@@ -8321,28 +8315,6 @@ private struct NativeValetPremiumRideSheet: View {
             trackingURL: confirmedRide?.normalizedTrackingURL,
             accent: accent
         )
-    }
-
-    private var requestReceivedPanel: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                NativeIcon(symbol: "checkmark.seal.fill", color: NativeTransactionVisuals.pendingAccent)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Request Received").nativeTitle(20)
-                    Text("Bytspot Mobility is reviewing your transfer. No charge is made while authorization is pending.").nativeBody(size: 13)
-                }
-                Spacer(minLength: 0)
-            }
-            NativeTransactionLedger(entries: [
-                NativeTransactionLedgerEntry("Status", "Pending Authorization", valueColor: NativeTransactionVisuals.pendingAccent),
-                NativeTransactionLedgerEntry("Estimated fare", quote.price),
-                NativeTransactionLedgerEntry("Vehicle", selectedService.title),
-                NativeTransactionLedgerEntry("Next step", "Approval and dispatch")
-            ])
-        }
-        .padding(16)
-        .nativePanel()
-        .accessibilityIdentifier("native-valet-request-received")
     }
 
     private var statusBanner: some View {

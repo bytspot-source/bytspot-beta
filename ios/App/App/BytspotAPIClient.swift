@@ -105,27 +105,72 @@ struct NativePaymentMethodRecord: Codable, Equatable, Identifiable {
 
 struct NativePaymentSetupSession: Codable, Equatable { var url: String? }
 
-struct NativeCheckoutSession: Codable, Equatable {
-    var url: String?
-    var checkoutUrl: String?
-    var stripeCheckoutUrl: String?
-    var redirectUrl: String?
-    var sessionUrl: String?
-    var paymentUrl: String?
-    var checkout_url: String?
-    var sessionId: String?
-    var checkoutSessionId: String?
-    var stripeSessionId: String?
+struct NativeCheckoutSession: Equatable {
+    var candidates: [String] = []
     var message: String?
 
+    init(candidates: [String] = [], message: String? = nil) {
+        self.candidates = candidates
+        self.message = message
+    }
+
+    init(payload: Any) {
+        candidates = Self.readCandidates(payload)
+        message = Self.readMessage(payload)
+    }
+
     var checkoutURLString: String? {
-        let candidates = [url, checkoutUrl, stripeCheckoutUrl, redirectUrl, sessionUrl, paymentUrl, checkout_url]
-        if let direct = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { !$0.isEmpty }) { return direct }
-        let ids = [sessionId, checkoutSessionId, stripeSessionId]
-        if let id = ids.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { $0.hasPrefix("cs_test_") || $0.hasPrefix("cs_live_") }) {
-            return "https://checkout.stripe.com/c/pay/\(id)"
+        candidates.compactMap(Self.normalizedCheckoutURL).first
+    }
+
+    private static let urlKeys: Set<String> = ["url", "checkoutUrl", "stripeCheckoutUrl", "redirectUrl", "sessionUrl", "paymentUrl", "checkout_url"]
+    private static let sessionIDKeys: Set<String> = ["sessionId", "checkoutSessionId", "stripeSessionId", "session_id"]
+    private static let checkoutNestingKeys = ["checkout", "session", "stripe", "data", "result", "json", "response"]
+
+    private static func readCandidates(_ value: Any, allowIDKey: Bool = false, depth: Int = 0) -> [String] {
+        guard depth <= 8 else { return [] }
+        if let array = value as? [Any] { return array.flatMap { readCandidates($0, allowIDKey: allowIDKey, depth: depth + 1) } }
+        guard let dict = value as? [String: Any] else { return [] }
+        var found: [String] = []
+        for (key, value) in dict {
+            if (urlKeys.contains(key) || sessionIDKeys.contains(key) || (allowIDKey && key == "id")), let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { found.append(trimmed) }
+            }
+        }
+        for (key, value) in dict {
+            guard value is [String: Any] || value is [Any] else { continue }
+            let lower = key.lowercased()
+            let nestedLooksLikeCheckout = checkoutNestingKeys.contains { lower.contains($0) }
+            found.append(contentsOf: readCandidates(value, allowIDKey: allowIDKey || nestedLooksLikeCheckout, depth: depth + 1))
+        }
+        return found
+    }
+
+    private static func readMessage(_ value: Any, depth: Int = 0) -> String? {
+        guard depth <= 8 else { return nil }
+        if let dict = value as? [String: Any] {
+            if let message = dict["message"] as? String, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return message }
+            for nestedKey in checkoutNestingKeys {
+                if let nested = dict[nestedKey], let message = readMessage(nested, depth: depth + 1) { return message }
+            }
         }
         return nil
+    }
+
+    static func normalizedCheckoutURL(_ candidate: String) -> String? {
+        if isStripeCheckoutSessionID(candidate) { return "https://checkout.stripe.com/c/pay/\(candidate)" }
+        guard let url = URL(string: candidate), let components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.scheme?.lowercased() == "https", let host = components.host?.lowercased(), isAllowedStripeHost(host) else { return nil }
+        return url.absoluteString
+    }
+
+    private static func isStripeCheckoutSessionID(_ candidate: String) -> Bool {
+        guard candidate.hasPrefix("cs_test_") || candidate.hasPrefix("cs_live_") else { return false }
+        return candidate.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+    }
+
+    private static func isAllowedStripeHost(_ host: String) -> Bool {
+        host == "stripe.com" || host.hasSuffix(".stripe.com")
     }
 }
 
@@ -540,12 +585,16 @@ struct NativeProfileDataAPI {
         return try await client.trpcDecode(NativePaymentSetupSession.self, path: "/trpc/payments.setupSession", method: "POST", input: ["successPath": "/profile/payment", "cancelPath": "/profile/payment"])
     }
 
+    func createPaymentCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
+        NativeCheckoutSession(payload: try await client.trpcPayload(path: "/trpc/payments.checkout", method: "POST", input: input))
+    }
+
     func createParkingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
-        try await client.trpcDecode(NativeCheckoutSession.self, path: "/trpc/payments.checkout", method: "POST", input: input)
+        try await createPaymentCheckout(input: input)
     }
 
     func createBookingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
-        try await client.trpcDecode(NativeCheckoutSession.self, path: "/trpc/booking.createCheckout", method: "POST", input: input)
+        NativeCheckoutSession(payload: try await client.trpcPayload(path: "/trpc/booking.createCheckout", method: "POST", input: input))
     }
 
     func setDefaultPaymentMethod(id: String) async throws {

@@ -213,7 +213,7 @@ struct BytspotNativeShellView: View {
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membership: membershipStore.membership)
                             .environmentObject(pairingStore)
                     case .concierge:
-                        NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) })
+                        NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -276,7 +276,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showBoutiqueStayPreviewSheet) {
-            NativeBoutiqueStayBookingSheet(venue: Self.previewBoutiqueStayVenue, onOpenAccess: { openNativeEquivalent(for: .access) })
+            NativeBoutiqueStayBookingSheet(venue: Self.previewBoutiqueStayVenue, onOpenAccess: { openNativeEquivalent(for: .access) }, onOpenAuth: { openNativeAuth(mode: .login) })
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showPartnerMenuPreviewSheet) {
@@ -6370,10 +6370,14 @@ private enum NativePrepaidCheckoutContract {
     static let unavailableMessage = "Stripe checkout did not return a secure payment link. Try again or use Concierge."
     static let failedMessage = "Could not start Stripe checkout. Check your connection and try again."
 
-    static func open(_ session: NativeCheckoutSession) -> Bool {
+    @MainActor
+    static func open(_ session: NativeCheckoutSession) async -> Bool {
         guard let raw = session.checkoutURLString, let url = URL(string: raw) else { return false }
-        UIApplication.shared.open(url)
-        return true
+        return await withCheckedContinuation { continuation in
+            UIApplication.shared.open(url, options: [:]) { success in
+                continuation.resume(returning: success)
+            }
+        }
     }
 
     static func cents(from amountLabel: String) -> Int {
@@ -6593,6 +6597,7 @@ private enum NativeBoutiqueStayBookingContract {
 private struct NativeBoutiqueStayBookingSheet: View {
     let venue: NativeVenueSummary
     let onOpenAccess: () -> Void
+    var onOpenAuth: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var selectedArrival = NativeBoutiqueStayBookingContract.arrivalOptions[0]
@@ -6928,6 +6933,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
         nativeImpactLight()
         guard sessionStore.isAuthenticated else {
             statusLine = "Sign in before payment authorization."
+            onOpenAuth?()
             return
         }
         guard !isStartingCheckout else { return }
@@ -6935,22 +6941,8 @@ private struct NativeBoutiqueStayBookingSheet: View {
         statusLine = "Preparing secure Stripe checkout."
         Task {
             do {
-                let session = try await paymentsAPI.createBookingCheckout(input: [
-                    "serviceId": "boutique-stay-\(venue.id)",
-                    "usePoints": false,
-                    "successPath": NativePrepaidCheckoutContract.successPath,
-                    "cancelPath": NativePrepaidCheckoutContract.cancelPath,
-                    "metadata": [
-                        "source": "native-boutique-stay",
-                        "venueId": venue.id,
-                        "venueName": venue.name,
-                        "arrivalLabel": selectedArrival,
-                        "nightsLabel": selectedNights,
-                        "amountCents": NativePrepaidCheckoutContract.cents(from: totalDueLabel),
-                        "captureMode": "manual_after_host_approval"
-                    ]
-                ])
-                if NativePrepaidCheckoutContract.open(session) {
+                let session = try await paymentsAPI.createPaymentCheckout(input: stayCheckoutInput())
+                if await NativePrepaidCheckoutContract.open(session) {
                     statusLine = "Stripe checkout opened. Complete authorization; host approval still controls capture."
                     createPendingRequest()
                 } else {
@@ -6961,6 +6953,29 @@ private struct NativeBoutiqueStayBookingSheet: View {
             }
             isStartingCheckout = false
         }
+    }
+
+    private func stayCheckoutInput() -> [String: Any] {
+        let amountCents = NativePrepaidCheckoutContract.cents(from: totalDueLabel)
+        return [
+            "spotId": "native-boutique-stay-\(venue.id)",
+            "spotName": venue.name,
+            "address": venue.address,
+            "duration": NativeBoutiqueStayBookingContract.nightCount(for: selectedNights),
+            "totalCost": Double(amountCents) / 100.0,
+            "successPath": NativePrepaidCheckoutContract.successPath,
+            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+            "source": "native-boutique-stay",
+            "productType": "boutique_stay",
+            "metadata": [
+                "venueId": venue.id,
+                "venueName": venue.name,
+                "arrivalLabel": selectedArrival,
+                "nightsLabel": selectedNights,
+                "amountCents": amountCents,
+                "captureMode": "manual_after_host_approval"
+            ]
+        ]
     }
 
     private func runPreviewAutoRequestIfNeeded() {
@@ -7351,7 +7366,7 @@ private struct NativeParkingBookingSheet: View {
                     "cancelPath": "/parking/cancelled",
                     "source": "native-smart-parking"
                 ])
-                if NativePrepaidCheckoutContract.open(session) {
+                if await NativePrepaidCheckoutContract.open(session) {
                     checkoutStarted = true
                     checkoutMessage = "Stripe checkout opened. Complete payment there; your QR appears after payment confirmation."
                 } else {
@@ -8504,8 +8519,8 @@ private struct NativeValetPremiumRideSheet: View {
         do {
             state = .requesting
             statusMessage = "Preparing secure Stripe authorization."
-            let checkout = try await paymentsAPI.createBookingCheckout(input: airportCheckoutInput())
-            guard NativePrepaidCheckoutContract.open(checkout) else {
+            let checkout = try await paymentsAPI.createPaymentCheckout(input: airportCheckoutInput())
+            guard await NativePrepaidCheckoutContract.open(checkout) else {
                 state = .quoteReady
                 statusMessage = checkout.message ?? NativePrepaidCheckoutContract.unavailableMessage
                 return
@@ -8602,17 +8617,22 @@ private struct NativeValetPremiumRideSheet: View {
     }
 
     private func airportCheckoutInput() -> [String: Any] {
-        [
-            "serviceId": "private-airport-transfer",
-            "usePoints": false,
+        let amountCents = NativePrepaidCheckoutContract.cents(from: quote.price)
+        return [
+            "spotId": "native-private-airport-transfer",
+            "spotName": selectedService.title,
+            "address": "\(pickup) → \(dropoff)",
+            "duration": 1,
+            "totalCost": Double(amountCents) / 100.0,
             "successPath": NativePrepaidCheckoutContract.successPath,
             "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+            "source": "native-private-airport-transfer",
+            "productType": "airport_transfer",
             "metadata": [
-                "source": "native-private-airport-transfer",
                 "quoteId": quote.id,
                 "serviceClass": selectedService.rawValue,
                 "serviceTitle": selectedService.title,
-                "amountCents": NativePrepaidCheckoutContract.cents(from: quote.price),
+                "amountCents": amountCents,
                 "pickupLabel": pickup,
                 "dropoffLabel": dropoff,
                 "pickupTimeLabel": pickupTime,
@@ -10248,7 +10268,7 @@ private struct NativeVenueDetailView: View {
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth?() })
         }
         .sheet(isPresented: $showStayBooking) {
-            NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: { openNativeAccess?() })
+            NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: { openNativeAccess?() }, onOpenAuth: { openNativeAuth?() })
         }
         .sheet(isPresented: $showPartnerMenu) {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
@@ -11062,21 +11082,8 @@ private struct NativeMenuCheckoutSheet: View {
         checkoutMessage = "Preparing secure Stripe checkout."
         Task {
             do {
-                let session = try await paymentsAPI.createBookingCheckout(input: [
-                    "serviceId": "menu-order-\(menu.venueId)",
-                    "usePoints": false,
-                    "successPath": NativePrepaidCheckoutContract.successPath,
-                    "cancelPath": NativePrepaidCheckoutContract.cancelPath,
-                    "metadata": [
-                        "source": "native-menu-checkout",
-                        "venueId": menu.venueId,
-                        "venueName": menu.venueName,
-                        "amountCents": totalCents,
-                        "itemCount": itemCount,
-                        "captureMode": "automatic_after_checkout"
-                    ]
-                ])
-                if NativePrepaidCheckoutContract.open(session) {
+                let session = try await paymentsAPI.createPaymentCheckout(input: menuCheckoutInput())
+                if await NativePrepaidCheckoutContract.open(session) {
                     checkoutMessage = "Stripe checkout opened. The venue receives the order after payment confirmation."
                     markMenuCheckoutPending()
                 } else {
@@ -11087,6 +11094,27 @@ private struct NativeMenuCheckoutSheet: View {
             }
             isStartingCheckout = false
         }
+    }
+
+    private func menuCheckoutInput() -> [String: Any] {
+        [
+            "spotId": "native-menu-\(menu.venueId)",
+            "spotName": menu.venueName,
+            "address": menu.venueName,
+            "duration": 1,
+            "totalCost": Double(totalCents) / 100.0,
+            "successPath": NativePrepaidCheckoutContract.successPath,
+            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+            "source": "native-menu-checkout",
+            "productType": "menu_order",
+            "metadata": [
+                "venueId": menu.venueId,
+                "venueName": menu.venueName,
+                "amountCents": totalCents,
+                "itemCount": itemCount,
+                "captureMode": "automatic_after_checkout"
+            ]
+        ]
     }
 
     private func markMenuCheckoutPending() {
@@ -13574,6 +13602,7 @@ private struct NativeConciergeView: View {
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
     let openNativeProfile: () -> Void
+    var openNativeAuth: (() -> Void)? = nil
     @State private var draft = ""
     @State private var isListening = false
     @State private var showHistory = false
@@ -13614,7 +13643,7 @@ private struct NativeConciergeView: View {
         .background(conciergeRadialBackground.ignoresSafeArea())
         .onAppear { runPreviewPromptIfNeeded(); consumeNativeHandoffIfNeeded() }
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
-        .sheet(item: $stayBookingVenue) { venue in NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: openNativeAccess) }
+        .sheet(item: $stayBookingVenue) { venue in NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth) }
         .accessibilityIdentifier("native-concierge-preview")
     }
 
@@ -15556,6 +15585,13 @@ enum NativeBookingParitySelfTests {
         let black = BytspotPatchRoute(url: URL(string: "https://bytspot.app/BYT424-0301-B?party=2")!)!
         let fallback = NativePatchCheckoutPreview.checkoutLineItems(for: black, specialFlow: nil)
         precondition(fallback.count == 1 && fallback[0].amountCents == BytspotTier.black.minimumCents && fallback[0].quantity == 2, "NativeBookingParitySelfTests: fallback access hold preview drifted.")
+
+        let nestedSession = NativeCheckoutSession(payload: ["result": ["data": ["session": ["id": "cs_test_vendor_service"], "booking": ["id": "booking-1"]]]])
+        precondition(nestedSession.checkoutURLString == "https://checkout.stripe.com/c/pay/cs_test_vendor_service", "NativeBookingParitySelfTests: nested Stripe session IDs must normalize to hosted checkout URLs.")
+        let nestedURL = NativeCheckoutSession(payload: ["result": ["data": ["checkout": ["url": "https://checkout.stripe.com/c/pay/cs_test_nested_url"]]]])
+        precondition(nestedURL.checkoutURLString == "https://checkout.stripe.com/c/pay/cs_test_nested_url", "NativeBookingParitySelfTests: nested checkout URLs must be extracted recursively.")
+        let unsafeURL = NativeCheckoutSession(payload: ["result": ["data": ["checkout": ["url": "javascript:alert(1)"]]]])
+        precondition(unsafeURL.checkoutURLString == nil, "NativeBookingParitySelfTests: unsafe checkout URLs must be rejected.")
     }
 }
 #endif

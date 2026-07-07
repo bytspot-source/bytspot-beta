@@ -6,9 +6,11 @@ set -euo pipefail
 UDID="054C674B-01A4-428F-A036-68A4899B9BAC"
 BUNDLE_ID="com.bytspot.app"
 APP="ios/App/build/DerivedData/Build/Products/Debug-iphonesimulator/App.app"
-OCR="${TMPDIR%/}/bytspot_native_root_ocr.swift"
+SCRATCH_DIR="${TMPDIR:-/tmp}"
+OCR="${SCRATCH_DIR%/}/bytspot_native_root_ocr.swift"
 OUT="$PWD/.dev-screenshots/private-airport-transfer-polish"
 mkdir -p "$OUT"
+trap 'rm -f "$OCR"' EXIT
 cat > "$OCR" <<'SWIFT'
 import AppKit
 import Foundation

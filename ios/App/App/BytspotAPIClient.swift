@@ -105,6 +105,30 @@ struct NativePaymentMethodRecord: Codable, Equatable, Identifiable {
 
 struct NativePaymentSetupSession: Codable, Equatable { var url: String? }
 
+struct NativeCheckoutSession: Codable, Equatable {
+    var url: String?
+    var checkoutUrl: String?
+    var stripeCheckoutUrl: String?
+    var redirectUrl: String?
+    var sessionUrl: String?
+    var paymentUrl: String?
+    var checkout_url: String?
+    var sessionId: String?
+    var checkoutSessionId: String?
+    var stripeSessionId: String?
+    var message: String?
+
+    var checkoutURLString: String? {
+        let candidates = [url, checkoutUrl, stripeCheckoutUrl, redirectUrl, sessionUrl, paymentUrl, checkout_url]
+        if let direct = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { !$0.isEmpty }) { return direct }
+        let ids = [sessionId, checkoutSessionId, stripeSessionId]
+        if let id = ids.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { $0.hasPrefix("cs_test_") || $0.hasPrefix("cs_live_") }) {
+            return "https://checkout.stripe.com/c/pay/\(id)"
+        }
+        return nil
+    }
+}
+
 struct NativeNotificationPreferences: Codable, Equatable {
     struct Push: Codable, Equatable { var reservations: Bool; var promotions: Bool; var reminders: Bool; var insider: Bool; var nearby: Bool }
     struct Email: Codable, Equatable { var reservations: Bool; var promotions: Bool; var newsletter: Bool; var receipts: Bool }
@@ -514,6 +538,14 @@ struct NativeProfileDataAPI {
         if usesAuthenticatedFixtures { return NativePaymentSetupSession(url: nil) }
         #endif
         return try await client.trpcDecode(NativePaymentSetupSession.self, path: "/trpc/payments.setupSession", method: "POST", input: ["successPath": "/profile/payment", "cancelPath": "/profile/payment"])
+    }
+
+    func createParkingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
+        try await client.trpcDecode(NativeCheckoutSession.self, path: "/trpc/payments.checkout", method: "POST", input: input)
+    }
+
+    func createBookingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
+        try await client.trpcDecode(NativeCheckoutSession.self, path: "/trpc/booking.createCheckout", method: "POST", input: input)
     }
 
     func setDefaultPaymentMethod(id: String) async throws {
@@ -1024,7 +1056,7 @@ extension NativeTabContentSnapshot {
     ]
 
     static let canonicalMobilityCards = [
-        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Schedule an airport ride with upfront price, driver matching, and My Access confirmation.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Book Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot + Elife · Airport", features: ["Check price & drivers", "Bytspot vendor matching", "My Access confirmation"], vibeScore: 8, availability: "Price + drivers", membershipRequired: true),
+        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot + Elife · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true),
         NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true)
     ]
 

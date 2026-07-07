@@ -264,7 +264,7 @@ struct BytspotNativeShellView: View {
         }
         .preferredColorScheme(effectivePreferredColorScheme)
         .fullScreenCover(isPresented: $showNativeAuth) {
-            NativeAuthenticationScreen(mode: nativeAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: completeNativeAuth, onBack: { showNativeAuth = false })
+            nativeAuthenticationCover
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
@@ -272,7 +272,7 @@ struct BytspotNativeShellView: View {
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
-            NativeValetPremiumRideSheet(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) })
+            NativeValetPremiumRideSheet(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showBoutiqueStayPreviewSheet) {
@@ -280,7 +280,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showPartnerMenuPreviewSheet) {
-            NativePartnerMenuView(menu: PartnerMenu.sample(for: Self.previewPartnerMenuVenue), tier: activeTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: { openNativeEquivalent(for: .access) })
+            NativePartnerMenuView(menu: PartnerMenu.sample(for: Self.previewPartnerMenuVenue), tier: activeTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: { openNativeEquivalent(for: .access) }, onOpenAuth: { openNativeAuth(mode: .login) })
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showGroupInvitePreviewSheet) {
@@ -383,6 +383,16 @@ struct BytspotNativeShellView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             showNativeAuth = true
         }
+    }
+
+    private var nativeAuthenticationCover: some View {
+        NativeAuthenticationScreen(
+            mode: nativeAuthMode,
+            sessionStore: sessionStore,
+            authCoordinator: authCoordinator,
+            onComplete: completeNativeAuth,
+            onBack: { showNativeAuth = false }
+        )
     }
 
     private func completeNativeAuth() {
@@ -1213,7 +1223,8 @@ private struct NativeArrivalLedgerItem: Identifiable {
     }
 
     static func order(_ order: NativeMenuOrderRecord) -> Self {
-        Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
+        let pending = order.isPaymentPending
+        return Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: pending ? "Awaiting Stripe" : "Confirmed", statusBadge: pending ? "AWAITING STRIPE" : "CONFIRMED", statusColor: pending ? NativeTransactionVisuals.pendingAccent : NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
     }
 }
 
@@ -1239,7 +1250,7 @@ private struct NativeArrivalLedgerPanel: View {
     }
 
     private var arrivalSummaryStrip: some View {
-        let needsAction = items.filter { $0.statusBadge == "HOST REVIEW" || $0.statusBadge == "IN PROGRESS" }.count
+        let needsAction = items.filter { ["HOST REVIEW", "IN PROGRESS", "PENDING AUTH", "AWAITING STRIPE"].contains($0.statusBadge) }.count
         return HStack(spacing: 10) {
             arrivalCountPill("\(items.count) upcoming", color: NativeTheme.textSecondary)
             if needsAction > 0 { arrivalCountPill("\(needsAction) needs action", color: NativeTransactionVisuals.pendingAccent) }
@@ -5176,7 +5187,7 @@ private struct NativeHomeDashboardView: View {
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
         QuickActionSpec(id: "food", title: "Food", subtitle: "Pickup & dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
         QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: "Available tonight", icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
-        QuickActionSpec(id: "valet-ride", title: "Airport Ride", subtitle: "Price + drivers", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
+        QuickActionSpec(id: "valet-ride", title: "Airport Ride", subtitle: "Estimate + review", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
         QuickActionSpec(id: "parking", title: "Parking", subtitle: "Before you arrive", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
         QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for help", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
     ]
@@ -5220,7 +5231,7 @@ private struct NativeHomeDashboardView: View {
         .sheet(item: $aiPickDetailVenue) { venue in
             let detail = Group {
                 if Self.isValetPremiumRide(venue) {
-                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess)
+                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
                 } else {
                     NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
                 }
@@ -5234,7 +5245,7 @@ private struct NativeHomeDashboardView: View {
             }
         }
         .sheet(isPresented: $showValetRideSheet) {
-            NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess)
+            NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
     }
 
@@ -5689,7 +5700,7 @@ private struct NativeHomeDashboardView: View {
     static let valetRideServiceID = "service-valet-ride"
 
     static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
-        if card.id == Self.valetRideServiceID { return "Book Transfer" }
+        if card.id == Self.valetRideServiceID { return "Request Transfer" }
         if card.type == "boutique_apartment" { return "View Stay" }
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
@@ -6351,6 +6362,53 @@ private enum NativePaymentDisplay {
     }
 }
 
+private enum NativePrepaidCheckoutContract {
+    static let successPath = "/booking/success"
+    static let cancelPath = "/booking/cancelled"
+    static let pendingTitle = "Stripe Authorization Pending"
+    static let pendingSubtitle = "Complete the secure Stripe checkout to authorize this prepaid booking. Your card details stay with Stripe."
+    static let unavailableMessage = "Stripe checkout did not return a secure payment link. Try again or use Concierge."
+    static let failedMessage = "Could not start Stripe checkout. Check your connection and try again."
+
+    static func open(_ session: NativeCheckoutSession) -> Bool {
+        guard let raw = session.checkoutURLString, let url = URL(string: raw) else { return false }
+        UIApplication.shared.open(url)
+        return true
+    }
+
+    static func cents(from amountLabel: String) -> Int {
+        let numeric = amountLabel.replacingOccurrences(of: ",", with: "").split { !(($0 >= "0" && $0 <= "9") || $0 == ".") }.first.flatMap { Double($0) } ?? 0
+        return Int((numeric * 100).rounded())
+    }
+}
+
+private struct NativePrepaidCheckoutPendingPanel: View {
+    let title: String
+    let subtitle: String
+    let amount: String
+    let accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 11) {
+                NativeIcon(symbol: "lock.shield.fill", color: accent)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).nativeTitle(18)
+                    Text(subtitle).nativeBody(size: 12.5).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            NativeTransactionLedger(entries: [
+                NativeTransactionLedgerEntry("Authorization", "Stripe checkout", valueColor: accent),
+                NativeTransactionLedgerEntry("Amount", amount),
+                NativeTransactionLedgerEntry("Card handling", "Stripe hosted")
+            ])
+        }
+        .padding(16)
+        .nativePanel()
+    }
+}
+
 private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable {
     let id: String
     let reservationCode: String
@@ -6536,6 +6594,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
     let venue: NativeVenueSummary
     let onOpenAccess: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var selectedArrival = NativeBoutiqueStayBookingContract.arrivalOptions[0]
     @State private var selectedCalendarDate = Date()
     @State private var showsArrivalCalendar = false
@@ -6544,6 +6603,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
     @State private var selectedPayment = NativeBoutiqueStayBookingContract.paymentMethods[0]
     @State private var pendingRequest: NativeStayRequestRecord?
     @State private var submitted = false
+    @State private var isStartingCheckout = false
     @State private var statusLine = NativeBoutiqueStayBookingContract.availabilityTitle
     @State private var didRunPreviewAutoRequest = false
 
@@ -6552,6 +6612,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
     private var horizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
     private var arrivalPickerSelection: String { showsArrivalCalendar || !NativeBoutiqueStayBookingContract.arrivalOptions.contains(selectedArrival) ? "Choose dates" : selectedArrival }
     private var totalDueLabel: String { NativeBoutiqueStayBookingContract.estimatedTotalLabel(for: selectedNights) }
+    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -6777,10 +6838,10 @@ private struct NativeBoutiqueStayBookingSheet: View {
     }
 
     private var requestButton: some View {
-        Button(action: createPendingRequest) {
+        Button(action: startStayCheckout) {
             HStack(spacing: 9) {
-                Image(systemName: "paperplane.fill").font(.system(size: 14, weight: .black))
-                Text(NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
+                Image(systemName: isStartingCheckout ? "lock.shield.fill" : "paperplane.fill").font(.system(size: 14, weight: .black))
+                Text(isStartingCheckout ? "Opening Stripe…" : NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
                 Spacer(minLength: 0)
                 Text(totalDueLabel).font(.system(size: 10, weight: .black, design: .monospaced)).tracking(1).padding(.horizontal, 8).frame(height: 23).background(Color.black.opacity(0.18)).clipShape(Capsule())
             }
@@ -6794,6 +6855,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
             .shadow(color: accent.opacity(0.24), radius: 12, x: 0, y: 7)
         }
             .buttonStyle(.plain)
+            .disabled(isStartingCheckout)
             .accessibilityIdentifier("native-boutique-stay-request-availability")
     }
 
@@ -6860,6 +6922,45 @@ private struct NativeBoutiqueStayBookingSheet: View {
         pendingRequest = request
         statusLine = NativeBoutiqueStayBookingContract.confirmationTitle
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { submitted = true }
+    }
+
+    private func startStayCheckout() {
+        nativeImpactLight()
+        guard sessionStore.isAuthenticated else {
+            statusLine = "Sign in before payment authorization."
+            return
+        }
+        guard !isStartingCheckout else { return }
+        isStartingCheckout = true
+        statusLine = "Preparing secure Stripe checkout."
+        Task {
+            do {
+                let session = try await paymentsAPI.createBookingCheckout(input: [
+                    "serviceId": "boutique-stay-\(venue.id)",
+                    "usePoints": false,
+                    "successPath": NativePrepaidCheckoutContract.successPath,
+                    "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+                    "metadata": [
+                        "source": "native-boutique-stay",
+                        "venueId": venue.id,
+                        "venueName": venue.name,
+                        "arrivalLabel": selectedArrival,
+                        "nightsLabel": selectedNights,
+                        "amountCents": NativePrepaidCheckoutContract.cents(from: totalDueLabel),
+                        "captureMode": "manual_after_host_approval"
+                    ]
+                ])
+                if NativePrepaidCheckoutContract.open(session) {
+                    statusLine = "Stripe checkout opened. Complete authorization; host approval still controls capture."
+                    createPendingRequest()
+                } else {
+                    statusLine = session.message ?? NativePrepaidCheckoutContract.unavailableMessage
+                }
+            } catch {
+                statusLine = NativePrepaidCheckoutContract.failedMessage
+            }
+            isStartingCheckout = false
+        }
     }
 
     private func runPreviewAutoRequestIfNeeded() {
@@ -7003,11 +7104,16 @@ private struct NativeParkingBookingSheet: View {
     let venue: NativeVenueSummary
     var onOpenAccess: (() -> Void)? = nil
     var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
+    var openNativeAuth: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var durationHours = 2
     @State private var selectedVehicle = "Personal vehicle"
     @State private var selectedPayment = "Apple Pay"
     @State private var confirmed: NativeParkingReservationRecord?
+    @State private var checkoutStarted = false
+    @State private var isStartingCheckout = false
+    @State private var checkoutMessage = ""
     @State private var didRunPreviewAutoconfirm = false
 
     private let accent = NativeTheme.cyan
@@ -7017,6 +7123,9 @@ private struct NativeParkingBookingSheet: View {
     private let payments = NativeParkingBookingContract.paymentMethods
     private var hourlyRate: String { venue.parking.priceLabel == "—" ? "$8/hr" : venue.parking.priceLabel }
     private var totalLabel: String { NativeParkingReservationRecord.totalLabel(hourlyRateLabel: hourlyRate, durationHours: durationHours) }
+    private var parkingHourlyValue: Double { hourlyRate.replacingOccurrences(of: ",", with: "").split { !(($0 >= "0" && $0 <= "9") || $0 == ".") }.first.flatMap { Double($0) } ?? 8 }
+    private var totalCostValue: Double { parkingHourlyValue * Double(durationHours) }
+    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -7026,6 +7135,8 @@ private struct NativeParkingBookingSheet: View {
                     confirmedPanel(confirmed)
                     qrPanel(confirmed)
                     walletPanel(confirmed)
+                } else if checkoutStarted {
+                    NativePrepaidCheckoutPendingPanel(title: NativePrepaidCheckoutContract.pendingTitle, subtitle: checkoutMessage.isEmpty ? NativePrepaidCheckoutContract.pendingSubtitle : checkoutMessage, amount: totalLabel, accent: accent)
                 } else {
                     bookingParameters
                     paymentPanel
@@ -7130,8 +7241,9 @@ private struct NativeParkingBookingSheet: View {
     }
 
     private var confirmButton: some View {
-        Button(action: confirmReservation) { NativeCTA(title: "\(NativeParkingBookingContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
+        Button(action: startParkingCheckout) { NativeCTA(title: isStartingCheckout ? "Opening Stripe…" : "\(NativeParkingBookingContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
             .buttonStyle(.plain)
+            .disabled(isStartingCheckout)
             .accessibilityIdentifier("native-smart-parking-confirm")
     }
 
@@ -7206,6 +7318,43 @@ private struct NativeParkingBookingSheet: View {
         let record = NativeParkingReservationRecord.confirmed(venue: venue, durationHours: durationHours, vehicleLabel: selectedVehicle, paymentLabel: selectedPayment)
         NativeParkingReservationStore.upsert(record)
         confirmed = record
+    }
+
+    private func startParkingCheckout() {
+        nativeImpactLight()
+        guard sessionStore.isAuthenticated else {
+            checkoutMessage = "Sign in before prepaid parking checkout."
+            openNativeAuth?()
+            return
+        }
+        guard !isStartingCheckout else { return }
+        isStartingCheckout = true
+        checkoutMessage = "Preparing secure Stripe checkout."
+        Task {
+            do {
+                let session = try await paymentsAPI.createParkingCheckout(input: [
+                    "spotId": venue.id,
+                    "spotName": venue.name,
+                    "address": venue.address,
+                    "duration": durationHours,
+                    "totalCost": totalCostValue,
+                    "vehicleLabel": selectedVehicle,
+                    "paymentMethodLabel": selectedPayment,
+                    "successPath": "/parking/success",
+                    "cancelPath": "/parking/cancelled",
+                    "source": "native-smart-parking"
+                ])
+                if NativePrepaidCheckoutContract.open(session) {
+                    checkoutStarted = true
+                    checkoutMessage = "Stripe checkout opened. Complete payment there; your QR appears after payment confirmation."
+                } else {
+                    checkoutMessage = session.message ?? NativePrepaidCheckoutContract.unavailableMessage
+                }
+            } catch {
+                checkoutMessage = NativePrepaidCheckoutContract.failedMessage
+            }
+            isStartingCheckout = false
+        }
     }
 
     private func openVenueOnNativeMap() {
@@ -7740,6 +7889,7 @@ private struct NativeValetPremiumRideSheet: View {
     var initialVenue: NativeVenueSummary? = nil
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
+    let openNativeAuth: () -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var state: NativeValetRideState = .intro
@@ -7762,6 +7912,7 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var quote: NativeValetQuote { liveQuote ?? .preview(for: selectedService) }
     private var mobilityAPI: NativeMobilityDataAPI { NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var accent: Color { NativeTheme.cyan }
     private var vehicleOptions: [NativeValetServiceClass] { [.businessSedan, .businessSUV, .firstClass, .vanShuttle] }
     private var readinessSubtitle: String {
@@ -8225,7 +8376,7 @@ private struct NativeValetPremiumRideSheet: View {
     private var primaryIcon: String? {
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "magnifyingglass"
-        case .quoteReady: return "paperplane.fill"
+        case .quoteReady: return sessionStore.isAuthenticated ? "paperplane.fill" : "person.crop.circle.badge.checkmark"
         case .requestReceived: return "wallet.pass.fill"
         case .tracking: return "wallet.pass.fill"
         default: return nil
@@ -8289,7 +8440,7 @@ private struct NativeValetPremiumRideSheet: View {
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Availability"
         case .quoting: return "Checking Availability…"
-        case .quoteReady: return "Request Booking"
+        case .quoteReady: return sessionStore.isAuthenticated ? "Request Booking" : "Sign in to Request"
         case .requesting: return "Sending Request…"
         case .requestReceived: return "Open My Access"
         case .tracking: return "Open My Access"
@@ -8306,6 +8457,11 @@ private struct NativeValetPremiumRideSheet: View {
             state = .quoting; statusMessage = "Checking Elife pricing and vehicle availability for this itinerary."
             Task { await requestLiveQuote() }
         case .quoteReady:
+            guard sessionStore.isAuthenticated else {
+                statusMessage = "Sign in to request booking. Pricing remains available for review before authorization."
+                openNativeAuth()
+                return
+            }
             state = .requesting; statusMessage = "Sending your booking request for authorization review."
             Task { await submitBookingRequest() }
         case .requestReceived:
@@ -8333,7 +8489,14 @@ private struct NativeValetPremiumRideSheet: View {
     private func submitBookingRequest() async {
         do {
             state = .requesting
-            statusMessage = "Submitting request to Bytspot Mobility."
+            statusMessage = "Preparing secure Stripe authorization."
+            let checkout = try await paymentsAPI.createBookingCheckout(input: airportCheckoutInput())
+            guard NativePrepaidCheckoutContract.open(checkout) else {
+                state = .quoteReady
+                statusMessage = checkout.message ?? NativePrepaidCheckoutContract.unavailableMessage
+                return
+            }
+            statusMessage = "Stripe checkout opened. Submitting the transfer request as pending authorization."
             let ride = try await mobilityAPI.createBookingRequest(input: bookingRequestInput())
             let displayRide = ride.asPendingAuthorizationRequest(service: selectedService)
             confirmedRide = displayRide
@@ -8410,7 +8573,8 @@ private struct NativeValetPremiumRideSheet: View {
         input["source"] = "native-private-airport-transfer"
         input["requestMode"] = "request_booking"
         input["requestedStatus"] = NativeValetRideWalletRecord.pendingAuthorizationStatus
-        input["paymentGatewayStatus"] = "pending_integration"
+        input["paymentGatewayStatus"] = "stripe_checkout_pending"
+        input["captureMode"] = "manual_after_authorization"
         input["expectedResponseTemplate"] = [
             "providerReservationId": "string?",
             "status": "pending_authorization|authorization_approved|driver_matching|assigned|cancelled",
@@ -8421,6 +8585,26 @@ private struct NativeValetPremiumRideSheet: View {
             "trackingUrl": "url?"
         ]
         return input
+    }
+
+    private func airportCheckoutInput() -> [String: Any] {
+        [
+            "serviceId": "private-airport-transfer",
+            "usePoints": false,
+            "successPath": NativePrepaidCheckoutContract.successPath,
+            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+            "metadata": [
+                "source": "native-private-airport-transfer",
+                "quoteId": quote.id,
+                "serviceClass": selectedService.rawValue,
+                "serviceTitle": selectedService.title,
+                "amountCents": NativePrepaidCheckoutContract.cents(from: quote.price),
+                "pickupLabel": pickup,
+                "dropoffLabel": dropoff,
+                "pickupTimeLabel": pickupTime,
+                "captureMode": "manual_after_authorization"
+            ]
+        ]
     }
 
     private func runAutorunIfRequested() async {
@@ -8931,7 +9115,7 @@ private struct NativeDiscoverView: View {
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
                 if Self.isValetPremiumRide(venue) {
-                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess)
+                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: openNativeAuth)
                 } else {
                     NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
                 }
@@ -8945,10 +9129,10 @@ private struct NativeDiscoverView: View {
             }
         }
         .sheet(item: $parkingBookingVenue) { venue in
-            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
         }
         .sheet(item: $partnerMenuVenue) { venue in
-            NativePartnerMenuView(menu: PartnerMenu.sample(for: venue), tier: partnerMenuTier(for: venue), isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openNativeAccess)
+            NativePartnerMenuView(menu: PartnerMenu.sample(for: venue), tier: partnerMenuTier(for: venue), isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth)
         }
         .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
@@ -9567,7 +9751,7 @@ private struct NativeDiscoverFeatureCard: View {
 
     private var availabilityCopy: String {
         if displayCategory == "Event Pass" { return "Pass ready · digital" }
-        if isValetPremiumRideCard { return "Price + drivers" }
+        if isValetPremiumRideCard { return "Estimate + review" }
         if card.type == "mobility" { return card.availability.isEmpty ? "Plan ride" : card.availability }
         if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Check dates" : card.availability }
         guard NativeVenueHours.hasVerifiedHours(for: discoverHoursCategory) else { return "Hours pending · Contact to confirm" }
@@ -10047,13 +10231,13 @@ private struct NativeVenueDetailView: View {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: { openNativeAuth?() })
         }
         .sheet(isPresented: $showParkingBooking) {
-            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth?() })
         }
         .sheet(isPresented: $showStayBooking) {
             NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: { openNativeAccess?() })
         }
         .sheet(isPresented: $showPartnerMenu) {
-            NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu)
+            NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
         }
     }
 
@@ -10613,6 +10797,7 @@ private struct NativeMenuOrderRecord: Codable, Equatable, Identifiable {
     let status: String
 
     var paymentDisplayLabel: String { NativePaymentDisplay.sanitized(paymentLabel) }
+    var isPaymentPending: Bool { status == "payment_pending" }
 
     static func confirmed(menu: PartnerMenu, quantities: [String: Int], paymentLabel: String, authenticated: Bool) -> Self {
         let items = NativePartnerMenuView.lineItems(for: menu, quantities: quantities)
@@ -10635,6 +10820,15 @@ private struct NativeMenuOrderRecord: Codable, Equatable, Identifiable {
             createdAt: ISO8601DateFormatter().string(from: now),
             status: "confirmed"
         )
+    }
+
+    static func paymentPending(menu: PartnerMenu, quantities: [String: Int], paymentLabel: String) -> Self {
+        let items = NativePartnerMenuView.lineItems(for: menu, quantities: quantities)
+        let totalCents = items.reduce(0) { $0 + $1.subtotalCents }
+        let count = items.reduce(0) { $0 + $1.quantity }
+        let now = Date()
+        let summary = items.prefix(3).map { "\($0.quantity)× \($0.label)" }.joined(separator: ", ")
+        return Self(id: "order-\(Int(now.timeIntervalSince1970))", orderCode: "BYO\(Int(now.timeIntervalSince1970) % 1_000_000)", venueID: menu.venueId, venueName: menu.venueName, itemCountLabel: "\(count) item\(count == 1 ? "" : "s")", itemSummary: summary.isEmpty ? "Menu order" : summary, totalLabel: PartnerMenu.formatPrice(cents: totalCents, currencyCode: menu.currencyCode), paymentLabel: paymentLabel, fulfillmentLabel: "Sent after Stripe confirmation", createdAt: ISO8601DateFormatter().string(from: now), status: "payment_pending")
     }
 }
 
@@ -10671,10 +10865,14 @@ private struct NativeMenuCheckoutSheet: View {
     let tier: BytspotTier
     let isAuthenticated: Bool
     var onOpenAccess: (() -> Void)? = nil
+    var onOpenAuth: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var selectedPayment = NativeMenuCheckoutContract.paymentMethods[0]
     @State private var confirmed: NativeMenuOrderRecord?
+    @State private var isStartingCheckout = false
+    @State private var checkoutMessage = ""
 
     private var accent: Color { BytspotTheme.accent(for: tier) }
     private let transactionAccent = NativeTransactionVisuals.pendingAccent
@@ -10684,6 +10882,7 @@ private struct NativeMenuCheckoutSheet: View {
     private var totalCents: Int { lineItems.reduce(0) { $0 + $1.subtotalCents } }
     private var itemCount: Int { lineItems.reduce(0) { $0 + $1.quantity } }
     private var totalLabel: String { PartnerMenu.formatPrice(cents: totalCents, currencyCode: menu.currencyCode) }
+    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -10712,8 +10911,8 @@ private struct NativeMenuCheckoutSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 NativeIcon(symbol: "bag.fill", color: accent)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(confirmed == nil ? NativeMenuCheckoutContract.title : NativeMenuCheckoutContract.confirmedTitle).nativeTitle(23)
-                    Text(confirmed == nil ? "Pay now to send your order to the kitchen." : "Your order is in. Show this in My Access at pickup.").nativeBody(size: 13)
+                    Text(confirmed == nil ? NativeMenuCheckoutContract.title : confirmed?.isPaymentPending == true ? "Payment Pending" : NativeMenuCheckoutContract.confirmedTitle).nativeTitle(23)
+                    Text(confirmed == nil ? "Pay now to send your order to the kitchen." : confirmed?.isPaymentPending == true ? "Complete Stripe checkout before the order is sent." : "Your order is in. Show this in My Access at pickup.").nativeBody(size: 13)
                 }
                 Spacer(minLength: 0)
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }.buttonStyle(.plain)
@@ -10796,21 +10995,21 @@ private struct NativeMenuCheckoutSheet: View {
     }
 
     private var confirmButton: some View {
-        Button(action: placeOrder) { NativeCTA(title: "\(NativeMenuCheckoutContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
+        Button(action: startMenuCheckout) { NativeCTA(title: isStartingCheckout ? "Opening Stripe…" : "\(NativeMenuCheckoutContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
             .buttonStyle(.plain)
-            .disabled(itemCount == 0)
+            .disabled(itemCount == 0 || isStartingCheckout)
             .accessibilityIdentifier("native-menu-checkout-confirm")
     }
 
     private func confirmedPanel(_ record: NativeMenuOrderRecord) -> some View {
         VStack(alignment: .leading, spacing: 11) {
-            sectionHeader("Order confirmed", "Your order was sent to \(record.venueName).")
-            NativeWalletLine(title: record.orderCode, subtitle: "\(record.itemCountLabel) · \(record.itemSummary)", icon: "checkmark.seal.fill")
+            sectionHeader(record.isPaymentPending ? "Stripe checkout opened" : "Order confirmed", record.isPaymentPending ? "The venue receives this order after Stripe confirms payment." : "Your order was sent to \(record.venueName).")
+            NativeWalletLine(title: record.orderCode, subtitle: "\(record.itemCountLabel) · \(record.itemSummary)", icon: record.isPaymentPending ? "lock.shield.fill" : "checkmark.seal.fill")
             NativeTransactionLedger(entries: [
                 NativeTransactionLedgerEntry("Payment method", record.paymentDisplayLabel),
-                NativeTransactionLedgerEntry("Amount charged", record.totalLabel),
+                NativeTransactionLedgerEntry(record.isPaymentPending ? "Amount pending" : "Amount charged", record.totalLabel),
                 NativeTransactionLedgerEntry("Fulfillment", record.fulfillmentLabel),
-                NativeTransactionLedgerEntry("Order", "Confirmed", valueColor: NativeTransactionVisuals.confirmedAccent)
+                NativeTransactionLedgerEntry("Order", record.isPaymentPending ? "Awaiting Stripe" : "Confirmed", valueColor: record.isPaymentPending ? transactionAccent : NativeTransactionVisuals.confirmedAccent)
             ])
         }
         .padding(16)
@@ -10843,6 +11042,52 @@ private struct NativeMenuCheckoutSheet: View {
         NativeMenuOrderStore.upsert(record)
         withAnimation { confirmed = record }
     }
+
+    private func startMenuCheckout() {
+        nativeImpactLight()
+        guard itemCount > 0 else { return }
+        guard isAuthenticated && sessionStore.isAuthenticated else {
+            checkoutMessage = "Sign in before prepaid menu checkout."
+            onOpenAuth?()
+            return
+        }
+        guard !isStartingCheckout else { return }
+        isStartingCheckout = true
+        checkoutMessage = "Preparing secure Stripe checkout."
+        Task {
+            do {
+                let session = try await paymentsAPI.createBookingCheckout(input: [
+                    "serviceId": "menu-order-\(menu.venueId)",
+                    "usePoints": false,
+                    "successPath": NativePrepaidCheckoutContract.successPath,
+                    "cancelPath": NativePrepaidCheckoutContract.cancelPath,
+                    "metadata": [
+                        "source": "native-menu-checkout",
+                        "venueId": menu.venueId,
+                        "venueName": menu.venueName,
+                        "amountCents": totalCents,
+                        "itemCount": itemCount,
+                        "captureMode": "automatic_after_checkout"
+                    ]
+                ])
+                if NativePrepaidCheckoutContract.open(session) {
+                    checkoutMessage = "Stripe checkout opened. The venue receives the order after payment confirmation."
+                    markMenuCheckoutPending()
+                } else {
+                    checkoutMessage = session.message ?? NativePrepaidCheckoutContract.unavailableMessage
+                }
+            } catch {
+                checkoutMessage = NativePrepaidCheckoutContract.failedMessage
+            }
+            isStartingCheckout = false
+        }
+    }
+
+    private func markMenuCheckoutPending() {
+        let record = NativeMenuOrderRecord.paymentPending(menu: menu, quantities: quantities, paymentLabel: selectedPayment)
+        NativeMenuOrderStore.upsert(record)
+        withAnimation { confirmed = record }
+    }
 }
 
 // MARK: - Native Partner Menu view
@@ -10852,17 +11097,19 @@ private struct NativePartnerMenuView: View {
     let tier: BytspotTier
     let isAuthenticated: Bool
     var onOpenAccess: (() -> Void)? = nil
+    var onOpenAuth: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var quantities: [String: Int] = [:]
     @State private var selectedSectionID: String
     @State private var showCheckout = false
 
-    init(menu: PartnerMenu, tier: BytspotTier, isAuthenticated: Bool, onOpenAccess: (() -> Void)? = nil) {
+    init(menu: PartnerMenu, tier: BytspotTier, isAuthenticated: Bool, onOpenAccess: (() -> Void)? = nil, onOpenAuth: (() -> Void)? = nil) {
         self.menu = menu
         self.tier = tier
         self.isAuthenticated = isAuthenticated
         self.onOpenAccess = onOpenAccess
+        self.onOpenAuth = onOpenAuth
         _selectedSectionID = State(initialValue: menu.sections.first?.id ?? "")
     }
 
@@ -10904,7 +11151,7 @@ private struct NativePartnerMenuView: View {
             NativeMenuCheckoutSheet(menu: menu, quantities: quantities, tier: tier, isAuthenticated: isAuthenticated, onOpenAccess: {
                 dismiss()
                 onOpenAccess?()
-            })
+            }, onOpenAuth: onOpenAuth)
         }
     }
 
@@ -11184,12 +11431,16 @@ enum NativeMenuParitySelfTests {
         precondition(intent.serviceName?.contains(venue.name) == true, "NativeMenuParitySelfTests: checkout intent must reference the partner venue name.")
         precondition(NativePartnerMenuView.checkoutIntent(for: menu, quantities: [:]).amountCents == 0, "NativeMenuParitySelfTests: empty cart must total zero.")
 
+        precondition(NativeMenuCheckoutContract.primaryCTA == "Pay & Send Order", "NativeMenuParitySelfTests: menu checkout CTA must remain prepaid before order handoff.")
         let order = NativeMenuOrderRecord.confirmed(menu: menu, quantities: quantities, paymentLabel: NativeMenuCheckoutContract.paymentMethods[0], authenticated: true)
         precondition(order.status == "confirmed", "NativeMenuParitySelfTests: placed menu order must be confirmed.")
         precondition(order.totalLabel == PartnerMenu.formatPrice(cents: firstItem.priceCents * 2, currencyCode: menu.currencyCode), "NativeMenuParitySelfTests: order total label must match the checkout intent total.")
         precondition(order.itemCountLabel == "2 items", "NativeMenuParitySelfTests: order item count must reflect selected quantities.")
         precondition(order.venueName == venue.name, "NativeMenuParitySelfTests: order must reference the partner venue name.")
         precondition(NativeArrivalLedgerItem.order(order).statusBadge == "CONFIRMED", "NativeMenuParitySelfTests: confirmed order must surface as CONFIRMED in My Access.")
+        let pendingOrder = NativeMenuOrderRecord.paymentPending(menu: menu, quantities: quantities, paymentLabel: NativeMenuCheckoutContract.paymentMethods[1])
+        precondition(pendingOrder.status == "payment_pending" && pendingOrder.isPaymentPending, "NativeMenuParitySelfTests: Stripe-opened menu orders must persist as payment_pending.")
+        precondition(NativeArrivalLedgerItem.order(pendingOrder).statusBadge == "AWAITING STRIPE", "NativeMenuParitySelfTests: payment-pending menu orders must not surface as confirmed in My Access.")
         precondition(NativeMenuCheckoutContract.paymentMethods == NativeParkingBookingContract.paymentMethods, "NativeMenuParitySelfTests: menu checkout must offer the same payment methods as other native checkouts.")
     }
 }
@@ -11539,7 +11790,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $parkingBookingVenue) { venue in
-            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab)
+            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
         }
         .sheet(isPresented: Binding(get: { guestMapPromptTitle != nil }, set: { if !$0 { guestMapPromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: guestMapPromptTitle ?? "Save this spot?", subtitle: guestMapPromptSubtitle, ctaTitle: guestMapPromptCTA, onSignIn: openNativeAuth)
@@ -15009,7 +15260,7 @@ enum NativeHomeParitySelfTests {
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
         precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Airport Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
-        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Price + drivers", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
+        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Estimate + review", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
         precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "airplane.departure", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
         precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet/Elife flow, not hybrid web.")
@@ -15019,7 +15270,7 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Book Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native ride booking flow.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
@@ -15273,8 +15524,8 @@ enum NativeAccessParitySelfTests {
 #endif
 
 #if DEBUG
-/// DEBUG-only guard for native booking/checkout preview parity. Real payment
-/// authorization intentionally remains in the production React/Apple Pay flow.
+/// DEBUG-only guard for native booking/checkout preview parity. Native paid flows
+/// must cross the shared Stripe-hosted checkout boundary before local handoff state.
 /// Runs only when the opt-in SwiftUI root is enabled via BYT_NATIVE_ROOT=1.
 enum NativeBookingParitySelfTests {
     static func runIfRequested() {
@@ -15404,9 +15655,9 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Momentum", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from React App.tsx.")
         precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "boutique_apartment", "dining", "nightlife", "parking", "entertainment", "fitness", "mobility", "mobility", "service", "service"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")
         let valetRideCard = NativeTabContentSnapshot.canonicalMobilityCards.first { $0.id == "service-valet-ride" }!
-        precondition(valetRideCard.cta == "Book Transfer" && valetRideCard.availability == "Price + drivers", "NativeDiscoverParitySelfTests: airport transfer must check price/drivers before confirmation.")
+        precondition(valetRideCard.cta == "Request Transfer" && valetRideCard.availability == "Estimate + review", "NativeDiscoverParitySelfTests: airport transfer must show estimate/review before request booking.")
         precondition(valetRideCard.metadataLine == "Bytspot + Elife · Airport", "NativeDiscoverParitySelfTests: airport transfer metadata must preserve Bytspot/Elife fulfillment copy.")
-        precondition(valetRideCard.features.contains("Bytspot vendor matching"), "NativeDiscoverParitySelfTests: airport transfer must preserve Bytspot transport vendor matching.")
+        precondition(valetRideCard.features == ["Review estimate", "Authorization request", "My Access status"], "NativeDiscoverParitySelfTests: airport transfer must use request-booking feature copy.")
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.title) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility fallback cards drifted.")
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.categoryLabel) == ["Mobility", "Mobility"], "NativeDiscoverParitySelfTests: Mobility cards must use the top-level Mobility category.")
         precondition(NativeTabContentSnapshot.specialDiscoverCards.map(\.title).prefix(2) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility cards must stay first in the native special Discover merge.")

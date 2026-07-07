@@ -6,9 +6,30 @@ set -euo pipefail
 UDID="054C674B-01A4-428F-A036-68A4899B9BAC"
 BUNDLE_ID="com.bytspot.app"
 APP="ios/App/build/DerivedData/Build/Products/Debug-iphonesimulator/App.app"
-OCR="/tmp/bytspot_native_root_ocr.swift"
+OCR="${TMPDIR%/}/bytspot_native_root_ocr.swift"
 OUT="$PWD/.dev-screenshots/private-airport-transfer-polish"
 mkdir -p "$OUT"
+cat > "$OCR" <<'SWIFT'
+import AppKit
+import Foundation
+import Vision
+
+guard CommandLine.arguments.count > 1,
+      let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
+      let tiff = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiff),
+      let cgImage = bitmap.cgImage else { exit(1) }
+
+let request = VNRecognizeTextRequest { request, _ in
+  let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+  for observation in observations {
+    if let text = observation.topCandidates(1).first?.string { print(text) }
+  }
+}
+request.recognitionLevel = .accurate
+request.usesLanguageCorrection = true
+try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+SWIFT
 
 base_env=(
   SIMCTL_CHILD_BYT_NATIVE_ROOT=1
@@ -57,9 +78,9 @@ capture() {
   echo "OK:$name"
 }
 
-capture detail confirm 01-trip-entry 6 "Set route|TAP MAP TO SET ROUTE|PICKUP"
-capture direct quote 02-quote-ready 12 "Route preview|Est. ride|Estimated fare breakdown"
-capture direct confirm 03-confirmed 16 "Matching a Bytspot vendor|Bytspot Verified Vendor|CONFIRMED FARE"
+capture direct entry 01-trip-entry 6 "Itinerary|Vehicle preference|Check Availability"
+capture direct quote 02-quote-ready 12 "Route preview|Est. ride|Authorization estimate"
+capture direct confirm 03-confirmed 16 "Request Received|Pending Authorization|REQUEST RECEIVED"
 
 echo "WALKTHROUGH_PASS artifacts=$OUT"
 echo "===== 01-trip-entry ====="

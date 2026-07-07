@@ -1209,8 +1209,7 @@ private struct NativeArrivalLedgerItem: Identifiable {
     }
 
     static func ride(_ ride: NativeValetRideWalletRecord) -> Self {
-        let confirmed = ride.status.localizedCaseInsensitiveContains("confirmed")
-        return Self(id: "ride-\(ride.id)", title: "Airport Transfer", venue: "\(ride.pickup) → \(ride.dropoff)", window: ride.eta, payment: ride.price, reservation: ride.status.capitalized, statusBadge: confirmed ? "CONFIRMED" : "IN PROGRESS", statusColor: confirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Track in My Access", createdAt: ride.createdAt)
+        return Self(id: "ride-\(ride.id)", title: "Airport Transfer", venue: "\(ride.pickup) → \(ride.dropoff)", window: ride.eta, payment: ride.price, reservation: ride.statusDisplayLabel, statusBadge: ride.isConfirmed ? "CONFIRMED" : "PENDING AUTH", statusColor: ride.isConfirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "View in My Access", createdAt: ride.createdAt)
     }
 
     static func order(_ order: NativeMenuOrderRecord) -> Self {
@@ -4674,12 +4673,12 @@ private struct NativeValetRideWalletSection: View {
         Group {
             if let ride {
                 VStack(alignment: .leading, spacing: 12) {
-                    NativeWalletLine(title: "Private Airport Transfer", subtitle: "\(ride.serviceTitle) · \(ride.status.capitalized) · \(ride.eta)", icon: "airplane.departure")
+                    NativeWalletLine(title: "Private Airport Transfer", subtitle: "\(ride.serviceTitle) · \(ride.statusDisplayLabel) · \(ride.eta)", icon: "airplane.departure")
                     NativeTransactionLedger(entries: [
                         NativeTransactionLedgerEntry("Vehicle", ride.tier),
                         NativeTransactionLedgerEntry("Fare", ride.price),
                         NativeTransactionLedgerEntry("Provider", "Elife"),
-                        NativeTransactionLedgerEntry("Reservation", ride.status.capitalized, valueColor: ride.status.localizedCaseInsensitiveContains("confirmed") ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
+                        NativeTransactionLedgerEntry("Request", ride.statusDisplayLabel, valueColor: ride.isConfirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
                     ])
                     Text("Pickup: \(ride.pickup) → \(ride.dropoff)")
                         .font(.system(size: 11.5, weight: .semibold))
@@ -6215,7 +6214,7 @@ private enum NativeRideHandoff {
 }
 
 private enum NativeValetRideState: Equatable {
-    case intro, serviceSelection, routeEntry, quoting, quoteReady, authorizing, booking, confirmed, tracking, cancelled, failed
+    case intro, serviceSelection, routeEntry, quoting, quoteReady, requesting, requestReceived, tracking, cancelled, failed
 }
 
 private enum NativeValetServiceClass: String, CaseIterable, Identifiable {
@@ -6293,6 +6292,7 @@ private struct NativeValetQuote: Identifiable, Equatable {
 }
 
 private struct NativeValetRideWalletRecord: Codable, Equatable, Identifiable {
+    static let pendingAuthorizationStatus = "pending_authorization"
     let id: String
     let quoteID: String
     let provider: String
@@ -6318,6 +6318,11 @@ private struct NativeValetRideWalletRecord: Codable, Equatable, Identifiable {
         status = ride.status ?? "confirmed"
         createdAt = ride.createdAt ?? ISO8601DateFormatter().string(from: Date())
     }
+
+    var isConfirmed: Bool { status.localizedCaseInsensitiveContains("confirmed") }
+    var isPendingAuthorization: Bool { normalizedStatus == Self.pendingAuthorizationStatus }
+    var normalizedStatus: String { status.lowercased().replacingOccurrences(of: " ", with: "_") }
+    var statusDisplayLabel: String { normalizedStatus == Self.pendingAuthorizationStatus ? "Pending Authorization" : status.replacingOccurrences(of: "_", with: " ").capitalized }
 }
 
 private enum NativeValetRideWalletStore {
@@ -7231,8 +7236,8 @@ private enum NativeValetElifeIntegrationContract {
 
 private enum NativeValetQuoteHeadlineContract {
     static let quoteReadyEyebrow = "QUOTE READY"
-    static let confirmedEyebrow = "CONFIRMED FARE"
-    static let fareCaption = "all-in fare"
+    static let confirmedEyebrow = "REQUEST RECEIVED"
+    static let fareCaption = "estimated fare"
     static let focalFacts = ["Pickup", "Vehicle"]
 }
 
@@ -7760,9 +7765,9 @@ private struct NativeValetPremiumRideSheet: View {
     private var accent: Color { NativeTheme.cyan }
     private var vehicleOptions: [NativeValetServiceClass] { [.businessSedan, .businessSUV, .firstClass, .vanShuttle] }
     private var readinessSubtitle: String {
-        if sessionStore.isAuthenticated { return "We'll send your trip details to Bytspot Mobility, check Elife pricing, and match eligible transport drivers." }
-        if sessionStore.isGuest { return "Guests can preview the booking flow. Sign in before a prepaid reservation." }
-        return "Enter your airport trip first. Price and driver matching happen before confirmation."
+        if sessionStore.isAuthenticated { return "Submit trip details for Bytspot Mobility review. No payment is collected until authorization is approved." }
+        if sessionStore.isGuest { return "Guests can preview pricing. Sign in before sending an authorization request." }
+        return "Enter your itinerary to review price, vehicle fit, and authorization status."
     }
 
     var body: some View {
@@ -7772,6 +7777,7 @@ private struct NativeValetPremiumRideSheet: View {
                     hero
                     if let phase = livePhase { NativeValetLivePanel(phase: phase, accent: accent) }
                     if showsStatus {
+                        requestReceivedPanel
                         quoteHeadline
                         routeMapPreview
                         fareBreakdownPanel
@@ -7844,7 +7850,7 @@ private struct NativeValetPremiumRideSheet: View {
                 NativeIcon(symbol: "airplane.circle.fill", color: accent)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Private Airport Transfer").nativeTitle(23)
-                    Text("Upfront price, real driver matching, and a confirmed pickup — booked in a few taps.").nativeBody(size: 13)
+                    Text("A reviewed airport transfer request with clear pricing, vehicle fit, and concierge oversight.").nativeBody(size: 13)
                 }
                 Spacer(minLength: 0)
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
@@ -7889,11 +7895,11 @@ private struct NativeValetPremiumRideSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("How it works", readinessSubtitle)
             VStack(alignment: .leading, spacing: 0) {
-                readinessStep("Enter your trip", "Pickup, drop-off, time, riders, and luggage.", "mappin.and.ellipse")
+                readinessStep("Set itinerary", "Pickup, drop-off, time, riders, and luggage.", "mappin.and.ellipse")
                 readinessConnector
-                readinessStep("We price & match", "Bytspot checks Elife pricing and matches transport vendors.", "person.2.fill")
+                readinessStep("Review estimate", "Bytspot checks Elife pricing and vehicle availability.", "person.2.fill")
                 readinessConnector
-                readinessStep("Confirm & track", "Confirm the fare and follow driver assignment in My Access.", "checkmark.shield.fill")
+                readinessStep("Request authorization", "Submit for review; dispatch follows approval.", "checkmark.shield.fill")
             }
         }
         .padding(16)
@@ -7922,7 +7928,7 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var serviceSelector: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Vehicle preference", "Bytspot recommends a fit from passengers and luggage. You can still choose a preference.")
+            sectionHeader("Vehicle preference", "Choose a cabin class. Bytspot may adjust the match for luggage or group size.")
             VStack(spacing: 10) {
                 ForEach(vehicleOptions) { service in
                     Button(action: { nativeImpactLight(); selectedService = service; liveQuote = nil; confirmedRide = nil; state = .serviceSelection }) { serviceOption(service) }
@@ -7937,15 +7943,15 @@ private struct NativeValetPremiumRideSheet: View {
     private var routePanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             routeEntryMap
-            sectionHeader("Set route", "Choose pickup and drop-off.")
+            sectionHeader("Itinerary", "Choose pickup and drop-off.")
             NativeValetRouteEntryCard(pickup: pickup, pickupPlace: pickupPlace, dropoff: dropoff, dropoffPlace: dropoffPlace, accent: accent, onPickup: { activeLocationField = .pickup }, onDropoff: { activeLocationField = .dropoff })
-            sectionHeader("Trip details", "Pickup time, riders, luggage, and flight.")
-            NativeProfileFormField(title: "Pickup time", placeholder: "Today 10:30 PM", text: $pickupTime, capitalization: .words)
+            sectionHeader("Trip details", "Only the essentials required for authorization.")
+            NativeProfileFormField(title: "Pickup time", placeholder: "Tonight 10:30 PM", text: $pickupTime, capitalization: .words)
             HStack(spacing: 10) {
                 NativeProfileFormField(title: "Riders", placeholder: "1", text: $passengers, keyboard: .numberPad, capitalization: .never)
                 NativeProfileFormField(title: "Luggage", placeholder: "1", text: $luggage, keyboard: .numberPad, capitalization: .never)
             }
-            NativeProfileFormField(title: "Flight number", placeholder: "Optional e.g. DL1234", text: $flightNumber, capitalization: .characters)
+            NativeProfileFormField(title: "Flight", placeholder: "Optional — DL1234", text: $flightNumber, capitalization: .characters)
         }
         .padding(16)
         .nativePanel()
@@ -7976,7 +7982,7 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var thirdPartyRidePanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Ride apps", "Open Uber or Lyft with this route. Booking and payment happen in the provider app.")
+            sectionHeader("Ride app comparison", "Optional external handoff for this route.")
             HStack(spacing: 10) {
                 ForEach(NativeRideProvider.allCases) { provider in
                     Button(action: { openThirdPartyRide(provider) }) {
@@ -8038,8 +8044,8 @@ private struct NativeValetPremiumRideSheet: View {
                 Text(showsStatus ? NativeValetQuoteHeadlineContract.confirmedEyebrow : NativeValetQuoteHeadlineContract.quoteReadyEyebrow).font(.system(size: 10.5, weight: .black)).tracking(1.3).foregroundColor(accent)
                 Spacer()
                 HStack(spacing: 5) {
-                    Image(systemName: showsStatus ? "checkmark.seal.fill" : "lock.shield.fill").font(.system(size: 10.5, weight: .black))
-                    Text(showsStatus ? "Confirmed" : "No charge yet").font(.system(size: 10.5, weight: .black))
+                    Image(systemName: showsStatus ? "clock.badge.checkmark.fill" : "lock.shield.fill").font(.system(size: 10.5, weight: .black))
+                    Text(showsStatus ? "Pending auth" : "No charge").font(.system(size: 10.5, weight: .black))
                 }
                 .foregroundColor(NativeTheme.emerald)
             }
@@ -8090,8 +8096,8 @@ private struct NativeValetPremiumRideSheet: View {
             Button(action: { nativeImpactLight(); withAnimation(.easeInOut(duration: 0.2)) { showFareBreakdown.toggle() } }) {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Estimated fare breakdown").nativeTitle(16)
-                        Text("Final total is locked before a driver is dispatched.").nativeBody(size: 12.5)
+                        Text("Authorization estimate").nativeTitle(16)
+                        Text("Final dispatch occurs after authorization review.").nativeBody(size: 12.5)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: showFareBreakdown ? "chevron.up" : "chevron.down").font(.system(size: 13, weight: .black)).foregroundColor(accent)
@@ -8135,6 +8141,28 @@ private struct NativeValetPremiumRideSheet: View {
             trackingURL: confirmedRide?.normalizedTrackingURL,
             accent: accent
         )
+    }
+
+    private var requestReceivedPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                NativeIcon(symbol: "checkmark.seal.fill", color: NativeTransactionVisuals.pendingAccent)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Request Received").nativeTitle(20)
+                    Text("Bytspot Mobility is reviewing your transfer. No charge is made while authorization is pending.").nativeBody(size: 13)
+                }
+                Spacer(minLength: 0)
+            }
+            NativeTransactionLedger(entries: [
+                NativeTransactionLedgerEntry("Status", "Pending Authorization", valueColor: NativeTransactionVisuals.pendingAccent),
+                NativeTransactionLedgerEntry("Estimated fare", quote.price),
+                NativeTransactionLedgerEntry("Vehicle", selectedService.title),
+                NativeTransactionLedgerEntry("Next step", "Approval and dispatch")
+            ])
+        }
+        .padding(16)
+        .nativePanel()
+        .accessibilityIdentifier("native-valet-request-received")
     }
 
     private var statusBanner: some View {
@@ -8184,13 +8212,12 @@ private struct NativeValetPremiumRideSheet: View {
         }
     }
 
-    private var isWorking: Bool { [.quoting, .authorizing, .booking].contains(state) }
+    private var isWorking: Bool { [.quoting, .requesting].contains(state) }
 
     private var livePhase: NativeValetLivePanel.Phase? {
         switch state {
         case .quoting: return .quoting
-        case .authorizing: return .authorizing
-        case .booking: return .booking
+        case .requesting: return .requesting
         default: return nil
         }
     }
@@ -8198,8 +8225,8 @@ private struct NativeValetPremiumRideSheet: View {
     private var primaryIcon: String? {
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "magnifyingglass"
-        case .quoteReady: return "checkmark.shield.fill"
-        case .confirmed: return "location.fill"
+        case .quoteReady: return "paperplane.fill"
+        case .requestReceived: return "wallet.pass.fill"
         case .tracking: return "wallet.pass.fill"
         default: return nil
         }
@@ -8260,33 +8287,32 @@ private struct NativeValetPremiumRideSheet: View {
 
     private var primaryTitle: String {
         switch state {
-        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Price & Drivers"
-        case .quoting: return "Finding Price & Drivers…"
-        case .quoteReady: return "Confirm Ride"
-        case .authorizing: return "Preparing Confirmation…"
-        case .booking: return "Confirming Ride…"
-        case .confirmed: return "Track Ride"
+        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Availability"
+        case .quoting: return "Checking Availability…"
+        case .quoteReady: return "Request Booking"
+        case .requesting: return "Sending Request…"
+        case .requestReceived: return "Open My Access"
         case .tracking: return "Open My Access"
         }
     }
 
-    private var showsQuote: Bool { [.quoteReady, .authorizing, .booking, .confirmed, .tracking].contains(state) }
-    private var showsStatus: Bool { [.confirmed, .tracking].contains(state) }
+    private var showsQuote: Bool { [.quoteReady, .requesting, .requestReceived, .tracking].contains(state) }
+    private var showsStatus: Bool { [.requestReceived, .tracking].contains(state) }
 
     private func advance() {
         nativeImpactLight()
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled:
-            state = .quoting; statusMessage = "Sending trip details to Bytspot Mobility to check Elife price and driver availability."
+            state = .quoting; statusMessage = "Checking Elife pricing and vehicle availability for this itinerary."
             Task { await requestLiveQuote() }
         case .quoteReady:
-            state = .authorizing; statusMessage = "Preparing reservation confirmation and My Access credentials."
-            Task { await authorizeRide() }
-        case .confirmed:
-            state = .tracking; statusMessage = "Tracking is active in Bytspot."
+            state = .requesting; statusMessage = "Sending your booking request for authorization review."
+            Task { await submitBookingRequest() }
+        case .requestReceived:
+            openNativeAccess(); dismiss()
         case .tracking:
             openNativeAccess(); dismiss()
-        case .quoting, .authorizing, .booking:
+        case .quoting, .requesting:
             break
         }
     }
@@ -8296,59 +8322,61 @@ private struct NativeValetPremiumRideSheet: View {
             let record = try await mobilityAPI.createQuote(input: quoteInput())
             liveQuote = NativeValetQuote(record: record, fallbackService: selectedService)
             state = .quoteReady
-            statusMessage = "Price ready. Driver matching starts when you confirm the airport ride."
+            statusMessage = "Estimate ready. Request booking when you want Bytspot Mobility to review authorization."
         } catch {
             liveQuote = .preview(for: selectedService)
             state = .quoteReady
-            statusMessage = "Review preview shown. Live Elife pricing will replace this when the backend route is ready."
+            statusMessage = "Preview estimate shown. Live pricing will replace it when the route is available."
         }
     }
 
-    private func authorizeRide() async {
+    private func submitBookingRequest() async {
         do {
-            state = .booking
-            statusMessage = "Confirming airport transfer through Bytspot Mobility."
-            let ride = try await mobilityAPI.createReservation(input: reservationInput())
-            let displayRide = ride.withDirectPreviewDriverTemplateIfNeeded(service: selectedService)
+            state = .requesting
+            statusMessage = "Submitting request to Bytspot Mobility."
+            let ride = try await mobilityAPI.createBookingRequest(input: bookingRequestInput())
+            let displayRide = ride.asPendingAuthorizationRequest(service: selectedService)
             confirmedRide = displayRide
             NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: displayRide, quote: quote, pickup: pickup, dropoff: dropoff))
-            state = .confirmed
-            statusMessage = "Airport transfer confirmed. Details are saved in My Access."
+            state = .requestReceived
+            statusMessage = "Request received. Authorization is pending; no payment has been captured."
         } catch {
-            let fallback = fallbackReservationRecord()
-            confirmedRide = fallback
-            NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: fallback, quote: quote, pickup: pickup, dropoff: dropoff))
-            state = .confirmed
-            statusMessage = "Airport transfer draft saved in My Access until live booking is available."
+            #if DEBUG
+            if Self.autorunMode == "confirm" {
+                let fallback = fallbackBookingRequestRecord()
+                confirmedRide = fallback
+                NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: fallback, quote: quote, pickup: pickup, dropoff: dropoff))
+                state = .requestReceived
+                statusMessage = "Preview request received. Authorization is pending; no payment has been captured."
+                return
+            }
+            #endif
+            state = .quoteReady
+            statusMessage = "We couldn't send this booking request. Check your connection and try again, or ask Concierge for assistance."
         }
     }
 
-    private func fallbackReservationRecord() -> NativeMobilityRideRecord {
-        #if DEBUG
-        let previewDriverTemplate = Self.autorunMode == "confirm"
-        #else
-        let previewDriverTemplate = false
-        #endif
-        return NativeMobilityRideRecord(
-            id: "BYT-RIDE-\(Int(Date().timeIntervalSince1970))",
+    private func fallbackBookingRequestRecord() -> NativeMobilityRideRecord {
+        NativeMobilityRideRecord(
+            id: "BYT-REQ-\(Int(Date().timeIntervalSince1970))",
             quoteId: quote.id,
             provider: NativeValetElifeIntegrationContract.providerName,
-            providerReservationId: previewDriverTemplate ? "ELF-PREVIEW-4821" : nil,
-            reservationReference: previewDriverTemplate ? "ELF-PREVIEW-4821" : nil,
-            status: previewDriverTemplate ? "confirmed" : "pending",
+            providerReservationId: nil,
+            reservationReference: nil,
+            status: NativeValetRideWalletRecord.pendingAuthorizationStatus,
             serviceClass: selectedService.rawValue,
             serviceTitle: selectedService.title,
             priceLabel: quote.price,
             etaLabel: quote.eta,
             pickupLabel: pickup,
             dropoffLabel: dropoff,
-            vehicleLabel: previewDriverTemplate ? "Black Tesla Model Y" : selectedService.title,
-            driverLabel: previewDriverTemplate ? "Kwame Mensah" : "Assigned after dispatch",
-            driverName: previewDriverTemplate ? "Kwame Mensah" : nil,
-            vehiclePlate: previewDriverTemplate ? "ATL-4821" : nil,
-            vehicleMakeModel: previewDriverTemplate ? "Tesla Model Y" : selectedService.title,
-            vehicleColor: previewDriverTemplate ? "Black" : nil,
-            trackingUrl: previewDriverTemplate ? "https://bytspot.app/rides/ELF-PREVIEW-4821" : nil,
+            vehicleLabel: selectedService.title,
+            driverLabel: "Assigned after authorization",
+            driverName: nil,
+            vehiclePlate: nil,
+            vehicleMakeModel: selectedService.title,
+            vehicleColor: nil,
+            trackingUrl: nil,
             createdAt: ISO8601DateFormatter().string(from: Date())
         )
     }
@@ -8371,7 +8399,7 @@ private struct NativeValetPremiumRideSheet: View {
         ]
     }
 
-    private func reservationInput() -> [String: Any] {
+    private func bookingRequestInput() -> [String: Any] {
         var input = quoteInput()
         input["quoteId"] = quote.id
         input["priceLabel"] = quote.price
@@ -8380,9 +8408,12 @@ private struct NativeValetPremiumRideSheet: View {
         input["dropoffLabel"] = dropoff
         input["cancellationLabel"] = quote.cancellation
         input["source"] = "native-private-airport-transfer"
+        input["requestMode"] = "request_booking"
+        input["requestedStatus"] = NativeValetRideWalletRecord.pendingAuthorizationStatus
+        input["paymentGatewayStatus"] = "pending_integration"
         input["expectedResponseTemplate"] = [
             "providerReservationId": "string?",
-            "status": "confirmed|driver_matching|assigned|en_route|arrived|completed|cancelled",
+            "status": "pending_authorization|authorization_approved|driver_matching|assigned|cancelled",
             "driverName": "string?",
             "vehicleMakeModel": "string?",
             "vehicleColor": "string?",
@@ -8397,12 +8428,12 @@ private struct NativeValetPremiumRideSheet: View {
         didRunAutorun = true
         try? await Task.sleep(nanoseconds: 450_000_000)
         state = .quoting
-        statusMessage = "Sending trip details to Bytspot Mobility to check Elife price and driver availability."
+        statusMessage = "Checking Elife pricing and vehicle availability for this itinerary."
         await requestLiveQuote()
         if mode == "confirm" {
-            state = .authorizing
-            statusMessage = "Preparing secure wallet authorization."
-            await authorizeRide()
+            state = .requesting
+            statusMessage = "Sending your booking request for authorization review."
+            await submitBookingRequest()
         }
     }
 
@@ -8417,48 +8448,38 @@ private struct NativeValetPremiumRideSheet: View {
 }
 
 private extension NativeMobilityRideRecord {
-    func withDirectPreviewDriverTemplateIfNeeded(service: NativeValetServiceClass) -> NativeMobilityRideRecord {
-        #if DEBUG
-        guard NativeValetPremiumRideSheet.autorunMode == "confirm", normalizedDriverName == nil, normalizedPlateLabel == nil else { return self }
+    func asPendingAuthorizationRequest(service: NativeValetServiceClass) -> NativeMobilityRideRecord {
         var ride = self
-        ride.driverName = "Kwame Mensah"
-        ride.driverLabel = "Kwame Mensah"
-        ride.vehiclePlate = "ATL-4821"
-        ride.vehicleMakeModel = "Tesla Model Y"
-        ride.vehicleColor = "Black"
+        ride.status = NativeValetRideWalletRecord.pendingAuthorizationStatus
+        ride.driverName = nil
+        ride.driverLabel = "Assigned after authorization"
+        ride.vehiclePlate = nil
         ride.vehicleLabel = ride.vehicleLabel ?? service.title
-        ride.providerReservationId = ride.providerReservationId ?? "ELF-PREVIEW-4821"
-        ride.reservationReference = ride.reservationReference ?? ride.providerReservationId
-        ride.trackingUrl = ride.trackingUrl ?? "https://bytspot.app/rides/ELF-PREVIEW-4821"
+        ride.vehicleMakeModel = ride.vehicleMakeModel ?? service.title
+        ride.trackingUrl = nil
         return ride
-        #else
-        return self
-        #endif
     }
 }
 
 private struct NativeValetLivePanel: View {
     enum Phase: Equatable {
-        case quoting, authorizing, booking
+        case quoting, requesting
         var icon: String {
             switch self {
             case .quoting: return "dot.radiowaves.left.and.right"
-            case .authorizing: return "lock.shield.fill"
-            case .booking: return "paperplane.fill"
+            case .requesting: return "paperplane.fill"
             }
         }
         var title: String {
             switch self {
-            case .quoting: return "Finding your price & drivers"
-            case .authorizing: return "Preparing your confirmation"
-            case .booking: return "Confirming your ride"
+            case .quoting: return "Checking price and availability"
+            case .requesting: return "Sending booking request"
             }
         }
         var subtitle: String {
             switch self {
-            case .quoting: return "Bytspot is checking Elife pricing and matching transport vendors near your pickup."
-            case .authorizing: return "Locking the fare and generating your My Access credentials."
-            case .booking: return "Dispatching to Bytspot vendors on the Elife network."
+            case .quoting: return "Bytspot is reviewing Elife pricing, vehicle fit, and route details."
+            case .requesting: return "Your itinerary is being submitted for pending authorization."
             }
         }
     }
@@ -8468,7 +8489,7 @@ private struct NativeValetLivePanel: View {
     @State private var pulse = false
     @State private var shimmer = false
 
-    static let steps = ["Price", "Drivers", "Confirm"]
+    static let steps = ["Price", "Review", "Request"]
     private enum StepState { case done, active, pending }
 
     var body: some View {
@@ -8538,7 +8559,7 @@ private struct NativeValetLivePanel: View {
     private func stepState(_ index: Int) -> StepState {
         switch phase {
         case .quoting: return index <= 1 ? .active : .pending
-        case .authorizing, .booking: return index <= 1 ? .done : .active
+        case .requesting: return index <= 1 ? .done : .active
         }
     }
 }
@@ -8638,9 +8659,9 @@ private struct NativeValetRouteMapPreview: View {
 }
 
 private struct NativeValetDriverVendorCard: View {
-    static let matchingTitle = "Matching a Bytspot vendor"
+    static let matchingTitle = "Vendor review pending"
     static let verifiedBadge = "Bytspot Verified Vendor"
-    static let dispatchTag = "Elife dispatch"
+    static let dispatchTag = "Elife network"
     static let identifier = "native-valet-driver-vendor-card"
 
     let assigned: Bool
@@ -8710,7 +8731,7 @@ private struct NativeValetDriverVendorCard: View {
             if !assigned {
                 HStack(spacing: 8) {
                     Image(systemName: "dot.radiowaves.up.forward").font(.system(size: 12, weight: .black)).foregroundColor(accent)
-                    Text("Notifying eligible drivers near your pickup…").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8)
+                    Text("Dispatch begins after authorization approval.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
                 }
             }
@@ -15416,13 +15437,13 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeConciergeView.nativeHandoffPromptKey == "bytspot_native_concierge_handoff_prompt", "NativeDiscoverParitySelfTests: Concierge native handoff prompt key drifted.")
         precondition(NativeValetElifeIntegrationContract.luxuryServiceClass.bytspotTier == .black && NativeValetElifeIntegrationContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
         precondition(NativeValetElifeIntegrationContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
-        precondition(NativeValetLivePanel.steps == ["Price", "Drivers", "Confirm"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Drivers → Confirm.")
-        precondition(NativeValetLivePanel.Phase.quoting.title == "Finding your price & drivers" && NativeValetLivePanel.Phase.authorizing.title == "Preparing your confirmation" && NativeValetLivePanel.Phase.booking.title == "Confirming your ride", "NativeDiscoverParitySelfTests: Valet live-state phase titles drifted.")
-        precondition(NativeValetQuoteHeadlineContract.quoteReadyEyebrow == "QUOTE READY" && NativeValetQuoteHeadlineContract.confirmedEyebrow == "CONFIRMED FARE", "NativeDiscoverParitySelfTests: Quote Ready / Confirmed headline eyebrows drifted.")
+        precondition(NativeValetLivePanel.steps == ["Price", "Review", "Request"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Review → Request.")
+        precondition(NativeValetLivePanel.Phase.quoting.title == "Checking price and availability" && NativeValetLivePanel.Phase.requesting.title == "Sending booking request", "NativeDiscoverParitySelfTests: Valet live-state phase titles drifted.")
+        precondition(NativeValetQuoteHeadlineContract.quoteReadyEyebrow == "QUOTE READY" && NativeValetQuoteHeadlineContract.confirmedEyebrow == "REQUEST RECEIVED", "NativeDiscoverParitySelfTests: Quote Ready / Request Received headline eyebrows drifted.")
         precondition(NativeValetQuoteHeadlineContract.focalFacts == ["Pickup", "Vehicle"], "NativeDiscoverParitySelfTests: Quote Ready focal facts (price hero + pickup + vehicle) drifted.")
         let valetFareBreakdown = NativeValetQuote.preview(for: .businessSedan).fareBreakdown
         precondition(valetFareBreakdown.count == 4 && valetFareBreakdown.first?.0 == "Base fare", "NativeDiscoverParitySelfTests: Valet fare breakdown must list four components starting with base fare.")
-        precondition(NativeValetDriverVendorCard.matchingTitle == "Matching a Bytspot vendor" && NativeValetDriverVendorCard.verifiedBadge == "Bytspot Verified Vendor", "NativeDiscoverParitySelfTests: Valet driver-vendor card copy drifted.")
+        precondition(NativeValetDriverVendorCard.matchingTitle == "Vendor review pending" && NativeValetDriverVendorCard.verifiedBadge == "Bytspot Verified Vendor", "NativeDiscoverParitySelfTests: Valet driver-vendor card copy drifted.")
         precondition(NativeValetRouteMapPreview.identifier == "native-valet-route-map" && NativeValetDriverVendorCard.identifier == "native-valet-driver-vendor-card", "NativeDiscoverParitySelfTests: Valet polish accessibility identifiers drifted.")
         precondition(NativeValetLocationPickerContract.useCurrentLocationTitle == "Use current location", "NativeDiscoverParitySelfTests: Valet location picker current-location action copy drifted.")
         precondition(NativeValetLocationFieldKind.pickup.confirmTitle == "Use this pickup" && NativeValetLocationFieldKind.dropoff.confirmTitle == "Use this drop-off", "NativeDiscoverParitySelfTests: Valet location picker confirm titles drifted.")

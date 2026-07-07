@@ -285,6 +285,10 @@ struct NativeMobilityDataAPI {
         try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.reservations.create", method: "POST", input: input)
     }
 
+    func createBookingRequest(input: [String: Any]) async throws -> NativeMobilityRideRecord {
+        try await createReservation(input: input)
+    }
+
     func rideStatus(id: String) async throws -> NativeMobilityRideRecord {
         try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.trips.status", method: "POST", input: ["id": id])
     }

@@ -6965,11 +6965,18 @@ private struct NativeBoutiqueStayBookingSheet: View {
 
     private func runPreviewAutoRequestIfNeeded() {
         #if DEBUG
-        guard !didRunPreviewAutoRequest, ProcessInfo.processInfo.environment["BYT_NATIVE_BOUTIQUE_STAY_AUTOREQUEST"] == "1" else { return }
+        guard !didRunPreviewAutoRequest, ProcessInfo.processInfo.environment["BYT_NATIVE_BOUTIQUE_STAY_AUTOREQUEST"] == "1", Self.usesAuthenticatedFixturePreview else { return }
         didRunPreviewAutoRequest = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { createPendingRequest() }
         #endif
     }
+
+    #if DEBUG
+    private static var usesAuthenticatedFixturePreview: Bool {
+        let raw = ProcessInfo.processInfo.environment[NativeProfileDataAPI.fixtureEnvironmentKey]?.lowercased()
+        return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
+    }
+    #endif
 
     private func pickerGrid(title: String, options: [String], selected: String, onSelect: @escaping (String) -> Void) -> some View {
         let minWidth: CGFloat = title.localizedCaseInsensitiveContains("Rule") ? 168 : 132
@@ -7366,11 +7373,18 @@ private struct NativeParkingBookingSheet: View {
 
     private func runPreviewAutoconfirmIfNeeded() {
         #if DEBUG
-        guard !didRunPreviewAutoconfirm, ProcessInfo.processInfo.environment["BYT_NATIVE_PARKING_BOOKING_AUTOCONFIRM"] == "1" else { return }
+        guard !didRunPreviewAutoconfirm, ProcessInfo.processInfo.environment["BYT_NATIVE_PARKING_BOOKING_AUTOCONFIRM"] == "1", Self.usesAuthenticatedFixturePreview else { return }
         didRunPreviewAutoconfirm = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { confirmReservation() }
         #endif
     }
+
+    #if DEBUG
+    private static var usesAuthenticatedFixturePreview: Bool {
+        let raw = ProcessInfo.processInfo.environment[NativeProfileDataAPI.fixtureEnvironmentKey]?.lowercased()
+        return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
+    }
+    #endif
 }
 
 private enum NativeValetElifeIntegrationContract {
@@ -11033,14 +11047,6 @@ private struct NativeMenuCheckoutSheet: View {
 
     private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 3) { Text(title).nativeTitle(16); Text(subtitle).nativeBody(size: 12.5) }
-    }
-
-    private func placeOrder() {
-        nativeImpactLight()
-        guard itemCount > 0 else { return }
-        let record = NativeMenuOrderRecord.confirmed(menu: menu, quantities: quantities, paymentLabel: selectedPayment, authenticated: isAuthenticated)
-        NativeMenuOrderStore.upsert(record)
-        withAnimation { confirmed = record }
     }
 
     private func startMenuCheckout() {

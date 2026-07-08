@@ -215,6 +215,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(BytspotMembership.premium.isPremium)
     }
 
+    func testNativeTabContentFallbackStartsWithoutBestValueOverlay() {
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.bestValueOptions.isEmpty)
+    }
+
+    func testNativeTabContentCanCarryBestValueOptions() {
+        let option = NativeLiveValueOption(id: "parking-value-1", productType: "parking", title: "Midtown Smart Parking", providerName: "Bytspot", source: "mixed", estimatedTotalCents: 1200, marketReferenceCents: 1800, distanceMeters: 320, availability: "Available", priceParityScore: 92, valueScore: 88, eligible: true, explanation: ["Below market reference"])
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [], events: [], source: .mixed, lastUpdated: nil, errorMessage: nil, bestValueOptions: [option])
+
+        XCTAssertEqual(snapshot.bestValueOptions.first?.id, "parking-value-1")
+        XCTAssertEqual(snapshot.bestValueOptions.first?.priceParityScore, 92)
+        XCTAssertEqual(snapshot.bestValueOptions.first?.valueScore, 88)
+    }
+
     func testPremiumFunctionsLockedWithoutEntitlement() {
         for function in BytspotPremiumMapFunction.allCases {
             XCTAssertFalse(BytspotMapFunctionCatalog.isUnlocked(function, for: .free), "\(function.rawValue) must stay locked for a free membership.")

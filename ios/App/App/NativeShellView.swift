@@ -12081,6 +12081,7 @@ private struct NativeMapExploreView: View {
             sheetHeader
             if isFunctionSheetDefault {
                 functionQuickGrid
+                if let option = bestValueOption { bestValueMapPanel(option) }
                 functionFeatureRows
             } else if let pin = selectedPin, isPartnerPin(pin) {
                 partnerPeekCard(for: pin)
@@ -12139,6 +12140,12 @@ private struct NativeMapExploreView: View {
     }
 
     private var isFunctionSheetDefault: Bool { showFunctionSheet && selectedPin == nil }
+
+    private var bestValueOption: NativeLiveValueOption? {
+        let options = tabContentStore.snapshot.bestValueOptions
+        if selectedMode == "Smart Parking" { return options.first { $0.productType == "parking" } ?? options.first }
+        return options.first
+    }
 
     private var sheetHeader: some View {
         Group {
@@ -12612,6 +12619,48 @@ private struct NativeMapExploreView: View {
             ForEach(BytspotMapFunctionCatalog.premiumFunctions) { function in
                 premiumFunctionRow(function)
             }
+        }
+    }
+
+    private func bestValueMapPanel(_ option: NativeLiveValueOption) -> some View {
+        Button(action: { openBestValue(option) }) {
+            HStack(spacing: 12) {
+                NativeIcon(symbol: "chart.line.uptrend.xyaxis", color: NativeTheme.emerald)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Best value nearby")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(NativeTheme.textPrimary)
+                    Text("\(option.title) · \(option.nativeValueSummary)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Text("\(option.valueScore)")
+                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 9)
+                    .frame(height: 28)
+                    .background(NativeTheme.emerald)
+                    .clipShape(Capsule())
+            }
+            .padding(12)
+            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.10), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.25), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-map-best-value-panel")
+    }
+
+    private func openBestValue(_ option: NativeLiveValueOption) {
+        nativeImpactLight()
+        if option.productType == "parking" {
+            selectedMode = "Smart Parking"
+            selectedPin = pins.first(where: { $0.kind == .parking })
+            showFunctionSheet = false
+        } else {
+            openNativeTab(.discover)
         }
     }
 
@@ -13774,7 +13823,7 @@ private struct NativeConciergeView: View {
     private var suggestionRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Self.suggestionPrompts, id: \.self) { chip in
+                ForEach(suggestionChips, id: \.self) { chip in
                     Button(action: { send(chip) }) {
                         Text(chip)
                             .font(.system(size: 12, weight: .black))
@@ -13792,6 +13841,10 @@ private struct NativeConciergeView: View {
             .padding(.vertical, 8)
         }
         .background(NativePolish.glassSurface)
+    }
+
+    private var suggestionChips: [String] {
+        tabContentStore.snapshot.bestValueOptions.isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
     }
 
     private var historyPanel: some View {
@@ -14011,11 +14064,17 @@ private struct NativeConciergeView: View {
 
     private func localFallbackResponse(for query: String) -> String {
         let q = query.lowercased()
-        if q.contains("parking") { return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail." }
+        if q.contains("best value"), let option = tabContentStore.snapshot.bestValueOptions.first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
+        if q.contains("parking") { return "Parking nearby:\n\n\(bestValueBullet(prefix: "• "))• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail." }
         if isStayQuery(q) { return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet." }
-        if q.contains("open") { return "Open around \(cityName):\n\n• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards." }
+        if q.contains("open") { return "Open around \(cityName):\n\n\(bestValueBullet(prefix: "• "))• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards." }
         if q.contains("access") || q.contains("booking") { return "My Access groups your passes, saved service requests, and booking details. Tap Open My Access to review them." }
-        return "Good nearby options:\n\n• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
+        return "Good nearby options:\n\n\(bestValueBullet(prefix: "• "))• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
+    }
+
+    private func bestValueBullet(prefix: String) -> String {
+        guard let option = tabContentStore.snapshot.bestValueOptions.first else { return "" }
+        return "\(prefix)\(option.title) — best value, \(option.nativeValueSummary)\n"
     }
 
     private func handleHandoff(_ action: HandoffAction, _ query: String?) {
@@ -15922,6 +15981,30 @@ enum NativePhase4TabContentSelfTests {
     }
 }
 #endif
+
+private extension NativeLiveValueOption {
+    var nativePriceLabel: String {
+        guard let cents = estimatedTotalCents else { return "price pending" }
+        let dollars = Double(cents) / 100.0
+        return dollars.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+    }
+
+    var nativeMarketLabel: String {
+        guard let cents = marketReferenceCents else { return "market pending" }
+        let dollars = Double(cents) / 100.0
+        return dollars.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+    }
+
+    var nativeDistanceLabel: String {
+        guard let meters = distanceMeters else { return "nearby" }
+        let miles = meters / 1609.344
+        return miles < 0.1 ? "\(Int(meters.rounded())) m" : String(format: "%.1f mi", miles)
+    }
+
+    var nativeValueSummary: String {
+        "\(nativePriceLabel) vs \(nativeMarketLabel) · \(nativeDistanceLabel) · score \(valueScore)"
+    }
+}
 
 private extension View {
     func nativePanel() -> some View {

@@ -894,6 +894,22 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let membershipRequired: Bool
 }
 
+struct NativeLiveValueOption: Identifiable, Equatable {
+    let id: String
+    let productType: String
+    let title: String
+    let providerName: String
+    let source: String
+    let estimatedTotalCents: Int?
+    let marketReferenceCents: Int?
+    let distanceMeters: Double?
+    let availability: String
+    let priceParityScore: Int
+    let valueScore: Int
+    let eligible: Bool
+    let explanation: [String]
+}
+
 struct NativeEventSummary: Identifiable, Equatable {
     let id: String
     let title: String
@@ -912,6 +928,7 @@ struct NativeTabContentSnapshot: Equatable {
     let source: Source
     let lastUpdated: Date?
     let errorMessage: String?
+    var bestValueOptions: [NativeLiveValueOption] = []
 
     var statusLabel: String {
         switch source {
@@ -935,24 +952,28 @@ final class NativeTabContentStore: ObservableObject {
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
             if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
-                snapshot = bootstrapSnapshot
+                let valueOptions = (try? await fetchBestValue(client: client)) ?? []
+                snapshot = Self.enrichedSnapshot(bootstrapSnapshot, valueOptions: valueOptions)
                 return
             }
 
             async let venues = fetchVenues(client: client)
             async let events = fetchEvents(client: client)
             async let vendorServices = fetchVendorServices(client: client)
+            async let bestValue = fetchBestValue(client: client)
             let liveVenues = try await venues
             let liveServices = (try? await vendorServices) ?? []
             let liveEvents = (try? await events) ?? NativeTabContentSnapshot.fallback.events
-            let cards = Self.discoverCards(from: liveVenues, services: liveServices)
+            let valueOptions = (try? await bestValue) ?? []
+            let cards = Self.mergeBestValueCards(valueOptions, into: Self.discoverCards(from: liveVenues, services: liveServices))
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
                 discoverCards: cards,
                 events: liveEvents,
-                source: liveVenues.isEmpty && liveServices.isEmpty ? .fallback : .live,
+                source: liveVenues.isEmpty && liveServices.isEmpty && valueOptions.isEmpty ? .fallback : valueOptions.isEmpty ? .live : .mixed,
                 lastUpdated: Date(),
-                errorMessage: nil
+                errorMessage: nil,
+                bestValueOptions: valueOptions
             )
         } catch {
             snapshot = NativeTabContentSnapshot(
@@ -1017,6 +1038,14 @@ final class NativeTabContentStore: ObservableObject {
         return rows.enumerated().compactMap(Self.event(from:))
     }
 
+    private func fetchBestValue(client: BytspotAPIClient) async throws -> [NativeLiveValueOption] {
+        let input: [String: Any] = ["productType": "any", "lat": 33.7866, "lng": -84.3833, "durationHours": 2, "limit": 4, "strict": false]
+        let payload = try await client.trpcPayload(path: "/trpc/live.bestValue", method: "POST", input: input)
+        let root = payload as? [String: Any]
+        let rows = (root?["options"] as? [Any]) ?? Self.findArray(named: "options", in: payload) ?? []
+        return rows.compactMap(Self.liveValueOption(from:))
+    }
+
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
         let venueCards = venues.prefix(8).map { venue in
             let type = venue.discoverType
@@ -1047,6 +1076,26 @@ final class NativeTabContentStore: ObservableObject {
         let serviceCards = mergeCanonicalDiscoverCards(into: services)
         let combined = Array(serviceCards + venueCards)
         return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
+    }
+
+    private static func enrichedSnapshot(_ snapshot: NativeTabContentSnapshot, valueOptions: [NativeLiveValueOption]) -> NativeTabContentSnapshot {
+        NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: mergeBestValueCards(valueOptions, into: snapshot.discoverCards), events: snapshot.events, source: valueOptions.isEmpty ? snapshot.source : .mixed, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: valueOptions)
+    }
+
+    private static func mergeBestValueCards(_ options: [NativeLiveValueOption], into cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
+        var merged = cards
+        for card in options.prefix(3).map(bestValueCard(from:)).reversed() where !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) {
+            merged.insert(card, at: 0)
+        }
+        return merged
+    }
+
+    private static func bestValueCard(from option: NativeLiveValueOption) -> NativeDiscoverSummary {
+        let type = discoverType(forProductType: option.productType)
+        let price = option.estimatedTotalCents.map(formatCurrency(cents:)) ?? "Price pending"
+        let market = option.marketReferenceCents.map(formatCurrency(cents:)) ?? "market pending"
+        let distance = option.distanceMeters.map(distanceLabel(meters:)) ?? "Nearby"
+        return NativeDiscoverSummary(id: "best-value-\(option.id)", type: type, title: option.title, subtitle: "\(option.providerName) · ranked by price parity", distance: distance, rating: String(option.valueScore), icon: icon(for: type), verified: option.eligible, entryType: option.estimatedTotalCents == 0 ? "free" : "paid", cta: cta(forProductType: option.productType), imageUrl: nil, categoryLabel: label(for: type), badgeText: "BEST VALUE", metadataLine: "\(price) · vs \(market) · score \(option.valueScore)", features: bestValueFeatures(option), vibeScore: max(1, min(10, Int(ceil(Double(option.valueScore) / 10.0)))), availability: option.availability, membershipRequired: option.estimatedTotalCents != 0)
     }
 
     private static func serviceCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
@@ -1136,6 +1185,57 @@ final class NativeTabContentStore: ObservableObject {
     private static func formatCurrency(cents: Int) -> String {
         let dollars = Double(cents) / 100.0
         return dollars.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+    }
+
+    private static func liveValueOption(from value: Any) -> NativeLiveValueOption? {
+        guard let item = value as? [String: Any], let id = string(item, ["id"]), let title = string(item, ["title", "name"]) else { return nil }
+        return NativeLiveValueOption(
+            id: id,
+            productType: string(item, ["productType"]) ?? "parking",
+            title: title,
+            providerName: string(item, ["providerName", "provider"]) ?? "Bytspot",
+            source: string(item, ["source"]) ?? "curated",
+            estimatedTotalCents: int(item, ["estimatedTotalCents"]),
+            marketReferenceCents: int(item, ["marketReferenceCents"]),
+            distanceMeters: double(item, ["distanceMeters"]),
+            availability: string(item, ["availability"]) ?? "Availability pending",
+            priceParityScore: int(item, ["priceParityScore"]) ?? 0,
+            valueScore: int(item, ["valueScore"]) ?? 0,
+            eligible: bool(item, ["eligible"]) ?? true,
+            explanation: arrayOfStrings(item["explanation"]) ?? []
+        )
+    }
+
+    private static func discoverType(forProductType productType: String) -> String {
+        switch productType {
+        case "parking": return "parking"
+        case "airport_transfer": return "mobility"
+        case "menu_order": return "service"
+        case "event_pass": return "entertainment"
+        default: return "service"
+        }
+    }
+
+    private static func cta(forProductType productType: String) -> String {
+        switch productType {
+        case "parking": return "Reserve Parking"
+        case "airport_transfer": return "Request Transfer"
+        case "menu_order": return "View Menu"
+        case "event_pass": return "View Pass"
+        default: return "Open details"
+        }
+    }
+
+    private static func distanceLabel(meters: Double) -> String {
+        let miles = meters / 1609.344
+        return miles < 0.1 ? "\(Int(meters.rounded())) m" : String(format: "%.1f mi", miles)
+    }
+
+    private static func bestValueFeatures(_ option: NativeLiveValueOption) -> [String] {
+        let price = option.estimatedTotalCents.map(formatCurrency(cents:)) ?? "Price pending"
+        let parity = "Parity \(option.priceParityScore)/100"
+        let source = option.source.replacingOccurrences(of: "_", with: " ").capitalized
+        return Array(([price, parity, source] + Array(option.explanation.prefix(1))).prefix(4))
     }
 
     private static func label(for type: String) -> String {

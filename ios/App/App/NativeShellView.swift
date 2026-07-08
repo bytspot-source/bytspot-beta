@@ -13643,7 +13643,33 @@ private struct NativeLayerToggle: View {
 
 private struct NativeConciergeView: View {
     enum HandoffAction: String, CaseIterable, Equatable { case discover, map, booking }
-    struct ConciergeMessage: Identifiable, Equatable { let id: Int; let text: String; let isUser: Bool; var handoffs: [HandoffAction] = []; var escalated = false; var sourceQuery: String? = nil }
+    struct ActionCard: Identifiable, Equatable {
+        let id: String
+        let type: String
+        let title: String
+        let subtitle: String
+        let status: String
+        let source: String
+        let handoff: String
+        let productType: String?
+
+        init?(dictionary: [String: Any]) {
+            guard let id = dictionary["id"] as? String, let title = dictionary["title"] as? String else { return nil }
+            self.id = id
+            self.type = dictionary["type"] as? String ?? "concierge_action"
+            self.title = title
+            self.subtitle = dictionary["subtitle"] as? String ?? "Continue in Bytspot."
+            self.status = dictionary["status"] as? String ?? "review"
+            self.source = dictionary["source"] as? String ?? "server_rules"
+            self.handoff = dictionary["handoff"] as? String ?? "discover"
+            self.productType = dictionary["productType"] as? String
+        }
+
+        var statusLabel: String { status.replacingOccurrences(of: "_", with: " ").uppercased() }
+        var sourceLabel: String { source == "live_context" ? "LIVE" : source == "fallback" ? "CURATED" : "ACTION" }
+    }
+    struct ConciergeMessage: Identifiable, Equatable { let id: Int; let text: String; let isUser: Bool; var handoffs: [HandoffAction] = []; var actionCards: [ActionCard] = []; var escalated = false; var sourceQuery: String? = nil }
+    private struct ServerResponse { let reply: String; let actions: [ActionCard]; let escalationRequired: Bool }
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
     let openNativeProfile: () -> Void
@@ -13809,7 +13835,7 @@ private struct NativeConciergeView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(messages) { message in
-                        NativeConciergeMessageBubble(message: message, handleHandoff: handleHandoff)
+                        NativeConciergeMessageBubble(message: message, handleHandoff: handleHandoff, handleServerAction: handleServerAction)
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)).combined(with: .scale(scale: 0.98)))
                     }
@@ -13883,17 +13909,19 @@ private struct NativeConciergeView: View {
         let canUseLiveConcierge = sessionStore.canAttachBearerToken
         let token = sessionStore.token
         Task {
-            var liveReply: String?
+            var liveResponse: ServerResponse?
+            var plannedActions: [ActionCard] = []
             if canUseLiveConcierge {
-                liveReply = await Self.fetchLiveReply(history: history, token: token)
+                liveResponse = await Self.fetchLiveResponse(history: history, token: token)
+                if liveResponse == nil { plannedActions = await Self.fetchActionPlan(query: text, token: token) }
             }
             await MainActor.run {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    if let liveReply {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: liveReply, isUser: false, handoffs: handoffs, escalated: complex, sourceQuery: text))
+                    if let liveResponse {
+                        messages.append(ConciergeMessage(id: createMessageID(), text: liveResponse.reply, isUser: false, handoffs: liveResponse.actions.isEmpty ? handoffs : [], actionCards: liveResponse.actions, escalated: liveResponse.escalationRequired || complex, sourceQuery: text))
                         connectionState = "ready"
                     } else {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: handoffs, escalated: complex, sourceQuery: text))
+                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: plannedActions.isEmpty ? handoffs : [], actionCards: plannedActions, escalated: complex, sourceQuery: text))
                         connectionState = "fallback"
                     }
                     isTyping = false
@@ -13906,14 +13934,24 @@ private struct NativeConciergeView: View {
     /// Calls the production `concierge.chat` tRPC mutation (raw body — the backend
     /// is transformer-less, matching `NativeGroupEventsAPI.rawMutationBody`).
     /// Returns nil on any failure so the caller can fall back to local help.
-    private static func fetchLiveReply(history: [[String: String]], token: String?) async -> String? {
+    private static func fetchLiveResponse(history: [[String: String]], token: String?) async -> ServerResponse? {
         let client = BytspotAPIClient(tokenProvider: { token })
         guard let body = try? JSONSerialization.data(withJSONObject: ["messages": history]) else { return nil }
         guard let payload = try? await client.json(path: "/trpc/concierge.chat", method: "POST", body: body) else { return nil }
         guard let result = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any],
               let reply = (result["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reply.isEmpty else { return nil }
-        return reply
+        let actions = (result["actions"] as? [[String: Any]] ?? []).compactMap(ActionCard.init(dictionary:))
+        let escalation = result["escalationRequired"] as? Bool ?? false
+        return ServerResponse(reply: reply, actions: actions, escalationRequired: escalation)
+    }
+
+    private static func fetchActionPlan(query: String, token: String?) async -> [ActionCard] {
+        let client = BytspotAPIClient(tokenProvider: { token })
+        guard let body = try? JSONSerialization.data(withJSONObject: ["query": query]) else { return [] }
+        guard let payload = try? await client.json(path: "/trpc/concierge.actions", method: "POST", body: body),
+              let result = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any] else { return [] }
+        return (result["actions"] as? [[String: Any]] ?? []).compactMap(ActionCard.init(dictionary:))
     }
 
     private func createMessageID() -> Int { defer { nextMessageID += 1 }; return nextMessageID }
@@ -13991,6 +14029,16 @@ private struct NativeConciergeView: View {
         }
     }
 
+    private func handleServerAction(_ action: ActionCard, _ query: String?) {
+        nativeImpactLight()
+        switch action.handoff.lowercased() {
+        case "map": openNativeTab(.map)
+        case "access": openNativeAccess()
+        case "stay": stayBookingVenue = resolvedStayVenue(for: query ?? action.subtitle)
+        default: openNativeTab(.discover)
+        }
+    }
+
     private func isStayQuery(_ query: String) -> Bool {
         let q = query.lowercased()
         return q.contains("stay") || q.contains("suite") || q.contains("host") || q.contains("check dates") || q.contains("availability") || q.contains("boutique")
@@ -14062,6 +14110,7 @@ private struct NativeConciergeView: View {
 private struct NativeConciergeMessageBubble: View {
     let message: NativeConciergeView.ConciergeMessage
     let handleHandoff: (NativeConciergeView.HandoffAction, String?) -> Void
+    let handleServerAction: (NativeConciergeView.ActionCard, String?) -> Void
     private let chipColumns = [GridItem(.adaptive(minimum: 112), spacing: 8)]
     @Environment(\.colorScheme) private var colorScheme
 
@@ -14079,6 +14128,7 @@ private struct NativeConciergeMessageBubble: View {
                             .lineSpacing(3)
                             .fixedSize(horizontal: false, vertical: true)
                         if message.escalated { escalationBadge }
+                        if !message.actionCards.isEmpty { serverActionCards }
                         if !message.handoffs.isEmpty { handoffChips }
                     }
                     .padding(.horizontal, 16)
@@ -14138,6 +14188,41 @@ private struct NativeConciergeMessageBubble: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    private var serverActionCards: some View {
+        VStack(spacing: 8) {
+            ForEach(message.actionCards) { action in
+                Button(action: { handleServerAction(action, message.sourceQuery ?? message.text) }) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 8) {
+                            Text(action.sourceLabel)
+                                .font(.system(size: 9, weight: .black))
+                                .foregroundColor(NativeTheme.cyan)
+                                .padding(.horizontal, 7)
+                                .frame(height: 18)
+                                .background(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.12 : 0.08))
+                                .clipShape(Capsule())
+                            Text(action.statusLabel)
+                                .font(.system(size: 9, weight: .black))
+                                .foregroundColor(action.status.lowercased().contains("review") || action.status.lowercased().contains("pending") ? NativeTheme.orange : NativeTheme.emerald)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                        }
+                        Text(action.title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.leading)
+                        Text(action.subtitle).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.leading).lineLimit(3)
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(colorScheme == .dark ? NativeTheme.selectedControlSurface.opacity(0.92) : Color(hex: 0xF3F6F8))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(colorScheme == .dark ? NativePolish.softBorder : Color(hex: 0xD2D6DC), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .accessibilityIdentifier("native-concierge-server-actions")
     }
 
     private func label(for action: NativeConciergeView.HandoffAction, query: String? = nil) -> String {

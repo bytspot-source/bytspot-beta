@@ -14156,7 +14156,7 @@ private struct NativeConciergeMessageBubble: View {
     }
 
     private var escalationBadge: some View {
-        Text("Connecting you to a Concierge specialist")
+        Text("Concierge review required")
             .font(.system(size: 12, weight: .black))
             .foregroundColor(Color.adaptive(lightHex: 0x075985, darkHex: 0xCFFAFE))
             .lineLimit(1)

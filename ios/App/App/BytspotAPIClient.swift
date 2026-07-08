@@ -856,6 +856,11 @@ final class NativeTabContentStore: ObservableObject {
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
+            if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
+                snapshot = bootstrapSnapshot
+                return
+            }
+
             async let venues = fetchVenues(client: client)
             async let events = fetchEvents(client: client)
             async let vendorServices = fetchVendorServices(client: client)
@@ -883,6 +888,33 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
+    private func fetchBootstrap(client: BytspotAPIClient) async throws -> NativeTabContentSnapshot? {
+        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: "/trpc/native.bootstrap"))
+        let root = payload as? [String: Any]
+        let content = root?["content"] as? [String: Any] ?? root ?? [:]
+        let venueRows: [Any] = Self.findArray(named: "venues", in: content) ?? []
+        let cardRows: [Any] = Self.findArray(named: "discoverCards", in: content) ?? []
+        let eventRows: [Any] = Self.findArray(named: "events", in: content) ?? []
+        let venues = venueRows.compactMap(Self.venue(from:))
+        let cards: [NativeDiscoverSummary] = cardRows.enumerated().compactMap { index, value in
+            guard let item = value as? [String: Any] else { return nil }
+            return Self.discoverCard(from: item, index: index)
+        }
+        let events: [NativeEventSummary] = eventRows.enumerated().compactMap(Self.event(from:))
+        guard !venues.isEmpty || !cards.isEmpty || !events.isEmpty else { return nil }
+
+        let sourceRaw = Self.string(content, ["source"]) ?? Self.string(root?["freshness"] as? [String: Any], ["publicContentSource"])
+        let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty ? .fallback : .live)
+        return NativeTabContentSnapshot(
+            venues: venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues,
+            discoverCards: cards.isEmpty ? Self.discoverCards(from: venues) : Self.mergeCanonicalDiscoverCards(into: cards),
+            events: events.isEmpty ? NativeTabContentSnapshot.fallback.events : events,
+            source: source,
+            lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
+            errorMessage: nil
+        )
+    }
+
     private func fetchVendorServices(client: BytspotAPIClient) async throws -> [NativeDiscoverSummary] {
         let input = try JSONSerialization.data(withJSONObject: ["limit": 20, "tier": "platinum"])
         var components = URLComponents(string: "/trpc/vendors.search")!
@@ -904,18 +936,7 @@ final class NativeTabContentStore: ObservableObject {
     private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
         let payload = try await client.json(path: "/trpc/events.list")
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
-        return rows.enumerated().compactMap { index, value in
-            guard let item = value as? [String: Any] else { return nil }
-            return NativeEventSummary(
-                id: Self.string(item, ["id"]) ?? "event-\(index)",
-                title: Self.string(item, ["title", "name"]) ?? "Tonight's Event",
-                venue: Self.string(item, ["venue", "venueName", "location"]) ?? "Midtown",
-                time: Self.string(item, ["time", "startsAt"]) ?? "Tonight",
-                price: Self.string(item, ["price", "priceLabel"]) ?? "Free",
-                emoji: Self.string(item, ["emoji"]) ?? "🎭",
-                imageUrl: Self.url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"])
-            )
-        }
+        return rows.enumerated().compactMap(Self.event(from:))
     }
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
@@ -978,6 +999,44 @@ final class NativeTabContentStore: ObservableObject {
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
             availability: string(item, ["availability"]) ?? "Available now",
             membershipRequired: true
+        )
+    }
+
+    private static func discoverCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
+        let type = string(item, ["type", "category", "serviceCategory"]) ?? "service"
+        return NativeDiscoverSummary(
+            id: string(item, ["id", "vendorServiceId"]) ?? "bootstrap-card-\(index)",
+            type: type,
+            title: string(item, ["title", "name"]) ?? "Bytspot Pick",
+            subtitle: string(item, ["subtitle", "description"]) ?? "Recommended around you",
+            distance: string(item, ["distance"]) ?? "Nearby",
+            rating: string(item, ["rating"]) ?? double(item, ["rating"]).map { String(format: "%.1f", $0) } ?? "4.8",
+            icon: string(item, ["icon", "iconName"]) ?? icon(for: type),
+            verified: bool(item, ["verified", "isVerified"]) ?? false,
+            entryType: string(item, ["entryType"]) ?? "free",
+            cta: string(item, ["cta", "ctaText", "action"]) ?? "Open details",
+            imageUrl: url(item, ["imageUrl", "image_url", "heroImage", "thumbnailUrl"]),
+            categoryLabel: string(item, ["categoryLabel", "label"]) ?? label(for: type),
+            badgeText: string(item, ["badgeText", "badge"]) ?? (string(item, ["entryType"]) == "paid" ? "PAID ENTRY" : "FREE ENTRY"),
+            metadataLine: string(item, ["metadataLine", "meta", "priceLabel"]) ?? "Available now",
+            features: arrayOfStrings(item["features"]) ?? arrayOfStrings(item["includedHighlights"]) ?? [label(for: type), "Bytspot verified"],
+            vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
+            availability: string(item, ["availability"]) ?? "Available now",
+            membershipRequired: bool(item, ["membershipRequired", "requiresMembership"]) ?? false
+        )
+    }
+
+    private static func event(from pair: EnumeratedSequence<[Any]>.Element) -> NativeEventSummary? {
+        let (index, value) = pair
+        guard let item = value as? [String: Any] else { return nil }
+        return NativeEventSummary(
+            id: string(item, ["id"]) ?? "event-\(index)",
+            title: string(item, ["title", "name"]) ?? "Tonight's Event",
+            venue: string(item, ["venue", "venueName", "location"]) ?? "Midtown",
+            time: string(item, ["time", "startsAt"]) ?? "Tonight",
+            price: string(item, ["price", "priceLabel"]) ?? "Free",
+            emoji: string(item, ["emoji"]) ?? "🎭",
+            imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"])
         )
     }
 
@@ -1076,6 +1135,34 @@ final class NativeTabContentStore: ObservableObject {
             if let value = dict[key] as? Double { return value }
             if let value = dict[key] as? Int { return Double(value) }
             if let value = dict[key] as? String, let parsed = Double(value) { return parsed }
+        }
+        return nil
+    }
+
+    private static func bool(_ dict: [String: Any]?, _ keys: [String]) -> Bool? {
+        guard let dict else { return nil }
+        for key in keys {
+            if let value = dict[key] as? Bool { return value }
+            if let value = dict[key] as? Int { return value != 0 }
+            if let value = dict[key] as? String {
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if ["true", "1", "yes"].contains(normalized) { return true }
+                if ["false", "0", "no"].contains(normalized) { return false }
+            }
+        }
+        return nil
+    }
+
+    private static func date(_ dict: [String: Any]?, _ keys: [String]) -> Date? {
+        guard let raw = string(dict, keys) else { return nil }
+        return ISO8601DateFormatter().date(from: raw)
+    }
+
+    private static func arrayOfStrings(_ value: Any?) -> [String]? {
+        if let strings = value as? [String] { return strings.filter { !$0.isEmpty } }
+        if let values = value as? [Any] {
+            let strings = values.compactMap { $0 as? String }.filter { !$0.isEmpty }
+            return strings.isEmpty ? nil : strings
         }
         return nil
     }

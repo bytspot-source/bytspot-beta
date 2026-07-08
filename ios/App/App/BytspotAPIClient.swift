@@ -174,6 +174,58 @@ struct NativeCheckoutSession: Equatable {
     }
 }
 
+struct NativeWalletLedgerAction: Codable, Equatable, Identifiable {
+    var id: String
+    var title: String?
+    var type: String?
+    var target: String?
+}
+
+struct NativeWalletLedgerRecord: Codable, Equatable, Identifiable {
+    var id: String
+    var productType: String
+    var title: String
+    var subtitle: String?
+    var venueName: String?
+    var providerName: String?
+    var windowLabel: String?
+    var paymentState: String
+    var providerState: String
+    var reservationReference: String?
+    var amountCents: Int?
+    var currency: String?
+    var source: String?
+    var receiptUrl: String?
+    var actions: [NativeWalletLedgerAction]?
+    var createdAt: String
+    var updatedAt: String?
+
+    var displayVenue: String { venueName ?? subtitle ?? providerName ?? "Bytspot" }
+    var displayWindow: String { windowLabel ?? "Pending window" }
+    var paymentStateLabel: String { Self.label(paymentState) }
+    var providerStateLabel: String { Self.label(providerState) }
+    var amountLabel: String? { amountCents.map { Self.money(cents: $0, currency: currency ?? "usd") } }
+    var displayPayment: String { [paymentStateLabel, amountLabel].compactMap { $0 }.joined(separator: " · ") }
+    var displayReservation: String { reservationReference.map { "Ref \($0)" } ?? providerStateLabel }
+
+    private static func label(_ raw: String?) -> String { (raw ?? "pending").replacingOccurrences(of: "_", with: " ").capitalized }
+    private static func money(cents: Int, currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency.uppercased()
+        return formatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? "$\(Double(cents) / 100.0)"
+    }
+}
+
+struct NativeWalletLedgerSnapshot: Codable, Equatable {
+    var source: String
+    var count: Int
+    var items: [NativeWalletLedgerRecord]
+    var note: String?
+
+    static let empty = NativeWalletLedgerSnapshot(source: "device_local", count: 0, items: [], note: "Device-local wallet fallback is available.")
+}
+
 struct NativeNotificationPreferences: Codable, Equatable {
     struct Push: Codable, Equatable { var reservations: Bool; var promotions: Bool; var reminders: Bool; var insider: Bool; var nearby: Bool }
     struct Email: Codable, Equatable { var reservations: Bool; var promotions: Bool; var newsletter: Bool; var receipts: Bool }
@@ -597,6 +649,10 @@ struct NativeProfileDataAPI {
         NativeCheckoutSession(payload: try await client.trpcPayload(path: "/trpc/booking.createCheckout", method: "POST", input: input))
     }
 
+    func loadWalletLedger(limit: Int = 20) async throws -> NativeWalletLedgerSnapshot {
+        try await client.trpcDecode(NativeWalletLedgerSnapshot.self, path: "/trpc/native.walletLedger", method: "POST", input: ["limit": limit])
+    }
+
     func setDefaultPaymentMethod(id: String) async throws {
         #if DEBUG
         if usesAuthenticatedFixtures { return }
@@ -675,6 +731,28 @@ struct NativeProfileDataAPI {
         if let photo = vehicle.photo, !photo.isEmpty { input["photo"] = photo }
         if let vin = vehicle.vin, !vin.isEmpty { input["vin"] = vin }
         return input
+    }
+}
+
+@MainActor
+final class NativeWalletLedgerStore: ObservableObject {
+    @Published private(set) var snapshot = NativeWalletLedgerSnapshot.empty
+    @Published private(set) var isRefreshing = false
+
+    func refresh(sessionStore: BytspotSessionStore) async {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        guard sessionStore.isAuthenticated else {
+            snapshot = NativeWalletLedgerSnapshot.empty
+            return
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        do {
+            snapshot = try await api.loadWalletLedger(limit: 20)
+        } catch {
+            snapshot = NativeWalletLedgerSnapshot(source: "unavailable", count: 0, items: [], note: "Server wallet unavailable; showing device-local fallback.")
+        }
     }
 }
 

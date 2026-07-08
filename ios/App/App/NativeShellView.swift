@@ -1086,9 +1086,7 @@ private struct NativeProfilePanelSheet: View {
         default:
             VStack(spacing: 10) {
                 if panel == .access {
-                    NativeParkingReservationWalletSection()
-                    NativeValetRideWalletSection()
-                    NativeBoutiqueStayWalletSection()
+                    NativeWalletLedgerPreferenceSections()
                 }
                 ForEach(rows, id: \.0) { row in
                     NativeWalletLine(title: row.0, subtitle: row.1, icon: row.2)
@@ -1226,16 +1224,43 @@ private struct NativeArrivalLedgerItem: Identifiable {
         let pending = order.isPaymentPending
         return Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: pending ? "Awaiting Stripe" : "Confirmed", statusBadge: pending ? "AWAITING STRIPE" : "CONFIRMED", statusColor: pending ? NativeTransactionVisuals.pendingAccent : NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
     }
+
+    static func server(_ entry: NativeWalletLedgerRecord) -> Self {
+        let badge = serverStatusBadge(entry)
+        return Self(id: "server-\(entry.id)", title: entry.title, venue: entry.displayVenue, window: entry.displayWindow, payment: entry.displayPayment, reservation: entry.displayReservation, statusBadge: badge, statusColor: serverStatusColor(badge), actionTitle: entry.actions?.first?.title ?? "Open My Access", createdAt: entry.createdAt)
+    }
+
+    private static func serverStatusBadge(_ entry: NativeWalletLedgerRecord) -> String {
+        let combined = "\(entry.providerState) \(entry.paymentState)".lowercased()
+        if combined.contains("confirm") || combined.contains("complete") || combined.contains("captur") || combined.contains("approved") { return "CONFIRMED" }
+        if combined.contains("host") { return "HOST REVIEW" }
+        if combined.contains("authorization") { return "PENDING AUTH" }
+        if combined.contains("stripe") || combined.contains("checkout") || combined.contains("payment_pending") { return "AWAITING STRIPE" }
+        return "PENDING"
+    }
+
+    private static func serverStatusColor(_ badge: String) -> Color {
+        badge == "CONFIRMED" ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent
+    }
 }
 
 private struct NativeArrivalLedgerPanel: View {
     let openAccess: (() -> Void)?
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var walletLedgerStore: NativeWalletLedgerStore
+
     private var items: [NativeArrivalLedgerItem] {
+        let server = walletLedgerStore.snapshot.items.map(NativeArrivalLedgerItem.server)
+        if !server.isEmpty { return Array(server.prefix(8)) }
+        return Array(localItems.prefix(8))
+    }
+
+    private var localItems: [NativeArrivalLedgerItem] {
         let parking = NativeParkingReservationStore.all().map(NativeArrivalLedgerItem.parking)
         let stays = NativeStayRequestStore.all().map(NativeArrivalLedgerItem.stay)
         let rides = NativeValetRideWalletStore.all().map(NativeArrivalLedgerItem.ride)
         let orders = NativeMenuOrderStore.all().map(NativeArrivalLedgerItem.order)
-        return (parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }.prefix(8).map { $0 }
+        return (parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
@@ -1247,6 +1272,7 @@ private struct NativeArrivalLedgerPanel: View {
             }
         }
         .accessibilityIdentifier(NativeArrivalLedgerContract.accessibilityID)
+        .task { await walletLedgerStore.refresh(sessionStore: sessionStore) }
     }
 
     private var arrivalSummaryStrip: some View {
@@ -4677,6 +4703,53 @@ private struct NativeTransactionLedger: View {
     }
 }
 
+private struct NativeWalletLedgerPreferenceSections: View {
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var walletLedgerStore: NativeWalletLedgerStore
+
+    var body: some View {
+        Group {
+            if walletLedgerStore.snapshot.items.isEmpty {
+                NativeParkingReservationWalletSection()
+                NativeValetRideWalletSection()
+                NativeBoutiqueStayWalletSection()
+            } else {
+                NativeServerWalletLedgerSection(entries: Array(walletLedgerStore.snapshot.items.prefix(4)), note: walletLedgerStore.snapshot.note)
+            }
+        }
+        .task { await walletLedgerStore.refresh(sessionStore: sessionStore) }
+    }
+}
+
+private struct NativeServerWalletLedgerSection: View {
+    let entries: [NativeWalletLedgerRecord]
+    let note: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeWalletLine(title: "Server Wallet Ledger", subtitle: note ?? "Synced reservations and payment states", icon: "checkmark.icloud.fill")
+            ForEach(entries) { entry in
+                NativeTransactionLedger(entries: [
+                    NativeTransactionLedgerEntry(entry.title, entry.displayVenue),
+                    NativeTransactionLedgerEntry("Window", entry.displayWindow),
+                    NativeTransactionLedgerEntry("Payment", entry.displayPayment),
+                    NativeTransactionLedgerEntry("Status", entry.providerStateLabel, valueColor: walletStatusColor(entry))
+                ])
+            }
+        }
+        .padding(12)
+        .background(NativePolish.mapPanelSurface.opacity(0.92))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier("native-server-wallet-ledger-section")
+    }
+
+    private func walletStatusColor(_ entry: NativeWalletLedgerRecord) -> Color {
+        let status = "\(entry.paymentState) \(entry.providerState)".lowercased()
+        return status.contains("confirm") || status.contains("complete") || status.contains("approved") ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent
+    }
+}
+
 private struct NativeValetRideWalletSection: View {
     private var ride: NativeValetRideWalletRecord? { NativeValetRideWalletStore.latest() }
 
@@ -4842,6 +4915,7 @@ private struct NativeBoutiqueStayWalletSection: View {
 private struct NativeAccessWalletPreview: View {
     let openAccessPanel: () -> Void
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var walletLedgerStore: NativeWalletLedgerStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -4853,15 +4927,14 @@ private struct NativeAccessWalletPreview: View {
                 }
                 Spacer()
             }
-            NativeParkingReservationWalletSection()
-            NativeValetRideWalletSection()
-            NativeBoutiqueStayWalletSection()
+            NativeWalletLedgerPreferenceSections()
             Button(action: openAccessPanel) {
                 NativeCTA(title: "Open My Access", color: NativeTheme.emerald, foreground: .black)
             }
         }
         .padding(16)
         .nativePanel()
+        .task { await walletLedgerStore.refresh(sessionStore: sessionStore) }
     }
 
     private var walletSubtitle: String {

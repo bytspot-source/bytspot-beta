@@ -112,6 +112,7 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var authCoordinator = NativeAuthCoordinator()
     @StateObject private var apiState = NativeAPIState()
     @StateObject private var tabContentStore = NativeTabContentStore()
+    @StateObject private var walletLedgerStore = NativeWalletLedgerStore()
     @StateObject private var membershipStore = NativeMembershipStore()
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
@@ -160,6 +161,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(authCoordinator)
             .environmentObject(apiState)
             .environmentObject(tabContentStore)
+            .environmentObject(walletLedgerStore)
             .environmentObject(membershipStore)
             .environmentObject(contactSyncStore)
             .environmentObject(appearanceRuntimeStore)
@@ -170,12 +172,14 @@ struct BytspotNativeAppRoot: View {
             }
             .task {
                 await tabContentStore.refresh(sessionStore: sessionStore)
+                await walletLedgerStore.refresh(sessionStore: sessionStore)
                 await membershipStore.refresh(sessionStore: sessionStore)
                 await contactSyncStore.refresh(sessionStore: sessionStore)
             }
             .onChange(of: sessionStore.token ?? "") { _ in
                 Task {
                     await tabContentStore.refresh(sessionStore: sessionStore)
+                    await walletLedgerStore.refresh(sessionStore: sessionStore)
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
                 }

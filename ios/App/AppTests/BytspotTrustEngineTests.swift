@@ -228,6 +228,29 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.bestValueOptions.first?.valueScore, 88)
     }
 
+    func testBestValueUsesTRPCQueryTransport() throws {
+        let path = try NativeTabContentStore.bestValueQueryPath()
+        let request = try BytspotAPIClient().makeRequest(path: path)
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertNil(request.httpBody)
+        XCTAssertTrue(path.hasPrefix("/trpc/live.bestValue?input="))
+    }
+
+    func testBestValueQueryPathCarriesRawInputJSON() throws {
+        let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
+        let components = URLComponents(string: path)
+        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
+        let data = try XCTUnwrap(rawInput.data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(decoded["productType"] as? String, "parking")
+        XCTAssertEqual(decoded["lat"] as? Double, 33.7)
+        XCTAssertEqual(decoded["lng"] as? Double, -84.3)
+        XCTAssertEqual(decoded["limit"] as? Int, 2)
+        XCTAssertEqual(decoded["strict"] as? Bool, false)
+    }
+
     func testPremiumFunctionsLockedWithoutEntitlement() {
         for function in BytspotPremiumMapFunction.allCases {
             XCTAssertFalse(BytspotMapFunctionCatalog.isUnlocked(function, for: .free), "\(function.rawValue) must stay locked for a free membership.")

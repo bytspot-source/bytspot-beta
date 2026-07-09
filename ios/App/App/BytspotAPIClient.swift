@@ -1039,11 +1039,22 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private func fetchBestValue(client: BytspotAPIClient) async throws -> [NativeLiveValueOption] {
-        let input: [String: Any] = ["productType": "any", "lat": 33.7866, "lng": -84.3833, "durationHours": 2, "limit": 4, "strict": false]
-        let payload = try await client.trpcPayload(path: "/trpc/live.bestValue", method: "POST", input: input)
+        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: Self.bestValueQueryPath()))
         let root = payload as? [String: Any]
         let rows = (root?["options"] as? [Any]) ?? Self.findArray(named: "options", in: payload) ?? []
         return rows.compactMap(Self.liveValueOption(from:))
+    }
+
+    nonisolated static func bestValueQueryInput() -> [String: Any] {
+        ["productType": "any", "lat": 33.7866, "lng": -84.3833, "durationHours": 2, "limit": 4, "strict": false]
+    }
+
+    nonisolated static func bestValueQueryPath(input: [String: Any] = bestValueQueryInput()) throws -> String {
+        let inputData = try JSONSerialization.data(withJSONObject: input)
+        var components = URLComponents()
+        components.path = "/trpc/live.bestValue"
+        components.queryItems = [URLQueryItem(name: "input", value: String(data: inputData, encoding: .utf8) ?? "")]
+        return components.string ?? "/trpc/live.bestValue"
     }
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
@@ -1095,7 +1106,7 @@ final class NativeTabContentStore: ObservableObject {
         let price = option.estimatedTotalCents.map(formatCurrency(cents:)) ?? "Price pending"
         let market = option.marketReferenceCents.map(formatCurrency(cents:)) ?? "market pending"
         let distance = option.distanceMeters.map(distanceLabel(meters:)) ?? "Nearby"
-        return NativeDiscoverSummary(id: "best-value-\(option.id)", type: type, title: option.title, subtitle: "\(option.providerName) · ranked by price parity", distance: distance, rating: String(option.valueScore), icon: icon(for: type), verified: option.eligible, entryType: option.estimatedTotalCents == 0 ? "free" : "paid", cta: cta(forProductType: option.productType), imageUrl: nil, categoryLabel: label(for: type), badgeText: "BEST VALUE", metadataLine: "\(price) · vs \(market) · score \(option.valueScore)", features: bestValueFeatures(option), vibeScore: max(1, min(10, Int(ceil(Double(option.valueScore) / 10.0)))), availability: option.availability, membershipRequired: option.estimatedTotalCents != 0)
+        return NativeDiscoverSummary(id: "best-value-\(option.id)", type: type, title: option.title, subtitle: "\(option.providerName) · ranked by price parity", distance: distance, rating: "Value \(option.valueScore)", icon: icon(for: type), verified: option.eligible, entryType: option.estimatedTotalCents == 0 ? "free" : "paid", cta: cta(forProductType: option.productType), imageUrl: nil, categoryLabel: label(for: type), badgeText: "BEST VALUE", metadataLine: "\(price) · vs \(market) · score \(option.valueScore)", features: bestValueFeatures(option), vibeScore: max(1, min(10, Int(ceil(Double(option.valueScore) / 10.0)))), availability: option.availability, membershipRequired: option.estimatedTotalCents != 0)
     }
 
     private static func serviceCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
@@ -1218,7 +1229,7 @@ final class NativeTabContentStore: ObservableObject {
 
     private static func cta(forProductType productType: String) -> String {
         switch productType {
-        case "parking": return "Reserve Parking"
+        case "parking": return "View Parking"
         case "airport_transfer": return "Request Transfer"
         case "menu_order": return "View Menu"
         case "event_pass": return "View Pass"

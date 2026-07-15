@@ -101,5 +101,5 @@ https://bytspot.com
 
 ## What's New in This Version (for updates)
 ```
-Native SwiftUI update with a faster Home experience, privacy-safe Context Snapshot, improved parking/discovery flow, and continued App Clip access support.
+Native SwiftUI update with a faster, cleaner Home experience, improved parking/discovery flow, and continued App Clip access support.
 ```

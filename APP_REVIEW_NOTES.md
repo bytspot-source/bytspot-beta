@@ -23,6 +23,7 @@ Thank you for reviewing Bytspot.
 - The iOS App target is pure native SwiftUI. It does not launch, embed, or package a Capacitor/React webview, web bundle, Cordova config, or Capacitor SwiftPM bridge.
 - The repository root still contains Capacitor npm packages for the separate React web beta only. Those packages are not linked into the iOS App target or bundled in the App Store submission.
 - Parker Home shows consumer-facing Explorer, My Access, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
+- The Home Context Snapshot uses existing app signals only, such as time of day, venue category, aggregate crowd labels, events, and parking availability. It does not collect Wi-Fi/Bluetooth scans, microphone samples, raw device identifiers, or POS/reservation data.
 - Location permission is optional. The app can still be reviewed without granting location access.
 - This build does not request notification permission.
 - The app does **not** use background location.

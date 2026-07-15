@@ -101,5 +101,5 @@ https://bytspot.com
 
 ## What's New in This Version (for updates)
 ```
-Initial App Store release with live crowd intelligence, smart parking, concierge recommendations, and venue discovery for Atlanta Midtown.
+Native SwiftUI update with a faster Home experience, privacy-safe Context Snapshot, improved parking/discovery flow, and continued App Clip access support.
 ```

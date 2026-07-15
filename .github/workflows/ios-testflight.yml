@@ -27,32 +27,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      # ── 2. Node.js + Web build ──────────────────────────────────
+      # ── 2. Node.js + native iOS release gates ───────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'npm'
 
-      - name: Install JS dependencies
-        # npm ci is currently tripping on cross-platform optional package
-        # entries in package-lock.json on macOS runners, while npm install
-        # resolves the tree correctly for this build job.
-        run: npm install
+      - name: Native iOS release gates
+        run: npm run ios:gate
 
-      - name: Lint
-        run: npm run lint
-        # Note: type-check is skipped in CI because tRPC types require
-        # the sibling bytspot-api repo. vite build catches real errors.
+      - name: Lint iOS manifests
+        run: plutil -lint ios/App/App/Info.plist ios/App/Clip/Info.plist ios/App/App/PrivacyInfo.xcprivacy ios/App/Clip/PrivacyInfo.xcprivacy
 
-      - name: Build app-store web assets
-        run: npm run build:app-store
-
-      # ── 3. Capacitor sync ───────────────────────────────────────
-      - name: Sync Capacitor → iOS
-        run: npx cap sync ios
-
-      # ── 4. Xcode selection ──────────────────────────────────────
+      # ── 3. Xcode selection ──────────────────────────────────────
       - name: Select Xcode
         run: |
           # Use latest available Xcode on the runner

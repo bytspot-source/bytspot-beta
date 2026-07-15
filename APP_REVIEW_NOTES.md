@@ -23,9 +23,9 @@ Thank you for reviewing Bytspot.
 - The iOS App target is pure native SwiftUI. It does not launch, embed, or package a Capacitor/React webview, web bundle, Cordova config, or Capacitor SwiftPM bridge.
 - The repository root still contains Capacitor npm packages for the separate React web beta only. Those packages are not linked into the iOS App target or bundled in the App Store submission.
 - Parker Home shows consumer-facing Explorer, My Access, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
-- The Home Context Snapshot uses existing app signals only, such as time of day, venue category, aggregate crowd labels, events, and parking availability. It does not collect Wi-Fi/Bluetooth scans, microphone samples, raw device identifiers, or POS/reservation data.
+- The Home Context Snapshot uses existing app signals only, such as time of day, venue category, aggregate crowd labels, events, and parking availability. It does not collect Wi-Fi/Bluetooth scans, microphone samples, raw device identifiers, POS/reservation data, or other surveillance-like signals.
 - Location permission is optional. The app can still be reviewed without granting location access.
-- This build does not request notification permission.
+- The full App target does not request notification permission. The App Clip may request ephemeral notification authorization for invite follow-up, as declared in the App Clip plist.
 - The app does **not** use background location.
 - Any parking/access confirmation previews shown in this build are in-app preview flows only. No external payment is processed in this submission build.
 
@@ -42,6 +42,7 @@ Thank you for reviewing Bytspot.
 
 - The App Clip is invoked from Bytspot group-event invite links hosted at `https://bytspot.app` (registered App Clip experience).
 - It presents the event invite with RSVP (join / decline) in a single screen; joining does not require the full app.
+- It may request ephemeral notification authorization so invite follow-up can be shown during the App Clip session.
 - A "Get the full app" handoff opens the App Store product page; state is shared with the full app via an App Group.
 
 ## Support

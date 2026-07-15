@@ -1167,7 +1167,7 @@ private struct NativeProfilePanelSheet: View {
         case .locationPrivacy:
             return [("Permission status", "Primary location remains managed in iOS Settings.", "location.fill"), ("Optional location", "Enhanced accuracy, valet return help, offers, and venue recommendations are opt-in.", "hand.raised.fill"), ("Privacy controls", "You can change these choices anytime.", "checkmark.shield.fill")]
         case .generalSettings:
-            return [("Theme", "Auto theme keeps Bytspot aligned with device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v1.1.6.", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
+            return [("Theme", "Auto theme keeps Bytspot aligned with device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v1.1.7.", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
         case .appearance:
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
@@ -2142,7 +2142,7 @@ private struct NativeLocationPrivacyPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeWalletLine(title: "Primary Location Permission", subtitle: "Current status is managed in iOS Settings; Bytspot needs location for nearby parking and arrival help.", icon: "location.fill")
-            NativePreferenceToggleRow(title: "Enhanced Indoor Accuracy", subtitle: "Uses Wi‑Fi and Bluetooth signals to improve drop-off/retrieval inside garages.", icon: "dot.radiowaves.left.and.right", color: NativeTheme.purple, isOn: $enhancedIndoorAccuracy)
+            NativePreferenceToggleRow(title: "Indoor Accuracy Preference", subtitle: "Saved for future garage enhancements; this review build does not perform Wi‑Fi or Bluetooth scanning.", icon: "dot.radiowaves.left.and.right", color: NativeTheme.purple, isOn: $enhancedIndoorAccuracy)
             NativePreferenceToggleRow(title: "Background Location", subtitle: "Allow valet return-trip tracking when needed. iOS may ask for Always Allow before this turns on.", icon: "location.circle.fill", color: NativeTheme.orange, isOn: $backgroundLocation)
             NativePreferenceToggleRow(title: "Location for Offers & Promotions", subtitle: "Use general location for special offers near partner venues.", icon: "gift.fill", color: NativeTheme.pink, isOn: $locationForOffers)
             NativePreferenceToggleRow(title: "Venue Recommendations", subtitle: "Show restaurants, shops, and attractions based on current location in Discover and Profile.", icon: "sparkles", color: NativeTheme.emerald, isOn: $venueRecommendations)
@@ -2156,7 +2156,7 @@ private struct NativeLocationPrivacyPanel: View {
 private struct NativeGeneralSettingsPanel: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
 
-    private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.6" }
+    private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.7" }
     private var appearance: NativeAppearanceMode { NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw) }
 
     var body: some View {
@@ -4651,7 +4651,7 @@ private struct NativeProfileLogoutButton: View {
 
 private struct NativeProfileVersionLabel: View {
     private var version: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.6"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.7"
     }
 
     var body: some View {

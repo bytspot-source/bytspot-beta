@@ -5227,6 +5227,18 @@ private struct NativeHomeDashboardView: View {
         let target: ActionTarget
     }
 
+    struct ContextSnapshot: Equatable {
+        let title: String
+        let subtitle: String
+        let recommendation: String
+        let crowdLabel: String
+        let parkingLabel: String
+        let eventLabel: String
+        let actionHint: String
+        let signalLabels: [String]
+        let policyNote: String
+    }
+
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDiscoverFilter: (String) -> Void
@@ -5280,11 +5292,14 @@ private struct NativeHomeDashboardView: View {
     static let authenticatedLaunchPicksCollapseDelay: TimeInterval = 1.8
     static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
+    static let contextSnapshotSignalLabels = ["Time/day", "Venue category", "Aggregate crowd", "Events", "Parking"]
+    static let contextSnapshotPolicyNote = "No Wi‑Fi/Bluetooth scans, microphone sampling, raw device identifiers, or POS/reservation ingestion."
 
     var body: some View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
+            contextSnapshotCard
             if let liveGroupEvent { NativeHomeLiveGroupBanner(event: liveGroupEvent, action: { openGroupInvite(liveGroupEvent) }) }
             if launchPicksCompleted { launchPicksReadySection }
             tonightPickCard
@@ -5489,6 +5504,135 @@ private struct NativeHomeDashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
         .shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8)
         .accessibilityIdentifier("native-home-search")
+    }
+
+    private var contextSnapshotCard: some View {
+        let context = Self.contextSnapshot(from: tabContentStore.snapshot)
+        return Button(action: { openNativeTab(.map) }) {
+            VStack(alignment: .leading, spacing: 13) {
+                HStack(alignment: .top, spacing: 11) {
+                    NativeIcon(symbol: "waveform.path.ecg", color: NativeTheme.cyan)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(context.title).nativeTitle(20)
+                        Text(context.subtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                    }
+                    Spacer(minLength: 8)
+                    NativeStatusPill(title: "SAFE", color: NativeTheme.emerald)
+                }
+                Text(context.recommendation)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
+                    .lineSpacing(2)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    contextMetric(icon: "person.3.fill", title: context.crowdLabel, subtitle: "crowd", color: NativeTheme.orange)
+                    contextMetric(icon: "parkingsign.circle.fill", title: context.parkingLabel, subtitle: "parking", color: NativeTheme.emerald)
+                    contextMetric(icon: "ticket.fill", title: context.eventLabel, subtitle: "event", color: NativeTheme.purple)
+                    contextMetric(icon: "map.fill", title: context.actionHint, subtitle: "next step", color: NativeTheme.cyan)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(context.signalLabels, id: \.self) { label in
+                            Text(label.uppercased())
+                                .font(.system(size: 9.5, weight: .black))
+                                .foregroundColor(NativeTheme.textSecondary)
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(NativeTheme.selectedControlSurface.opacity(0.70))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+                Text(context.policyNote)
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundColor(NativeTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            .padding(14)
+            .nativePanel()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-home-context-snapshot")
+    }
+
+    private func contextMetric(icon: String, title: String, subtitle: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(color)
+                .frame(width: 26, height: 26)
+                .background(color.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                Text(subtitle.uppercased()).font(.system(size: 9.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(0.6)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(9)
+        .background(NativeTheme.selectedControlSurface.opacity(0.56))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    static func contextSnapshot(from snapshot: NativeTabContentSnapshot, date: Date = Date()) -> ContextSnapshot {
+        let venues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
+        let events = snapshot.events.isEmpty ? NativeTabContentSnapshot.fallback.events : snapshot.events
+        let hour = Calendar.current.component(.hour, from: date)
+        let daypart: String
+        switch hour {
+        case 5..<11: daypart = "Morning"
+        case 11..<17: daypart = "Afternoon"
+        case 17..<22: daypart = "Evening"
+        default: daypart = "Late Night"
+        }
+        let busiest = venues.compactMap { venue -> (NativeVenueSummary, NativeCrowdSummary)? in
+            guard let crowd = venue.crowd else { return nil }
+            return (venue, crowd)
+        }.sorted { $0.1.level > $1.1.level }.first
+        let anchor = busiest?.0 ?? venues.first
+        let anchorCategory = anchor.map { label(for: $0.discoverType) } ?? "Local"
+        let crowdLabel = busiest.map { "\(crowdEmoji(level: $0.1.level)) \($0.1.label)" } ?? "Pending"
+        let parkingSpots = venues.reduce(0) { $0 + $1.parking.totalAvailable }
+        let parkingLabel = parkingSpots > 0 ? "\(parkingSpots) spots" : "Check map"
+        let eventLabel = events.first.map { $0.time == "Tonight" ? "Tonight" : $0.time } ?? "No spike"
+        let recommendation: String
+        if parkingSpots > 0 && hour >= 16 {
+            recommendation = "Plan parking before arrival, then compare crowd momentum on Map."
+        } else if let busiest, busiest.1.level >= 3 {
+            recommendation = "Activity is building near \(busiest.0.name); route first and keep a calmer backup nearby."
+        } else if events.isEmpty {
+            recommendation = "No event spike detected from current app data; browse nearby categories at your pace."
+        } else {
+            recommendation = "Use today's timing, categories, events, and parking availability to choose the next stop."
+        }
+        return ContextSnapshot(
+            title: "\(daypart) Context Snapshot",
+            subtitle: "\(anchorCategory) · Midtown · existing app signals only",
+            recommendation: recommendation,
+            crowdLabel: crowdLabel,
+            parkingLabel: parkingLabel,
+            eventLabel: eventLabel,
+            actionHint: "Open Map",
+            signalLabels: contextSnapshotSignalLabels,
+            policyNote: contextSnapshotPolicyNote
+        )
+    }
+
+    private static func label(for discoverType: String) -> String {
+        switch discoverType {
+        case "dining": return "Dining"
+        case "nightlife": return "Nightlife"
+        case "coffee": return "Coffee"
+        case "parking": return "Parking"
+        case "fitness": return "Fitness"
+        case "shopping": return "Shopping"
+        case "entertainment": return "Events"
+        case "mobility": return "Mobility"
+        case "boutique_apartment": return "Boutique Stay"
+        default: return "Local"
+        }
+    }
+
+    private static func crowdEmoji(level: Int) -> String {
+        level >= 4 ? "🔴" : level == 3 ? "🟠" : level == 2 ? "🟡" : "🟢"
     }
 
     private var launchPicksReadySection: some View {
@@ -15159,6 +15303,11 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
+        let context = NativeHomeDashboardView.contextSnapshot(from: .fallback)
+        precondition(context.signalLabels == NativeHomeDashboardView.contextSnapshotSignalLabels, "NativeHomeParitySelfTests: Context Snapshot safe signal list drifted.")
+        precondition(context.policyNote == NativeHomeDashboardView.contextSnapshotPolicyNote && context.policyNote.contains("No Wi"), "NativeHomeParitySelfTests: Context Snapshot must prohibit raw sensor/device collection.")
+        precondition(context.crowdLabel == "🟠 Busy" && context.parkingLabel == "74 spots" && context.eventLabel == "Tonight", "NativeHomeParitySelfTests: Context Snapshot fallback aggregation drifted.")
+        precondition(context.actionHint == "Open Map", "NativeHomeParitySelfTests: Context Snapshot must hand off to native Map, not Provider/Vendor/Admin.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "ride", walk: "medium", crew: "safe").first == "mobility", "NativeHomeParitySelfTests: AI Pick must prefer mobility for ride tokens.")

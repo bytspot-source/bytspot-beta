@@ -1,22 +1,26 @@
 # Native Swift Migration Parity Contract
 
-Status: Phase 0 started 2026-06-13  
-Scope: migrate Bytspot iOS from Capacitor React webview to SwiftUI without losing production behavior.
+Status: Native root active; source-of-truth refreshed 2026-07-15  
+Scope: finish native SwiftUI parity for the existing App Store app without reintroducing Capacitor, WebKit, or the React web bundle into the iOS App target.
 
 ## Non-negotiables
 
-- Do not replace the App Store launch root until native parity is proven in simulator.
-- Keep current Capacitor root as the shipping fallback during migration.
+- The iOS App target must launch the SwiftUI native root unconditionally.
+- Do not reintroduce Capacitor, WebKit, `CAPBridgeViewController`, or a bundled React web app into the App target.
 - Keep App Clip SwiftUI flow as the strongest native reference implementation.
 - Preserve BYT424 App Clip invocation and AASA behavior.
-- Every native slice must have simulator proof before it can become the default.
+- Every native slice must have native gate + simulator build proof before App Store release.
+- First public native release remains Parker consumer-only; Provider, Vendor, Admin, and internal review surfaces stay hidden.
 
 ## Current iOS State
 
 | Area | Current source | Notes |
 | --- | --- | --- |
-| Full app launch | `ios/App/App/AppDelegate.swift` | App Store invariant still launches `CAPBridgeViewController` directly. |
-| Native shell prototype | `ios/App/App/NativeShellView.swift` | SwiftUI tabs exist, but currently bridge to React for full features. |
+| Full app launch | `ios/App/App/AppDelegate.swift` | App Store invariant launches `BytspotNativeAppRoot()` directly via SwiftUI. |
+| Native root gate | `scripts/assert-ios-native-root.mjs` | Release gate forbids Capacitor, WebKit, React web bundle, legacy storyboard, and hybrid webview root. |
+| Native shell | `ios/App/App/NativeShellView.swift` | SwiftUI Home, Discover, Map, Concierge, Profile/Access panels, wallet, preferences, and consumer booking contexts. |
+| Native routing | `ios/App/App/BytspotNativeRouting.swift` | Native deep links/universal links for map, discover, profile, access, booking returns, legal, patch, group invites. |
+| Native API client | `ios/App/App/BytspotAPIClient.swift` | Typed DTOs/stores for venues, events, vendor services, profile, vehicles, payments, preferences, wallet, mobility. |
 | App Clip | `ios/App/Clip/*` | Native SwiftUI catalog/vendor/checkout/success flow is production-quality reference. |
 | App Clip routing | `ClipInvocationModel.handle(url:)` | Query `patchId` wins over path, supports `/BYT424?patchId=...`. |
 | App Clip handoff | `mainAppHandoffURL` | Uses `https://bytspot.app/access/{patchId}` with tier/source/handoff query. |
@@ -31,9 +35,10 @@ Scope: migrate Bytspot iOS from Capacitor React webview to SwiftUI without losin
 | Map/Scanner | `MapSection`, `useMapPatchScanner`, `VirtualPatchScannerSheet` | `NativeMapExploreView`, native scanner coordinator |
 | Access/Wallet | `ProfileSection`, virtual patch saved requests | `NativeAccessWalletView` as a profile/account subview, not a bottom tab |
 | Concierge | `HomeConcierge`, `ConciergeSection`, `ConciergeChat` | `NativeConciergeView` |
-| Provider/ERP | `ProviderApp`, dashboard/onboarding/listings/patches | Later SwiftUI ERP module |
-| Valet | `ValetApp`, `ValetFlow` | Later native operations module |
-| Legal/static | Privacy, Terms, Disclaimer | Native Web/SFSafari fallback acceptable initially |
+| Provider/ERP | `ProviderApp`, dashboard/onboarding/listings/patches | Deferred from public App Store native release; later TestFlight/internal SwiftUI module. |
+| Vendor/Admin | `ProviderConsole`, admin routes | Deferred from public App Store native release until backend review + native authorization gates are complete. |
+| Valet/mobility | `ValetApp`, `ValetFlow`, mobility utils | Consumer airport transfer request flow is native; operations dashboards remain deferred. |
+| Legal/static | Privacy, Terms, Disclaimer | Native legal surfaces required for App Store scope. |
 
 ## Route And Deep-Link Contract
 
@@ -47,7 +52,7 @@ Scope: migrate Bytspot iOS from Capacitor React webview to SwiftUI without losin
 | `bytspot://map` | Opens Map tab | Native tab route. |
 | `bytspot://venue/{id}` | Opens Discover venue detail | Native discover route. |
 | `bytspot://profile` | Opens profile/access area | Native account/access route. |
-| `/provider`, `/vendor` | Provider app routes, hidden in App Store mode | Keep web fallback until ERP phase. |
+| `/provider`, `/vendor`, `/admin` | Internal/provider routes | Do not advertise or expose in Parker consumer App Store build. Later native ERP/TestFlight workstream only. |
 | `/booking/success|cancelled` | Stripe return handler | Native booking return state. |
 | `/privacy`, `/terms`, `/disclaimer` | Static legal screens | Native or web fallback. |
 
@@ -90,17 +95,33 @@ Known backend routers from sibling backend inventory:
 
 Swift must use typed request/response DTOs for each migrated route instead of `any`.
 
-## First Native Implementation Slice
+## Current Native Implementation Slice
 
-Recommended first slice: native authenticated shell with React fallback preserved.
+Approved sequence as of 2026-07-15:
 
-1. Add `BytspotNativeAppRoot` behind a build flag or runtime debug flag.
-2. Add `SessionStore` using Keychain for `bytspot_auth_token` equivalent.
-3. Add typed `BytspotAPIClient` with health/auth/me smoke endpoints.
-4. Add native tab shell with exactly four tabs: Home, Discover, Map, Concierge.
-5. Keep Access / My Wallet inside profile/account and contextual CTAs, not bottom navigation.
-6. Each tab initially shows native skeleton + "Open legacy web" fallback.
-7. Run simulator smoke before any release-root switch.
+1. Keep the existing SwiftUI native root and four-tab consumer shell.
+2. Refresh this source-of-truth document so migration instructions no longer describe a Capacitor fallback.
+3. Add only low-risk consumer-native parity slices that fit the existing design system.
+4. First new slice: privacy-safe Home context snapshot using existing safe signals only.
+5. Continue to hide Provider, Vendor, Admin, raw sensor, and internal review surfaces from the public App Store build.
+
+### Privacy-safe context snapshot boundary
+
+Allowed now:
+
+- time/day pattern from the device clock
+- venue category from existing venue/discover data
+- aggregate/live crowd labels already returned by backend or curated fallback fixtures
+- nearby events already returned by `events.list`/`native.bootstrap`
+- parking availability already returned by venue/live-value data or curated fallback fixtures
+
+Not allowed in this slice:
+
+- Wi-Fi/Bluetooth device density collection
+- raw MAC addresses, device identifiers, or background scans
+- microphone/sound-level collection
+- POS/reservation ingestion unless a vendor explicitly opts in and a backend policy contract exists
+- Provider/Vendor/Admin UI exposure in the consumer App Store shell
 
 ## Workstream C — Native Venue Details
 
@@ -142,4 +163,4 @@ the follow-on: it consumes the existing `checkout` contract block and the L3
 
 ## Current Decision
 
-Start with Phase 0 inventory and native shell contracts. Do not make the native shell the default App Store root until Phase 1 gates pass and App Clip invocation remains green.
+The native shell is already the default App Store root. Continue with consumer-only native parity, native App/Clip gates, Xcode simulator builds, and App Store purity checks before release.

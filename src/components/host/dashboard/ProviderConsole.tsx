@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Bell, CalendarClock, CheckCircle2, Clock, Crown, DollarSign, Gem, Inbox, Leaf, MessageSquare, RefreshCcw, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
+import { loadProviderCheckInCountsViaRpc, type NativeCheckInProviderCountsResponse } from '../../../utils/nativeCheckinV2Contract';
 import { type DashboardBookingStatus } from '../../../utils/providerDashboardData';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
@@ -105,6 +106,7 @@ export function ProviderConsole({ isDarkMode, access }: ProviderConsoleProps) {
   const [error, setError] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<ConsoleBooking[]>([]);
   const [active, setActive] = useState<ConsoleBooking[]>([]);
+  const [checkInCounts, setCheckInCounts] = useState<NativeCheckInProviderCountsResponse | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, DashboardBookingStatus>>({});
   const [selected, setSelected] = useState<ConsoleBooking | null>(null);
@@ -128,14 +130,15 @@ export function ProviderConsole({ isDarkMode, access }: ProviderConsoleProps) {
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     const silent = Boolean(options?.silent);
-    if (!localStorage.getItem('bytspot_auth_token')) { setLoading(false); setIncoming([]); setActive([]); setLastSyncedAt(null); return; }
+    if (!localStorage.getItem('bytspot_auth_token')) { setLoading(false); setIncoming([]); setActive([]); setCheckInCounts(null); setLastSyncedAt(null); return; }
     if (!silent) setLoading(true);
     setError(null);
     try { await trpc.vendors.syncNotifications.mutate({ warningWindowMinutes: 15 }); } catch { /* non-blocking */ }
     try {
-      const [incomingResult, activeResult, legacyResult, notesResult] = await Promise.allSettled([
+      const [incomingResult, activeResult, legacyResult, notesResult, checkInCountsResult] = await Promise.allSettled([
         trpc.vendors.listIncomingRequests.query({ limit: 20 }), trpc.vendors.listActiveBookings.query({ limit: 50 }),
         trpc.vendors.listBookings.query({ limit: 100 }), trpc.vendors.listNotifications.query({ unreadOnly: true, limit: 20 }),
+        loadProviderCheckInCountsViaRpc(trpc, { window: 'today' }),
       ]);
       const incomingRows = incomingResult.status === 'fulfilled' ? ((incomingResult.value as any)?.requests ?? []) : [];
       const activeRows = activeResult.status === 'fulfilled' && Array.isArray((activeResult.value as any)?.bookings)
@@ -143,6 +146,7 @@ export function ProviderConsole({ isDarkMode, access }: ProviderConsoleProps) {
       setIncoming((Array.isArray(incomingRows) ? incomingRows : []).map(mapBooking).filter(Boolean) as ConsoleBooking[]);
       setActive((Array.isArray(activeRows) ? activeRows : []).map(mapBooking).filter(Boolean) as ConsoleBooking[]);
       setUnreadCount(notesResult.status === 'fulfilled' ? Number((notesResult.value as any)?.unreadCount ?? 0) : 0);
+      setCheckInCounts(checkInCountsResult.status === 'fulfilled' ? checkInCountsResult.value : null);
       setLastSyncedAt(new Date().toISOString());
     } catch (err: any) { setError(err?.message ?? 'Unable to load Provider Console.'); }
     finally { setLoading(false); }
@@ -213,7 +217,7 @@ export function ProviderConsole({ isDarkMode, access }: ProviderConsoleProps) {
     'Guest checked in. The booking is now marked in progress for the Provider team.',
     'active',
   ).then(() => setStatusOverrides((prev) => ({ ...prev, [booking.id]: 'in_progress' })));
-  const statCards = [{ label: 'Incoming', value: incomingRows.length }, { label: 'Active', value: activeRows.length }, { label: 'Unread', value: unreadCount }];
+  const statCards = [{ label: 'Incoming', value: incomingRows.length }, { label: 'Active', value: activeRows.length }, { label: 'Check-ins', value: checkInCounts?.total ?? 0 }, { label: 'Unread', value: unreadCount }];
   const syncedLabel = lastSyncedAt ? `Auto-refresh · synced ${formatDate(lastSyncedAt)}` : 'Auto-refresh starting';
 
   return <div className={`space-y-6 ${tone.page}`} data-testid="provider-console-shell">
@@ -221,7 +225,7 @@ export function ProviderConsole({ isDarkMode, access }: ProviderConsoleProps) {
       <div><p className={`text-[12px] uppercase tracking-[0.2em] ${tone.muted}`} style={{ fontWeight: 900 }}>Provider Console</p><h1 className={`mt-1 text-[34px] ${tone.strong}`} style={{ fontWeight: 800 }}>Requests & Active Bookings</h1><p className={`mt-2 text-[16px] ${tone.body}`}>Triage luxury requests, monitor holds, and keep service handoffs App Clip ready.</p></div>
       <div className="flex flex-col gap-2 xl:items-end"><button type="button" onClick={() => refresh()} className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-[13px] ${tone.soft}`} style={{ fontWeight: 800 }} data-testid="provider-console-refresh"><RefreshCcw className="h-4 w-4" />Refresh</button><p className={`text-[12px] ${tone.muted}`} data-testid="provider-console-auto-refresh">{syncedLabel}</p></div>
     </motion.div>
-    <div className="grid gap-3 sm:grid-cols-3">{statCards.map((card) => <div key={card.label} className={`rounded-[20px] border p-4 shadow-lg ${tone.panel}`}><p className={`text-[12px] uppercase tracking-[0.16em] ${tone.muted}`} style={{ fontWeight: 850 }}>{card.label}</p><p className="mt-1 text-[30px]" style={{ fontWeight: 900 }}>{card.value}</p></div>)}</div>
+    <div className="grid gap-3 sm:grid-cols-4">{statCards.map((card) => <div key={card.label} className={`rounded-[20px] border p-4 shadow-lg ${tone.panel}`}><p className={`text-[12px] uppercase tracking-[0.16em] ${tone.muted}`} style={{ fontWeight: 850 }}>{card.label}</p><p className="mt-1 text-[30px]" style={{ fontWeight: 900 }}>{card.value}</p></div>)}</div>
     {actionMessage && <p className={`rounded-2xl border px-4 py-3 text-[13px] ${tone.soft}`} style={{ fontWeight: 800 }} data-testid="provider-console-action-message"><span data-testid="provider-bookings-handoff-message">{actionMessage}</span></p>}
     {error && <p className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-[13px] font-bold text-red-900">{error}</p>}
     <section className="grid gap-5 xl:grid-cols-[1fr_420px]">

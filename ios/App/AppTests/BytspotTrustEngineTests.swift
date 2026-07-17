@@ -209,6 +209,30 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNotEqual(NativeManualCheckInScope.authenticated(token: liveToken), accountAScope)
     }
 
+    func testNativeCheckInV2ContractLocksManualCreateInput() throws {
+        XCTAssertEqual(NativeCheckInV2Contract.createRoute, "/trpc/checkins.create")
+        XCTAssertEqual(NativeCheckInV2Contract.providerCountsRoute, "/trpc/checkins.providerCounts")
+        XCTAssertEqual(NativeCheckInV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
+
+        let input = NativeCheckInV2Contract.manualCreateInput(venueId: "venue-42", idempotencyKey: "idem-42", observedAt: "2026-07-17T12:00:00Z", patchId: "BYT424-0301-P")
+        XCTAssertEqual(input["venueId"] as? String, "venue-42")
+        XCTAssertEqual(input["idempotencyKey"] as? String, "idem-42")
+        XCTAssertEqual(input["trustLevel"] as? String, "staticDiscovery")
+        XCTAssertEqual(input["source"] as? String, "native_ios_manual")
+        XCTAssertEqual(input["patchId"] as? String, "BYT424-0301-P")
+    }
+
+    func testNativeCheckInV2UsesStandardTRPCEnvelope() throws {
+        let input = NativeCheckInV2Contract.manualCreateInput(venueId: "venue-42", idempotencyKey: "idem-42")
+        let body = try JSONSerialization.data(withJSONObject: ["json": input])
+        let bodyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let json = try XCTUnwrap(bodyObject["json"] as? [String: Any])
+
+        XCTAssertEqual(json["venueId"] as? String, "venue-42")
+        XCTAssertEqual(json["trustLevel"] as? String, "staticDiscovery")
+        XCTAssertNil(bodyObject["venueId"], "v2 checkins use the standard tRPC json envelope, unlike transformer-less groupEvents routes.")
+    }
+
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")

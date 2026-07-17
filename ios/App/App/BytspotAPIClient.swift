@@ -533,6 +533,82 @@ struct NativeGroupEventDataAPI {
     }
 }
 
+enum NativeCheckInV2Contract {
+    static let createRoute = "/trpc/checkins.create"
+    static let syncRoute = "/trpc/checkins.sync"
+    static let reconcilePointsRoute = "/trpc/checkins.reconcilePoints"
+    static let providerCountsRoute = "/trpc/checkins.providerCounts"
+    static let venueIntelligenceRoute = "/trpc/venues.intelligence"
+    static let verifyRoute = "/trpc/checkins.verify"
+    static let groupJoinRoute = "/trpc/groupEvents.join"
+    static let manualTrustLevel = "staticDiscovery"
+    static let manualSource = "native_ios_manual"
+
+    static func manualCreateInput(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil, groupEventId: String? = nil) -> [String: Any] {
+        var input: [String: Any] = ["venueId": venueId, "idempotencyKey": idempotencyKey, "trustLevel": manualTrustLevel, "source": manualSource]
+        if let observedAt, !observedAt.isEmpty { input["observedAt"] = observedAt }
+        if let patchId, !patchId.isEmpty { input["patchId"] = patchId }
+        if let groupEventId, !groupEventId.isEmpty { input["groupEventId"] = groupEventId }
+        return input
+    }
+}
+
+struct NativeCheckInCreateResponse: Codable, Equatable {
+    var checkInId: String
+    var venueId: String
+    var trustLevel: String
+    var pointsAwarded: Int
+    var pointsBalance: Int?
+    var syncedAt: String?
+    var providerVisible: Bool?
+}
+
+struct NativeCheckInVenueCount: Codable, Equatable, Identifiable {
+    var venueId: String
+    var venueName: String?
+    var manual: Int
+    var verified: Int
+    var activeNow: Int
+
+    var id: String { venueId }
+}
+
+struct NativeCheckInProviderCountsResponse: Codable, Equatable {
+    var total: Int
+    var manual: Int
+    var verified: Int
+    var activeNow: Int
+    var pendingSync: Int
+    var updatedAt: String?
+    var venues: [NativeCheckInVenueCount]?
+}
+
+struct NativeCheckInPointsReconciliation: Codable, Equatable {
+    var pointsBalance: Int
+    var pendingPoints: Int
+    var reconciledAt: String?
+}
+
+struct NativeCheckInDataAPI {
+    let client: BytspotAPIClient
+
+    func createManualCheckIn(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil, groupEventId: String? = nil) async throws -> NativeCheckInCreateResponse {
+        try await client.trpcDecode(NativeCheckInCreateResponse.self, path: NativeCheckInV2Contract.createRoute, method: "POST", input: NativeCheckInV2Contract.manualCreateInput(venueId: venueId, idempotencyKey: idempotencyKey, observedAt: observedAt, patchId: patchId, groupEventId: groupEventId))
+    }
+
+    func sync(records: [[String: Any]]) async throws -> [NativeCheckInCreateResponse] {
+        try await client.trpcDecode([NativeCheckInCreateResponse].self, path: NativeCheckInV2Contract.syncRoute, method: "POST", input: ["records": records])
+    }
+
+    func reconcilePoints() async throws -> NativeCheckInPointsReconciliation {
+        try await client.trpcDecode(NativeCheckInPointsReconciliation.self, path: NativeCheckInV2Contract.reconcilePointsRoute, method: "POST", input: [:])
+    }
+
+    func providerCounts(input: [String: Any] = ["window": "today"]) async throws -> NativeCheckInProviderCountsResponse {
+        try await client.trpcDecode(NativeCheckInProviderCountsResponse.self, path: NativeCheckInV2Contract.providerCountsRoute, method: "POST", input: input)
+    }
+}
+
 struct NativeAuthUserRecord: Codable, Equatable {
     var id: String?
     var email: String?

@@ -829,7 +829,7 @@ private struct NativeProfileHeaderCard: View {
                     HStack(spacing: 0) {
                         NativeProfileStat(value: "\(NativeProfileDefaults.following)", label: "Following")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
-                        NativeProfileStat(value: NativeProfileDefaults.pointsLabel, label: "Points")
+                        NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(), label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
                         NativeProfileStat(value: "\(NativeProfileDefaults.badgesUnlocked)", label: "Badges")
                     }
@@ -1225,6 +1225,10 @@ private struct NativeArrivalLedgerItem: Identifiable {
         return Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: pending ? "Awaiting Stripe" : "Confirmed", statusBadge: pending ? "AWAITING STRIPE" : "CONFIRMED", statusColor: pending ? NativeTransactionVisuals.pendingAccent : NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
     }
 
+    static func checkIn(_ record: NativeManualCheckInRecord) -> Self {
+        Self(id: "checkin-\(record.id)", title: "Manual Check-In", venue: record.venueName, window: record.displayTimeLabel, payment: "+\(record.pointsAwarded) pending points", reservation: record.trustLabel, statusBadge: record.syncStatusBadge, statusColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Review in Places I've Been", createdAt: record.createdAt)
+    }
+
     static func server(_ entry: NativeWalletLedgerRecord) -> Self {
         let badge = serverStatusBadge(entry)
         return Self(id: "server-\(entry.id)", title: entry.title, venue: entry.displayVenue, window: entry.displayWindow, payment: entry.displayPayment, reservation: entry.displayReservation, statusBadge: badge, statusColor: serverStatusColor(badge), actionTitle: entry.actions?.first?.title ?? "Open My Access", createdAt: entry.createdAt)
@@ -1260,7 +1264,8 @@ private struct NativeArrivalLedgerPanel: View {
         let stays = NativeStayRequestStore.all().map(NativeArrivalLedgerItem.stay)
         let rides = NativeValetRideWalletStore.all().map(NativeArrivalLedgerItem.ride)
         let orders = NativeMenuOrderStore.all().map(NativeArrivalLedgerItem.order)
-        return (parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
+        let checkIns = NativeManualCheckInStore.all().map(NativeArrivalLedgerItem.checkIn)
+        return (checkIns + parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
@@ -2630,11 +2635,17 @@ private struct NativeProfilePlacesVisitedPanel: View {
 
     private var activitySummary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(favoriteActivityIDs.isEmpty ? "No visit marked" : "\(favoriteActivityIDs.count) marked from \(activities.count) recent visits")
-                .font(.system(size: 15, weight: .black))
-                .foregroundColor(NativeTheme.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(favoriteActivityIDs.isEmpty ? "No visit marked" : "\(favoriteActivityIDs.count) marked from \(activities.count) recent visits")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundColor(NativeTheme.textPrimary)
+                Spacer(minLength: 8)
+                Button(action: reconcileManualCheckIns) { syncLabel }
+                    .buttonStyle(.plain)
+            }
             HStack(spacing: 8) {
                 activityBadge("\(activities.count) recent", color: NativeTheme.textSecondary)
+                if NativeManualCheckInStore.pendingPoints() > 0 { activityBadge("\(NativeManualCheckInStore.pendingPoints()) pending pts", color: NativeTheme.emerald) }
                 if !favoriteActivityIDs.isEmpty { activityBadge("\(favoriteActivityIDs.count) marked", color: NativeTransactionVisuals.pendingAccent) }
             }
         }
@@ -2658,6 +2669,21 @@ private struct NativeProfilePlacesVisitedPanel: View {
 
     private func activityBadge(_ title: String, color: Color) -> some View {
         Text(title.uppercased()).font(.system(size: 10.5, weight: .black)).tracking(0.8).foregroundColor(color).padding(.horizontal, 10).frame(height: 28).background(color.opacity(0.10)).clipShape(Capsule())
+    }
+
+    private var syncLabel: some View {
+        Label("Sync", systemImage: "arrow.clockwise")
+            .font(.system(size: 11.5, weight: .black))
+            .foregroundColor(NativeTheme.cyan)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(NativeTheme.cyan.opacity(0.10))
+            .clipShape(Capsule())
+    }
+
+    private func reconcileManualCheckIns() {
+        nativeImpactLight()
+        statusMessage = "Synced local check-ins · \(NativeManualCheckInStore.pointsLabel()) points · API reconciliation pending."
     }
 
     private func review(_ activity: NativeProfileVisitActivity) {
@@ -2707,19 +2733,23 @@ private struct NativeProfileVisitActivity: Identifiable {
     let id: String; let title: String; let subtitle: String; let meta: String; let icon: String; let color: Color
 
     var kindLabel: String {
+        if id.hasPrefix("checkin-") { return "Check-in" }
         if id.hasPrefix("event-") { return "Access" }
         if icon.contains("parking") { return "Parking" }
         return "Visit"
     }
 
     static func timeline(from snapshot: NativeTabContentSnapshot) -> [NativeProfileVisitActivity] {
+        let checkInItems = NativeManualCheckInStore.all().prefix(4).map { record in
+            NativeProfileVisitActivity(id: "checkin-\(record.id)", title: "Manual check-in · \(record.venueName)", subtitle: record.address, meta: record.profileMetaLine, icon: "checkmark.seal.fill", color: NativeTheme.emerald)
+        }
         let eventItems = snapshot.events.prefix(1).map { event in
             NativeProfileVisitActivity(id: "event-\(event.id)", title: "Pass viewed · \(event.title)", subtitle: event.venue, meta: "\(event.time) · \(event.price)", icon: "ticket.fill", color: NativeTheme.purple)
         }
         let venueItems = snapshot.venues.prefix(2).map { venue in
             NativeProfileVisitActivity(id: "venue-\(venue.id)", title: "Checked in · \(venue.name)", subtitle: venue.address, meta: venue.crowd?.label ?? "Recent visit", icon: NativeTabContentStore.icon(for: venue.discoverType), color: venue.discoverType == "parking" ? NativeTheme.emerald : NativeTheme.cyan)
         }
-        return Array((eventItems + venueItems).prefix(3))
+        return Array((checkInItems + eventItems + venueItems).prefix(6))
     }
 }
 
@@ -4708,7 +4738,8 @@ private struct NativeWalletLedgerPreferenceSections: View {
     @EnvironmentObject private var walletLedgerStore: NativeWalletLedgerStore
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeManualCheckInWalletSection()
             if walletLedgerStore.snapshot.items.isEmpty {
                 NativeParkingReservationWalletSection()
                 NativeValetRideWalletSection()
@@ -4718,6 +4749,54 @@ private struct NativeWalletLedgerPreferenceSections: View {
             }
         }
         .task { await walletLedgerStore.refresh(sessionStore: sessionStore) }
+    }
+}
+
+private struct NativeManualCheckInWalletSection: View {
+    @State private var statusMessage = ""
+    private var record: NativeManualCheckInRecord? { NativeManualCheckInStore.latest() }
+
+    var body: some View {
+        Group {
+            if let record {
+                VStack(alignment: .leading, spacing: 12) {
+                    NativeWalletLine(title: "Active Manual Check-In", subtitle: "\(record.venueName) · \(record.syncStatusLabel)", icon: "checkmark.seal.fill")
+                    NativeTransactionLedger(entries: [
+                        NativeTransactionLedgerEntry("Trust", record.trustLabel, valueColor: NativeTransactionVisuals.pendingAccent),
+                        NativeTransactionLedgerEntry("Points", "+\(record.pointsAwarded) pending", valueColor: NativeTheme.emerald),
+                        NativeTransactionLedgerEntry("Sync", record.syncStatusLabel, valueColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
+                    ])
+                    if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                    Button(action: reconcile) { syncActionLabel }
+                        .buttonStyle(.plain)
+                }
+                .padding(12)
+                .background(NativePolish.mapPanelSurface.opacity(0.92))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .accessibilityIdentifier("native-manual-checkin-wallet-section")
+            }
+        }
+    }
+
+    private var syncActionLabel: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.clockwise")
+            Text("Sync Check-Ins")
+            Spacer(minLength: 0)
+            Text(NativeManualCheckInStore.pointsLabel()).opacity(0.72)
+        }
+        .font(.system(size: 12, weight: .black))
+        .foregroundColor(NativeTheme.textPrimary)
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(NativeTheme.selectedControlSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func reconcile() {
+        nativeImpactLight()
+        statusMessage = "Local totals refreshed · \(NativeManualCheckInStore.pendingPoints()) pending points."
     }
 }
 
@@ -6432,6 +6511,90 @@ private enum NativePaymentDisplay {
     /// builds; real card labels (e.g. "Visa •••• 1234") pass through unchanged.
     static func sanitized(_ raw: String) -> String {
         raw == "Card •••• 4242" ? "Credit / Debit Card" : raw
+    }
+}
+
+private struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
+    let id: String
+    let venueID: String
+    let venueName: String
+    let address: String
+    let category: String
+    let createdAt: String
+    let idempotencyKey: String
+    let trustLabel: String
+    let pointsAwarded: Int
+    let syncStatus: String
+
+    var isSynced: Bool { syncStatus == "synced" }
+    var syncStatusBadge: String { isSynced ? "SYNCED" : "PENDING SYNC" }
+    var syncStatusLabel: String { isSynced ? "Synced" : "Pending API sync" }
+    var displayTimeLabel: String { Self.displayTime(from: createdAt) }
+    var profileMetaLine: String { "+\(pointsAwarded) pending points · \(trustLabel) · \(displayTimeLabel)" }
+
+    static func manual(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date(), syncStatus: String = "pending_sync") -> Self {
+        Self(id: "manual-\(Int(date.timeIntervalSince1970))-\(venue.id)", venueID: venue.id, venueName: venue.name, address: venue.address, category: venue.discoverType, createdAt: ISO8601DateFormatter().string(from: date), idempotencyKey: idempotencyKey, trustLabel: "Manual signal", pointsAwarded: NativeManualCheckInStore.manualPointAward, syncStatus: syncStatus)
+    }
+
+    func markingSynced() -> Self {
+        Self(id: id, venueID: venueID, venueName: venueName, address: address, category: category, createdAt: createdAt, idempotencyKey: idempotencyKey, trustLabel: trustLabel, pointsAwarded: pointsAwarded, syncStatus: "synced")
+    }
+
+    private static func displayTime(from raw: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: raw) else { return "Recent check-in" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d · h:mm a"
+        return formatter.string(from: date)
+    }
+}
+
+private enum NativeManualCheckInStore {
+    static let storageKey = "bytspot_native_manual_checkins"
+    static let maxRecords = 24
+    static let manualPointAward = 10
+    private static let duplicateWindowSeconds: TimeInterval = 6 * 60 * 60
+
+    static func all() -> [NativeManualCheckInRecord] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let records = try? JSONDecoder().decode([NativeManualCheckInRecord].self, from: data) else { return [] }
+        return records.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    static func latest() -> NativeManualCheckInRecord? { all().first }
+
+    static func record(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date()) -> (NativeManualCheckInRecord, Bool) {
+        if let recent = recentCheckIn(venueID: venue.id, now: date) { return (recent, false) }
+        let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date)
+        upsert(record)
+        return (record, true)
+    }
+
+    static func upsert(_ record: NativeManualCheckInRecord) {
+        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
+        if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
+    }
+
+    static func markSynced(id: String) {
+        guard let record = all().first(where: { $0.id == id }) else { return }
+        upsert(record.markingSynced())
+    }
+
+    static func hasRecentCheckIn(venueID: String, now: Date = Date()) -> Bool { recentCheckIn(venueID: venueID, now: now) != nil }
+
+    static func pendingPoints() -> Int { all().filter { !$0.isSynced }.reduce(0) { $0 + $1.pointsAwarded } }
+
+    static func pointsBalance() -> Int { NativeProfileDefaults.points + all().reduce(0) { $0 + $1.pointsAwarded } }
+
+    static func pointsLabel() -> String {
+        let points = pointsBalance()
+        return points >= 1000 ? String(format: "%.1fK", Double(points) / 1000) : "\(points)"
+    }
+
+    private static func recentCheckIn(venueID: String, now: Date) -> NativeManualCheckInRecord? {
+        all().first { record in
+            guard record.venueID == venueID, let date = ISO8601DateFormatter().date(from: record.createdAt) else { return false }
+            return now.timeIntervalSince(date) < duplicateWindowSeconds
+        }
     }
 }
 
@@ -9137,6 +9300,7 @@ private struct NativeDiscoverView: View {
     @State private var detailVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var partnerMenuVenue: NativeVenueSummary?
+    @State private var discoverStatusMessage: String?
     @State private var guestSavePromptTitle: String?
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -9223,6 +9387,7 @@ private struct NativeDiscoverView: View {
     private var filterSystem: some View {
         VStack(alignment: .leading, spacing: 8) {
             discoverHeader
+            if let discoverStatusMessage { discoverStatusBanner(discoverStatusMessage) }
             categoryRail
             accessTierRail
             sortSavedRail
@@ -9326,6 +9491,7 @@ private struct NativeDiscoverView: View {
                     NativeDiscoverFeatureCard(
                         card: card,
                         isSaved: savedCardIDs.contains(card.id),
+                        primaryCTATitle: primaryTitle(for: card),
                         openDetails: { detailVenue = venueForDetail(card) },
                         primaryAction: { handlePrimaryCTA(card) },
                         toggleFavorite: { toggleSaved(card.id) },
@@ -9432,11 +9598,58 @@ private struct NativeDiscoverView: View {
 
     private func handlePrimaryCTA(_ card: DiscoverCardSpec) {
         let venue = venueForDetail(card)
+        if Self.supportsManualCheckIn(card, venue: venue) {
+            performManualCheckIn(from: venue)
+            return
+        }
         if Self.isDiningCard(card) || NativeVenueDetailPresentation.isDiningVenue(venue) {
             partnerMenuVenue = venue
         } else {
             detailVenue = venue
         }
+    }
+
+    private func primaryTitle(for card: DiscoverCardSpec) -> String {
+        let venue = venueForDetail(card)
+        guard Self.supportsManualCheckIn(card, venue: venue) else { return card.cta }
+        return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id) ? "Checked In" : "Check In"
+    }
+
+    private static func supportsManualCheckIn(_ card: DiscoverCardSpec, venue: NativeVenueSummary) -> Bool {
+        card.entryType == "free" && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
+    }
+
+    private func performManualCheckIn(from venue: NativeVenueSummary) {
+        nativeImpactLight()
+        guard sessionStore.isAuthenticated else {
+            discoverStatusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."
+            openNativeAuth()
+            return
+        }
+        let idempotencyKey = UUID().uuidString
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey)
+        discoverStatusMessage = created ? "Checked in at \(venue.name) · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        guard created, sessionStore.canAttachBearerToken else { return }
+        Task { await syncManualCheckIn(record) }
+    }
+
+    private func syncManualCheckIn(_ record: NativeManualCheckInRecord) async {
+        let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": record.venueID, "idempotencyKey": record.idempotencyKey]])
+        let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
+        guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
+        NativeManualCheckInStore.markSynced(id: record.id)
+        await MainActor.run { discoverStatusMessage = "Synced check-in at \(record.venueName) · points saved." }
+    }
+
+    private func discoverStatusBanner(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12.5, weight: .black))
+            .foregroundColor(.black)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 38)
+            .background(NativeTheme.cyan)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private static func isDiningCard(_ card: DiscoverCardSpec) -> Bool {
@@ -9635,6 +9848,7 @@ private struct NativeDiscoverIntroStep: View {
 private struct NativeDiscoverFeatureCard: View {
     let card: NativeDiscoverView.DiscoverCardSpec
     let isSaved: Bool
+    var primaryCTATitle: String? = nil
     let openDetails: () -> Void
     let primaryAction: () -> Void
     let toggleFavorite: () -> Void
@@ -9733,7 +9947,7 @@ private struct NativeDiscoverFeatureCard: View {
                 Button(action: triggerPrimaryAction) {
                     HStack(spacing: 8) {
                         Spacer(minLength: 0)
-                        Text(card.cta)
+                        Text(primaryCTATitle ?? card.cta)
                             .font(.system(size: 14, weight: .black))
                         Image(systemName: "arrow.right")
                             .font(.system(size: 12, weight: .black))
@@ -10136,6 +10350,7 @@ private struct NativeVenueDetailView: View {
         .sheet(isPresented: $showPartnerMenu) {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
         }
+        .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id) }
     }
 
     private var stayProductHero: some View {
@@ -10349,15 +10564,15 @@ private struct NativeVenueDetailView: View {
         } else if NativeVenueDetailPresentation.isMobilityVenue(venue) {
             priorityIDs = ["bookRide", "save", "share", "concierge"]
         } else if NativeVenueDetailPresentation.isCoffeeVenue(venue) {
-            priorityIDs = ["navigate", "call", "save", "share", "concierge"]
+            priorityIDs = ["checkIn", "navigate", "call", "save", "share", "concierge"]
         } else if NativeVenueDetailPresentation.isDiningVenue(venue) {
-            priorityIDs = ["getTickets", "call", "navigate", "save", "share", "concierge"]
+            priorityIDs = ["checkIn", "getTickets", "call", "navigate", "save", "share", "concierge"]
         } else if NativeVenueDetailPresentation.isServiceVenue(venue) {
             priorityIDs = ["getTickets", "save", "share", "concierge"]
         } else if venue.discoverType == "parking" {
             priorityIDs = ["getTickets", "navigate", "save", "share", "concierge"]
         } else {
-            priorityIDs = ["navigate", "save", "share", "concierge"]
+            priorityIDs = NativeVenueDetailPresentation.supportsManualCheckIn(venue) ? ["checkIn", "navigate", "save", "share", "concierge"] : ["navigate", "save", "share", "concierge"]
         }
         return priorityIDs.compactMap { id in NativeVenueDetailContract.actions.first(where: { $0.id == id }) }
     }
@@ -10383,7 +10598,7 @@ private struct NativeVenueDetailView: View {
         return HStack(spacing: 11) {
             Image(systemName: locked ? "lock.fill" : NativeVenueDetailPresentation.actionSystemImage(for: action, venue: venue)).font(.system(size: 18, weight: .black)).foregroundColor(locked ? NativeTheme.textTertiary : actionAccent(action))
                 .frame(width: 36, height: 36).background((locked ? NativeTheme.textTertiary : actionAccent(action)).opacity(0.13)).clipShape(Circle())
-            Text(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue)).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.78)
+            Text(detailActionTitle(for: action)).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1).minimumScaleFactor(0.78)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -10571,13 +10786,18 @@ private struct NativeVenueDetailView: View {
         guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
         didCheckIn = true
         let idempotencyKey = UUID().uuidString
-        statusMessage = "Checked in at \(venue.name)!"
-        guard sessionStore.canAttachBearerToken else { return }
-        let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]])
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey)
+        statusMessage = created ? "Manual check-in saved · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        guard created, sessionStore.canAttachBearerToken else { return }
+        guard let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]]) else { return }
         let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
-        _ = try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)
+        if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
+            NativeManualCheckInStore.markSynced(id: record.id)
+            await MainActor.run { statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved." }
+        }
     }
 
+    private func detailActionTitle(for action: NativeVenueDetailAction) -> String { action.id == "checkIn" && didCheckIn ? "Checked In" : NativeVenueDetailPresentation.actionTitle(for: action, venue: venue) }
     private func isLocked(_ action: NativeVenueDetailAction) -> Bool { if action.id == "bookRide", NativeVenueDetailPresentation.isMobilityVenue(venue) { return false }; if case .capability(let capability) = action.kind { return currentTrustLevel < capability.requiredLevel }; return false }
     private func actionAccent(_ action: NativeVenueDetailAction) -> Color { ["navigate": NativeTheme.cyan, "call": NativeTheme.emerald, "share": NativeTheme.textPrimary, "save": NativeTheme.pink, "getTickets": NativeTheme.blackAmber, "checkIn": NativeTheme.emerald, "concierge": NativeTheme.purple, "bookRide": NativeTheme.orange][action.id] ?? NativeTheme.cyan }
     private var categoryDetailIcon: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "house.fill" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "cup.and.saucer.fill" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "fork.knife" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "ticket.fill" : venue.discoverType == "mobility" ? "car.side.fill" : venue.discoverType == "parking" ? "parkingsign.circle.fill" : "sparkles" }

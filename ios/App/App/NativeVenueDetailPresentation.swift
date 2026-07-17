@@ -33,6 +33,12 @@ enum NativeVenueDetailContract {
 }
 
 enum NativeVenueDetailPresentation {
+    static func supportsManualCheckIn(_ venue: NativeVenueSummary) -> Bool {
+        if isBoutiqueApartmentVenue(venue) || isMobilityVenue(venue) || isServiceVenue(venue) { return false }
+        if isEventOrPassVenue(venue) || venue.discoverType == "parking" { return false }
+        return true
+    }
+
     static func actionTitle(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
         if isCoffeeVenue(venue) || isDiningVenue(venue) || isBoutiqueApartmentVenue(venue) {
             if action.id == "call" { return "Contact" }

@@ -4309,14 +4309,14 @@ private struct NativeProfileSummaryCard: View {
 private struct NativeProfileCommandGrid: View {
     let openPanel: (NativeProfilePanel) -> Void
 
-    static let tileTitles = ["Wallet", "Bookings", "Rewards", "Saved"]
-    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .rewards, .savedSpots]
+    static let tileTitles = ["Wallet", "Bookings", "Payments", "Rewards"]
+    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .paymentMethods, .rewards]
 
     private let tiles: [(String, String, String, String, NativeProfilePanel, Color)] = [
         ("WALLET", "Wallet", "Passes & access", "ticket.fill", .access, NativeTheme.pink),
         ("BOOKINGS", "Bookings", "Parking & stays", "car.fill", .reservations, NativeTheme.cyan),
-        ("STATUS", "Rewards", "Points & badges", "sparkles", .rewards, NativeTheme.purple),
-        ("SAVED", "Saved", "Places you keep", "heart.fill", .savedSpots, NativeTheme.emerald)
+        ("PAYMENTS", "Payments", "Cards & Apple Pay", "creditcard.fill", .paymentMethods, NativeTheme.pink),
+        ("STATUS", "Rewards", "Points & badges", "sparkles", .rewards, NativeTheme.purple)
     ]
 
     var body: some View {
@@ -15702,8 +15702,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Rewards", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
-        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .rewards, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
+        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Payments", "Rewards"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
+        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .paymentMethods, .rewards], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
         precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals", "NativeAccountParitySelfTests: Wallet/Bookings tiles must open My Access and Arrivals native surfaces.")
         precondition(NativeProfileBoardDesignContract.footerTitle == "Close" && NativeProfileBoardDesignContract.neutralActionSurface == "NativeTheme.selectedControlSurface", "NativeAccountParitySelfTests: Profile panels should use neutral board close actions, not colored generic Done footers.")
         precondition(NativeProfileBoardDesignContract.productBoardIDs == ["native-arrival-ledger-panel", "native-saved-places-board", "native-places-visited-board"], "NativeAccountParitySelfTests: Product boards must remain on the neutral ledger design system.")

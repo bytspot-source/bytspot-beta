@@ -969,7 +969,17 @@ struct ClipPatchVerifier {
         let currency = Self.string(row["currency"])?.uppercased() ?? service.currency
         let rating = Self.double(vendor["rating"]) ?? Self.double(row["rating"])
         let eta = Self.string(row["etaLabel"]) ?? Self.string(vendor["etaLabel"])
-        let hero = Self.url(row["heroImageUrl"]) ?? Self.url(row["heroImageURL"]) ?? Self.url(row["heroBannerUrl"]) ?? Self.url(row["imageUrl"]) ?? Self.url(row["thumbnailUrl"]) ?? Self.url(vendor["heroImageUrl"]) ?? Self.url(vendor["heroImageURL"]) ?? Self.url(vendor["heroBannerUrl"]) ?? Self.url(vendor["imageUrl"]) ?? Self.url(vendor["thumbnailUrl"])
+        let rowHero = Self.url(row["heroImageUrl"])
+            ?? Self.url(row["heroImageURL"])
+            ?? Self.url(row["heroBannerUrl"])
+            ?? Self.url(row["imageUrl"])
+            ?? Self.url(row["thumbnailUrl"])
+        let vendorHero = Self.url(vendor["heroImageUrl"])
+            ?? Self.url(vendor["heroImageURL"])
+            ?? Self.url(vendor["heroBannerUrl"])
+            ?? Self.url(vendor["imageUrl"])
+            ?? Self.url(vendor["thumbnailUrl"])
+        let hero = rowHero ?? vendorHero
         let availability = Self.string(row["availability"]) ?? Self.string(vendor["availability"]) ?? "Available now"
         let highlights = (row["includedHighlights"] as? [String]) ?? (row["highlights"] as? [String]) ?? (vendor["includedHighlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
         let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero ?? service.heroImageURL)
@@ -991,7 +1001,13 @@ struct ClipPatchVerifier {
             media: media,
             items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems
         )
-        vendorModel.videoURL = Self.url(row["videoUrl"]) ?? Self.url(row["videoURL"]) ?? Self.url(row["hlsUrl"]) ?? Self.url(vendor["videoUrl"]) ?? Self.url(vendor["videoURL"]) ?? Self.url(vendor["hlsUrl"])
+        let rowVideo = Self.url(row["videoUrl"])
+            ?? Self.url(row["videoURL"])
+            ?? Self.url(row["hlsUrl"])
+        let vendorVideo = Self.url(vendor["videoUrl"])
+            ?? Self.url(vendor["videoURL"])
+            ?? Self.url(vendor["hlsUrl"])
+        vendorModel.videoURL = rowVideo ?? vendorVideo
         vendorModel.thumbnailURL = Self.url(row["thumbnailUrl"]) ?? Self.url(row["posterUrl"]) ?? Self.url(vendor["thumbnailUrl"]) ?? Self.url(vendor["posterUrl"])
         vendorModel.heroBannerURL = Self.url(row["heroBannerUrl"]) ?? Self.url(row["heroBannerURL"]) ?? Self.url(vendor["heroBannerUrl"]) ?? Self.url(vendor["heroBannerURL"])
         vendorModel.scheduledDate = Self.string(row["scheduledDate"]) ?? Self.string(row["startTime"]) ?? Self.string(row["startDate"]) ?? Self.string(vendor["scheduledDate"]) ?? Self.string(vendor["startTime"])

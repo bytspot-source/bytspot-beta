@@ -3,6 +3,7 @@ import UIKit
 import MapKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CryptoKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, discover, map, concierge
@@ -829,7 +830,7 @@ private struct NativeProfileHeaderCard: View {
                     HStack(spacing: 0) {
                         NativeProfileStat(value: "\(NativeProfileDefaults.following)", label: "Following")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
-                        NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(), label: "Points")
+                        NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)), label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
                         NativeProfileStat(value: "\(NativeProfileDefaults.badgesUnlocked)", label: "Badges")
                     }
@@ -854,13 +855,15 @@ private struct NativeProfileAccountView: View {
     @State private var didConsumeInitialPanel = false
     @State private var didConsumeDirectSmokePanel = false
 
-    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.preferences, .appSettings, .safetyLegal]
+    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.placesActivity, .preferences, .appSettings, .safetyLegal]
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
+            NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
+            NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
             NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier)
@@ -1264,7 +1267,7 @@ private struct NativeArrivalLedgerPanel: View {
         let stays = NativeStayRequestStore.all().map(NativeArrivalLedgerItem.stay)
         let rides = NativeValetRideWalletStore.all().map(NativeArrivalLedgerItem.ride)
         let orders = NativeMenuOrderStore.all().map(NativeArrivalLedgerItem.order)
-        let checkIns = NativeManualCheckInStore.all().map(NativeArrivalLedgerItem.checkIn)
+        let checkIns = NativeManualCheckInStore.all(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)).map(NativeArrivalLedgerItem.checkIn)
         return (checkIns + parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
     }
 
@@ -1775,9 +1778,14 @@ private struct NativePaymentMethodsPanel: View {
         Task {
             do {
                 let session = try await api.createPaymentSetupSession()
+                guard let raw = session.safeSetupURLString, let url = URL(string: raw) else {
+                    statusMessage = "Payment setup did not return an approved secure Stripe link. Try again or use Apple Pay."
+                    isStartingSetup = false
+                    return
+                }
                 setupStaged = true
                 statusMessage = "Payment setup opened in a certified payment sheet."
-                if let raw = session.url, let url = URL(string: raw) { await MainActor.run { UIApplication.shared.open(url) } }
+                await MainActor.run { UIApplication.shared.open(url) }
             } catch { statusMessage = "Could not start payment setup. Try again or use Apple Pay at checkout." }
             isStartingSetup = false
         }
@@ -2607,10 +2615,12 @@ private struct NativeSavedPlaceBoardCard: View {
 
 private struct NativeProfilePlacesVisitedPanel: View {
     let snapshot: NativeTabContentSnapshot
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @AppStorage("bytspot_places_visited_favorite_ids") private var favoriteActivityIDsRaw = ""
     @AppStorage("bytspot_places_visited_last_reviewed_id") private var reviewedActivityID = ""
     @State private var statusMessage = ""
-    private var activities: [NativeProfileVisitActivity] { NativeProfileVisitActivity.timeline(from: snapshot) }
+    private var manualScope: NativeManualCheckInScope { NativeManualCheckInScope.authenticated(token: sessionStore.token) }
+    private var activities: [NativeProfileVisitActivity] { NativeProfileVisitActivity.timeline(from: snapshot, manualScope: manualScope) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2645,7 +2655,7 @@ private struct NativeProfilePlacesVisitedPanel: View {
             }
             HStack(spacing: 8) {
                 activityBadge("\(activities.count) recent", color: NativeTheme.textSecondary)
-                if NativeManualCheckInStore.pendingPoints() > 0 { activityBadge("\(NativeManualCheckInStore.pendingPoints()) pending pts", color: NativeTheme.emerald) }
+                if NativeManualCheckInStore.pendingPoints(scope: manualScope) > 0 { activityBadge("\(NativeManualCheckInStore.pendingPoints(scope: manualScope)) pending pts", color: NativeTheme.emerald) }
                 if !favoriteActivityIDs.isEmpty { activityBadge("\(favoriteActivityIDs.count) marked", color: NativeTransactionVisuals.pendingAccent) }
             }
         }
@@ -2672,7 +2682,7 @@ private struct NativeProfilePlacesVisitedPanel: View {
     }
 
     private var syncLabel: some View {
-        Label("Sync", systemImage: "arrow.clockwise")
+        Label("Refresh", systemImage: "arrow.clockwise")
             .font(.system(size: 11.5, weight: .black))
             .foregroundColor(NativeTheme.cyan)
             .padding(.horizontal, 9)
@@ -2683,7 +2693,7 @@ private struct NativeProfilePlacesVisitedPanel: View {
 
     private func reconcileManualCheckIns() {
         nativeImpactLight()
-        statusMessage = "Synced local check-ins · \(NativeManualCheckInStore.pointsLabel()) points · API reconciliation pending."
+        statusMessage = "Local totals refreshed · \(NativeManualCheckInStore.pointsLabel(scope: manualScope)) points · API reconciliation pending."
     }
 
     private func review(_ activity: NativeProfileVisitActivity) {
@@ -2739,8 +2749,8 @@ private struct NativeProfileVisitActivity: Identifiable {
         return "Visit"
     }
 
-    static func timeline(from snapshot: NativeTabContentSnapshot) -> [NativeProfileVisitActivity] {
-        let checkInItems = NativeManualCheckInStore.all().prefix(4).map { record in
+    static func timeline(from snapshot: NativeTabContentSnapshot, manualScope: NativeManualCheckInScope) -> [NativeProfileVisitActivity] {
+        let checkInItems = NativeManualCheckInStore.all(scope: manualScope).prefix(4).map { record in
             NativeProfileVisitActivity(id: "checkin-\(record.id)", title: "Manual check-in · \(record.venueName)", subtitle: record.address, meta: record.profileMetaLine, icon: "checkmark.seal.fill", color: NativeTheme.emerald)
         }
         let eventItems = snapshot.events.prefix(1).map { event in
@@ -4753,8 +4763,10 @@ private struct NativeWalletLedgerPreferenceSections: View {
 }
 
 private struct NativeManualCheckInWalletSection: View {
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var statusMessage = ""
-    private var record: NativeManualCheckInRecord? { NativeManualCheckInStore.latest() }
+    private var manualScope: NativeManualCheckInScope { NativeManualCheckInScope.authenticated(token: sessionStore.token) }
+    private var record: NativeManualCheckInRecord? { NativeManualCheckInStore.latest(scope: manualScope) }
 
     var body: some View {
         Group {
@@ -4782,9 +4794,9 @@ private struct NativeManualCheckInWalletSection: View {
     private var syncActionLabel: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.clockwise")
-            Text("Sync Check-Ins")
+            Text("Refresh Totals")
             Spacer(minLength: 0)
-            Text(NativeManualCheckInStore.pointsLabel()).opacity(0.72)
+            Text(NativeManualCheckInStore.pointsLabel(scope: manualScope)).opacity(0.72)
         }
         .font(.system(size: 12, weight: .black))
         .foregroundColor(NativeTheme.textPrimary)
@@ -4796,7 +4808,7 @@ private struct NativeManualCheckInWalletSection: View {
 
     private func reconcile() {
         nativeImpactLight()
-        statusMessage = "Local totals refreshed · \(NativeManualCheckInStore.pendingPoints()) pending points."
+        statusMessage = "Local totals refreshed · \(NativeManualCheckInStore.pendingPoints(scope: manualScope)) pending points."
     }
 }
 
@@ -6514,7 +6526,7 @@ private enum NativePaymentDisplay {
     }
 }
 
-private struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
+struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
     let id: String
     let venueID: String
     let venueName: String
@@ -6548,50 +6560,83 @@ private struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
     }
 }
 
-private enum NativeManualCheckInStore {
-    static let storageKey = "bytspot_native_manual_checkins"
+struct NativeManualCheckInScope: Equatable {
+    fileprivate let storageKey: String?
+    private static let storagePrefix = "bytspot_native_manual_checkins"
+
+    static let signedOut = NativeManualCheckInScope(storageKey: nil)
+
+    static func authenticated(token: String?) -> Self {
+        guard let token, !token.isEmpty, token != "guest_session" else { return .signedOut }
+        return NativeManualCheckInScope(storageKey: "\(storagePrefix)_account_\(hash(token))")
+    }
+
+    static func testingAccount(_ account: String) -> Self {
+        NativeManualCheckInScope(storageKey: "\(storagePrefix)_test_\(hash(account))")
+    }
+
+    private static func hash(_ raw: String) -> String {
+        SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+enum NativeManualCheckInStore {
+    static let legacyStorageKey = "bytspot_native_manual_checkins"
     static let maxRecords = 24
     static let manualPointAward = 10
     private static let duplicateWindowSeconds: TimeInterval = 6 * 60 * 60
 
-    static func all() -> [NativeManualCheckInRecord] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+    static func all(scope: NativeManualCheckInScope) -> [NativeManualCheckInRecord] {
+        expireLegacyGlobalRecords()
+        guard let storageKey = scope.storageKey,
+              let data = UserDefaults.standard.data(forKey: storageKey),
               let records = try? JSONDecoder().decode([NativeManualCheckInRecord].self, from: data) else { return [] }
         return records.sorted { $0.createdAt > $1.createdAt }
     }
 
-    static func latest() -> NativeManualCheckInRecord? { all().first }
+    static func latest(scope: NativeManualCheckInScope) -> NativeManualCheckInRecord? { all(scope: scope).first }
 
-    static func record(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date()) -> (NativeManualCheckInRecord, Bool) {
-        if let recent = recentCheckIn(venueID: venue.id, now: date) { return (recent, false) }
+    static func record(venue: NativeVenueSummary, idempotencyKey: String, scope: NativeManualCheckInScope, date: Date = Date()) -> (NativeManualCheckInRecord, Bool) {
+        if let recent = recentCheckIn(venueID: venue.id, scope: scope, now: date) { return (recent, false) }
         let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date)
-        upsert(record)
+        guard scope.storageKey != nil else { return (record, false) }
+        upsert(record, scope: scope)
         return (record, true)
     }
 
-    static func upsert(_ record: NativeManualCheckInRecord) {
-        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
+    static func upsert(_ record: NativeManualCheckInRecord, scope: NativeManualCheckInScope) {
+        expireLegacyGlobalRecords()
+        guard let storageKey = scope.storageKey else { return }
+        let merged = ([record] + all(scope: scope).filter { $0.id != record.id }).prefix(maxRecords)
         if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
     }
 
-    static func markSynced(id: String) {
-        guard let record = all().first(where: { $0.id == id }) else { return }
-        upsert(record.markingSynced())
+    static func markSynced(id: String, scope: NativeManualCheckInScope) {
+        guard let record = all(scope: scope).first(where: { $0.id == id }) else { return }
+        upsert(record.markingSynced(), scope: scope)
     }
 
-    static func hasRecentCheckIn(venueID: String, now: Date = Date()) -> Bool { recentCheckIn(venueID: venueID, now: now) != nil }
+    static func hasRecentCheckIn(venueID: String, scope: NativeManualCheckInScope, now: Date = Date()) -> Bool { recentCheckIn(venueID: venueID, scope: scope, now: now) != nil }
 
-    static func pendingPoints() -> Int { all().filter { !$0.isSynced }.reduce(0) { $0 + $1.pointsAwarded } }
+    static func pendingPoints(scope: NativeManualCheckInScope) -> Int { all(scope: scope).filter { !$0.isSynced }.reduce(0) { $0 + $1.pointsAwarded } }
 
-    static func pointsBalance() -> Int { NativeProfileDefaults.points + all().reduce(0) { $0 + $1.pointsAwarded } }
+    static func pointsBalance(scope: NativeManualCheckInScope) -> Int { NativeProfileDefaults.points + all(scope: scope).reduce(0) { $0 + $1.pointsAwarded } }
 
-    static func pointsLabel() -> String {
-        let points = pointsBalance()
+    static func pointsLabel(scope: NativeManualCheckInScope) -> String {
+        let points = pointsBalance(scope: scope)
         return points >= 1000 ? String(format: "%.1fK", Double(points) / 1000) : "\(points)"
     }
 
-    private static func recentCheckIn(venueID: String, now: Date) -> NativeManualCheckInRecord? {
-        all().first { record in
+    static func clear(scope: NativeManualCheckInScope) {
+        if let storageKey = scope.storageKey { UserDefaults.standard.removeObject(forKey: storageKey) }
+    }
+
+    static func expireLegacyGlobalRecords() {
+        UserDefaults.standard.removeObject(forKey: legacyStorageKey)
+    }
+
+    private static func recentCheckIn(venueID: String, scope: NativeManualCheckInScope, now: Date) -> NativeManualCheckInRecord? {
+        all(scope: scope).first { record in
             guard record.venueID == venueID, let date = ISO8601DateFormatter().date(from: record.createdAt) else { return false }
             return now.timeIntervalSince(date) < duplicateWindowSeconds
         }
@@ -9612,7 +9657,7 @@ private struct NativeDiscoverView: View {
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
         let venue = venueForDetail(card)
         guard Self.supportsManualCheckIn(card, venue: venue) else { return card.cta }
-        return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id) ? "Checked In" : "Check In"
+        return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
     }
 
     private static func supportsManualCheckIn(_ card: DiscoverCardSpec, venue: NativeVenueSummary) -> Bool {
@@ -9627,17 +9672,18 @@ private struct NativeDiscoverView: View {
             return
         }
         let idempotencyKey = UUID().uuidString
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey)
+        let manualScope = NativeManualCheckInScope.authenticated(token: sessionStore.token)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: manualScope)
         discoverStatusMessage = created ? "Checked in at \(venue.name) · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
         guard created, sessionStore.canAttachBearerToken else { return }
-        Task { await syncManualCheckIn(record) }
+        Task { await syncManualCheckIn(record, scope: manualScope) }
     }
 
-    private func syncManualCheckIn(_ record: NativeManualCheckInRecord) async {
+    private func syncManualCheckIn(_ record: NativeManualCheckInRecord, scope: NativeManualCheckInScope) async {
         let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": record.venueID, "idempotencyKey": record.idempotencyKey]])
         let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
         guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
-        NativeManualCheckInStore.markSynced(id: record.id)
+        NativeManualCheckInStore.markSynced(id: record.id, scope: scope)
         await MainActor.run { discoverStatusMessage = "Synced check-in at \(record.venueName) · points saved." }
     }
 
@@ -10350,7 +10396,7 @@ private struct NativeVenueDetailView: View {
         .sheet(isPresented: $showPartnerMenu) {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
         }
-        .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id) }
+        .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
     }
 
     private var stayProductHero: some View {
@@ -10784,15 +10830,17 @@ private struct NativeVenueDetailView: View {
 
     private func submitCheckIn() async {
         guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
+        guard sessionStore.isAuthenticated else { statusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."; openNativeAuth?(); return }
         didCheckIn = true
         let idempotencyKey = UUID().uuidString
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey)
+        let manualScope = NativeManualCheckInScope.authenticated(token: sessionStore.token)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: manualScope)
         statusMessage = created ? "Manual check-in saved · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
         guard created, sessionStore.canAttachBearerToken else { return }
         guard let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]]) else { return }
         let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
         if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
-            NativeManualCheckInStore.markSynced(id: record.id)
+            NativeManualCheckInStore.markSynced(id: record.id, scope: manualScope)
             await MainActor.run { statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved." }
         }
     }
@@ -15684,7 +15732,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer"], "NativeAccountParitySelfTests: safety/legal section drifted.")
-        precondition(NativeProfileAccountView.menuSectionOrder == [.preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must keep duplicate Account and Places & Activity menu groups hidden.")
+        precondition(NativeProfileAccountView.menuSectionOrder == [.placesActivity, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Places & Activity without duplicating Account controls.")
         precondition(NativeProfileMenuSectionKind.placesActivity.items.map(\.panel) == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: places/activity rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")

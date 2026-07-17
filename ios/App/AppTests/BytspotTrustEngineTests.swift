@@ -161,6 +161,41 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeVenueDetailPresentation.supportsManualCheckIn(venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass")))
     }
 
+    func testManualCheckInStoreScopesHistoryAndPointsByAccount() {
+        let accountA = NativeManualCheckInScope.testingAccount("manual-checkin-a-\(UUID().uuidString)")
+        let accountB = NativeManualCheckInScope.testingAccount("manual-checkin-b-\(UUID().uuidString)")
+        defer { NativeManualCheckInStore.clear(scope: accountA); NativeManualCheckInStore.clear(scope: accountB) }
+        let checkedVenue = venue(name: "Account A Coffee", category: "coffee", address: "One profile only")
+        let checkedAt = Date(timeIntervalSince1970: 1_735_000_000)
+        let accountBBaseline = NativeManualCheckInStore.pointsBalance(scope: accountB)
+
+        let (record, created) = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "scope-a", scope: accountA, date: checkedAt)
+
+        XCTAssertTrue(created)
+        XCTAssertEqual(NativeManualCheckInStore.all(scope: accountA).map(\.id), [record.id])
+        XCTAssertTrue(NativeManualCheckInStore.all(scope: accountB).isEmpty)
+        XCTAssertEqual(NativeManualCheckInStore.pendingPoints(scope: accountA), NativeManualCheckInStore.manualPointAward)
+        XCTAssertEqual(NativeManualCheckInStore.pointsBalance(scope: accountA), accountBBaseline + NativeManualCheckInStore.manualPointAward)
+        XCTAssertEqual(NativeManualCheckInStore.pointsBalance(scope: accountB), accountBBaseline)
+        XCTAssertTrue(NativeManualCheckInStore.hasRecentCheckIn(venueID: checkedVenue.id, scope: accountA, now: checkedAt.addingTimeInterval(60)))
+        XCTAssertFalse(NativeManualCheckInStore.hasRecentCheckIn(venueID: checkedVenue.id, scope: accountB, now: checkedAt.addingTimeInterval(60)))
+    }
+
+    func testManualCheckInStoreSignedOutScopeDoesNotExposeLegacyOrAccountRecords() throws {
+        let account = NativeManualCheckInScope.testingAccount("manual-checkin-private-\(UUID().uuidString)")
+        defer { NativeManualCheckInStore.clear(scope: account); UserDefaults.standard.removeObject(forKey: NativeManualCheckInStore.legacyStorageKey) }
+        let checkedVenue = venue(name: "Private Dinner", category: "dining", address: "Account scoped")
+        let legacyRecord = NativeManualCheckInRecord.manual(venue: checkedVenue, idempotencyKey: "legacy", date: Date(timeIntervalSince1970: 1_735_000_100))
+        let signedOutBaseline = NativeManualCheckInStore.pointsBalance(scope: .signedOut)
+        UserDefaults.standard.set(try JSONEncoder().encode([legacyRecord]), forKey: NativeManualCheckInStore.legacyStorageKey)
+        _ = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "account", scope: account, date: Date(timeIntervalSince1970: 1_735_000_200))
+
+        XCTAssertTrue(NativeManualCheckInStore.all(scope: .signedOut).isEmpty)
+        XCTAssertNil(UserDefaults.standard.data(forKey: NativeManualCheckInStore.legacyStorageKey))
+        XCTAssertEqual(NativeManualCheckInStore.pointsBalance(scope: .signedOut), signedOutBaseline)
+        XCTAssertFalse(NativeManualCheckInStore.hasRecentCheckIn(venueID: checkedVenue.id, scope: .signedOut, now: Date(timeIntervalSince1970: 1_735_000_260)))
+    }
+
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")
@@ -326,6 +361,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(record.label, "Visa •••• 4242")
         XCTAssertEqual(record.detail, "04/30")
         XCTAssertTrue(record.isDefault)
+    }
+
+    func testPaymentSetupSessionAllowsOnlyApprovedSecureHosts() {
+        XCTAssertEqual(NativePaymentSetupSession(url: "https://billing.stripe.com/p/session_123").safeSetupURLString, "https://billing.stripe.com/p/session_123")
+        XCTAssertEqual(NativePaymentSetupSession(url: "https://bytspot.app/payments/setup").safeSetupURLString, "https://bytspot.app/payments/setup")
+        XCTAssertNil(NativePaymentSetupSession(url: "javascript:alert(1)").safeSetupURLString)
+        XCTAssertNil(NativePaymentSetupSession(url: "http://checkout.stripe.com/insecure").safeSetupURLString)
+        XCTAssertNil(NativePaymentSetupSession(url: "https://stripe.evil.example/setup").safeSetupURLString)
     }
 
     func testTRPCDecodeUnwrapsNotificationPreferenceEnvelope() throws {

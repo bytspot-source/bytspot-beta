@@ -103,7 +103,24 @@ struct NativePaymentMethodRecord: Codable, Equatable, Identifiable {
     var detail: String { [expiryMonth, expiryYear].compactMap { $0 }.joined(separator: "/") }
 }
 
-struct NativePaymentSetupSession: Codable, Equatable { var url: String? }
+struct NativePaymentSetupSession: Codable, Equatable {
+    var url: String?
+
+    var safeSetupURLString: String? { url.flatMap(Self.normalizedSetupURL) }
+
+    static func normalizedSetupURL(_ candidate: String) -> String? {
+        guard let url = URL(string: candidate.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              isAllowedSetupHost(host) else { return nil }
+        return url.absoluteString
+    }
+
+    private static func isAllowedSetupHost(_ host: String) -> Bool {
+        host == "stripe.com" || host.hasSuffix(".stripe.com") || host == "bytspot.app" || host.hasSuffix(".bytspot.app") || host == "bytspot.com" || host.hasSuffix(".bytspot.com") || host == "bytspot-api.onrender.com"
+    }
+}
 
 struct NativeCheckoutSession: Equatable {
     var candidates: [String] = []

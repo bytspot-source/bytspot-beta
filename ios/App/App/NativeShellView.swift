@@ -6580,6 +6580,23 @@ struct NativeManualCheckInScope: Equatable {
     }
 }
 
+struct NativeManualCheckInSyncContext: Equatable {
+    let scope: NativeManualCheckInScope
+    private let capturedToken: String?
+
+    static func authenticated(token: String?) -> Self {
+        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NativeManualCheckInSyncContext(scope: NativeManualCheckInScope.authenticated(token: trimmed), capturedToken: trimmed)
+    }
+
+    var canSync: Bool {
+        guard let capturedToken, !capturedToken.isEmpty, capturedToken != "guest_session", scope != .signedOut else { return false }
+        return true
+    }
+
+    func apiClient() -> BytspotAPIClient { BytspotAPIClient(tokenProvider: { capturedToken }) }
+}
+
 enum NativeManualCheckInStore {
     static let legacyStorageKey = "bytspot_native_manual_checkins"
     static let maxRecords = 24
@@ -9672,19 +9689,23 @@ private struct NativeDiscoverView: View {
             return
         }
         let idempotencyKey = UUID().uuidString
-        let manualScope = NativeManualCheckInScope.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: manualScope)
+        let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
         discoverStatusMessage = created ? "Checked in at \(venue.name) · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
-        guard created, sessionStore.canAttachBearerToken else { return }
-        Task { await syncManualCheckIn(record, scope: manualScope) }
+        guard created, syncContext.canSync else { return }
+        Task { await syncManualCheckIn(record, context: syncContext) }
     }
 
-    private func syncManualCheckIn(_ record: NativeManualCheckInRecord, scope: NativeManualCheckInScope) async {
+    private func syncManualCheckIn(_ record: NativeManualCheckInRecord, context: NativeManualCheckInSyncContext) async {
         let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": record.venueID, "idempotencyKey": record.idempotencyKey]])
-        let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
+        let client = context.apiClient()
         guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
-        NativeManualCheckInStore.markSynced(id: record.id, scope: scope)
-        await MainActor.run { discoverStatusMessage = "Synced check-in at \(record.venueName) · points saved." }
+        NativeManualCheckInStore.markSynced(id: record.id, scope: context.scope)
+        await MainActor.run {
+            if NativeManualCheckInScope.authenticated(token: sessionStore.token) == context.scope {
+                discoverStatusMessage = "Synced check-in at \(record.venueName) · points saved."
+            }
+        }
     }
 
     private func discoverStatusBanner(_ text: String) -> some View {
@@ -10833,15 +10854,19 @@ private struct NativeVenueDetailView: View {
         guard sessionStore.isAuthenticated else { statusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."; openNativeAuth?(); return }
         didCheckIn = true
         let idempotencyKey = UUID().uuidString
-        let manualScope = NativeManualCheckInScope.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: manualScope)
+        let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
         statusMessage = created ? "Manual check-in saved · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
-        guard created, sessionStore.canAttachBearerToken else { return }
+        guard created, syncContext.canSync else { return }
         guard let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]]) else { return }
-        let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
+        let client = syncContext.apiClient()
         if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
-            NativeManualCheckInStore.markSynced(id: record.id, scope: manualScope)
-            await MainActor.run { statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved." }
+            NativeManualCheckInStore.markSynced(id: record.id, scope: syncContext.scope)
+            await MainActor.run {
+                if NativeManualCheckInScope.authenticated(token: sessionStore.token) == syncContext.scope {
+                    statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved."
+                }
+            }
         }
     }
 

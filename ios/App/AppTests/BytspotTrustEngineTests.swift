@@ -196,6 +196,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeManualCheckInStore.hasRecentCheckIn(venueID: checkedVenue.id, scope: .signedOut, now: Date(timeIntervalSince1970: 1_735_000_260)))
     }
 
+    func testManualCheckInSyncContextUsesCapturedTokenAfterSessionSwitch() throws {
+        var liveToken: String? = "account-a-token"
+        let context = NativeManualCheckInSyncContext.authenticated(token: liveToken)
+        let accountAScope = context.scope
+        liveToken = "account-b-token"
+
+        let request = try context.apiClient().makeRequest(path: "/trpc/venues.checkin")
+
+        XCTAssertTrue(context.canSync)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer account-a-token")
+        XCTAssertNotEqual(NativeManualCheckInScope.authenticated(token: liveToken), accountAScope)
+    }
+
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")

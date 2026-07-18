@@ -142,7 +142,7 @@ export async function loadEventsViaRpc(
   fallbackEvents: AppEvent[] = [],
 ): Promise<EventsListRpcResponse> {
   try {
-    const response = await trpcClient.events?.list?.query({ providers: ['ticketmaster', 'bytspot_curated'], ...input });
+    const response = await trpcClient.events?.list?.query({ ...input, providers: ['ticketmaster', 'bytspot_curated'] });
     const events = normalizeEventsResponse(response);
     if (events.length > 0) return { source: 'backend', provider: 'ticketmaster', events };
   } catch {

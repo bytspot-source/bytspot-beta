@@ -54,3 +54,12 @@ test('loadEventsViaRpc prefers events.list and falls back safely', async () => {
   assert.equal(fallback.source, 'fallback');
   assert.equal(fallback.events[0].id, 'fallback-1');
 });
+
+test('loadEventsViaRpc does not let callers override backend-owned event providers', async () => {
+  let inputSeen: unknown;
+  await loadEventsViaRpc({
+    events: { list: { query: async (input) => { inputSeen = input; return { events: [{ id: 'tm-3', name: 'Locked Provider Night' }] }; } } },
+  }, { providers: ['bytspot_curated'], city: 'Atlanta' });
+
+  assert.deepEqual(inputSeen, { providers: ['ticketmaster', 'bytspot_curated'], city: 'Atlanta' });
+});

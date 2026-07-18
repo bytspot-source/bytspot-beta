@@ -31,7 +31,7 @@ export async function getEventsAsync(category?: string): Promise<AppEvent[]> {
   const result = await loadEventsViaRpc(trpc, category ? { category } : {}, fallbackEvents);
   try {
     const events = result.events;
-    localStorage.setItem(EVENTS_CACHE_KEY, JSON.stringify(events));
+    if (result.source === 'backend') localStorage.setItem(EVENTS_CACHE_KEY, JSON.stringify(events));
     return events;
   } catch {
     return result.events.length > 0 ? result.events : fallbackEvents;

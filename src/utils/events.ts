@@ -1,26 +1,8 @@
 import { trpc } from './trpc';
+import { loadEventsViaRpc, type AppEvent } from './eventDiscoveryRpc';
 
-export type EventCategory =
-  | 'concert'
-  | 'rooftop'
-  | 'happyhour'
-  | 'comedy'
-  | 'art'
-  | 'food'
-  | 'sports';
-
-export interface AppEvent {
-  id: string;
-  title: string;
-  venue: string;
-  date: string;
-  time: string;
-  category: EventCategory;
-  emoji: string;
-  price: string;
-  image: string;
-  url?: string;
-}
+export type { AppEvent, EventCategory } from './eventDiscoveryRpc';
+export { EVENT_DISCOVERY_RPC_CONTRACT } from './eventDiscoveryRpc';
 
 // ─── Static fallback (used for instant render before API responds) ──
 export const TONIGHT_EVENTS: AppEvent[] = [
@@ -45,16 +27,14 @@ export function getCachedEvents(): AppEvent[] {
 
 // ─── Async — fetch from API, sync to localStorage ──────────────────
 export async function getEventsAsync(category?: string): Promise<AppEvent[]> {
+  const fallbackEvents = getCachedEvents();
+  const result = await loadEventsViaRpc(trpc, category ? { category } : {}, fallbackEvents);
   try {
-    const res = await trpc.events.list.query(category ? { category } : {});
-    const events: AppEvent[] = (res.events as AppEvent[]).map((e) => ({
-      ...e,
-      category: (e.category ?? 'concert') as EventCategory,
-    }));
+    const events = result.events;
     localStorage.setItem(EVENTS_CACHE_KEY, JSON.stringify(events));
     return events;
   } catch {
-    return getCachedEvents();
+    return result.events.length > 0 ? result.events : fallbackEvents;
   }
 }
 

@@ -553,6 +553,15 @@ enum NativeCheckInV2Contract {
     }
 }
 
+enum NativeLiveContentV2Contract {
+    static let eventsListRoute = "/trpc/events.list"
+    static let ticketmasterProvider = "ticketmaster"
+    static let placesEnrichRoute = "/trpc/places.enrich"
+    static let vendorsMatchRoute = "/trpc/vendors.match"
+    static let venueIntelligenceRoute = "/trpc/venues.intelligence"
+    static let groupJoinRoute = "/trpc/groupEvents.join"
+}
+
 struct NativeCheckInCreateResponse: Codable, Equatable {
     var checkInId: String
     var venueId: String
@@ -1126,7 +1135,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
-        let payload = try await client.json(path: "/trpc/events.list")
+        let payload = try await client.json(path: NativeLiveContentV2Contract.eventsListRoute)
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
         return rows.enumerated().compactMap(Self.event(from:))
     }

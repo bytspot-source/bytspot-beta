@@ -233,6 +233,15 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(bodyObject["venueId"], "v2 checkins use the standard tRPC json envelope, unlike transformer-less groupEvents routes.")
     }
 
+    func testNativeLiveContentV2ContractLocksExternalAdapterRoutes() throws {
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsListRoute, "/trpc/events.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.ticketmasterProvider, "ticketmaster")
+        XCTAssertEqual(NativeLiveContentV2Contract.placesEnrichRoute, "/trpc/places.enrich")
+        XCTAssertEqual(NativeLiveContentV2Contract.vendorsMatchRoute, "/trpc/vendors.match")
+        XCTAssertEqual(NativeLiveContentV2Contract.venueIntelligenceRoute, "/trpc/venues.intelligence")
+        XCTAssertEqual(NativeLiveContentV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
+    }
+
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")

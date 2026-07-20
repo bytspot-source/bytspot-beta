@@ -4531,6 +4531,8 @@ private struct NativeGroupEventCostPerPersonSheet: View {
         let cleanLabel = paymentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanURL = paymentURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedHandle = cleanURL.isEmpty ? cleanLabel : cleanURL
+        let savedMethods = Self.paymentMethods(from: paymentNote)
+        let savedAlternative = savedMethods.first { !["Venmo", "Cash App", "PayPal", "Instructions"].contains($0.key) }
         _mode = State(initialValue: initialMode)
         _stripeStarted = State(initialValue: cleanMethod == "Stripe Express")
         _ticketName = State(initialValue: Self.ticketName(from: ticketingLabel))
@@ -4539,12 +4541,12 @@ private struct NativeGroupEventCostPerPersonSheet: View {
         _includeVendorOffers = State(initialValue: !paymentNote.localizedCaseInsensitiveContains("No vendor bundle"))
         _amount = State(initialValue: Self.amountFrom(label: chipInLabel.isEmpty ? ticketingLabel : chipInLabel))
         _chipInType = State(initialValue: Self.chipInType(from: chipInLabel))
-        _venmo = State(initialValue: cleanMethod == "Venmo" ? savedHandle : "")
-        _cashApp = State(initialValue: cleanMethod == "Cash App" ? savedHandle : "")
-        _paypal = State(initialValue: cleanMethod == "PayPal" ? savedHandle : "")
-        _alternativeMethod = State(initialValue: Self.isAlternativeMethod(cleanMethod) ? cleanMethod : "")
-        _alternativeHandle = State(initialValue: Self.isAlternativeMethod(cleanMethod) ? savedHandle : "")
-        _paymentInstructions = State(initialValue: paymentNote)
+        _venmo = State(initialValue: savedMethods["Venmo"] ?? (cleanMethod == "Venmo" ? savedHandle : ""))
+        _cashApp = State(initialValue: savedMethods["Cash App"] ?? (cleanMethod == "Cash App" ? savedHandle : ""))
+        _paypal = State(initialValue: savedMethods["PayPal"] ?? (cleanMethod == "PayPal" ? savedHandle : ""))
+        _alternativeMethod = State(initialValue: savedAlternative?.key ?? (Self.isAlternativeMethod(cleanMethod) ? cleanMethod : ""))
+        _alternativeHandle = State(initialValue: savedAlternative?.value ?? (Self.isAlternativeMethod(cleanMethod) ? savedHandle : ""))
+        _paymentInstructions = State(initialValue: Self.instructions(from: paymentNote))
     }
 
     var body: some View {
@@ -4666,7 +4668,8 @@ private struct NativeGroupEventCostPerPersonSheet: View {
         let costLabel = cleanAmount.isEmpty ? chipInType : "\(chipInType) · \(currencyPrefix)\(cleanAmount)"
         let methods = paymentOptions
         let primary = methods.first ?? ("Alternative", alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines))
-        let noteParts = methods.map { "\($0.0): \($0.1)" } + [paymentInstructions.trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+        let cleanInstructions = paymentInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteParts = methods.map { "\($0.0): \($0.1)" } + (cleanInstructions.isEmpty ? [] : ["Instructions: \(cleanInstructions)"])
         onSave(costLabel, costLabel, primary.0, primary.1, primary.1, "Payments are not verified. " + noteParts.joined(separator: " · "))
         dismiss()
     }
@@ -4699,6 +4702,29 @@ private struct NativeGroupEventCostPerPersonSheet: View {
     private static func isAlternativeMethod(_ method: String) -> Bool {
         let clean = method.trimmingCharacters(in: .whitespacesAndNewlines)
         return !clean.isEmpty && !["Stripe Express", "Venmo", "Cash App", "PayPal"].contains(clean)
+    }
+    private static func paymentMethods(from note: String) -> [String: String] {
+        let clean = note.replacingOccurrences(of: "Payments are not verified.", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var out: [String: String] = [:]
+        for rawPart in clean.components(separatedBy: " · ") {
+            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let separator = part.range(of: ": ") else { continue }
+            let key = String(part[..<separator.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(part[separator.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !value.isEmpty, key != "Instructions" else { continue }
+            out[key] = value
+        }
+        return out
+    }
+    private static func instructions(from note: String) -> String {
+        let clean = note.replacingOccurrences(of: "Payments are not verified.", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var loose: [String] = []
+        for rawPart in clean.components(separatedBy: " · ") {
+            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            if part.hasPrefix("Instructions: ") { return String(part.dropFirst("Instructions: ".count)).trimmingCharacters(in: .whitespacesAndNewlines) }
+            if part.range(of: ": ") == nil, !part.isEmpty { loose.append(part) }
+        }
+        return loose.joined(separator: " · ")
     }
 }
 

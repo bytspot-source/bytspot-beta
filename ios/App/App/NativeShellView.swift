@@ -3961,7 +3961,7 @@ private struct NativeGroupEventSetupSheet: View {
             if #available(iOS 16.0, *) { editor.presentationDetents([.height(430), .medium]).presentationDragIndicator(.visible) } else { editor }
         }
         .sheet(isPresented: $showCostPerPersonSheet) {
-            let sheet = NativeGroupEventCostPerPersonSheet(initialMode: composerCostPreviewMode, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, paymentMethod: paymentMethod, paymentLabel: paymentLabel, paymentURL: paymentURL, paymentNote: paymentNote) { ticketing, chipIn, method, label, url, note in
+            let sheet = NativeGroupEventCostPerPersonSheet(initialMode: costSheetInitialMode, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, paymentMethod: paymentMethod, paymentLabel: paymentLabel, paymentURL: paymentURL, paymentNote: paymentNote) { ticketing, chipIn, method, label, url, note in
                 ticketingLabel = ticketing
                 chipInLabel = chipIn
                 paymentMethod = method
@@ -4046,12 +4046,17 @@ private struct NativeGroupEventSetupSheet: View {
         return "Free until tickets or chip-in are set"
     }
 
-    private var composerCostPreviewMode: NativeGroupEventCostMode {
+    private var costSheetInitialMode: NativeGroupEventCostMode {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased() == "cost-money" ? .requestMoney : .sellTickets
-        #else
-        return .sellTickets
+        if ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased() == "cost-money" { return .requestMoney }
         #endif
+        let hasSavedCost = !ticketingLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasSavedCost else { return .sellTickets }
+        let savedMethod = paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let savedChipIn = chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["venmo", "cash app", "paypal"].contains(savedMethod) || savedChipIn.contains("required amount") || savedChipIn.contains("suggested amount") || savedChipIn.contains("optional chip-in") { return .requestMoney }
+        if !savedMethod.isEmpty && savedMethod != "stripe express" && savedMethod != "venmo" { return .requestMoney }
+        return .sellTickets
     }
 
     private var composerAddOns: some View {
@@ -4343,7 +4348,7 @@ private struct NativeGroupEventSetupSheet: View {
         let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let coHosts = coHostsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let questions = customQuestionsText.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let payment = paymentURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : NativePrimaryEventManualPayment(method: paymentMethod, label: paymentLabel.isEmpty ? paymentMethod : paymentLabel, url: paymentURL, note: paymentNote)
+        let payment = NativePrimaryEventManualPayment.optional(method: paymentMethod, label: paymentLabel.isEmpty ? paymentMethod : paymentLabel, url: paymentURL, note: paymentNote)
         let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURL, thumbnailURLString: thumbnailURL, videoURLString: videoURL, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: payment, rsvpCutoff: rsvpCutoff, customQuestions: questions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURL, iconName: iconName)
         onCreate(record)
         dismiss()
@@ -4522,12 +4527,23 @@ private struct NativeGroupEventCostPerPersonSheet: View {
 
     init(initialMode: NativeGroupEventCostMode = .sellTickets, ticketingLabel: String, chipInLabel: String, paymentMethod: String, paymentLabel: String, paymentURL: String, paymentNote: String, onSave: @escaping (String, String, String, String, String, String) -> Void) {
         self.onSave = onSave
+        let cleanMethod = paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLabel = paymentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanURL = paymentURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedHandle = cleanURL.isEmpty ? cleanLabel : cleanURL
         _mode = State(initialValue: initialMode)
+        _stripeStarted = State(initialValue: cleanMethod == "Stripe Express")
+        _ticketName = State(initialValue: Self.ticketName(from: ticketingLabel))
         _ticketPrice = State(initialValue: Self.amountFrom(label: ticketingLabel))
+        _ticketQuantity = State(initialValue: Self.quantityFrom(note: paymentNote))
+        _includeVendorOffers = State(initialValue: !paymentNote.localizedCaseInsensitiveContains("No vendor bundle"))
         _amount = State(initialValue: Self.amountFrom(label: chipInLabel.isEmpty ? ticketingLabel : chipInLabel))
-        _chipInType = State(initialValue: chipInLabel.isEmpty ? "Required amount" : chipInLabel)
-        _alternativeMethod = State(initialValue: paymentMethod == "Alternative" ? paymentLabel : "")
-        _alternativeHandle = State(initialValue: paymentMethod == "Alternative" ? paymentURL : "")
+        _chipInType = State(initialValue: Self.chipInType(from: chipInLabel))
+        _venmo = State(initialValue: cleanMethod == "Venmo" ? savedHandle : "")
+        _cashApp = State(initialValue: cleanMethod == "Cash App" ? savedHandle : "")
+        _paypal = State(initialValue: cleanMethod == "PayPal" ? savedHandle : "")
+        _alternativeMethod = State(initialValue: Self.isAlternativeMethod(cleanMethod) ? cleanMethod : "")
+        _alternativeHandle = State(initialValue: Self.isAlternativeMethod(cleanMethod) ? savedHandle : "")
         _paymentInstructions = State(initialValue: paymentNote)
     }
 
@@ -4666,6 +4682,24 @@ private struct NativeGroupEventCostPerPersonSheet: View {
 
     private var currencyPrefix: String { currency.contains("$") ? "$" : "" }
     private static func amountFrom(label: String) -> String { label.split(separator: "$", maxSplits: 1).dropFirst().first?.split(separator: " ").first.map(String.init) ?? "" }
+    private static func chipInType(from label: String) -> String {
+        let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = clean.components(separatedBy: " · ").first ?? clean
+        return ["Required amount", "Suggested amount", "Optional chip-in"].contains(type) ? type : "Required amount"
+    }
+    private static func ticketName(from label: String) -> String {
+        let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return "General wristband" }
+        return clean.components(separatedBy: " · ").last ?? clean
+    }
+    private static func quantityFrom(note: String) -> String {
+        guard let tail = note.components(separatedBy: "Quantity: ").dropFirst().first else { return "" }
+        return tail.components(separatedBy: ".").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    private static func isAlternativeMethod(_ method: String) -> Bool {
+        let clean = method.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !clean.isEmpty && !["Stripe Express", "Venmo", "Cash App", "PayPal"].contains(clean)
+    }
 }
 
 enum NativeGroupEventTimingState: String, CaseIterable, Equatable, Codable {
@@ -4763,6 +4797,21 @@ struct NativePrimaryEventManualPayment: Equatable, Codable {
         self.verificationStatus = verificationStatus
     }
 
+    static func optional(method: String, label: String, url: String, note: String?) -> Self? {
+        let cleanMethod = method.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasRawMetadata = !cleanURL.isEmpty || !cleanNote.isEmpty || (!cleanMethod.isEmpty && cleanMethod != "Venmo") || (!cleanLabel.isEmpty && cleanLabel != cleanMethod)
+        guard hasRawMetadata else { return nil }
+        let payment = Self(method: method, label: label, url: url, note: note)
+        return payment.hasHostMetadata ? payment : nil
+    }
+
+    var hasHostMetadata: Bool {
+        !url.isEmpty || !method.isEmpty || !label.isEmpty || note?.isEmpty == false
+    }
+
     var payload: [String: Any] {
         var out: [String: Any] = ["method": method, "label": label, "url": url, "verificationStatus": verificationStatus]
         if let note { out["note"] = note }
@@ -4840,7 +4889,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.playlistURLString = Self.clean(playlistURLString, maxLength: 240)
         self.ticketingLabel = Self.clean(ticketingLabel, maxLength: 80)
         self.chipInLabel = Self.clean(chipInLabel, maxLength: 80)
-        self.manualPayment = manualPayment?.url.isEmpty == false ? manualPayment : nil
+        self.manualPayment = manualPayment?.hasHostMetadata == true ? manualPayment : nil
         self.rsvpCutoff = Self.clean(rsvpCutoff, maxLength: 80)
         self.customQuestions = Array((customQuestions ?? []).compactMap { Self.clean($0, maxLength: 100) }.prefix(6))
         self.hideActivityTimestamps = hideActivityTimestamps

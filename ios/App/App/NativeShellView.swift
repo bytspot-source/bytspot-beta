@@ -192,6 +192,12 @@ struct BytspotNativeShellView: View {
         return ["1", "true", "yes"].contains(raw ?? "")
     }
 
+    private static var previewGroupAppClipRequested: Bool {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return false }
+        let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_APPCLIP_PREVIEW"] ?? nativeLaunchArgument("byt-native-group-appclip-preview"))?.lowercased()
+        return ["1", "true", "yes"].contains(raw ?? "")
+    }
+
     private var effectiveAppearance: NativeAppearanceMode {
         appearanceRuntimeStore.selectedMode ?? NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw)
     }
@@ -242,6 +248,7 @@ struct BytspotNativeShellView: View {
             openRootBoutiqueStayPreviewIfRequested()
             openRootPartnerMenuPreviewIfRequested()
             openRootGroupInvitePreviewIfRequested()
+            openRootGroupAppClipPreviewIfRequested()
         }
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }
@@ -327,6 +334,15 @@ struct BytspotNativeShellView: View {
         groupInvitePreviewEvent = NativeGroupEventStore.primaryLiveEvent() ?? .preview(tier: activeTier)
         selectedTab = .home
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { showGroupInvitePreviewSheet = true }
+        #endif
+    }
+
+    private func openRootGroupAppClipPreviewIfRequested() {
+        #if DEBUG
+        guard Self.previewGroupAppClipRequested else { return }
+        selectedTab = .home
+        let event = NativeGroupEventStore.primaryLiveEvent() ?? .preview(tier: activeTier)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { contextualDestination = .groupEvent(event) }
         #endif
     }
 
@@ -618,32 +634,60 @@ private struct NativeGroupEventAppClipFallbackView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        Text(event.timing.bannerEyebrow).font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
-                        Spacer()
-                        Text(event.tier.displayName).font(.system(size: 11, weight: .black)).foregroundColor(.black).padding(.horizontal, 10).padding(.vertical, 6).background(accent).clipShape(Capsule())
-                    }
-                    ZStack(alignment: .bottomLeading) {
-                        RoundedRectangle(cornerRadius: 30, style: .continuous).fill(LinearGradient(colors: [accent.opacity(0.78), NativeTheme.purple.opacity(0.46), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Image(systemName: "person.3.sequence.fill").font(.system(size: 82, weight: .black)).foregroundColor(.black.opacity(0.18)).offset(x: 170, y: -16)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("APP CLIP GROUP").font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.72)).tracking(1.2)
-                            Text(event.title).font(.system(size: 30, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                            Text("\(event.participantCount) joined · Private invite").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.78))
-                        }.padding(20)
-                    }
-                    .frame(height: 228)
-                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                appClipHero
+                VStack(spacing: 8) {
+                    appClipMiniRow(title: event.scheduledDate, subtitle: "Date & time", icon: "calendar.badge.clock")
+                    appClipMiniRow(title: event.locationLabel, subtitle: event.privacyStatus == .privateInvite ? "Shared after joining" : "Location", icon: "mappin.and.ellipse")
+                    appClipMiniRow(title: event.guestSummary, subtitle: event.hideGuestList ? "Guest list hidden" : "Group capacity", icon: "person.2.fill")
                 }
-                appClipInfo(title: "Instant private join", subtitle: "This is the same /group invite route the App Clip opens for non-app users.", icon: "bolt.fill")
-                appClipInfo(title: "Privacy protected", subtitle: "Dinner and Family groups stay hidden from public discovery unless you are the host or joined through an invite.", icon: "lock.shield.fill")
-                Button(action: joinGroup) { Text(joined ? "Joined" : "Join Instantly").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
+                appClipInfo(title: "Hosted by \(event.hostName)", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.crop.circle.badge.checkmark")
+                rsvpPreview
+                appClipInfo(title: "Privacy protected", subtitle: "Your invite, RSVP, and circle stay separate from your phone contacts unless you choose to match.", icon: "lock.shield.fill")
+                Button(action: joinGroup) { Text(joined ? "Joined" : (event.requiresApproval ? "Request Access" : "Join Instantly")).font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
                 Button(action: { dismiss() }) { Text("Back to Home").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
                 if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).frame(maxWidth: .infinity).multilineTextAlignment(.center) }
             }
         }
         .accessibilityIdentifier("native-group-event-app-clip-fallback")
+    }
+
+    private var appClipHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 32, style: .continuous).fill(LinearGradient(colors: [accent.opacity(0.88), NativeTheme.purple.opacity(0.54), NativeTheme.pink.opacity(0.38), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image(systemName: event.iconName ?? "person.3.sequence.fill").font(.system(size: 92, weight: .black)).foregroundColor(.black.opacity(0.18)).offset(x: 170, y: -18)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) { NativeProfileMicroChip("APP CLIP", icon: "bolt.fill", color: accent); NativeProfileMicroChip(event.privacyStatus.label, icon: "lock.fill", color: NativeTheme.cyan) }
+                Text(event.title).font(.system(size: 32, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
+                Text("\(event.groupType) · \(event.audienceCircle)").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.80))
+            }.padding(20)
+        }
+        .frame(height: 252)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+    }
+
+    private var rsvpPreview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { Text("RSVP").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Text(event.rsvpCutoff ?? "Open now").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
+            HStack(spacing: 10) { rsvpOption("👍", "Going"); rsvpOption("🤔", "Maybe"); rsvpOption("😢", "Can't Go") }
+        }
+        .padding(14)
+        .background(NativePolish.elevatedSurface.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private func rsvpOption(_ emoji: String, _ label: String) -> some View {
+        VStack(spacing: 5) { Text(emoji).font(.system(size: 24)); Text(label).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
+            .frame(maxWidth: .infinity).frame(height: 76).background(accent.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func appClipMiniRow(title: String, subtitle: String, icon: String) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(accent).frame(width: 32, height: 32).background(accent.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1); Text(subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+            Spacer(minLength: 0)
+        }
+        .padding(13).background(NativePolish.elevatedSurface.opacity(0.86)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
     }
 
     private func appClipInfo(title: String, subtitle: String, icon: String) -> some View {
@@ -3015,35 +3059,26 @@ private struct NativeProfileNetworkCard: View {
     @State private var publishedGroupEventIDs: Set<String> = []
 
     static let title = "Groups & Invites"
-    static let actionTitles = ["Start Private Group", "Share Invite", "Find friends"]
+    static let actionTitles = ["Create Private Group", "Social Circles", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
-    private var currentTier: BytspotTier { activeTier }
+    private var currentTier: BytspotTier { activeGroup?.tier ?? .green }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    LinearGradient(colors: [NativeTheme.pink, NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "person.2.badge.plus.fill").font(.system(size: 19, weight: .black)).foregroundColor(.white)
-                }
-                .frame(width: 46, height: 46)
-                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.pink).tracking(1.1)
-                    Text(Self.title).font(.system(size: 19, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                    Text("Start a private live group, invite instantly, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
+            networkHeader
 
-            if let activeGroup { activeGroupBlock(activeGroup) }
-            else { startGroupBlock }
-            if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-            networkDivider
-            inviteBlock
-            networkDivider
-            findFriendsBlock
+            if let activeGroup {
+                activeGroupBlock(activeGroup)
+                if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
+                socialCirclesBlock
+                networkDivider
+                inviteBlock
+                networkDivider
+                findFriendsBlock
+            } else {
+                preActiveNetworkContent
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(NativeProfileStyle.cardPadding)
@@ -3070,32 +3105,84 @@ private struct NativeProfileNetworkCard: View {
             }
         }
         .onAppear {
+            openGroupSetupPreviewIfRequested()
             openInviteAccessPreviewIfRequested()
             reconcileActiveGroupPublishState()
         }
     }
 
+    private var networkHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                LinearGradient(colors: [NativeTheme.pink, NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "person.2.badge.plus.fill").font(.system(size: 19, weight: .black)).foregroundColor(.white)
+            }
+            .frame(width: 46, height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Self.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text("Create private groups, invite from social circles, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var preActiveNetworkContent: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            startGroupBlock
+            if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
+            socialCirclesContextBlock
+            compactInviteBlock
+            compactFindFriendsBlock
+            Text("Contacts stay private unless you choose to match.").nativeBody(size: 11, color: NativeProfileStyle.muted)
+        }
+    }
+
     private var startGroupBlock: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "\(currentTier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s") · up to \(entitlement.participantCapacity) people · \(entitlement.liveDurationHours)h live", icon: "person.3.sequence.fill", color: tierAccent)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in
-                        Button(action: { selectedGroupType = type }) {
-                            Text(type).font(.system(size: 12, weight: .black)).foregroundColor(selectedGroupType == type ? .black : NativeProfileStyle.title).padding(.horizontal, 11).frame(height: 32).background(selectedGroupType == type ? tierAccent : NativeProfileStyle.insetSurface).clipShape(Capsule())
-                        }.buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 12) {
+            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Choose a template, pick a social circle, then publish a protected invite.", icon: "person.3.sequence.fill", color: tierAccent)
+            Button(action: openGroupSetup) {
+                HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Create Private Group").font(.system(size: 14, weight: .black)) }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(LinearGradient(colors: [NativeTheme.emerald, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }.buttonStyle(.plain)
+            membershipStrip
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Quick templates").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(0.7)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(NativeGroupEventContract.defaultEventTypes.prefix(4)), id: \.self) { type in
+                            Button(action: { selectedGroupType = type }) {
+                                Text(type).font(.system(size: 12, weight: .black)).foregroundColor(selectedGroupType == type ? .black : NativeProfileStyle.title).padding(.horizontal, 11).frame(height: 32).background(selectedGroupType == type ? tierAccent : NativeProfileStyle.insetSurface).clipShape(Capsule())
+                            }.buttonStyle(.plain)
+                        }
                     }
                 }
             }
-            Button(action: openGroupSetup) {
-                HStack(spacing: 8) { Image(systemName: "square.and.pencil").font(.system(size: 13, weight: .black)); Text("Create Event Template").font(.system(size: 14, weight: .black)) }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 42)
-                    .background(LinearGradient(colors: [tierAccent, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }.buttonStyle(.plain)
         }
+        .padding(14)
+        .background(NativeProfileStyle.insetSurface.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.26), lineWidth: 1))
+    }
+
+    private var membershipStrip: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "leaf.fill").font(.system(size: 12, weight: .black)).foregroundColor(.black).frame(width: 28, height: 28).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Green Membership").font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text("Free private invites and starter social circles.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            NativeProfileMicroChip("Free", icon: "sparkles", color: NativeTheme.emerald)
+        }
+        .padding(11)
+        .background(NativeTheme.emerald.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.emerald.opacity(0.20), lineWidth: 1))
     }
 
     private func activeGroupBlock(_ group: NativeGroupEventRecord) -> some View {
@@ -3110,6 +3197,7 @@ private struct NativeProfileNetworkCard: View {
                     }
                     Text(group.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
                     Text("\(group.participantCount) joined · Private · \(entitlement.liveDurationHours)h live window").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
+                    eventMetadataChips(group)
                 }
                 Spacer(minLength: 0)
             }
@@ -3136,6 +3224,47 @@ private struct NativeProfileNetworkCard: View {
         .background(NativeProfileStyle.insetSurface.opacity(0.74))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
+    }
+
+    private var socialCirclesBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeProfileNetworkRowHeader(title: "Social circles", subtitle: "Reusable invite lists power private event distribution without exposing your contacts.", icon: "person.3.fill", color: NativeTheme.cyan)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in
+                        NativeProfileMicroChip(circle, icon: "circle.grid.2x2.fill", color: circle == "Public" ? NativeTheme.emerald : NativeTheme.cyan)
+                    }
+                }
+            }
+            Text("Create from the template, pick a circle, then publish public or private from the same Network card.").nativeBody(size: 11.5, color: NativeProfileStyle.muted)
+        }
+    }
+
+    private var socialCirclesContextBlock: some View {
+        HStack(alignment: .center, spacing: 11) {
+            Image(systemName: "person.3.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 32, height: 32).background(NativeTheme.cyan.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Social Circles").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text("Pick a circle while creating your group.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
+                Text("Close Friends · Family · Crew").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(NativeProfileStyle.nestedSurface.opacity(0.84))
+        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+    }
+
+    private func eventMetadataChips(_ group: NativeGroupEventRecord) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                NativeProfileMicroChip(group.audienceCircle, icon: "person.3.fill", color: NativeTheme.cyan)
+                NativeProfileMicroChip(group.fontStyle, icon: "textformat", color: NativeTheme.purple)
+                if group.hideGuestList { NativeProfileMicroChip("Guest list hidden", icon: "eye.slash.fill", color: NativeTheme.orange) }
+                if let chipIn = group.chipInLabel, !chipIn.isEmpty { NativeProfileMicroChip(chipIn, icon: "dollarsign.circle.fill", color: NativeTheme.emerald) }
+            }
+        }
     }
 
     private var tierAccent: Color {
@@ -3193,6 +3322,23 @@ private struct NativeProfileNetworkCard: View {
         }
     }
 
+    private var compactInviteBlock: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            NativeProfileNetworkRowHeader(title: "Invite a Friend", subtitle: "Share your personal Bytspot link.", icon: "square.and.arrow.up", color: NativeTheme.pink)
+            HStack(spacing: 8) {
+                Text(referralUrl).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                Spacer()
+                Button(action: copyReferralLink) { Text("Copy").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.pink).padding(.horizontal, 10).frame(height: 28).overlay(Capsule().stroke(NativeTheme.pink.opacity(0.38), lineWidth: 1)) }.buttonStyle(.plain)
+                Button(action: shareReferralLink) { Text("Share").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 10).frame(height: 28).background(NativeProfileStyle.insetSurface).clipShape(Capsule()) }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(NativeProfileStyle.referralPillSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+        }
+    }
+
     @ViewBuilder private var findFriendsBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             NativeProfileNetworkRowHeader(title: "Find friends", subtitle: sessionStore.isAuthenticated ? NativeFindFriendsCard.privacyCopy : NativeFindFriendsCard.guestCopy, icon: "person.badge.plus", color: NativeTheme.purple)
@@ -3226,6 +3372,35 @@ private struct NativeProfileNetworkCard: View {
         }
     }
 
+    @ViewBuilder private var compactFindFriendsBlock: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            NativeProfileNetworkRowHeader(title: "Find friends", subtitle: sessionStore.isAuthenticated ? NativeFindFriendsCard.privacyCopy : NativeFindFriendsCard.guestCopy, icon: "person.badge.plus", color: NativeTheme.purple)
+            if sessionStore.isAuthenticated {
+                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) {
+                    HStack(spacing: 8) { Image(systemName: "lock.shield.fill").font(.system(size: 12, weight: .black)); Text(contactCTA).font(.system(size: 13, weight: .black)) }
+                        .foregroundColor(NativeTheme.purple)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(NativeTheme.purple.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
+                contactStatus
+            } else {
+                Button(action: { authCoordinator.handle(.signIn(.apple), sessionStore: sessionStore) }) {
+                    HStack(spacing: 8) { Image(systemName: "apple.logo").font(.system(size: 12, weight: .black)); Text("Sign in with Apple").font(.system(size: 13, weight: .black)) }
+                        .foregroundColor(NativeProfileStyle.title)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(NativeProfileStyle.insetSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var contactCTA: String {
         switch contactSyncStore.phase {
         case .requesting: return "Requesting access…"
@@ -3242,9 +3417,32 @@ private struct NativeProfileNetworkCard: View {
 
     private var networkDivider: some View { Rectangle().fill(NativeProfileStyle.hairline).frame(height: 1) }
 
+    private func copyReferralLink() {
+        nativeImpactLight()
+        UIPasteboard.general.string = referralUrl
+        networkStatus = "Personal invite link copied."
+    }
+
+    private func shareReferralLink() {
+        nativeImpactLight()
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
+            copyReferralLink()
+            return
+        }
+        root.present(UIActivityViewController(activityItems: [referralUrl], applicationActivities: nil), animated: true)
+    }
+
     private func openGroupSetup() {
         nativeImpactLight()
         showGroupSetup = true
+    }
+
+    private func openGroupSetupPreviewIfRequested() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_SETUP_PREVIEW"] == "1" else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { showGroupSetup = true }
+        #endif
     }
 
     private func createPrivateGroup(_ record: NativeGroupEventRecord) {
@@ -3281,7 +3479,20 @@ private struct NativeProfileNetworkCard: View {
             "scheduledDate": record.scheduledDate,
             "location": record.locationLabel,
             "theme": record.theme,
+            "visibility": record.privacyStatus.rawValue,
+            "audienceCircle": record.audienceCircle,
+            "fontStyle": record.fontStyle,
+            "coHosts": record.coHosts,
+            "playlistUrl": record.playlistURLString ?? "",
+            "ticketingLabel": record.ticketingLabel ?? "",
+            "chipInLabel": record.chipInLabel ?? "",
+            "rsvpCutoff": record.rsvpCutoff ?? "",
+            "customQuestions": record.customQuestions,
+            "hideActivityTimestamps": record.hideActivityTimestamps,
+            "hideGuestList": record.hideGuestList,
+            "metadata": record.primaryEventMetadataPayload,
         ]
+        if let payment = record.manualPayment { input["manualPayment"] = payment.payload }
         if let handle = record.instagramHandle, !handle.isEmpty { input["instagramHandle"] = handle }
         Task { @MainActor in
             let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
@@ -3670,10 +3881,40 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var scheduledDate = "Tonight · live now"
     @State private var locationLabel = "Host-selected private table"
     @State private var theme = "Premium dinner"
+    @State private var visibility: NativeGroupEventPrivacyStatus = .privateInvite
+    @State private var audienceCircle = NativeGroupEventContract.defaultAudienceCircles[0]
+    @State private var fontStyle = NativeGroupEventContract.defaultFontStyles[0]
+    @State private var coHostsText = ""
+    @State private var playlistURL = ""
+    @State private var thumbnailURL = ""
+    @State private var videoURL = ""
+    @State private var ticketingLabel = ""
+    @State private var chipInLabel = ""
+    @State private var paymentMethod = "Venmo"
+    @State private var paymentLabel = ""
+    @State private var paymentURL = ""
+    @State private var paymentNote = ""
+    @State private var showCostPerPersonSheet = false
+    @State private var rsvpCutoff = ""
+    @State private var rsvpStyle: NativeGroupEventRSVPStyle = .emojis
+    @State private var showRSVPStylePicker = false
+    @State private var customQuestionsText = ""
+    @State private var hideActivityTimestamps = false
+    @State private var hideGuestList = false
+    @State private var dressCode = ""
+    @State private var foodSituation = ""
+    @State private var parkingInstructions = ""
+    @State private var accommodation = ""
+    @State private var eventNotes = ""
+    @State private var linkURL = ""
+    @State private var iconName = "sparkles"
     @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
     @State private var instagramHandle = ""
     @State private var allowNearbyOffers = true
     @State private var requiresApproval = false
+    @State private var activeAddOnField: NativeGroupEventAddOnField?
+    @State private var addOnTitles: [String: String] = [:]
+    @State private var addOnIcons: [String: String] = [:]
 
     init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
         self.tier = tier
@@ -3689,13 +3930,14 @@ private struct NativeGroupEventSetupSheet: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                header
-                typeSelector
-                inputField(title: "Event name", placeholder: "Dinner Group", text: $eventName)
-                timingSelector
-                logisticsFields
-                inputField(title: "Invite note", placeholder: "Pull up when you can — food order going in soon.", text: $inviteNote, lineLimit: 3)
-                privacyControls
+                composerTopBar
+                composerHero
+                composerEssentials
+                composerAddOns
+                inputField(title: "Note for guests", placeholder: "Pull up when you can — details stay inside the invite.", text: $inviteNote, lineLimit: 3)
+                composerRSVP
+                composerHostControls
+                composerGuestPreview
                 goLiveButton
             }
             .padding(20)
@@ -3707,7 +3949,207 @@ private struct NativeGroupEventSetupSheet: View {
                 eventName = type == "Custom" ? "Private Group" : "\(type) Group"
             }
         }
+        .onAppear { openComposerSheetPreviewIfRequested() }
+        .sheet(isPresented: $showRSVPStylePicker) {
+            let picker = NativeGroupEventRSVPStylePickerSheet(selectedStyle: $rsvpStyle)
+            if #available(iOS 16.0, *) { picker.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) } else { picker }
+        }
+        .sheet(item: $activeAddOnField) { field in
+            let editor = NativeGroupEventCustomFieldSheet(field: field, initialTitle: addOnTitle(for: field), initialIcon: addOnIcon(for: field), initialValue: addOnValue(for: field)) { title, icon, value in
+                saveAddOn(field, title: title, icon: icon, value: value)
+            }
+            if #available(iOS 16.0, *) { editor.presentationDetents([.height(430), .medium]).presentationDragIndicator(.visible) } else { editor }
+        }
+        .sheet(isPresented: $showCostPerPersonSheet) {
+            let sheet = NativeGroupEventCostPerPersonSheet(initialMode: composerCostPreviewMode, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, paymentMethod: paymentMethod, paymentLabel: paymentLabel, paymentURL: paymentURL, paymentNote: paymentNote) { ticketing, chipIn, method, label, url, note in
+                ticketingLabel = ticketing
+                chipInLabel = chipIn
+                paymentMethod = method
+                paymentLabel = label
+                paymentURL = url
+                paymentNote = note
+            }
+            if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
+        }
         .accessibilityIdentifier("native-group-event-setup-sheet")
+    }
+
+    private var composerTopBar: some View {
+        HStack(spacing: 10) {
+            Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
+            Spacer()
+            Button(action: { visibility = visibility == .privateInvite ? .publicDiscovery : .privateInvite; if visibility == .publicDiscovery { audienceCircle = "Public" } }) { Label(visibility == .privateInvite ? "Private Invite" : "Public", systemImage: visibility == .privateInvite ? "lock.fill" : "globe").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).frame(height: 36).background(NativePolish.elevatedSurface).clipShape(Capsule()) }.buttonStyle(.plain)
+            Button(action: goLive) { Text("Save").font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 38).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!canGoLive)
+        }
+    }
+
+    private var composerHero: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Untitled Group", text: $eventName)
+                .font(.system(size: 31, weight: .black, design: .rounded))
+                .foregroundColor(NativeTheme.textPrimary)
+                .tint(NativeTheme.cyan)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false).frame(width: 112) }.buttonStyle(.plain) } }
+            }
+            ZStack(alignment: .bottomTrailing) {
+                RoundedRectangle(cornerRadius: 26, style: .continuous).fill(LinearGradient(colors: [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: iconName.isEmpty ? "person.3.sequence.fill" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
+                Image(systemName: "pencil").font(.system(size: 13, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(Circle()).padding(12)
+            }
+            .frame(height: 210)
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultFontStyles, id: \.self) { style in Button(action: { fontStyle = style }) { setupChip(style, active: fontStyle == style, locked: false).frame(width: 132) }.buttonStyle(.plain) } } }
+        }
+        .padding(15)
+        .background(NativePolish.elevatedSurface.opacity(0.76))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private var composerEssentials: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Essentials")
+            timingSelector
+            inputField(title: "Hosted by", placeholder: "Host nickname", text: $hostName)
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in Button(action: { audienceCircle = circle; if circle == "Public" { visibility = .publicDiscovery } }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain) } } }
+            inputField(title: "Date", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
+            inputField(title: "Location", placeholder: "Shared after joining", text: $locationLabel)
+            setupFact(title: "Spots", subtitle: "Up to \(entitlement.participantCapacity) guests on \(tier.displayName).", icon: "person.2.fill")
+            costPerPersonRow
+        }
+    }
+
+    private var costPerPersonRow: some View {
+        Button(action: { showCostPerPersonSheet = true }) {
+            HStack(spacing: 12) {
+                Image(systemName: "ticket.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.orange).frame(width: 32, height: 32).background(NativeTheme.orange.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cost per person").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text(costPerPersonSummary).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text(ticketingLabel.isEmpty && chipInLabel.isEmpty ? "Sell tickets!" : "Edit")
+                    .font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 30).background(NativeTheme.cyan).clipShape(Capsule())
+            }
+            .padding(13)
+            .background(NativePolish.elevatedSurface.opacity(0.78))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var costPerPersonSummary: String {
+        if !ticketingLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return ticketingLabel }
+        if !chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return chipInLabel }
+        return "Free until tickets or chip-in are set"
+    }
+
+    private var composerCostPreviewMode: NativeGroupEventCostMode {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased() == "cost-money" ? .requestMoney : .sellTickets
+        #else
+        return .sellTickets
+        #endif
+    }
+
+    private var composerAddOns: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Add-ons")
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventAddOnField.allCases) { field in Button(action: { activeAddOnField = field }) { addOnChip(field) }.buttonStyle(.plain) } } }
+        }
+    }
+
+    private var composerRSVP: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { setupLabel("RSVP Options"); Spacer(); Button(action: { showRSVPStylePicker = true }) { setupChip("\(rsvpStyle.leadingSymbol) \(rsvpStyle.displayName)", active: true, locked: false).frame(width: 132) }.buttonStyle(.plain) }
+            HStack(spacing: 10) { composerRSVPBubble(rsvpStyle.goingSymbol, "Going"); composerRSVPBubble(rsvpStyle.maybeSymbol, "Maybe"); composerRSVPBubble(rsvpStyle.cantGoSymbol, "Can't Go") }
+            inputField(title: "RSVP deadline", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
+            inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
+        }
+    }
+
+    private var composerHostControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Quick actions for hosts")
+            Toggle("Require guest approval", isOn: $requiresApproval).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Toggle("Hide guest list", isOn: $hideGuestList).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Toggle("Allow nearby offers", isOn: $allowNearbyOffers).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var composerGuestPreview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Guest App Clip output")
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: iconName.isEmpty ? "bolt.fill" : iconName).font(.system(size: 16, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Untitled Group" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests see RSVP, host, location rules, and join/request button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
+                Spacer(minLength: 0)
+            }
+            .padding(14).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.24), lineWidth: 1))
+        }
+    }
+
+    private func addOnChip(_ field: NativeGroupEventAddOnField) -> some View {
+        let filled = !addOnValue(for: field).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 7) {
+            Image(systemName: filled ? addOnIcon(for: field) : "plus").font(.system(size: 11, weight: .black))
+            Text(filled ? addOnTitle(for: field) : field.chipTitle).font(.system(size: 12, weight: .black))
+        }
+        .foregroundColor(filled ? .black : NativeTheme.textPrimary)
+        .padding(.horizontal, 13)
+        .frame(height: 34)
+        .background(filled ? NativeTheme.emerald : NativePolish.elevatedSurface.opacity(0.82))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(filled ? NativeTheme.emerald.opacity(0.22) : NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private func addOnTitle(for field: NativeGroupEventAddOnField) -> String { addOnTitles[field.rawValue] ?? field.displayTitle }
+    private func addOnIcon(for field: NativeGroupEventAddOnField) -> String { addOnIcons[field.rawValue] ?? field.defaultIcon }
+
+    private func addOnValue(for field: NativeGroupEventAddOnField) -> String {
+        switch field {
+        case .link, .registry: return linkURL
+        case .playlist: return playlistURL
+        case .dressCode: return dressCode
+        case .foodSituation: return foodSituation
+        case .parking: return parkingInstructions
+        case .accommodation: return accommodation
+        case .additionalInfo: return eventNotes
+        }
+    }
+
+    private func saveAddOn(_ field: NativeGroupEventAddOnField, title: String, icon: String, value: String) {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanIcon = icon.trimmingCharacters(in: .whitespacesAndNewlines)
+        addOnTitles[field.rawValue] = cleanTitle.isEmpty ? field.displayTitle : cleanTitle
+        addOnIcons[field.rawValue] = cleanIcon.isEmpty ? field.defaultIcon : cleanIcon
+        switch field {
+        case .link, .registry: linkURL = value
+        case .playlist: playlistURL = value
+        case .dressCode: dressCode = value
+        case .foodSituation: foodSituation = value
+        case .parking: parkingInstructions = value
+        case .accommodation: accommodation = value
+        case .additionalInfo: eventNotes = value
+        }
+    }
+
+    private func openComposerSheetPreviewIfRequested() {
+        #if DEBUG
+        let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            if raw == "rsvp" { showRSVPStylePicker = true }
+            else if raw == "addon" { activeAddOnField = .link }
+            else if raw == "cost" || raw == "cost-money" { showCostPerPersonSheet = true }
+        }
+        #endif
+    }
+
+    private func composerRSVPBubble(_ emoji: String, _ title: String) -> some View {
+        VStack(spacing: 5) { Text(emoji).font(.system(size: 25)); Text(title).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
+            .frame(maxWidth: .infinity).frame(height: 78).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
     }
 
     private var header: some View {
@@ -3715,6 +4157,7 @@ private struct NativeGroupEventSetupSheet: View {
             Text("GROUP EVENT TEMPLATE").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
             Text("Confirm details before going live.").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
             Text("\(tier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s"), up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Text("Manual Venmo/Cash App/PayPal/custom links are saved as unverified host metadata only — Bytspot does not verify payment status in this phase.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -3726,6 +4169,29 @@ private struct NativeGroupEventSetupSheet: View {
                     Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false) }.buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    private var visibilitySelector: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Visibility & discovery")
+            HStack(spacing: 8) {
+                Button(action: { visibility = .privateInvite; audienceCircle = audienceCircle == "Public" ? "Close Friends" : audienceCircle }) { setupChip("Private", active: visibility == .privateInvite, locked: false) }.buttonStyle(.plain)
+                Button(action: { visibility = .publicDiscovery; audienceCircle = "Public" }) { setupChip("Public", active: visibility == .publicDiscovery, locked: false) }.buttonStyle(.plain)
+            }
+            Text(visibility == .publicDiscovery ? "Public events can appear on Home and Discovery." : "Private events distribute only to selected circles or invited guests.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
+        }
+    }
+
+    private var customizationFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Card customization")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultFontStyles, id: \.self) { style in Button(action: { fontStyle = style }) { setupChip(style, active: fontStyle == style, locked: false).frame(width: 132) }.buttonStyle(.plain) } }
+            }
+            inputField(title: "Thumbnail URL", placeholder: "https://.../poster.jpg", text: $thumbnailURL)
+            inputField(title: "Video URL", placeholder: "https://.../clip.mp4 or HLS", text: $videoURL)
+            inputField(title: "Artist playlist", placeholder: "Spotify / Apple Music / SoundCloud link", text: $playlistURL)
         }
     }
 
@@ -3746,12 +4212,53 @@ private struct NativeGroupEventSetupSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             setupLabel("Logistics & experience")
             inputField(title: "Host", placeholder: "Kojo Asante", text: $hostName)
+            inputField(title: "Co-hosts", placeholder: "DJ Ama, Broni Home Taste, Artist K", text: $coHostsText)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in Button(action: { audienceCircle = circle; if circle == "Public" { visibility = .publicDiscovery } }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 120) }.buttonStyle(.plain) } }
+            }
             inputField(title: "Schedule", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
             inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
             inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
             inputField(title: "Highlights", placeholder: "Chef menu, Private arrival, Invite-only offers", text: $activityHighlightsText, lineLimit: 2)
             inputField(title: "Instagram", placeholder: "@yourhandle", text: $instagramHandle)
             Text("These details travel in the private invite URL so the App Clip can render context without a network round-trip. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
+        }
+    }
+
+    private var monetizationFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Ticketing & manual chip-in")
+            inputField(title: "Ticketing", placeholder: "Free, $20 standard ticket, Premium wristband", text: $ticketingLabel)
+            inputField(title: "Chip-in", placeholder: "Required $15 or Pay what you can", text: $chipInLabel)
+            inputField(title: "Payment method", placeholder: "Venmo, Cash App, PayPal, Custom", text: $paymentMethod)
+            inputField(title: "Payment label", placeholder: "Venmo @host", text: $paymentLabel)
+            inputField(title: "Payment link", placeholder: "https://venmo.com/...", text: $paymentURL)
+            inputField(title: "Payment note", placeholder: "Include your name + event title", text: $paymentNote)
+            setupFact(title: "Manual / unverified", subtitle: "Payment links are host-entered metadata. Bytspot does not verify paid status yet.", icon: "exclamationmark.shield.fill")
+        }
+    }
+
+    private var rsvpFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("RSVP & guest controls")
+            setupFact(title: "Quick responses", subtitle: "Guests answer with emoji RSVP: 1 Going, 2 Maybe, 3 Can't Go.", icon: "hand.tap.fill")
+            inputField(title: "RSVP cutoff", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
+            inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
+            Toggle("Hide activity timestamps", isOn: $hideActivityTimestamps).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Toggle("Hide guest list from attendees", isOn: $hideGuestList).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var metadataFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Custom metadata")
+            inputField(title: "Dress code", placeholder: "All black, elevated casual", text: $dressCode)
+            inputField(title: "Food situation", placeholder: "Small bites, full dinner, BYOB", text: $foodSituation)
+            inputField(title: "Parking", placeholder: "Garage entrance, valet, street tips", text: $parkingInstructions)
+            inputField(title: "Accommodation", placeholder: "Nearby hotel or host note", text: $accommodation)
+            inputField(title: "Event notes", placeholder: "Details guests should know", text: $eventNotes, lineLimit: 3)
+            inputField(title: "Optional link", placeholder: "Registry, website, menu, map", text: $linkURL)
+            inputField(title: "Icon", placeholder: "sparkles, music.note, fork.knife", text: $iconName)
         }
     }
 
@@ -3834,10 +4341,331 @@ private struct NativeGroupEventSetupSheet: View {
     private func goLive() {
         guard canGoLive else { return }
         let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle)
+        let coHosts = coHostsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let questions = customQuestionsText.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let payment = paymentURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : NativePrimaryEventManualPayment(method: paymentMethod, label: paymentLabel.isEmpty ? paymentMethod : paymentLabel, url: paymentURL, note: paymentNote)
+        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURL, thumbnailURLString: thumbnailURL, videoURLString: videoURL, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: payment, rsvpCutoff: rsvpCutoff, customQuestions: questions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURL, iconName: iconName)
         onCreate(record)
         dismiss()
     }
+}
+
+private enum NativeGroupEventRSVPStyle: String, CaseIterable, Identifiable, Equatable {
+    case emojis, icons, bloom, flirty, hearts, modernDating, sweaty, spooky, turkey, frosty, milkCookies
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .emojis: return "Emojis"
+        case .icons: return "Icons"
+        case .bloom: return "Bloom"
+        case .flirty: return "Flirty"
+        case .hearts: return "Hearts"
+        case .modernDating: return "Modern dating"
+        case .sweaty: return "Sweaty"
+        case .spooky: return "Spooky"
+        case .turkey: return "Turkey"
+        case .frosty: return "Frosty"
+        case .milkCookies: return "Milk & cookies"
+        }
+    }
+    var leadingSymbol: String { goingSymbol }
+    var goingSymbol: String {
+        switch self { case .emojis: return "👍"; case .icons: return "☑️"; case .bloom: return "🌷"; case .flirty: return "💋"; case .hearts: return "❤️"; case .modernDating: return "👻"; case .sweaty: return "🥵"; case .spooky: return "🎃"; case .turkey: return "🦃"; case .frosty: return "☃️"; case .milkCookies: return "🎅" }
+    }
+    var maybeSymbol: String {
+        switch self { case .emojis: return "🤔"; case .icons: return "❔"; case .bloom: return "🌼"; case .flirty: return "😉"; case .hearts: return "💛"; case .modernDating: return "👀"; case .sweaty: return "😅"; case .spooky: return "👻"; case .turkey: return "🥧"; case .frosty: return "❄️"; case .milkCookies: return "🍪" }
+    }
+    var cantGoSymbol: String {
+        switch self { case .emojis: return "😢"; case .icons: return "❌"; case .bloom: return "🥀"; case .flirty: return "🙅"; case .hearts: return "💔"; case .modernDating: return "🚫"; case .sweaty: return "💦"; case .spooky: return "🪦"; case .turkey: return "🍽️"; case .frosty: return "🥶"; case .milkCookies: return "🥛" }
+    }
+}
+
+private enum NativeGroupEventAddOnField: String, CaseIterable, Identifiable, Equatable {
+    case link, playlist, registry, dressCode, foodSituation, parking, accommodation, additionalInfo
+    var id: String { rawValue }
+    var chipTitle: String { "+ \(displayTitle)" }
+    var displayTitle: String {
+        switch self {
+        case .link: return "Link"
+        case .playlist: return "Playlist"
+        case .registry: return "Registry"
+        case .dressCode: return "Dress code"
+        case .foodSituation: return "Food Situation"
+        case .parking: return "Parking"
+        case .accommodation: return "Accommodation"
+        case .additionalInfo: return "Additional info"
+        }
+    }
+    var defaultIcon: String {
+        switch self {
+        case .link: return "link"
+        case .playlist: return "music.note"
+        case .registry: return "gift.fill"
+        case .dressCode: return "tshirt.fill"
+        case .foodSituation: return "fork.knife"
+        case .parking: return "car.fill"
+        case .accommodation: return "bed.double.fill"
+        case .additionalInfo: return "info.circle.fill"
+        }
+    }
+    var inputLabel: String {
+        switch self {
+        case .link, .registry: return "Link"
+        case .playlist: return "Playlist link"
+        case .dressCode: return "Dress code"
+        case .foodSituation: return "Food situation"
+        case .parking: return "Parking"
+        case .accommodation: return "Accommodation"
+        case .additionalInfo: return "Additional info"
+        }
+    }
+    var placeholder: String {
+        switch self {
+        case .link: return "https://yourlink.com"
+        case .playlist: return "Spotify / Apple Music link"
+        case .registry: return "Registry, menu, website, map"
+        case .dressCode: return "All black, elevated casual"
+        case .foodSituation: return "Small bites, full dinner, BYOB"
+        case .parking: return "Garage entrance, valet, street tips"
+        case .accommodation: return "Hotel block, nearby stay, host note"
+        case .additionalInfo: return "Anything guests should know"
+        }
+    }
+}
+
+private struct NativeGroupEventRSVPStylePickerSheet: View {
+    @Binding var selectedStyle: NativeGroupEventRSVPStyle
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 8) {
+                Capsule().fill(NativeTheme.textTertiary.opacity(0.35)).frame(width: 54, height: 5).frame(maxWidth: .infinity).padding(.bottom, 12)
+                ForEach(NativeGroupEventRSVPStyle.allCases) { style in
+                    Button(action: { selectedStyle = style; dismiss() }) {
+                        HStack(spacing: 14) {
+                            Text(style.leadingSymbol).font(.system(size: 28))
+                            Text(style.displayName).font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+                            Spacer()
+                            if selectedStyle == style { Image(systemName: "checkmark").font(.system(size: 21, weight: .black)).foregroundColor(NativeTheme.textPrimary) }
+                        }
+                        .padding(.horizontal, 18).frame(height: 58)
+                        .background(selectedStyle == style ? NativePolish.elevatedSurface.opacity(0.92) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }.buttonStyle(.plain)
+                }
+            }.padding(20)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-group-event-rsvp-style-picker")
+    }
+}
+
+private struct NativeGroupEventCustomFieldSheet: View {
+    let field: NativeGroupEventAddOnField
+    let onSave: (String, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var titleText: String
+    @State private var selectedIcon: String
+    @State private var valueText: String
+    private let iconOptions = ["link", "music.note", "gift.fill", "tshirt.fill", "fork.knife", "info.circle.fill", "car.fill", "bed.double.fill"]
+
+    init(field: NativeGroupEventAddOnField, initialTitle: String, initialIcon: String, initialValue: String, onSave: @escaping (String, String, String) -> Void) {
+        self.field = field; self.onSave = onSave
+        _titleText = State(initialValue: initialTitle)
+        _selectedIcon = State(initialValue: initialIcon)
+        _valueText = State(initialValue: initialValue)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { closeButton; Spacer(); Text("Custom Field").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); saveButton }
+            TextField("Field name", text: $titleText)
+                .font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.emerald)
+                .padding(12).padding(.leading, 25).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(alignment: .leading) { Image(systemName: selectedIcon).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.leading, 10) }.overlay(RoundedRectangle(cornerRadius: 2).stroke(NativeTheme.textPrimary.opacity(0.55), lineWidth: 1))
+            Text("Icon").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(iconOptions, id: \.self) { icon in Button(action: { selectedIcon = icon }) { Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(.white).frame(width: 34, height: 32).background(selectedIcon == icon ? NativeTheme.emerald : NativePolish.elevatedSurface.opacity(0.88)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)) }.buttonStyle(.plain) } } }
+            Text("\(field.inputLabel)*").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+            TextField(field.placeholder, text: $valueText)
+                .font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.emerald)
+                .padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 2).stroke(NativeTheme.textPrimary.opacity(0.25), lineWidth: 1))
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-group-event-custom-field-sheet")
+    }
+
+    private var closeButton: some View { Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 28, height: 28).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain) }
+    private var saveButton: some View { Button(action: { onSave(titleText, selectedIcon, valueText); dismiss() }) { Text("Save").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 30).background(NativeTheme.emerald).clipShape(Capsule()) }.buttonStyle(.plain) }
+}
+
+private enum NativeGroupEventCostMode: String, CaseIterable, Identifiable { case sellTickets, requestMoney; var id: String { rawValue } }
+
+private struct NativeGroupEventCostPerPersonSheet: View {
+    let onSave: (String, String, String, String, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode: NativeGroupEventCostMode = .sellTickets
+    @State private var stripeStarted = false
+    @State private var ticketName = "General wristband"
+    @State private var ticketPrice = ""
+    @State private var ticketQuantity = ""
+    @State private var includeVendorOffers = true
+    @State private var chipInType = "Required amount"
+    @State private var currency = "USD $"
+    @State private var amount = ""
+    @State private var venmo = ""
+    @State private var cashApp = ""
+    @State private var paypal = ""
+    @State private var alternativeMethod = ""
+    @State private var alternativeHandle = ""
+    @State private var paymentInstructions = ""
+
+    init(initialMode: NativeGroupEventCostMode = .sellTickets, ticketingLabel: String, chipInLabel: String, paymentMethod: String, paymentLabel: String, paymentURL: String, paymentNote: String, onSave: @escaping (String, String, String, String, String, String) -> Void) {
+        self.onSave = onSave
+        _mode = State(initialValue: initialMode)
+        _ticketPrice = State(initialValue: Self.amountFrom(label: ticketingLabel))
+        _amount = State(initialValue: Self.amountFrom(label: chipInLabel.isEmpty ? ticketingLabel : chipInLabel))
+        _chipInType = State(initialValue: chipInLabel.isEmpty ? "Required amount" : chipInLabel)
+        _alternativeMethod = State(initialValue: paymentMethod == "Alternative" ? paymentLabel : "")
+        _alternativeHandle = State(initialValue: paymentMethod == "Alternative" ? paymentURL : "")
+        _paymentInstructions = State(initialValue: paymentNote)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            costHeader
+            modeTabs
+            Divider().background(NativePolish.softBorder)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    if mode == .sellTickets { sellTicketsPanel } else { requestMoneyPanel }
+                }
+                .padding(18)
+                .padding(.bottom, 22)
+            }
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-group-event-cost-per-person-sheet")
+    }
+
+    private var costHeader: some View {
+        HStack {
+            Button(action: { dismiss() }) { Image(systemName: "chevron.left").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 34, height: 34).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
+            Spacer()
+            Text("Cost Per Person").font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Spacer()
+            Button(action: {}) { Image(systemName: "questionmark").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 34, height: 34).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
+        }.padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+    }
+
+    private var modeTabs: some View {
+        HStack(spacing: 0) {
+            costTab(.sellTickets, title: "Sell Tickets", icon: "bolt.fill")
+            costTab(.requestMoney, title: "Request Money", icon: "dollarsign.circle.fill")
+        }.padding(.horizontal, 14)
+    }
+
+    private func costTab(_ tab: NativeGroupEventCostMode, title: String, icon: String) -> some View {
+        Button(action: { mode = tab }) {
+            VStack(spacing: 9) {
+                HStack(spacing: 6) { Image(systemName: icon).font(.system(size: 11, weight: .black)); Text(title).font(.system(size: 13, weight: .black)) }
+                Rectangle().fill(mode == tab ? NativeTheme.cyan : Color.clear).frame(height: 2)
+            }.foregroundColor(mode == tab ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+        }.buttonStyle(.plain)
+    }
+
+    private var sellTicketsPanel: some View {
+        VStack(alignment: .center, spacing: 18) {
+            Spacer(minLength: 20)
+            ZStack {
+                Circle().fill(NativeTheme.cyan.opacity(0.18)).frame(width: 132, height: 132)
+                Image(systemName: "ticket.fill").font(.system(size: 62, weight: .black)).foregroundColor(NativeTheme.cyan).rotationEffect(.degrees(-9))
+            }
+            Text(stripeStarted ? "Stripe Express ticket setup" : "Start selling tickets").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+            Text(stripeStarted ? "Set the first wristband sale details. Stripe Express handles onboarding, payouts, and hosted checkout when backend wiring is connected." : "Confirm event details to get started. Tickets, wristbands, and vendor offer bundles use Stripe Express for payouts.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center)
+            if stripeStarted { sellTicketsFields } else { startStripeButton }
+            Text("Setup usually takes 1–2 minutes").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+            Spacer(minLength: 20)
+        }.frame(maxWidth: .infinity)
+    }
+
+    private var startStripeButton: some View {
+        Button(action: { stripeStarted = true }) { Text("Get started").font(.system(size: 14, weight: .black)).foregroundColor(.black).padding(.horizontal, 24).frame(height: 42).background(Color.white).clipShape(Capsule()) }.buttonStyle(.plain)
+    }
+
+    private var sellTicketsFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            costInput("Ticket / wristband name", placeholder: "General wristband", text: $ticketName)
+            HStack(spacing: 10) { costInput("Price", placeholder: "25", text: $ticketPrice); costInput("Quantity", placeholder: "50", text: $ticketQuantity) }
+            Toggle("Link wristbands to vendor offer sales", isOn: $includeVendorOffers).tint(NativeTheme.cyan).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Button(action: saveStripeTicketIntent) { NativeCTA(title: "Save Stripe Express setup", color: NativeTheme.cyan, foreground: .black) }.buttonStyle(.plain)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var requestMoneyPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack { Text("Chip In").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Menu(chipInType) { Button("Required amount") { chipInType = "Required amount" }; Button("Suggested amount") { chipInType = "Suggested amount" }; Button("Optional chip-in") { chipInType = "Optional chip-in" } }.font(.system(size: 12, weight: .black)) }.padding(14).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            warningCard
+            Text("Cost Per Person").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            HStack(spacing: 8) { costInput("", placeholder: currency, text: $currency); costInput("", placeholder: "Amount", text: $amount) }
+            Text("Payment Methods").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            paymentRow("Venmo", prefix: "@", text: $venmo)
+            paymentRow("Cash App", prefix: "$", text: $cashApp)
+            paymentRow("PayPal", prefix: "@", text: $paypal)
+            Text("Alternative payment").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            costInput("Method", placeholder: "Zelle, Apple Cash, MTN MoMo", text: $alternativeMethod)
+            costInput("Handle / link", placeholder: "Phone, email, URL, wallet", text: $alternativeHandle)
+            costInput("Instructions", placeholder: "Send with your name + event title", text: $paymentInstructions)
+            Button(action: saveRequestMoney) { NativeCTA(title: "Save request money", color: NativeTheme.emerald, foreground: .black) }.buttonStyle(.plain)
+            Text("Payments are not verified. Guests self-report payment during RSVP.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+        }
+    }
+
+    private var warningCard: some View {
+        HStack(alignment: .top, spacing: 9) { Image(systemName: "exclamationmark.triangle.fill").foregroundColor(NativeTheme.orange); VStack(alignment: .leading, spacing: 3) { Text("Payments are not verified").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("Guests self-report payment during RSVP").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary) } }
+            .padding(13).frame(maxWidth: .infinity, alignment: .leading).background(NativeTheme.orange.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func paymentRow(_ label: String, prefix: String, text: Binding<String>) -> some View {
+        HStack(spacing: 12) { Text(label).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 82, alignment: .leading); HStack(spacing: 8) { Text(prefix).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary); TextField(label, text: text).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.cyan) }.padding(12).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)) }
+    }
+
+    private func costInput(_ title: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) { if !title.isEmpty { Text(title).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }; TextField(placeholder, text: text).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.cyan).padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)) }
+    }
+
+    private func saveStripeTicketIntent() {
+        let price = ticketPrice.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = ticketName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Stripe Express wristband" : ticketName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let amountLabel = price.isEmpty ? name : "\(currencyPrefix)\(price) · \(name)"
+        let quantity = ticketQuantity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vendor = includeVendorOffers ? "Vendor offer sales enabled" : "No vendor bundle"
+        let note = "Stripe Express seller onboarding required. \(vendor).\(quantity.isEmpty ? "" : " Quantity: \(quantity).")"
+        onSave(amountLabel, "Sell tickets · Stripe Express", "Stripe Express", "Wristband checkout", "", note)
+        dismiss()
+    }
+
+    private func saveRequestMoney() {
+        let cleanAmount = amount.trimmingCharacters(in: .whitespacesAndNewlines)
+        let costLabel = cleanAmount.isEmpty ? chipInType : "\(chipInType) · \(currencyPrefix)\(cleanAmount)"
+        let methods = paymentOptions
+        let primary = methods.first ?? ("Alternative", alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines))
+        let noteParts = methods.map { "\($0.0): \($0.1)" } + [paymentInstructions.trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+        onSave(costLabel, costLabel, primary.0, primary.1, primary.1, "Payments are not verified. " + noteParts.joined(separator: " · "))
+        dismiss()
+    }
+
+    private var paymentOptions: [(String, String)] {
+        var out: [(String, String)] = []
+        if !venmo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("Venmo", venmo.trimmingCharacters(in: .whitespacesAndNewlines))) }
+        if !cashApp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("Cash App", cashApp.trimmingCharacters(in: .whitespacesAndNewlines))) }
+        if !paypal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("PayPal", paypal.trimmingCharacters(in: .whitespacesAndNewlines))) }
+        if !alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append((alternativeMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Alternative" : alternativeMethod.trimmingCharacters(in: .whitespacesAndNewlines), alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines))) }
+        return out
+    }
+
+    private var currencyPrefix: String { currency.contains("$") ? "$" : "" }
+    private static func amountFrom(label: String) -> String { label.split(separator: "$", maxSplits: 1).dropFirst().first?.split(separator: " ").first.map(String.init) ?? "" }
 }
 
 enum NativeGroupEventTimingState: String, CaseIterable, Equatable, Codable {
@@ -3903,12 +4731,43 @@ struct NativeVendorLTOEntitlement: Equatable {
 enum NativeGroupEventPrivacyStatus: String, Equatable, Codable {
     case privateInvite
     case publicDiscovery
+
+    var label: String {
+        switch self {
+        case .privateInvite: return "Private Invite"
+        case .publicDiscovery: return "Public"
+        }
+    }
 }
 
 enum NativeGroupEventPrivateAssociation: String, Equatable, Codable {
     case none
     case host
     case joinedViaInvite
+}
+
+struct NativePrimaryEventManualPayment: Equatable, Codable {
+    static let unverifiedStatus = "manual_unverified"
+    let method: String
+    let label: String
+    let url: String
+    let note: String?
+    let verificationStatus: String
+
+    init(method: String, label: String, url: String, note: String? = nil, verificationStatus: String = Self.unverifiedStatus) {
+        self.method = method.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Custom" : method.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.label = label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? self.method : label.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.note = trimmedNote.isEmpty ? nil : trimmedNote
+        self.verificationStatus = verificationStatus
+    }
+
+    var payload: [String: Any] {
+        var out: [String: Any] = ["method": method, "label": label, "url": url, "verificationStatus": verificationStatus]
+        if let note { out["note"] = note }
+        return out
+    }
 }
 
 struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
@@ -3933,8 +4792,26 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     let thumbnailURLString: String?
     let videoURLString: String?
     let instagramHandle: String?
+    let audienceCircle: String
+    let fontStyle: String
+    let coHosts: [String]
+    let playlistURLString: String?
+    let ticketingLabel: String?
+    let chipInLabel: String?
+    let manualPayment: NativePrimaryEventManualPayment?
+    let rsvpCutoff: String?
+    let customQuestions: [String]
+    let hideActivityTimestamps: Bool
+    let hideGuestList: Bool
+    let dressCode: String?
+    let foodSituation: String?
+    let parkingInstructions: String?
+    let accommodation: String?
+    let eventNotes: String?
+    let linkURLString: String?
+    let iconName: String?
 
-    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil) {
+    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) {
         self.id = id
         self.title = title
         self.groupType = groupType
@@ -3957,6 +4834,24 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
         self.videoURLString = videoURLString ?? fallback.video
         self.instagramHandle = Self.clean(instagramHandle, maxLength: 64).map { $0.replacingOccurrences(of: "@", with: "") }
+        self.audienceCircle = Self.clean(audienceCircle, maxLength: 40) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
+        self.fontStyle = Self.clean(fontStyle, maxLength: 40) ?? NativeGroupEventContract.defaultFontStyles[0]
+        self.coHosts = Array((coHosts ?? []).compactMap { Self.clean($0, maxLength: 64) }.prefix(8))
+        self.playlistURLString = Self.clean(playlistURLString, maxLength: 240)
+        self.ticketingLabel = Self.clean(ticketingLabel, maxLength: 80)
+        self.chipInLabel = Self.clean(chipInLabel, maxLength: 80)
+        self.manualPayment = manualPayment?.url.isEmpty == false ? manualPayment : nil
+        self.rsvpCutoff = Self.clean(rsvpCutoff, maxLength: 80)
+        self.customQuestions = Array((customQuestions ?? []).compactMap { Self.clean($0, maxLength: 100) }.prefix(6))
+        self.hideActivityTimestamps = hideActivityTimestamps
+        self.hideGuestList = hideGuestList
+        self.dressCode = Self.clean(dressCode, maxLength: 100)
+        self.foodSituation = Self.clean(foodSituation, maxLength: 120)
+        self.parkingInstructions = Self.clean(parkingInstructions, maxLength: 160)
+        self.accommodation = Self.clean(accommodation, maxLength: 160)
+        self.eventNotes = Self.clean(eventNotes, maxLength: 260)
+        self.linkURLString = Self.clean(linkURLString, maxLength: 240)
+        self.iconName = Self.clean(iconName, maxLength: 40)
     }
 
     static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
@@ -3971,14 +4866,14 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         return String((0..<length).compactMap { _ in alphabet.randomElement() })
     }
 
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil) -> Self {
+    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle)
+        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, thumbnailURLString: thumbnailURLString, videoURLString: videoURLString, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURLString, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: manualPayment, rsvpCutoff: rsvpCutoff, customQuestions: customQuestions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURLString, iconName: iconName)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
@@ -3998,9 +4893,21 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         groupType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    var primaryEventMetadataPayload: [String: Any] {
+        var out: [String: Any] = ["manualPaymentVerification": NativePrimaryEventManualPayment.unverifiedStatus]
+        if let dressCode { out["dressCode"] = dressCode }
+        if let foodSituation { out["foodSituation"] = foodSituation }
+        if let parkingInstructions { out["parking"] = parkingInstructions }
+        if let accommodation { out["accommodation"] = accommodation }
+        if let eventNotes { out["notes"] = eventNotes }
+        if let linkURLString { out["link"] = linkURLString }
+        if let iconName { out["icon"] = iconName }
+        return out
+    }
+
     private static let hiddenFromPublicGroupTypes = Set(["dinner", "family"])
 
-    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle }
+    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle, audienceCircle, fontStyle, coHosts, playlistURLString, ticketingLabel, chipInLabel, manualPayment, rsvpCutoff, customQuestions, hideActivityTimestamps, hideGuestList, dressCode, foodSituation, parkingInstructions, accommodation, eventNotes, linkURLString, iconName }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -4026,6 +4933,24 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         thumbnailURLString = try c.decodeIfPresent(String.self, forKey: .thumbnailURLString) ?? fallback.thumbnail
         videoURLString = try c.decodeIfPresent(String.self, forKey: .videoURLString) ?? fallback.video
         instagramHandle = try c.decodeIfPresent(String.self, forKey: .instagramHandle)
+        audienceCircle = try c.decodeIfPresent(String.self, forKey: .audienceCircle) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
+        fontStyle = try c.decodeIfPresent(String.self, forKey: .fontStyle) ?? NativeGroupEventContract.defaultFontStyles[0]
+        coHosts = try c.decodeIfPresent([String].self, forKey: .coHosts) ?? []
+        playlistURLString = try c.decodeIfPresent(String.self, forKey: .playlistURLString)
+        ticketingLabel = try c.decodeIfPresent(String.self, forKey: .ticketingLabel)
+        chipInLabel = try c.decodeIfPresent(String.self, forKey: .chipInLabel)
+        manualPayment = try c.decodeIfPresent(NativePrimaryEventManualPayment.self, forKey: .manualPayment)
+        rsvpCutoff = try c.decodeIfPresent(String.self, forKey: .rsvpCutoff)
+        customQuestions = try c.decodeIfPresent([String].self, forKey: .customQuestions) ?? []
+        hideActivityTimestamps = try c.decodeIfPresent(Bool.self, forKey: .hideActivityTimestamps) ?? false
+        hideGuestList = try c.decodeIfPresent(Bool.self, forKey: .hideGuestList) ?? false
+        dressCode = try c.decodeIfPresent(String.self, forKey: .dressCode)
+        foodSituation = try c.decodeIfPresent(String.self, forKey: .foodSituation)
+        parkingInstructions = try c.decodeIfPresent(String.self, forKey: .parkingInstructions)
+        accommodation = try c.decodeIfPresent(String.self, forKey: .accommodation)
+        eventNotes = try c.decodeIfPresent(String.self, forKey: .eventNotes)
+        linkURLString = try c.decodeIfPresent(String.self, forKey: .linkURLString)
+        iconName = try c.decodeIfPresent(String.self, forKey: .iconName)
     }
 
     private static func richDefaults(tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, location: String, theme: String, guests: String, highlights: [String], hero: String?, thumbnail: String?, video: String?) {
@@ -4097,12 +5022,14 @@ enum NativeGroupEventContract {
     static let storageKey = "bytspot_native_group_events"
     static let homepageSectionTitle = "Live Event Happening Now"
     static let networkTitle = "Groups & Invites"
-    static let quickStartCTA = "Start Private Group"
+    static let quickStartCTA = "Start a Private Group"
     static let inviteCTA = "Share Invite"
     static let privacyBadge = "Private Group"
     static let appClipJoinCTA = "Join Instantly"
     static let matchedOfferExplanation = "Nearby offers can appear in this group without sharing your contacts or member list with vendors."
     static let defaultEventTypes = ["Dinner", "Family", "Birthday", "Watch Party", "Pickup", "Custom"]
+    static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Creators", "Public"]
+    static let defaultFontStyles = ["Bytspot Rounded", "Serif Luxe", "Poster Bold", "Minimal Mono"]
 
     static func entitlement(for tier: BytspotTier) -> NativeGroupEventEntitlement { .entitlement(for: tier) }
     static func vendorEntitlement(for tier: BytspotTier) -> NativeVendorLTOEntitlement { .entitlement(for: tier) }
@@ -4120,8 +5047,29 @@ enum NativeGroupEventContract {
             URLQueryItem(name: "participants", value: "\(event.participantCount)"),
             URLQueryItem(name: "scheduled", value: event.scheduledDate),
             URLQueryItem(name: "host", value: event.hostName),
+            URLQueryItem(name: "visibility", value: event.privacyStatus.rawValue),
+            URLQueryItem(name: "circle", value: event.audienceCircle),
+            URLQueryItem(name: "font", value: event.fontStyle),
+            URLQueryItem(name: "coHosts", value: event.coHosts.joined(separator: ",")),
             URLQueryItem(name: "location", value: event.locationLabel),
             URLQueryItem(name: "theme", value: event.theme),
+            URLQueryItem(name: "playlist", value: event.playlistURLString),
+            URLQueryItem(name: "ticketing", value: event.ticketingLabel),
+            URLQueryItem(name: "chipIn", value: event.chipInLabel),
+            URLQueryItem(name: "paymentMethod", value: event.manualPayment?.method),
+            URLQueryItem(name: "paymentLabel", value: event.manualPayment?.label),
+            URLQueryItem(name: "paymentUrl", value: event.manualPayment?.url),
+            URLQueryItem(name: "rsvpCutoff", value: event.rsvpCutoff),
+            URLQueryItem(name: "questions", value: event.customQuestions.joined(separator: ";")),
+            URLQueryItem(name: "hideActivity", value: event.hideActivityTimestamps ? "1" : "0"),
+            URLQueryItem(name: "hideGuests", value: event.hideGuestList ? "1" : "0"),
+            URLQueryItem(name: "dress", value: event.dressCode),
+            URLQueryItem(name: "food", value: event.foodSituation),
+            URLQueryItem(name: "parking", value: event.parkingInstructions),
+            URLQueryItem(name: "stay", value: event.accommodation),
+            URLQueryItem(name: "notes", value: event.eventNotes),
+            URLQueryItem(name: "link", value: event.linkURLString),
+            URLQueryItem(name: "icon", value: event.iconName),
             URLQueryItem(name: "guestSummary", value: event.guestSummary),
             URLQueryItem(name: "activities", value: event.activityHighlights.joined(separator: ",")),
             URLQueryItem(name: "hero", value: event.heroImageURLString),
@@ -4145,6 +5093,9 @@ enum NativeGroupEventContract {
         let timing = parseTiming(queryValue(in: query, names: ["timing", "when"])) ?? .now
         let participantCount = Int(queryValue(in: query, names: ["participants", "p"]) ?? "1") ?? 1
         let hostName = queryValue(in: query, names: ["host", "hostName"]) ?? "Private Host"
+        let paymentUrl = queryValue(in: query, names: ["paymentUrl", "paymentLink"])
+        let payment = paymentUrl.map { NativePrimaryEventManualPayment(method: queryValue(in: query, names: ["paymentMethod"]) ?? "Custom", label: queryValue(in: query, names: ["paymentLabel"]) ?? "Manual payment", url: $0) }
+        let questions = queryValue(in: query, names: ["questions", "customQuestions"])?.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return NativeGroupEventRecord(
             id: id,
             title: title,
@@ -4155,7 +5106,7 @@ enum NativeGroupEventContract {
             participantCount: participantCount,
             allowNearbyOffers: true,
             inviteNote: nil,
-            privacyStatus: .privateInvite,
+            privacyStatus: parsePrivacy(queryValue(in: query, names: ["visibility", "privacy"])) ?? .privateInvite,
             privateAssociation: .joinedViaInvite,
             scheduledDate: queryValue(in: query, names: ["scheduled", "scheduledDate", "date", "startTime"]),
             locationLabel: queryValue(in: query, names: ["location", "locationLabel", "address"]),
@@ -4165,7 +5116,25 @@ enum NativeGroupEventContract {
             heroImageURLString: queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]),
             thumbnailURLString: queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]),
             videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"]),
-            instagramHandle: queryValue(in: query, names: ["instagram", "ig", "instagramHandle", "social"])
+            instagramHandle: queryValue(in: query, names: ["instagram", "ig", "instagramHandle", "social"]),
+            audienceCircle: queryValue(in: query, names: ["circle", "audienceCircle"]),
+            fontStyle: queryValue(in: query, names: ["font", "fontStyle"]),
+            coHosts: queryArray(in: query, names: ["coHosts", "hosts"]),
+            playlistURLString: queryValue(in: query, names: ["playlist", "playlistUrl"]),
+            ticketingLabel: queryValue(in: query, names: ["ticketing", "ticketingLabel"]),
+            chipInLabel: queryValue(in: query, names: ["chipIn", "chipInLabel"]),
+            manualPayment: payment,
+            rsvpCutoff: queryValue(in: query, names: ["rsvpCutoff", "rsvpDeadline"]),
+            customQuestions: questions,
+            hideActivityTimestamps: queryValue(in: query, names: ["hideActivity"]) == "1",
+            hideGuestList: queryValue(in: query, names: ["hideGuests"]) == "1",
+            dressCode: queryValue(in: query, names: ["dress", "dressCode"]),
+            foodSituation: queryValue(in: query, names: ["food", "foodSituation"]),
+            parkingInstructions: queryValue(in: query, names: ["parking", "parkingInstructions"]),
+            accommodation: queryValue(in: query, names: ["stay", "accommodation"]),
+            eventNotes: queryValue(in: query, names: ["notes", "description"]),
+            linkURLString: queryValue(in: query, names: ["link", "url"]),
+            iconName: queryValue(in: query, names: ["icon"])
         )
     }
 
@@ -4194,6 +5163,11 @@ enum NativeGroupEventContract {
         case "weekly", "week": return .weekly
         default: return NativeGroupEventTimingState(rawValue: raw)
         }
+    }
+
+    private static func parsePrivacy(_ raw: String?) -> NativeGroupEventPrivacyStatus? {
+        guard let raw else { return nil }
+        return NativeGroupEventPrivacyStatus(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func homepageBanner(for event: NativeGroupEventRecord) -> NativeGroupEventBannerSnapshot {
@@ -15787,7 +16761,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Start Private Group", "Share Invite", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
+        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Social Circles", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
         precondition(NativeSavedPlacesBoardContract.emptyPlanHeadline == "No next visit planned" && NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("next visit state") && NativeSavedPlacesBoardContract.summary.contains("verification"), "NativeAccountParitySelfTests: Saved Places Board summary copy drifted.")

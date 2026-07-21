@@ -433,6 +433,14 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeLocationPermissionUX.shouldShowCard(state: .allowed, isUsingFallback: true))
     }
 
+    func testNativeLocationPermissionUXWaitsForRealFixBeforeRefresh() {
+        XCTAssertFalse(NativeLocationPermissionUX.shouldRefreshAfterGrant(state: .allowed, isUsingFallback: true))
+        XCTAssertTrue(NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: .allowed, isUsingFallback: true))
+        XCTAssertTrue(NativeLocationPermissionUX.shouldRefreshAfterGrant(state: .allowed, isUsingFallback: false))
+        XCTAssertFalse(NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: .allowed, isUsingFallback: false))
+        XCTAssertFalse(NativeLocationPermissionUX.shouldRefreshAfterGrant(state: .notDetermined, isUsingFallback: true))
+    }
+
     func testLocalTravelEstimateDoesNotClaimGoogleRoutes() throws {
         let api = NativeLiveDiscoveryAPI(client: BytspotAPIClient())
         let estimate = try XCTUnwrap(api.localTravelEstimate(origin: .midtown, destinationLat: 33.7900, destinationLng: -84.3890))

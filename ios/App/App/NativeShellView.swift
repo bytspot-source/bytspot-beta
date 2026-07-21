@@ -201,6 +201,14 @@ enum NativeLocationPermissionUX {
     static func opensSettings(state: NativeLocationStore.AuthorizationState) -> Bool {
         state == .denied || state == .restricted
     }
+
+    static func shouldRefreshAfterGrant(state: NativeLocationStore.AuthorizationState, isUsingFallback: Bool) -> Bool {
+        state == .allowed && !isUsingFallback
+    }
+
+    static func shouldRequestFreshFixAfterGrant(state: NativeLocationStore.AuthorizationState, isUsingFallback: Bool) -> Bool {
+        state == .allowed && isUsingFallback
+    }
 }
 
 /// Single source-of-truth for the "Patch paired" handshake event. Driven by the
@@ -5708,8 +5716,8 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }
         .task { await refreshLiveWeather() }
-        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
-        .onChange(of: locationStore.authorizationState) { state in if state == .allowed { Task { await refreshHomeLocationContent() } } }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshHomeLocationContent() } }
+        .onChange(of: locationStore.authorizationState) { state in if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) { locationStore.startIfAuthorized() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
@@ -5773,7 +5781,16 @@ private struct NativeHomeDashboardView: View {
             locationStore.openAppSettings()
         } else {
             locationStore.requestWhenInUseIfNeeded()
-            if locationStore.authorizationState == .allowed { Task { await refreshHomeLocationContent() } }
+            refreshOrRequestHomeLocationFixIfAllowed()
+        }
+    }
+
+    private func refreshOrRequestHomeLocationFixIfAllowed() {
+        let state = locationStore.authorizationState
+        if NativeLocationPermissionUX.shouldRefreshAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            Task { await refreshHomeLocationContent() }
+        } else if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            locationStore.startIfAuthorized()
         }
     }
 
@@ -9973,7 +9990,8 @@ private struct NativeDiscoverView: View {
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
-        .onChange(of: locationStore.authorizationState) { state in if state == .allowed { Task { await refreshDiscoverForLocation() } } }
+        .onChange(of: locationStore.authorizationState) { state in if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) { locationStore.startIfAuthorized() } }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshDiscoverForLocation() } }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
@@ -10048,7 +10066,16 @@ private struct NativeDiscoverView: View {
             locationStore.openAppSettings()
         } else {
             locationStore.requestWhenInUseIfNeeded()
-            if locationStore.authorizationState == .allowed { Task { await refreshDiscoverForLocation() } }
+            refreshOrRequestDiscoverLocationFixIfAllowed()
+        }
+    }
+
+    private func refreshOrRequestDiscoverLocationFixIfAllowed() {
+        let state = locationStore.authorizationState
+        if NativeLocationPermissionUX.shouldRefreshAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            Task { await refreshDiscoverForLocation() }
+        } else if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            locationStore.startIfAuthorized()
         }
     }
 
@@ -15290,11 +15317,12 @@ private struct NativeLocationPermissionCard: View {
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
+            .accessibilityLabel(NativeLocationPermissionUX.ctaTitle(state: state))
+            .accessibilityHint(NativeLocationPermissionUX.opensSettings(state: state) ? "Opens Settings to enable location access." : "Requests location access for nearby weather and Discover results.")
         }
         .padding(compact ? 10 : 12)
         .nativePanel()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(NativeLocationPermissionUX.title(state: state)). \(NativeLocationPermissionUX.subtitle(state: state))")
+        .accessibilityElement(children: .contain)
     }
 }
 

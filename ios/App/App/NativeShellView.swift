@@ -3095,6 +3095,8 @@ private struct NativeHomeDashboardView: View {
     ]
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
+    static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate " + "crowd", "time" + "/day"]
+    static let visibleHomeSurfaceLabels = ["AI Pick", "What's Happening Tonight", "Right Now in Midtown", "Trending Now", "What are you feeling?", "Nearby"]
 
     var body: some View {
         NativeScreenScroll {
@@ -3306,18 +3308,8 @@ private struct NativeHomeDashboardView: View {
                         Button(action: { openNativeTab(.discover) }) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ZStack(alignment: .bottomTrailing) {
-                                    NativeRemoteImage(
-                                        url: event.imageUrl,
-                                        fallbackColors: [NativeTheme.orange.opacity(0.55), NativeTheme.purple.opacity(0.45), NativeTheme.cyan.opacity(0.25)],
-                                        fallbackEmoji: event.emoji,
-                                        emojiSize: 90,
-                                        emojiOpacity: 0.40,
-                                        emojiOffset: CGSize(width: 16, height: 8)
-                                    )
-                                    LinearGradient(
-                                        colors: [Color.black.opacity(0.0), Color.black.opacity(0.65)],
-                                        startPoint: .top, endPoint: .bottom
-                                    )
+                                    LinearGradient(colors: [NativeTheme.orange.opacity(0.34), NativeTheme.purple.opacity(0.22), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    Text(event.emoji).font(.system(size: 46)).frame(maxWidth: .infinity, maxHeight: .infinity)
                                     Text(event.price)
                                         .font(.system(size: 11, weight: .black)).foregroundColor(.white)
                                         .padding(.horizontal, 9).padding(.vertical, 5)
@@ -3550,24 +3542,10 @@ private struct NativeHomeHeroCard: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                NativeRemoteImage(
-                    url: venue.imageUrl,
-                    fallbackColors: [NativeTheme.purple.opacity(0.55), NativeTheme.magenta.opacity(0.32), NativeTheme.cyan.opacity(0.22)],
-                    fallbackEmoji: categoryEmoji,
-                    emojiSize: 150,
-                    emojiOpacity: 0.16,
-                    emojiOffset: CGSize(width: 70, height: 10)
-                )
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color.black.opacity(0.02), Color.black.opacity(0.42), Color.black.opacity(0.92)]
-                        : [Color.white.opacity(0.02), Color.white.opacity(0.62), Color.white.opacity(0.94)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                VStack {
-                    HStack {
-                        Spacer()
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(categoryEmoji).font(.system(size: 26)).frame(width: 50, height: 50).background(eyebrowColor.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 4) {
                             Image(systemName: eyebrowIcon).font(.system(size: 10, weight: .black))
                             Text(eyebrow).font(.system(size: 11, weight: .black))
@@ -3575,46 +3553,36 @@ private struct NativeHomeHeroCard: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(eyebrowColor.opacity(0.92))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 1))
                         .clipShape(Capsule())
-                        .shadow(color: eyebrowColor.opacity(0.45), radius: 8, x: 0, y: 4)
+                        Text(venue.name).font(.system(size: 23, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                .padding(12)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(categoryEmoji).font(.system(size: 17))
-                    Text(venue.name)
-                        .font(.system(size: 24, weight: .black))
-                        .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                        .lineLimit(2)
-                        .shadow(color: colorScheme == .dark ? .black.opacity(0.45) : .white.opacity(0.0), radius: 4, x: 0, y: 1)
-                    Text(venue.address)
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary)
-                        .lineLimit(1)
-                        .shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
-                    HStack(spacing: 8) {
-                        if !crowdLabel.isEmpty {
-                            Text("\(crowdEmoji) \(crowdLabel)")
-                                .font(.system(size: 10, weight: .black))
-                                .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(colorScheme == .dark ? Color.black.opacity(0.55) : NativeTheme.selectedControlSurface)
-                                .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
-                                .clipShape(Capsule())
-                        }
-                        if let r = venue.rating {
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill").font(.system(size: 9, weight: .black))
-                                Text(String(format: "%.1f", r)).font(.system(size: 10, weight: .black))
-                            }
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                Text(venue.address)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    if !crowdLabel.isEmpty {
+                        Text("\(crowdEmoji) \(crowdLabel)")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(NativeTheme.orange.opacity(0.92))
+                            .background(NativeTheme.selectedControlSurface)
+                            .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
                             .clipShape(Capsule())
-                        }
                     }
+                    if let r = venue.rating {
+                        HStack(spacing: 3) {
+                            Image(systemName: "star.fill").font(.system(size: 9, weight: .black))
+                            Text(String(format: "%.1f", r)).font(.system(size: 10, weight: .black))
+                        }
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(NativeTheme.orange.opacity(0.92))
+                        .clipShape(Capsule())
+                    }
+                    Spacer(minLength: 0)
                     HStack(spacing: 6) {
                         Text(ctaTitle).font(.system(size: 13, weight: .black))
                         Image(systemName: "arrow.right").font(.system(size: 11, weight: .black))
@@ -3623,14 +3591,13 @@ private struct NativeHomeHeroCard: View {
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(NativeTheme.cyan)
                     .clipShape(Capsule())
-                    .padding(.top, 4)
                 }
-                .padding(18)
             }
-            .frame(height: 252)
-            .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .shadow(color: NativeTheme.softShadow, radius: 22, x: 0, y: 14)
+            .padding(16)
+            .background(LinearGradient(colors: [NativePolish.elevatedSurface, eyebrowColor.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(eyebrowColor.opacity(0.24), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+            .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
         }
         .buttonStyle(.plain)
     }
@@ -3643,28 +3610,18 @@ private struct NativeHomeServiceRecommendationCard: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                NativeRemoteImage(
-                    url: card.imageUrl,
-                    fallbackColors: [NativeTheme.cyan.opacity(0.42), NativeTheme.purple.opacity(0.30), NativeTheme.pink.opacity(0.20)],
-                    fallbackEmoji: card.title.contains("GH Akwaaba") ? "🇬🇭" : "🛎️",
-                    emojiSize: 120,
-                    emojiOpacity: 0.22,
-                    emojiOffset: CGSize(width: 62, height: 6)
-                )
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color.black.opacity(0.02), Color.black.opacity(0.48), Color.black.opacity(0.92)]
-                        : [Color.white.opacity(0.02), Color.white.opacity(0.58), Color.white.opacity(0.94)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(card.title.contains("GH Akwaaba") ? "🇬🇭" : "🛎️")
+                        .font(.system(size: 30))
+                        .frame(width: 54, height: 54)
+                        .background(NativeTheme.cyan.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    Spacer(minLength: 0)
+                    Text("SERVICES").serviceChip(color: NativeTheme.cyan, foreground: .black)
+                }
                 VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 7) {
-                        Text("SERVICES").serviceChip(color: NativeTheme.cyan, foreground: .black)
-                        if card.membershipRequired { Text("MEMBER").serviceChip(color: NativeTheme.purple, foreground: .white) }
-                    }
-                    Spacer()
+                    if card.membershipRequired { Text("MEMBER").serviceChip(color: NativeTheme.purple, foreground: .white) }
                     Text(card.title).font(.system(size: 19, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2)
                     Text(card.metadataLine).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).lineLimit(1)
                     HStack(spacing: 6) {
@@ -3672,9 +3629,10 @@ private struct NativeHomeServiceRecommendationCard: View {
                         Text(card.cta).serviceChip(color: NativeTheme.cyan, foreground: .black)
                     }
                 }
-                .padding(14)
             }
-            .frame(height: 228)
+            .padding(14)
+            .frame(height: 188)
+            .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativeTheme.cyan.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
             .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativeTheme.cyan.opacity(0.20), lineWidth: 1))
             .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
@@ -8204,6 +8162,8 @@ enum NativeHomeParitySelfTests {
         precondition(actions[2].target == .hybrid(.map), "NativeHomeParitySelfTests: Book a Ride must keep production React ride fallback until native ride modal parity.")
         precondition(actions[3].target == .nativeTab(.discover), "NativeHomeParitySelfTests: Explore Venues must route to native Discover tab.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
+        let visibleHomeCopy = NativeHomeDashboardView.visibleHomeSurfaceLabels.joined(separator: " | ")
+        precondition(!NativeHomeDashboardView.prohibitedContextSnapshotLabels.contains { visibleHomeCopy.localizedCaseInsensitiveContains($0) }, "NativeHomeParitySelfTests: native Home must not expose context snapshot placeholder copy.")
     }
 }
 #endif

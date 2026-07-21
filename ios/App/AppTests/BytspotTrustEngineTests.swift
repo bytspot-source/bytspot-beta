@@ -503,6 +503,23 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.etaTextKey), "~5 min approx")
     }
 
+    func testNativeMapFocusResolverPrefersStoredCoordinatesOverStaleMatch() {
+        let staleVenue = NativeVenueSummary(id: "place-google-coffee", name: "Adapter Coffee", category: "coffee_shop", address: "Fallback Midtown", distance: "Nearby", rating: nil, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let stalePin = NativeMapPin(venue: staleVenue)
+
+        let focused = NativeMapFocusResolver.focusedPin(existing: stalePin, id: "place-google-coffee", title: "Adapter Coffee", subtitle: "123 Peachtree St NE", latitude: 33.7901, longitude: -84.3891, kindRaw: "place", sourceLabel: "Google Places", etaText: "~5 min approx", generatedID: "unused")
+
+        XCTAssertEqual(focused.id, "place-google-coffee")
+        XCTAssertEqual(focused.title, "Adapter Coffee")
+        XCTAssertEqual(focused.coordinate.latitude, 33.7901)
+        XCTAssertEqual(focused.coordinate.longitude, -84.3891)
+        XCTAssertEqual(focused.kind, .place)
+        XCTAssertEqual(focused.sourceLabel, "Google Places")
+        XCTAssertEqual(focused.etaText, "~5 min approx")
+        XCTAssertNotEqual(focused.coordinate.latitude, stalePin.coordinate.latitude)
+        XCTAssertNotEqual(focused.coordinate.longitude, stalePin.coordinate.longitude)
+    }
+
     func testNativeMapExternalHandoffURLsUseCoordinatesOnly() throws {
         let apple = try XCTUnwrap(NativeMapExternalHandoff.appleMapsURL(latitude: 33.7901, longitude: -84.3891))
         let google = try XCTUnwrap(NativeMapExternalHandoff.googleMapsURL(latitude: 33.7901, longitude: -84.3891))

@@ -8050,6 +8050,25 @@ enum NativeMapExternalHandoff {
     }
 }
 
+enum NativeMapFocusResolver {
+    static func focusedPin(existing: NativeMapPin?, id: String, title: String, subtitle: String, latitude: Double, longitude: Double, kindRaw: String, sourceLabel: String, etaText: String, generatedID: String) -> NativeMapPin {
+        let trimmedKind = kindRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = trimmedKind.isEmpty ? existing?.kind ?? NativeMapPinKind(handoffKind: trimmedKind) : NativeMapPinKind(handoffKind: trimmedKind)
+        return NativeMapPin(
+            id: id.isEmpty ? existing?.id ?? generatedID : id,
+            title: title.isEmpty ? existing?.title ?? "Selected destination" : title,
+            subtitle: subtitle.isEmpty ? existing?.subtitle ?? (kind == .parking ? "Parking" : "Selected destination") : subtitle,
+            distance: existing?.distance ?? "Selected",
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            color: kind.color,
+            kind: kind,
+            crowdLevel: existing?.crowdLevel ?? (kind == .parking ? 1 : nil),
+            sourceLabel: sourceLabel.isEmpty ? existing?.sourceLabel : sourceLabel,
+            etaText: etaText.isEmpty ? existing?.etaText : etaText
+        )
+    }
+}
+
 private struct NativeParkingBookingSheet: View {
     let venue: NativeVenueSummary
     var onOpenAccess: (() -> Void)? = nil
@@ -12813,18 +12832,17 @@ private struct NativeMapExploreView: View {
         let existing = pins.first { pin in
             pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
         }
-        let kind = NativeMapPinKind(handoffKind: mapFocusKind)
-        let focused = existing ?? NativeMapPin(
-            id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,
-            title: title.isEmpty ? "Selected destination" : title,
-            subtitle: mapFocusSubtitle.isEmpty ? (kind == .parking ? "Parking" : "Selected destination") : mapFocusSubtitle,
-            distance: "Selected",
-            coordinate: coordinate,
-            color: kind.color,
-            kind: kind,
-            crowdLevel: kind == .parking ? 1 : nil,
-            sourceLabel: mapFocusSourceLabel.isEmpty ? nil : mapFocusSourceLabel,
-            etaText: mapFocusEtaText.isEmpty ? nil : mapFocusEtaText
+        let focused = NativeMapFocusResolver.focusedPin(
+            existing: existing,
+            id: id,
+            title: title,
+            subtitle: mapFocusSubtitle,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            kindRaw: mapFocusKind,
+            sourceLabel: mapFocusSourceLabel,
+            etaText: mapFocusEtaText,
+            generatedID: "focus-\(Int(Date().timeIntervalSince1970))"
         )
         focusedHandoffPin = focused
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {

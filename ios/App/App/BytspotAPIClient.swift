@@ -46,6 +46,10 @@ struct BytspotAPIClient {
         return Self.unwrapTRPCData(try await json(path: path, method: method, body: body))
     }
 
+    func trpcQueryPayload(path: String, input: [String: Any]) async throws -> Any {
+        Self.unwrapTRPCData(try await json(path: Self.trpcQueryPath(path, input: input)))
+    }
+
     func trpcDecode<T: Decodable>(_ type: T.Type, path: String, method: String = "GET", input: [String: Any]? = nil) async throws -> T {
         let payload = try await trpcPayload(path: path, method: method, input: input)
         let data = try JSONSerialization.data(withJSONObject: payload)
@@ -60,6 +64,12 @@ struct BytspotAPIClient {
             return unwrapTRPCData(data)
         }
         return value
+    }
+
+    static func trpcQueryPath(_ path: String, input: [String: Any]) throws -> String {
+        let inputData = try JSONSerialization.data(withJSONObject: input)
+        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return "\(path)?input=\(encoded)"
     }
 }
 
@@ -561,9 +571,7 @@ enum NativeLiveContentV2Contract {
     static let placesEnrichRoute = "/trpc/places.enrich"
     static let vendorsMatchRoute = "/trpc/vendors.match"
     static let venueIntelligenceRoute = "/trpc/venues.intelligence"
-    static let navigationRouteRoute = "/trpc/navigation.route"
-    static let navigationEtaRoute = "/trpc/navigation.eta"
-    static let navigationGeocodeRoute = "/trpc/navigation.geocode"
+    static let googleRoutesProxyStatus = "pending_backend_route"
     static let parkingSearchRoute = "/trpc/parking.search"
     static let parkingQuoteRoute = "/trpc/parking.quote"
     static let parkingReserveRoute = "/trpc/parking.reserve"
@@ -1042,11 +1050,15 @@ struct NativeLocationCoordinate: Equatable, Sendable {
     func apiPoint() -> [String: Any] { ["lat": latitude, "lng": longitude] }
 
     func distanceLabel(toLatitude targetLat: Double?, longitude targetLng: Double?) -> String? {
-        guard let targetLat, let targetLng else { return nil }
-        let miles = Self.haversineMiles(fromLat: latitude, lng: longitude, toLat: targetLat, lng: targetLng)
+        guard let miles = distanceMiles(toLatitude: targetLat, longitude: targetLng) else { return nil }
         if miles < 0.12 { return "Here" }
         if miles < 10 { return String(format: "%.1f mi", miles) }
         return String(format: "%.0f mi", miles)
+    }
+
+    func distanceMiles(toLatitude targetLat: Double?, longitude targetLng: Double?) -> Double? {
+        guard let targetLat, let targetLng else { return nil }
+        return Self.haversineMiles(fromLat: latitude, lng: longitude, toLat: targetLat, lng: targetLng)
     }
 
     private static func haversineMiles(fromLat: Double, lng fromLng: Double, toLat: Double, lng toLng: Double) -> Double {
@@ -1173,29 +1185,22 @@ struct NativeLiveDiscoveryAPI {
     }
 
     func placesTextSearch(query: String, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, method: "POST", input: ["query": query, "lat": lat, "lng": lng, "maxResults": maxResults])
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": lat, "lng": lng, "maxResults": maxResults])
         return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
     }
 
     func placesNearbySearch(type: String?, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
         var input: [String: Any] = ["lat": lat, "lng": lng, "maxResults": maxResults]
         if let type, !type.isEmpty { input["type"] = type }
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, method: "POST", input: input)
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, input: input)
         return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
     }
 
-    func navigationETA(origin: NativeLocationCoordinate, destinationLat: Double?, destinationLng: Double?, destinationAddress: String?, mode: String = "drive") async throws -> NativeNavigationEstimate {
-        var destination: [String: Any] = [:]
-        if let destinationLat, let destinationLng { destination["lat"] = destinationLat; destination["lng"] = destinationLng }
-        if let destinationAddress, !destinationAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { destination["address"] = destinationAddress.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !destination.isEmpty else { throw BytspotAPIClient.APIError.invalidResponse }
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.navigationEtaRoute, method: "POST", input: ["origin": origin.apiPoint(), "destinations": [destination], "mode": mode, "providers": ["google_maps", "bytspot_curated"]])
-        return Self.navigationEstimate(from: payload)
-    }
-
-    func navigationETA(origin: String, destination: String) async throws -> NativeNavigationEstimate {
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.navigationEtaRoute, method: "POST", input: ["origin": ["address": origin], "destinations": [["address": destination]], "mode": "drive", "providers": ["google_maps", "bytspot_curated"]])
-        return Self.navigationEstimate(from: payload)
+    func localTravelEstimate(origin: NativeLocationCoordinate, destinationLat: Double?, destinationLng: Double?) -> NativeNavigationEstimate? {
+        guard let distance = origin.distanceMiles(toLatitude: destinationLat, longitude: destinationLng) else { return nil }
+        let minutes = max(2, Int((distance / 18.0 * 60.0).rounded()))
+        let distanceText = distance < 10 ? String(format: "%.1f mi", distance) : String(format: "%.0f mi", distance)
+        return NativeNavigationEstimate(distanceText: distanceText, durationText: "~\(minutes) min", provider: "local_distance")
     }
 
     private static func placeRows(from value: Any) -> [Any] {
@@ -1204,19 +1209,6 @@ struct NativeLiveDiscoveryAPI {
         if let places = dict["places"] as? [Any] { return places }
         if let results = dict["results"] as? [Any] { return results }
         return []
-    }
-
-    private static func etaRows(from value: Any) -> [[String: Any]] {
-        if let array = value as? [[String: Any]] { return array }
-        guard let dict = value as? [String: Any] else { return [] }
-        if let etas = dict["etas"] as? [[String: Any]] { return etas }
-        if let results = dict["results"] as? [[String: Any]] { return results }
-        return []
-    }
-
-    private static func navigationEstimate(from payload: Any) -> NativeNavigationEstimate {
-        let root = etaRows(from: payload).first ?? payload as? [String: Any] ?? [:]
-        return NativeNavigationEstimate(distanceText: string(root["distanceText"]) ?? string(root["distanceLabel"]) ?? string(root["distance"]) ?? "Distance pending", durationText: string(root["durationText"]) ?? string(root["durationLabel"]) ?? string(root["duration"]) ?? "ETA pending", provider: string(root["provider"]) ?? "google_routes")
     }
 
     private static func placeResult(_ pair: EnumeratedSequence<[Any]>.Element) -> NativePlaceSearchResult? {
@@ -1382,7 +1374,7 @@ final class NativeTabContentStore: ObservableObject {
         var cards: [NativeDiscoverSummary] = []
         for pair in places.enumerated() {
             let place = pair.element
-            let eta = pair.offset < 3 ? try? await api.navigationETA(origin: location, destinationLat: place.latitude, destinationLng: place.longitude, destinationAddress: place.address) : nil
+            let eta = pair.offset < 3 ? api.localTravelEstimate(origin: location, destinationLat: place.latitude, destinationLng: place.longitude) : nil
             cards.append(Self.discoverCard(fromPlace: pair, location: location, eta: eta))
         }
         return cards
@@ -1481,7 +1473,7 @@ final class NativeTabContentStore: ObservableObject {
         let (index, place) = pair
         let type = discoverType(forPlaceCategory: place.category)
         let distance = location.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
-        let etaLine = eta.map { " · \($0.durationText) drive" } ?? ""
+        let etaLine = eta.map { " · \($0.durationText) approx" } ?? ""
         return NativeDiscoverSummary(
             id: "place-\(place.id)",
             type: type,

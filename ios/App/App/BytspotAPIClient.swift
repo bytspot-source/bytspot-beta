@@ -1055,6 +1055,8 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     var priceLevel: String? = nil
     var photoUrls: [URL] = []
     var etaText: String? = nil
+    var latitude: Double? = nil
+    var longitude: Double? = nil
 }
 
 struct NativeLocationCoordinate: Equatable, Sendable {
@@ -1267,7 +1269,7 @@ struct NativeLiveDiscoveryAPI {
             ratingCount: int(item["ratingCount"]) ?? int(item["userRatingCount"]) ?? int(item["user_ratings_total"]),
             photoUrls: photoUrls,
             isOpen: bool(item["isOpen"]) ?? bool(item["openNow"]) ?? bool(openingHours?["openNow"]),
-            websiteUrl: string(item["websiteUri"]).flatMap(URL.init(string:)) ?? string(item["websiteURL"]).flatMap(URL.init(string:)) ?? string(item["website"]).flatMap(URL.init(string:)),
+            websiteUrl: safeWebURL(string(item["websiteUri"]) ?? string(item["websiteURL"]) ?? string(item["website"])),
             priceLevel: string(item["priceLevel"]) ?? string(item["price_level"]),
             types: types,
             sourceLabel: string(item["sourceLabel"]) ?? string(item["providerLabel"]) ?? provider.replacingOccurrences(of: "_", with: " ").capitalized
@@ -1321,6 +1323,11 @@ struct NativeLiveDiscoveryAPI {
             guard let url = URL(string: value), seen.insert(url.absoluteString).inserted else { return nil }
             return url
         }
+    }
+
+    private static func safeWebURL(_ value: String?) -> URL? {
+        guard let value, let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return nil }
+        return url
     }
 }
 
@@ -1546,7 +1553,7 @@ final class NativeTabContentStore: ObservableObject {
     private static func locationAwareCards(_ cards: [NativeDiscoverSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
         cards.map { card in
             guard let venue = NativeTabContentSnapshot.fallbackVenues.first(where: { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }), let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText, latitude: card.latitude, longitude: card.longitude)
         }
     }
 
@@ -1585,7 +1592,9 @@ final class NativeTabContentStore: ObservableObject {
             websiteUrl: place.websiteUrl,
             priceLevel: place.priceLevel,
             photoUrls: place.photoUrls,
-            etaText: etaText
+            etaText: etaText,
+            latitude: place.latitude,
+            longitude: place.longitude
         )
     }
 

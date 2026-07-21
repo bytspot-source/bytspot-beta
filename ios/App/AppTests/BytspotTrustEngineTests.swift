@@ -284,6 +284,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue), "GOOGLE PLACES")
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: callAction, venue: venue), "Website")
         XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: callAction, venue: venue), "safari.fill")
+
+        let unsafeVenue = NativeVenueSummary(id: "place-unsafe", name: "Unsafe Cafe", category: "coffee_shop", address: "123 Peachtree", distance: "0.4 mi", rating: 4.7, latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", websiteUrl: URL(string: "javascript:alert(1)"))
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: callAction, venue: unsafeVenue), "Contact")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: callAction, venue: unsafeVenue), "phone.fill")
     }
 
     func testVenueDetailCategorySectionsArePurposeBuilt() {
@@ -419,6 +423,23 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(place.websiteUrl?.host, "adapter.example")
         XCTAssertEqual(place.photoUrls.count, 2)
         XCTAssertEqual(place.sourceLabel, "Google Places")
+
+        var unsafeRow = row
+        unsafeRow["websiteUri"] = "javascript:alert(1)"
+        XCTAssertNil(NativeLiveDiscoveryAPI.placeResult(from: unsafeRow)?.websiteUrl)
+    }
+
+    func testHomeSearchLivePlaceDetailRoutePreservesAdapterCoordinates() throws {
+        let card = NativeDiscoverSummary(id: "place-google-place-1", type: "coffee", title: "Adapter Coffee", subtitle: "123 Peachtree St NE", distance: "0.7 mi", rating: "4.6", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "GOOGLE PLACES", metadataLine: "Live place · Google Places · ~5 min approx", features: ["Coffee", "0.7 mi", "321 ratings"], vibeScore: 7, availability: "Open now", membershipRequired: false, placeId: "google-place-1", sourceLabel: "Google Places", ratingCount: 321, isOpen: true, websiteUrl: URL(string: "https://adapter.example/coffee"), photoUrls: [], etaText: "~5 min approx", latitude: 33.7901, longitude: -84.3891)
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [card], events: [], source: .live, lastUpdated: nil, errorMessage: nil)
+        let suggestion = try XCTUnwrap(NativeSearchRouter.suggestions(query: "Adapter Coffee", snapshot: snapshot, limit: 1).first)
+
+        XCTAssertEqual(suggestion.actionLabel, "Details")
+        guard case .detail(let venue) = suggestion.route else { return XCTFail("Live place search result should open native detail.") }
+        XCTAssertEqual(venue.latitude, 33.7901)
+        XCTAssertEqual(venue.longitude, -84.3891)
+        XCTAssertEqual(venue.placeId, "google-place-1")
+        XCTAssertEqual(venue.etaText, "~5 min approx")
     }
 
     func testBestValueQueryPathCarriesRawInputJSON() throws {

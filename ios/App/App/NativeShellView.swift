@@ -3198,8 +3198,14 @@ private struct NativeProfileNetworkCard: View {
     private var circlesForDisplay: [NativeSocialCircle] { socialCircleSnapshot.groups.isEmpty ? NativeSocialCircle.fallbackStarter : socialCircleSnapshot.groups }
     private var circleNamesForGroupSetup: [String] {
         var names: [String] = []
-        for name in circlesForDisplay.map(\.name) where !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !names.contains(name) { names.append(name) }
-        if !names.contains("Public") { names.append("Public") }
+        var seen = Set<String>()
+        for rawName in circlesForDisplay.map(\.name) + ["Public"] {
+            let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = trimmed.lowercased()
+            guard !trimmed.isEmpty && !seen.contains(key) else { continue }
+            seen.insert(key)
+            names.append(key == "public" ? "Public" : trimmed)
+        }
         return names
     }
 
@@ -3491,13 +3497,16 @@ private struct NativeProfileNetworkCard: View {
             let profileAPI = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             do {
-                _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput)
-                _ = try await api.create(input: input)
+                let outcome = try await NativeProfileNetworkPublishCoordinator.publish(
+                    createGroupEvent: { _ = try await api.create(input: input) },
+                    createPrimaryDraft: { _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput) }
+                )
                 publishedGroupEventIDs.insert(record.id)
+                let draftSuffix = outcome.primaryDraftCreated ? "" : " Draft sync will retry later."
                 if announce {
                     networkStatus = record.requiresApproval
-                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
-                        : "\(record.title) is live. Share the invite for instant App Clip join."
+                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests.\(draftSuffix)"
+                        : "\(record.title) is live. Share the invite for instant App Clip join.\(draftSuffix)"
                 }
             } catch {
                 publishedGroupEventIDs.remove(record.id)
@@ -4463,6 +4472,26 @@ enum NativePrimaryEventDraftBuilder {
         let metadata: [String: Any] = ["groupType": record.groupType, "timing": record.timing.rawValue, "scheduledDate": record.scheduledDate, "locationLabel": record.locationLabel, "theme": record.theme, "inviteNote": record.inviteNote ?? "", "activityHighlights": record.activityHighlights, "instagramHandle": record.instagramHandle ?? "", "audienceCircle": record.audienceCircle]
         let rsvp: [String: Any] = ["requireGuestApproval": record.requiresApproval]
         return ["id": record.id, "title": record.title, "visibility": record.privacyStatus == .publicDiscovery ? "public" : "private", "hostName": record.hostName, "tier": record.tier.rawValue, "capacityLimit": capacity(for: record.tier), "audienceGroupIds": audienceGroupId.map { [$0] } ?? [], "invitedUserIds": [], "rsvp": rsvp, "metadata": metadata, "surface": surface]
+    }
+}
+
+struct NativeProfileNetworkPublishOutcome: Equatable {
+    let groupEventPublished: Bool
+    let primaryDraftCreated: Bool
+}
+
+enum NativeProfileNetworkPublishCoordinator {
+    static func publish(
+        createGroupEvent: () async throws -> Void,
+        createPrimaryDraft: () async throws -> Void
+    ) async throws -> NativeProfileNetworkPublishOutcome {
+        try await createGroupEvent()
+        do {
+            try await createPrimaryDraft()
+            return NativeProfileNetworkPublishOutcome(groupEventPublished: true, primaryDraftCreated: true)
+        } catch {
+            return NativeProfileNetworkPublishOutcome(groupEventPublished: true, primaryDraftCreated: false)
+        }
     }
 }
 

@@ -649,6 +649,40 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(metadata["audienceCircle"] as? String, "Trust Crew")
     }
 
+    func testLegacyGroupPublishStillRunsWhenPrimaryDraftCreationThrows() async throws {
+        enum DraftError: Error { case failed }
+        var calls: [String] = []
+
+        let outcome = try await NativeProfileNetworkPublishCoordinator.publish(
+            createGroupEvent: { calls.append("groupEvents.create") },
+            createPrimaryDraft: {
+                calls.append("events.drafts.create")
+                throw DraftError.failed
+            }
+        )
+
+        XCTAssertEqual(calls, ["groupEvents.create", "events.drafts.create"])
+        XCTAssertEqual(outcome, NativeProfileNetworkPublishOutcome(groupEventPublished: true, primaryDraftCreated: false))
+    }
+
+    func testPrimaryDraftIsSkippedWhenLegacyGroupPublishFails() async {
+        enum GroupError: Error { case failed }
+        var calls: [String] = []
+
+        do {
+            _ = try await NativeProfileNetworkPublishCoordinator.publish(
+                createGroupEvent: {
+                    calls.append("groupEvents.create")
+                    throw GroupError.failed
+                },
+                createPrimaryDraft: { calls.append("events.drafts.create") }
+            )
+            XCTFail("Expected legacy group publish failure to throw")
+        } catch {
+            XCTAssertEqual(calls, ["groupEvents.create"])
+        }
+    }
+
     func testNormalizeSocialCircleMirrorsPrimaryEventRpcShape() throws {
         let payload: [String: Any] = ["groups": [
             ["id": "circle-1", "name": "Trust Crew", "ownerUserId": "user-1", "memberCount": 12, "privacy": "private", "role": "owner"],

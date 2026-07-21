@@ -1006,6 +1006,14 @@ struct NativeVenueSummary: Identifiable, Equatable {
     let parking: NativeParkingSummary
     let verifiedPatchId: String?
     let imageUrl: URL?
+    var placeId: String? = nil
+    var sourceLabel: String? = nil
+    var ratingCount: Int? = nil
+    var isOpen: Bool? = nil
+    var websiteUrl: URL? = nil
+    var priceLevel: String? = nil
+    var photoUrls: [URL] = []
+    var etaText: String? = nil
 
     var discoverType: String {
         let normalized = category.lowercased()
@@ -1039,6 +1047,14 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let vibeScore: Int
     let availability: String
     let membershipRequired: Bool
+    var placeId: String? = nil
+    var sourceLabel: String? = nil
+    var ratingCount: Int? = nil
+    var isOpen: Bool? = nil
+    var websiteUrl: URL? = nil
+    var priceLevel: String? = nil
+    var photoUrls: [URL] = []
+    var etaText: String? = nil
 }
 
 struct NativeLocationCoordinate: Equatable, Sendable {
@@ -1146,6 +1162,13 @@ struct NativePlaceSearchResult: Identifiable, Equatable {
     let rating: Double?
     let photoUrl: URL?
     let provider: String
+    let ratingCount: Int?
+    let photoUrls: [URL]
+    let isOpen: Bool?
+    let websiteUrl: URL?
+    let priceLevel: String?
+    let types: [String]
+    let sourceLabel: String?
 }
 
 struct NativeNavigationEstimate: Equatable {
@@ -1218,19 +1241,36 @@ struct NativeLiveDiscoveryAPI {
     private static func placeResult(_ pair: EnumeratedSequence<[Any]>.Element) -> NativePlaceSearchResult? {
         let (index, value) = pair
         guard let item = value as? [String: Any] else { return nil }
+        return placeResult(from: item, index: index)
+    }
+
+    static func placeResult(from item: [String: Any], index: Int = 0) -> NativePlaceSearchResult? {
         let location = item["location"] as? [String: Any]
         let geometry = item["geometry"] as? [String: Any]
         let geoLocation = geometry?["location"] as? [String: Any]
+        let displayName = item["displayName"] as? [String: Any]
+        let openingHours = item["currentOpeningHours"] as? [String: Any]
+        let types = stringArray(item["types"])
+        let primaryType = string(item["primaryType"]) ?? string(item["primary_type"])
+        let photoUrls = urls(from: item)
+        let provider = string(item["provider"]) ?? string(item["source"]) ?? "google_places"
         return NativePlaceSearchResult(
             id: string(item["id"]) ?? string(item["placeId"]) ?? string(item["place_id"]) ?? "place-\(index)",
-            name: string(item["name"]) ?? string(item["title"]) ?? "Nearby place",
+            name: string(displayName?["text"]) ?? string(item["name"]) ?? string(item["title"]) ?? "Nearby place",
             address: string(item["address"]) ?? string(item["formattedAddress"]) ?? string(item["formatted_address"]) ?? "Atlanta area",
-            category: string(item["category"]) ?? string(item["type"]) ?? "venue",
-            latitude: double(item["lat"]) ?? double(item["latitude"]) ?? double(location?["lat"]) ?? double(geoLocation?["lat"]),
-            longitude: double(item["lng"]) ?? double(item["longitude"]) ?? double(location?["lng"]) ?? double(geoLocation?["lng"]),
+            category: string(item["category"]) ?? string(item["type"]) ?? primaryType ?? types.first ?? "venue",
+            latitude: double(item["lat"]) ?? double(item["latitude"]) ?? double(location?["lat"]) ?? double(location?["latitude"]) ?? double(geoLocation?["lat"]) ?? double(geoLocation?["latitude"]),
+            longitude: double(item["lng"]) ?? double(item["longitude"]) ?? double(location?["lng"]) ?? double(location?["longitude"]) ?? double(geoLocation?["lng"]) ?? double(geoLocation?["longitude"]),
             rating: double(item["rating"]),
-            photoUrl: string(item["photoUrl"]).flatMap(URL.init(string:)) ?? string(item["imageUrl"]).flatMap(URL.init(string:)),
-            provider: string(item["provider"]) ?? "google_places"
+            photoUrl: photoUrls.first ?? string(item["photoUrl"]).flatMap(URL.init(string:)) ?? string(item["imageUrl"]).flatMap(URL.init(string:)),
+            provider: provider,
+            ratingCount: int(item["ratingCount"]) ?? int(item["userRatingCount"]) ?? int(item["user_ratings_total"]),
+            photoUrls: photoUrls,
+            isOpen: bool(item["isOpen"]) ?? bool(item["openNow"]) ?? bool(openingHours?["openNow"]),
+            websiteUrl: string(item["websiteUri"]).flatMap(URL.init(string:)) ?? string(item["websiteURL"]).flatMap(URL.init(string:)) ?? string(item["website"]).flatMap(URL.init(string:)),
+            priceLevel: string(item["priceLevel"]) ?? string(item["price_level"]),
+            types: types,
+            sourceLabel: string(item["sourceLabel"]) ?? string(item["providerLabel"]) ?? provider.replacingOccurrences(of: "_", with: " ").capitalized
         )
     }
 
@@ -1244,6 +1284,43 @@ struct NativeLiveDiscoveryAPI {
         if let value = value as? Int { return Double(value) }
         if let value = value as? String { return Double(value) }
         return nil
+    }
+
+    private static func int(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private static func bool(_ value: Any?) -> Bool? {
+        if let value = value as? Bool { return value }
+        if let value = value as? Int { return value != 0 }
+        if let value = value as? String {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["true", "yes", "1", "open"].contains(normalized) { return true }
+            if ["false", "no", "0", "closed"].contains(normalized) { return false }
+        }
+        return nil
+    }
+
+    private static func stringArray(_ value: Any?) -> [String] {
+        if let values = value as? [String] { return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
+        if let values = value as? [Any] { return values.compactMap(string) }
+        return []
+    }
+
+    private static func urls(from item: [String: Any]) -> [URL] {
+        var raw = stringArray(item["photoUrls"]) + stringArray(item["photos"])
+        if let photos = item["photos"] as? [[String: Any]] {
+            raw += photos.compactMap { string($0["photoUri"]) ?? string($0["url"]) ?? string($0["name"]) }
+        }
+        raw += [string(item["photoUrl"]), string(item["imageUrl"])].compactMap { $0 }
+        var seen = Set<String>()
+        return raw.compactMap { value in
+            guard let url = URL(string: value), seen.insert(url.absoluteString).inserted else { return nil }
+            return url
+        }
     }
 }
 
@@ -1462,7 +1539,7 @@ final class NativeTabContentStore: ObservableObject {
     private static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
         venues.map { venue in
             let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
-            return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl)
+            return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl, placeId: venue.placeId, sourceLabel: venue.sourceLabel, ratingCount: venue.ratingCount, isOpen: venue.isOpen, websiteUrl: venue.websiteUrl, priceLevel: venue.priceLevel, photoUrls: venue.photoUrls, etaText: venue.etaText)
         }
     }
 
@@ -1477,7 +1554,11 @@ final class NativeTabContentStore: ObservableObject {
         let (index, place) = pair
         let type = discoverType(forPlaceCategory: place.category)
         let distance = location.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
-        let etaLine = eta.map { " · \($0.durationText) approx" } ?? ""
+        let etaText = eta.map { "\($0.durationText) approx" }
+        let etaLine = etaText.map { " · \($0)" } ?? ""
+        let source = place.sourceLabel ?? place.provider.replacingOccurrences(of: "_", with: " ").capitalized
+        let availability = place.isOpen.map { $0 ? "Open now" : "Closed" } ?? "Hours pending"
+        let ratingCount = place.ratingCount.map { "\($0) ratings" }
         return NativeDiscoverSummary(
             id: "place-\(place.id)",
             type: type,
@@ -1492,11 +1573,19 @@ final class NativeTabContentStore: ObservableObject {
             imageUrl: place.photoUrl,
             categoryLabel: label(for: type),
             badgeText: "GOOGLE PLACES",
-            metadataLine: "Live place · \(place.provider.replacingOccurrences(of: "_", with: " ").capitalized)\(etaLine)",
-            features: Array([label(for: type), distance, index < 3 ? "Nearby" : "Explore"].prefix(3)),
+            metadataLine: "Live place · \(source)\(etaLine)",
+            features: Array([label(for: type), distance, ratingCount ?? availability].prefix(3)),
             vibeScore: max(4, min(8, Int((place.rating ?? 4.3).rounded() + 2))),
-            availability: "Live place",
-            membershipRequired: false
+            availability: availability,
+            membershipRequired: false,
+            placeId: place.id,
+            sourceLabel: source,
+            ratingCount: place.ratingCount,
+            isOpen: place.isOpen,
+            websiteUrl: place.websiteUrl,
+            priceLevel: place.priceLevel,
+            photoUrls: place.photoUrls,
+            etaText: etaText
         )
     }
 

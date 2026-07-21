@@ -5448,6 +5448,7 @@ private enum NativePostAuthIntent: String, Equatable, CaseIterable {
 private enum NativeSearchRoute: Equatable {
     case discoverFilter(String)
     case map(destination: String, mode: String)
+    case detail(NativeVenueSummary)
     case rideHandoff
 }
 
@@ -5506,22 +5507,29 @@ private enum NativeSearchRouter {
             let score = discoverScore(query: query, categoryHint: nil, title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel, metadataLine: card.metadataLine, features: card.features, verified: card.verified, premium: isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired), vibeScore: card.vibeScore)
             guard query.isEmpty || score > 0 else { continue }
             let isRide = card.id == NativeHomeDashboardView.valetRideServiceID || card.title.localizedCaseInsensitiveContains("airport transfer")
-            let route: NativeSearchRoute = isRide ? .rideHandoff : card.type == "parking" ? .map(destination: card.title, mode: "Smart Parking") : .discoverFilter(card.type)
+            let route: NativeSearchRoute = isRide ? .rideHandoff : card.type == "parking" ? .map(destination: card.title, mode: "Smart Parking") : .detail(venue(from: card))
             let badge = searchBadge(verified: card.verified, premium: isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired))
-            results.append(NativeSearchSuggestion(id: "card-\(card.id)", title: card.title, subtitle: card.categoryLabel, address: card.subtitle.isEmpty ? card.metadataLine : card.subtitle, icon: card.icon, actionLabel: isRide ? "Request" : card.type == "parking" ? "Route" : "Discover", badge: badge, score: score + (query.isEmpty ? card.vibeScore : 0), route: route))
+            results.append(NativeSearchSuggestion(id: "card-\(card.id)", title: card.title, subtitle: card.categoryLabel, address: card.subtitle.isEmpty ? card.metadataLine : card.subtitle, icon: card.icon, actionLabel: isRide ? "Request" : card.type == "parking" ? "Route" : "Details", badge: badge, score: score + (query.isEmpty ? card.vibeScore : 0), route: route))
         }
 
         for venue in venues {
             let premium = venue.verifiedPatchId != nil
             let score = discoverScore(query: query, categoryHint: nil, title: venue.name, subtitle: venue.address, type: venue.discoverType, categoryLabel: venue.discoverType, metadataLine: venue.parking.priceLabel, features: [venue.address, venue.distance], verified: venue.verifiedPatchId != nil, premium: premium, vibeScore: (venue.crowd?.level ?? 2) * 2)
             guard query.isEmpty || score > 0 else { continue }
-            let route: NativeSearchRoute = venue.discoverType == "parking" ? .map(destination: venue.name, mode: "Smart Parking") : .discoverFilter(venue.discoverType)
-            results.append(NativeSearchSuggestion(id: "venue-\(venue.id)", title: venue.name, subtitle: venue.discoverType.capitalized, address: venue.address, icon: NativeTabContentStore.icon(for: venue.discoverType), actionLabel: venue.discoverType == "parking" ? "Route" : "Discover", badge: searchBadge(verified: venue.verifiedPatchId != nil, premium: premium), score: score, route: route))
+            let route: NativeSearchRoute = venue.discoverType == "parking" ? .map(destination: venue.name, mode: "Smart Parking") : .detail(venue)
+            results.append(NativeSearchSuggestion(id: "venue-\(venue.id)", title: venue.name, subtitle: venue.discoverType.capitalized, address: venue.address, icon: NativeTabContentStore.icon(for: venue.discoverType), actionLabel: venue.discoverType == "parking" ? "Route" : "Details", badge: searchBadge(verified: venue.verifiedPatchId != nil, premium: premium), score: score, route: route))
         }
 
         return Array(results.sorted { first, second in
             first.score == second.score ? first.title < second.title : first.score > second.score
         }.prefix(limit))
+    }
+
+    private static func venue(from card: NativeDiscoverSummary) -> NativeVenueSummary {
+        let parsedRating = Double(card.rating)
+        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
+        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
     }
 
     static func discoverScore(query rawQuery: String, categoryHint: String?, title: String, subtitle: String, type: String, categoryLabel: String, metadataLine: String, features: [String], verified: Bool, premium: Bool, vibeScore: Int) -> Int {
@@ -6238,7 +6246,7 @@ private struct NativeHomeDashboardView: View {
         let parsedRating = Double(card.rating)
         let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
         let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
-        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
@@ -6526,6 +6534,8 @@ private struct NativeHomeDashboardView: View {
             mapHandoffDestination = destination
             mapHandoffMode = mode
             openNativeTab(.map)
+        case .detail(let venue):
+            aiPickDetailVenue = venue
         case .rideHandoff:
             handleRideHandoff()
         }
@@ -6675,6 +6685,7 @@ private struct NativeHomeSearchSuggestionRow: View {
         switch suggestion.route {
         case .map: return NativeTheme.emerald
         case .rideHandoff: return NativeTheme.orange
+        case .detail: return NativeTheme.purple
         case .discoverFilter: return NativeTheme.cyan
         }
     }
@@ -9961,6 +9972,14 @@ private struct NativeDiscoverView: View {
         let vibeScore: Int
         let availability: String
         let membershipRequired: Bool
+        var placeId: String? = nil
+        var sourceLabel: String? = nil
+        var ratingCount: Int? = nil
+        var isOpen: Bool? = nil
+        var websiteUrl: URL? = nil
+        var priceLevel: String? = nil
+        var photoUrls: [URL] = []
+        var etaText: String? = nil
     }
 
     static let categoryLabels = ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"]
@@ -10269,7 +10288,7 @@ private struct NativeDiscoverView: View {
     }
 
     private static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
-        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
@@ -10365,7 +10384,7 @@ private struct NativeDiscoverView: View {
         let parsedRating = Double(card.rating)
         let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
         let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
-        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
     }
 
     private static func filterValue(for label: String) -> String? {
@@ -11020,11 +11039,18 @@ private struct NativeVenueDetailView: View {
     @State private var showStayBooking = false
     @State private var showPartnerMenu = false
 
-    private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
+    private var openStatus: NativeVenueOpenStatus {
+        if let isOpen = venue.isOpen {
+            return NativeVenueOpenStatus(label: isOpen ? "Open Now" : "Closed", isOpen: isOpen, detail: venue.sourceLabel.map { "Live \($0) availability" } ?? "Live availability")
+        }
+        return NativeVenueHours.openStatus(category: venue.discoverType)
+    }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
-    private var ratingText: String { venue.rating.map { String(format: "%.1f", $0) } ?? "4.9" }
+    private var ratingText: String { venue.rating.map { String(format: "%.1f", $0) } ?? "New" }
+    private var ratingMetricLabel: String { venue.ratingCount.map { "\($0) ratings" } ?? (venue.sourceLabel ?? "rating") }
     private var crowdText: String { venue.crowd.map { "\($0.label)" + ($0.waitMins.map { " · \($0)m wait" } ?? "") } ?? "Live crowd pending" }
     private var entryText: String { venue.parking.priceLabel == "—" ? "Free entry" : venue.parking.priceLabel }
+    private var travelMetricText: String { venue.etaText ?? (venue.distance == "—" ? "Nearby" : venue.distance) }
     private var isBoutiqueStay: Bool { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) }
     private var detailHorizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
     private var stayDetailHeroHeight: CGFloat { min(max(UIScreen.main.bounds.height * 0.24, 180), 228) }
@@ -11152,6 +11178,12 @@ private struct NativeVenueDetailView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Media carousel for \(venue.name)")
+        .overlay(alignment: .topLeading) {
+            if let badge = NativeVenueDetailPresentation.headerBadgeTitle(for: venue) {
+                pill(badge, color: NativeTheme.cyan, foreground: .black)
+                    .padding(14)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             Button(action: { dismiss() }) {
                 Image(systemName: "xmark")
@@ -11187,7 +11219,21 @@ private struct NativeVenueDetailView: View {
                 media("gh-video", "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1400&q=90", "🎟️", "Matchday atmosphere video preview", kind: .videoThumbnail)
             ]
         }
+        let urls = uniqueMediaUrls
+        if !urls.isEmpty {
+            return urls.prefix(4).enumerated().map { index, url in
+                media("live-place-\(index)", url.absoluteString, categoryEmoji, "Photo \(index + 1) for \(venue.name)")
+            }
+        }
         return [media("hero", venue.imageUrl?.absoluteString, categoryEmoji, "Image for \(venue.name)")]
+    }
+
+    private var uniqueMediaUrls: [URL] {
+        var seen = Set<String>()
+        return ([venue.imageUrl] + venue.photoUrls.map(Optional.some)).compactMap { candidate in
+            guard let candidate, seen.insert(candidate.absoluteString).inserted else { return nil }
+            return candidate
+        }
     }
 
     private func media(_ id: String, _ url: String?, _ emoji: String, _ label: String, kind: NativeVenueDetailMediaItem.Kind = .image) -> NativeVenueDetailMediaItem {
@@ -11226,19 +11272,19 @@ private struct NativeVenueDetailView: View {
     private var metricsRow: some View {
         HStack(spacing: 9) {
             if NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
                 metric("ticket.fill", entryText, "pass", NativeTheme.cyan)
                 metric("checkmark.circle.fill", "Ready", "digital", NativeTheme.emerald)
             } else if NativeVenueDetailPresentation.isMobilityVenue(venue) {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
                 metric(venue.name.localizedCaseInsensitiveContains("group") ? "bus.fill" : "car.side.fill", venue.name.localizedCaseInsensitiveContains("group") ? "Group" : "Ride", "mobility", NativeTheme.orange)
                 metric("iphone", venue.name.localizedCaseInsensitiveContains("group") ? "Concierge" : "App", venue.name.localizedCaseInsensitiveContains("group") ? "planning" : "required", NativeTheme.cyan)
             } else if NativeVenueDetailPresentation.isCoffeeVenue(venue) {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
                 metric("cup.and.saucer.fill", "Coffee", "stop", NativeTheme.cyan)
-                metric("figure.walk", venue.distance == "—" ? "Nearby" : venue.distance, "walk", NativeTheme.emerald)
+                metric("figure.walk", travelMetricText, venue.etaText == nil ? "walk" : "ETA", NativeTheme.emerald)
             } else if NativeVenueDetailPresentation.isDiningVenue(venue) {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
                 metric("fork.knife", entryText, "menu", NativeTheme.cyan)
                 metric("bag.fill", "Pickup", "available", NativeTheme.emerald)
             } else if NativeVenueDetailPresentation.isServiceVenue(venue) {
@@ -11246,12 +11292,12 @@ private struct NativeVenueDetailView: View {
                 metric("checkmark.seal.fill", "Service", "request", NativeTheme.cyan)
                 metric("sparkles", "Concierge", "help", NativeTheme.purple)
             } else if venue.discoverType == "parking" {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
                 metric("parkingsign.circle.fill", entryText, "parking", NativeTheme.emerald)
-                metric("car.2.fill", "\(venue.parking.totalAvailable)", "spots", NativeTheme.cyan)
+                metric("car.2.fill", venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable)" : travelMetricText, venue.parking.totalAvailable > 0 ? "spots" : "ETA", NativeTheme.cyan)
             } else {
-                metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
-                metric("location.fill", venue.distance, "away", NativeTheme.cyan)
+                metric("star.fill", ratingText, ratingMetricLabel, NativeTheme.blackAmber)
+                metric("location.fill", travelMetricText, venue.etaText == nil ? "away" : "ETA", NativeTheme.cyan)
                 metric("person.3.fill", crowdText, "crowd", NativeTheme.pink)
             }
         }
@@ -11291,14 +11337,25 @@ private struct NativeVenueDetailView: View {
 
     private var infoSection: some View {
         VStack(spacing: 10) {
+            if showsLivePlaceSummary {
+                infoRow("sparkles", "Live source", liveSourcePrimary, liveSourceSecondary, NativeTheme.cyan)
+            }
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
                 infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? Color(hex: 0x9CA3AF) : NativeTheme.cyan)
             }
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) && venue.distance != "Pass" && venue.distance != "Service" {
-                infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Atlanta Midtown" : "\(venue.distance) away", NativeTheme.orange)
+                infoRow("mappin.and.ellipse", "Location", venue.address, locationSecondaryDetail, NativeTheme.orange)
             }
             infoRow(categoryDetailIcon, categoryDetailTitle, categoryPrimaryDetail, categorySecondaryDetail, NativeTheme.emerald)
         }
+    }
+
+    private var showsLivePlaceSummary: Bool { venue.sourceLabel != nil || venue.ratingCount != nil || venue.priceLevel != nil || venue.etaText != nil || venue.websiteUrl != nil }
+    private var liveSourcePrimary: String { [venue.sourceLabel, venue.ratingCount.map { "\($0) ratings" }, venue.priceLevel].compactMap { $0 }.joined(separator: " · ").isEmpty ? "Adapter-provided place" : [venue.sourceLabel, venue.ratingCount.map { "\($0) ratings" }, venue.priceLevel].compactMap { $0 }.joined(separator: " · ") }
+    private var liveSourceSecondary: String { [venue.etaText, venue.websiteUrl == nil ? nil : "Website available", venue.placeId == nil ? nil : "Place ID synced"].compactMap { $0 }.joined(separator: " · ") }
+    private var locationSecondaryDetail: String {
+        let distance = venue.distance == "—" ? "Atlanta Midtown" : "\(venue.distance) away"
+        return venue.etaText.map { "\(distance) · \($0)" } ?? distance
     }
 
     private var showsInfoSection: Bool {
@@ -11454,7 +11511,7 @@ private struct NativeVenueDetailView: View {
     private func handleDevice(_ id: String) {
         switch id {
         case "navigate": openVenueOnNativeMap()
-        case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded("\(venue.name) Atlanta phone number"))"))
+        case "call": openURL(venue.websiteUrl ?? URL(string: "https://www.google.com/search?q=\(urlEncoded("\(venue.name) Atlanta phone number"))"))
         case "share": presentShare(text: "\(venue.name) — \(venue.address) · \(venue.distance) on Bytspot")
         default: break
         }

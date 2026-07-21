@@ -907,10 +907,19 @@ private struct NativeProfileStat: View {
 
 private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
 
     private var userName: String {
         sessionStore.isAuthenticated ? "Signed in" : NativeProfileDefaults.userName
+    }
+
+    private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }
+
+    private var trustChipTitle: String {
+        guard sessionStore.isAuthenticated else { return "Guest trust" }
+        guard !socialCircleSnapshot.groups.isEmpty else { return "Trust loading" }
+        return "\(socialCircleSnapshot.groups.count) circle\(socialCircleSnapshot.groups.count == 1 ? "" : "s")"
     }
 
     var body: some View {
@@ -954,6 +963,7 @@ private struct NativeProfileHeaderCard: View {
                         HStack(spacing: 7) {
                             NativeProfileMicroChip("\(NativeProfileDefaults.tierIcon) \(NativeProfileDefaults.tierName)", color: NativeTheme.orange)
                             NativeProfileMicroChip(appearanceMode.chipTitle, icon: appearanceMode.icon, color: NativeTheme.purple)
+                            NativeProfileMicroChip(trustChipTitle, icon: "person.3.sequence.fill", color: NativeTheme.cyan)
                         }
                     }
                     Spacer()
@@ -961,7 +971,7 @@ private struct NativeProfileHeaderCard: View {
                 VStack(spacing: 0) {
                     Rectangle().fill(NativeProfileStyle.hairline).frame(height: 1)
                     HStack(spacing: 0) {
-                        NativeProfileStat(value: "\(NativeProfileDefaults.following)", label: "Following")
+                        NativeProfileStat(value: "\(connectionCount)", label: "Connections")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
                         NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)), label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
@@ -985,6 +995,7 @@ private struct NativeProfileAccountView: View {
     let activeTier: BytspotTier
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var activePanel: NativeProfilePanel?
+    @State private var socialCircleSnapshot: NativeSocialCircleSnapshot = .empty
     @State private var didConsumeInitialPanel = false
     @State private var didConsumeDirectSmokePanel = false
 
@@ -992,14 +1003,14 @@ private struct NativeProfileAccountView: View {
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
-            NativeProfileHeaderCard(sessionStore: sessionStore)
+            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
             NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
-            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier)
+            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileMenuGroup(section: .appSettings, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Sensitive account actions are separated from everyday controls.")
             NativeProfileMenuGroup(section: .safetyLegal, openPanel: { activePanel = $0 })
@@ -1011,6 +1022,7 @@ private struct NativeProfileAccountView: View {
             openInitialPanelIfNeeded()
             openDirectSmokePanelIfRequested()
         }
+        .task(id: sessionStore.isAuthenticated) { await refreshSocialCircles() }
         .sheet(item: $activePanel) { panel in
             let sheet = NativeProfilePanelSheet(panel: panel, openPanel: { activePanel = $0 })
             if #available(iOS 16.0, *) {
@@ -1047,6 +1059,16 @@ private struct NativeProfileAccountView: View {
         }
         #endif
     }
+
+    private func refreshSocialCircles() async {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        guard sessionStore.isAuthenticated else {
+            socialCircleSnapshot = .empty
+            return
+        }
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        socialCircleSnapshot = await api.listSocialCirclesViaRpc(fallback: NativeSocialCircle.fallbackStarter)
+    }
 }
 
 enum NativeProfilePanel: String, Identifiable, CaseIterable {
@@ -1058,7 +1080,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
-    static let p2SocialActivityPanels: [NativeProfilePanel] = [.friends, .savedSpots, .placesVisited]
+    static let p2SocialActivityPanels: [NativeProfilePanel] = [.savedSpots, .placesVisited]
 
     static func smokePanel(named raw: String) -> NativeProfilePanel? {
         let target = normalizeSmokeName(raw)
@@ -1079,7 +1101,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .paymentMethods: return "Payment Methods"
         case .savedSpots: return "Saved Places"
         case .placesVisited: return "Places I've Been"
-        case .friends: return "Friends"
+        case .friends: return "Find Friends"
         case .vibePreferences: return "Vibe Preferences"
         case .parkingPreferences: return "Parking Preferences"
         case .notifications: return "Notifications"
@@ -1097,7 +1119,8 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "ARRIVALS"
         case .access: return "WALLET"
         case .rewards: return "MEMBERSHIP"
-        case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited, .friends: return "ACCOUNT"
+        case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
+        case .friends: return "NETWORK"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
         case .deleteAccount: return "SAFETY"
@@ -1322,6 +1345,14 @@ private enum NativeProfileBoardDesignContract {
     static let footerTitle = "Close"
     static let neutralActionSurface = "NativeTheme.selectedControlSurface"
     static let productBoardIDs = [NativeArrivalLedgerContract.accessibilityID, NativeSavedPlacesBoardContract.accessibilityID, "native-places-visited-board"]
+}
+
+enum NativeProfileWireframeGuard {
+    static let menuSectionTitles = NativeProfileAccountView.menuSectionOrder.map(\.title)
+    static let socialActivityPanels = NativeProfilePanel.p2SocialActivityPanels
+    static let friendsPanelTitle = NativeProfilePanel.friends.title
+    static let friendsPanelEyebrow = NativeProfilePanel.friends.eyebrow
+    static let networkCardTitle = NativeProfileNetworkCard.title
 }
 
 private enum NativeArrivalLedgerContract {
@@ -3144,6 +3175,7 @@ private struct NativeProfileNetworkCard: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     let sessionStore: BytspotSessionStore
     let activeTier: BytspotTier
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
     @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
     @State private var activeGroup = NativeGroupEventStore.primaryLiveEvent()
     @State private var networkStatus: String?
@@ -3158,11 +3190,24 @@ private struct NativeProfileNetworkCard: View {
     // this until publish confirms.
     @State private var publishedGroupEventIDs: Set<String> = []
 
-    static let title = "Groups & Invites"
-    static let actionTitles = ["Start Private Group", "Share Invite", "Find friends"]
+    static let title = "Profile Network"
+    static let actionTitles = ["Create Private Group", "Social Circles", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
-    private var currentTier: BytspotTier { activeTier }
+    private var currentTier: BytspotTier { activeGroup?.tier ?? activeTier }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
+    private var circlesForDisplay: [NativeSocialCircle] { socialCircleSnapshot.groups.isEmpty ? NativeSocialCircle.fallbackStarter : socialCircleSnapshot.groups }
+    private var circleNamesForGroupSetup: [String] {
+        var names: [String] = []
+        var seen = Set<String>()
+        for rawName in circlesForDisplay.map(\.name) + ["Public"] {
+            let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = trimmed.lowercased()
+            guard !trimmed.isEmpty && !seen.contains(key) else { continue }
+            seen.insert(key)
+            names.append(key == "public" ? "Public" : trimmed)
+        }
+        return names
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -3175,8 +3220,8 @@ private struct NativeProfileNetworkCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.pink).tracking(1.1)
-                    Text(Self.title).font(.system(size: 19, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                    Text("Start a private live group, invite instantly, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                    Text(Self.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                    Text("Create private groups, invite from social circles, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -3184,6 +3229,7 @@ private struct NativeProfileNetworkCard: View {
             if let activeGroup { activeGroupBlock(activeGroup) }
             else { startGroupBlock }
             if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
+            socialCirclesBlock
             networkDivider
             inviteBlock
             networkDivider
@@ -3194,7 +3240,7 @@ private struct NativeProfileNetworkCard: View {
         .nativeProfileCard(border: NativeTheme.pink.opacity(0.48), accent: NativeTheme.pink)
         .accessibilityIdentifier("native-profile-network-card")
         .sheet(isPresented: $showGroupSetup) {
-            let setup = NativeGroupEventSetupSheet(initialType: selectedGroupType, tier: currentTier, onCreate: createPrivateGroup)
+            let setup = NativeGroupEventSetupSheet(initialType: selectedGroupType, tier: currentTier, socialCircleNames: circleNamesForGroupSetup, onCreate: createPrivateGroup)
             if #available(iOS 16.0, *) {
                 setup.presentationDetents([.large]).presentationDragIndicator(.visible)
             } else {
@@ -3232,7 +3278,7 @@ private struct NativeProfileNetworkCard: View {
                 }
             }
             Button(action: openGroupSetup) {
-                HStack(spacing: 8) { Image(systemName: "square.and.pencil").font(.system(size: 13, weight: .black)); Text("Create Event Template").font(.system(size: 14, weight: .black)) }
+                HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Create Private Group").font(.system(size: 14, weight: .black)) }
                     .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 42)
@@ -3313,6 +3359,20 @@ private struct NativeProfileNetworkCard: View {
             .frame(height: 36)
             .background(NativeTheme.cyan)
             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    private var socialCirclesBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeProfileNetworkRowHeader(title: "Social Circles", subtitle: "Reusable invite lists power private event distribution without exposing your contacts.", icon: "person.3.fill", color: NativeTheme.cyan)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(circlesForDisplay) { circle in
+                        NativeProfileMicroChip("\(circle.name) · \(circle.memberCount)", icon: "circle.grid.2x2.fill", color: circle.privacy == "private" ? NativeTheme.purple : NativeTheme.cyan)
+                    }
+                }
+            }
+            Text(socialCircleSnapshot.summaryLine).nativeBody(size: 11.5, color: NativeProfileStyle.muted)
+        }
     }
 
     private var inviteBlock: some View {
@@ -3402,8 +3462,13 @@ private struct NativeProfileNetworkCard: View {
             networkStatus = "\(record.title) is saved as a draft on this device. Sign in to publish it so guests can join via the App Clip."
             return
         }
-        networkStatus = "Publishing \(record.title)… guests can join as soon as it syncs."
+        networkStatus = "Creating \(record.title) from your Profile Network… guests can join as soon as it syncs."
         publishGroupEvent(record)
+    }
+
+    private func audienceGroupID(for record: NativeGroupEventRecord) -> String? {
+        guard record.privacyStatus != .publicDiscovery else { return nil }
+        return socialCircleSnapshot.groups.first { $0.name.caseInsensitiveCompare(record.audienceCircle) == .orderedSame }?.id
     }
 
     // Mirror the local event to the server so App Clip guests can join and, for
@@ -3427,15 +3492,21 @@ private struct NativeProfileNetworkCard: View {
             "theme": record.theme,
         ]
         if let handle = record.instagramHandle, !handle.isEmpty { input["instagramHandle"] = handle }
+        let draftInput = NativePrimaryEventDraftBuilder.input(for: record, audienceGroupId: audienceGroupID(for: record))
         Task { @MainActor in
+            let profileAPI = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             do {
-                _ = try await api.create(input: input)
+                let outcome = try await NativeProfileNetworkPublishCoordinator.publish(
+                    createGroupEvent: { _ = try await api.create(input: input) },
+                    createPrimaryDraft: { _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput) }
+                )
                 publishedGroupEventIDs.insert(record.id)
+                let draftSuffix = outcome.primaryDraftCreated ? "" : " Draft sync will retry later."
                 if announce {
                     networkStatus = record.requiresApproval
-                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
-                        : "\(record.title) is live. Share the invite for instant App Clip join."
+                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests.\(draftSuffix)"
+                        : "\(record.title) is live. Share the invite for instant App Clip join.\(draftSuffix)"
                 }
             } catch {
                 publishedGroupEventIDs.remove(record.id)
@@ -3804,6 +3875,7 @@ private struct NativeGroupEventHostDashboardView: View {
 
 private struct NativeGroupEventSetupSheet: View {
     let tier: BytspotTier
+    let socialCircleNames: [String]
     let onCreate: (NativeGroupEventRecord) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedType: String
@@ -3814,21 +3886,27 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var scheduledDate = "Tonight · live now"
     @State private var locationLabel = "Host-selected private table"
     @State private var theme = "Premium dinner"
+    @State private var visibility: NativeGroupEventPrivacyStatus = .privateInvite
+    @State private var audienceCircle: String
     @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
     @State private var instagramHandle = ""
     @State private var allowNearbyOffers = true
     @State private var requiresApproval = false
 
-    init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
+    init(initialType: String, tier: BytspotTier, socialCircleNames: [String] = NativeGroupEventContract.defaultAudienceCircles, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
         self.tier = tier
+        let circles = socialCircleNames.isEmpty ? NativeGroupEventContract.defaultAudienceCircles : socialCircleNames
+        self.socialCircleNames = circles
         self.onCreate = onCreate
         let safeType = NativeGroupEventContract.defaultEventTypes.contains(initialType) ? initialType : NativeGroupEventContract.defaultEventTypes[0]
         _selectedType = State(initialValue: safeType)
         _eventName = State(initialValue: safeType == "Custom" ? "Private Group" : "\(safeType) Group")
+        _audienceCircle = State(initialValue: circles.first ?? "Close Friends")
     }
 
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: tier) }
     private var canGoLive: Bool { !eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var privateAudienceFallback: String { socialCircleNames.first(where: { $0 != "Public" }) ?? "Close Friends" }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -3890,6 +3968,7 @@ private struct NativeGroupEventSetupSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             setupLabel("Logistics & experience")
             inputField(title: "Host", placeholder: "Kojo Asante", text: $hostName)
+            audienceSelector
             inputField(title: "Schedule", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
             inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
             inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
@@ -3899,10 +3978,27 @@ private struct NativeGroupEventSetupSheet: View {
         }
     }
 
+    private var audienceSelector: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            setupLabel("Audience")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(socialCircleNames, id: \.self) { circle in
+                        Button(action: { audienceCircle = circle; visibility = circle == "Public" ? .publicDiscovery : .privateInvite }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
     private var privacyControls: some View {
         VStack(alignment: .leading, spacing: 10) {
             setupLabel("Privacy & offers")
-            setupFact(title: "Private invite link", subtitle: "Only people with the invite can join.", icon: "lock.fill")
+            HStack(spacing: 8) {
+                Button(action: { visibility = .privateInvite; audienceCircle = audienceCircle == "Public" ? privateAudienceFallback : audienceCircle }) { setupChip("Private", active: visibility == .privateInvite, locked: false) }.buttonStyle(.plain)
+                Button(action: { visibility = .publicDiscovery; audienceCircle = "Public" }) { setupChip("Public", active: visibility == .publicDiscovery, locked: false) }.buttonStyle(.plain)
+            }
+            setupFact(title: visibility == .publicDiscovery ? "Public discovery" : "Private invite link", subtitle: visibility == .publicDiscovery ? "Public events can appear on Home and Discovery." : "Only people with the invite or selected circle can join.", icon: visibility == .publicDiscovery ? "globe" : "lock.fill")
             Toggle(isOn: $allowNearbyOffers) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow nearby offers").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
@@ -3978,7 +4074,7 @@ private struct NativeGroupEventSetupSheet: View {
     private func goLive() {
         guard canGoLive else { return }
         let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle)
+        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle)
         onCreate(record)
         dismiss()
     }
@@ -4077,8 +4173,9 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     let thumbnailURLString: String?
     let videoURLString: String?
     let instagramHandle: String?
+    let audienceCircle: String
 
-    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil) {
+    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil) {
         self.id = id
         self.title = title
         self.groupType = groupType
@@ -4101,6 +4198,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
         self.videoURLString = videoURLString ?? fallback.video
         self.instagramHandle = Self.clean(instagramHandle, maxLength: 64).map { $0.replacingOccurrences(of: "@", with: "") }
+        self.audienceCircle = Self.clean(audienceCircle, maxLength: 80) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
     }
 
     static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
@@ -4115,14 +4213,14 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         return String((0..<length).compactMap { _ in alphabet.randomElement() })
     }
 
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil) -> Self {
+    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: .privateInvite, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle)
+        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
@@ -4144,7 +4242,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
 
     private static let hiddenFromPublicGroupTypes = Set(["dinner", "family"])
 
-    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle }
+    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle, audienceCircle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -4170,6 +4268,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         thumbnailURLString = try c.decodeIfPresent(String.self, forKey: .thumbnailURLString) ?? fallback.thumbnail
         videoURLString = try c.decodeIfPresent(String.self, forKey: .videoURLString) ?? fallback.video
         instagramHandle = try c.decodeIfPresent(String.self, forKey: .instagramHandle)
+        audienceCircle = try c.decodeIfPresent(String.self, forKey: .audienceCircle) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
     }
 
     private static func richDefaults(tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, location: String, theme: String, guests: String, highlights: [String], hero: String?, thumbnail: String?, video: String?) {
@@ -4240,13 +4339,14 @@ struct NativeGroupEventBannerSnapshot: Equatable {
 enum NativeGroupEventContract {
     static let storageKey = "bytspot_native_group_events"
     static let homepageSectionTitle = "Live Event Happening Now"
-    static let networkTitle = "Groups & Invites"
+    static let networkTitle = "Profile Network"
     static let quickStartCTA = "Start Private Group"
     static let inviteCTA = "Share Invite"
     static let privacyBadge = "Private Group"
     static let appClipJoinCTA = "Join Instantly"
     static let matchedOfferExplanation = "Nearby offers can appear in this group without sharing your contacts or member list with vendors."
     static let defaultEventTypes = ["Dinner", "Family", "Birthday", "Watch Party", "Pickup", "Custom"]
+    static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Public"]
 
     static func entitlement(for tier: BytspotTier) -> NativeGroupEventEntitlement { .entitlement(for: tier) }
     static func vendorEntitlement(for tier: BytspotTier) -> NativeVendorLTOEntitlement { .entitlement(for: tier) }
@@ -4361,6 +4461,38 @@ enum NativeGroupEventProbe {
     static func homepageBanner(tier: BytspotTier, timing: NativeGroupEventTimingState = .now) -> NativeGroupEventBannerSnapshot { NativeGroupEventContract.homepageBanner(for: .preview(tier: tier, timing: timing)) }
     static func inviteURLString(tier: BytspotTier, timing: NativeGroupEventTimingState = .now) -> String { NativeGroupEventContract.inviteURL(for: .preview(tier: tier, timing: timing)).absoluteString }
     static func parsedInvite(urlString: String) -> NativeGroupEventRecord? { URL(string: urlString).flatMap(NativeGroupEventContract.groupInvite(from:)) }
+}
+
+enum NativePrimaryEventDraftBuilder {
+    static let surface = "profile_network_card"
+
+    static func capacity(for tier: BytspotTier) -> Int { NativeGroupEventContract.entitlement(for: tier).participantCapacity }
+
+    static func input(for record: NativeGroupEventRecord, audienceGroupId: String? = nil) -> [String: Any] {
+        let metadata: [String: Any] = ["groupType": record.groupType, "timing": record.timing.rawValue, "scheduledDate": record.scheduledDate, "locationLabel": record.locationLabel, "theme": record.theme, "inviteNote": record.inviteNote ?? "", "activityHighlights": record.activityHighlights, "instagramHandle": record.instagramHandle ?? "", "audienceCircle": record.audienceCircle]
+        let rsvp: [String: Any] = ["requireGuestApproval": record.requiresApproval]
+        return ["id": record.id, "title": record.title, "visibility": record.privacyStatus == .publicDiscovery ? "public" : "private", "hostName": record.hostName, "tier": record.tier.rawValue, "capacityLimit": capacity(for: record.tier), "audienceGroupIds": audienceGroupId.map { [$0] } ?? [], "invitedUserIds": [], "rsvp": rsvp, "metadata": metadata, "surface": surface]
+    }
+}
+
+struct NativeProfileNetworkPublishOutcome: Equatable {
+    let groupEventPublished: Bool
+    let primaryDraftCreated: Bool
+}
+
+enum NativeProfileNetworkPublishCoordinator {
+    static func publish(
+        createGroupEvent: () async throws -> Void,
+        createPrimaryDraft: () async throws -> Void
+    ) async throws -> NativeProfileNetworkPublishOutcome {
+        try await createGroupEvent()
+        do {
+            try await createPrimaryDraft()
+            return NativeProfileNetworkPublishOutcome(groupEventPublished: true, primaryDraftCreated: true)
+        } catch {
+            return NativeProfileNetworkPublishOutcome(groupEventPublished: true, primaryDraftCreated: false)
+        }
+    }
 }
 
 private struct NativeParkerBenefitsCard: View {
@@ -16557,8 +16689,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Start Private Group", "Share Invite", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
-        precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
+        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Social Circles", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
+        precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited] && NativeProfilePanel.friends.title == "Find Friends", "NativeAccountParitySelfTests: Profile must not reintroduce redundant Social/Friends menu groups.")
         precondition(NativeSavedPlacesBoardContract.emptyPlanHeadline == "No next visit planned" && NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("next visit state") && NativeSavedPlacesBoardContract.summary.contains("verification"), "NativeAccountParitySelfTests: Saved Places Board summary copy drifted.")
         precondition(NativeProfileSavedSpot.fallbackFixtureTitles == ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"], "NativeAccountParitySelfTests: Saved Places native fixture contract drifted.")

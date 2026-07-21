@@ -136,6 +136,93 @@ struct NativePaymentSetupSession: Codable, Equatable {
     }
 }
 
+
+
+struct NativeSocialCircle: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var ownerUserId: String?
+    var memberCount: Int
+    var privacy: String
+    var role: String?
+
+    var privacyLabel: String { privacy == "private" ? "Private" : "Invite only" }
+    var memberLabel: String { "\(memberCount) member\(memberCount == 1 ? "" : "s")" }
+
+    static let fallbackStarter = [
+        NativeSocialCircle(id: "starter-close-friends", name: "Close Friends", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member"),
+        NativeSocialCircle(id: "starter-family", name: "Family", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member"),
+        NativeSocialCircle(id: "starter-crew", name: "Crew", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member")
+    ]
+
+    static func normalizeSocialCircle(_ value: Any) -> NativeSocialCircle? {
+        guard let row = value as? [String: Any] else { return nil }
+        guard let id = cleanValue(row["id"] ?? row["groupId"]), let name = cleanValue(row["name"] ?? row["title"]) else { return nil }
+        return NativeSocialCircle(id: id, name: name, ownerUserId: cleanValue(row["ownerUserId"]), memberCount: intValue(row["memberCount"] ?? row["membersCount"]) ?? 0, privacy: (row["privacy"] as? String) == "private" ? "private" : "invite_only", role: cleanValue(row["role"]) ?? "member")
+    }
+
+    static func normalizeSocialCircles(_ response: Any) -> [NativeSocialCircle] {
+        rows(from: response, keys: ["groups", "circles", "items"]).compactMap(normalizeSocialCircle)
+    }
+
+    static func cleanValue(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let double = value as? Double { return Int(double) }
+        if let string = value as? String { return Int(string) }
+        return nil
+    }
+
+    static func rows(from response: Any, keys: [String]) -> [Any] {
+        if let array = response as? [Any] { return array }
+        guard let root = response as? [String: Any] else { return [] }
+        for key in keys { if let array = root[key] as? [Any] { return array } }
+        return []
+    }
+}
+
+struct NativeSocialCircleSnapshot: Equatable {
+    enum Source: String { case backend, fallback }
+
+    var source: Source
+    var groups: [NativeSocialCircle]
+
+    static let empty = NativeSocialCircleSnapshot(source: .fallback, groups: [])
+    static let starter = NativeSocialCircleSnapshot(source: .fallback, groups: NativeSocialCircle.fallbackStarter)
+
+    var totalMembers: Int { groups.reduce(0) { $0 + $1.memberCount } }
+    var summaryLine: String {
+        if groups.isEmpty { return "Sign in to load private circles and trusted connections." }
+        let sourceLabel = source == .backend ? "Live social circles" : "Starter circles"
+        return "\(sourceLabel) · \(groups.count) circle\(groups.count == 1 ? "" : "s") · \(totalMembers) connection\(totalMembers == 1 ? "" : "s")"
+    }
+}
+
+struct NativePrimaryEventDraft: Equatable, Identifiable {
+    var id: String
+    var title: String
+    var tier: String
+    var hostName: String
+    var capacityLimit: Int
+
+    static func normalizeEventDraft(_ value: Any) -> NativePrimaryEventDraft? {
+        guard let row = value as? [String: Any] else { return nil }
+        guard let id = NativeSocialCircle.cleanValue(row["id"] ?? row["eventId"] ?? row["draftId"]), let title = NativeSocialCircle.cleanValue(row["title"]) else { return nil }
+        let tier = NativeSocialCircle.cleanValue(row["tier"]) ?? "green"
+        return NativePrimaryEventDraft(id: id, title: title, tier: tier, hostName: NativeSocialCircle.cleanValue(row["hostName"]) ?? "Bytspot Member", capacityLimit: NativeSocialCircle.intValue(row["capacityLimit"]) ?? 1)
+    }
+
+    static func normalizeEventDrafts(_ response: Any) -> [NativePrimaryEventDraft] {
+        if let single = normalizeEventDraft(response) { return [single] }
+        return NativeSocialCircle.rows(from: response, keys: ["drafts", "events", "items"]).compactMap(normalizeEventDraft)
+    }
+}
+
 struct NativeCheckoutSession: Equatable {
     var candidates: [String] = []
     var message: String?
@@ -719,6 +806,7 @@ struct NativeProfileDataAPI {
     static let fixturePaymentMethods = [NativePaymentMethodRecord(id: "pm_fixture_1", type: "card", brand: "visa", last4: "4242", expiryMonth: "04", expiryYear: "30", isDefault: true)]
     static let fixtureNotificationPreferences = NativeNotificationPreferences.webDefaults
     static let fixtureUserPreferences = NativeUserPreferencesRecord(interests: nil, vibes: ["drinks"], cuisines: nil, parking: NativeUserPreferencesRecord.Parking(covered: true, evCharging: true, security: "premium"))
+    static let fixtureSocialCircles = [NativeSocialCircle(id: "circle-fixture-close", name: "Close Friends", ownerUserId: "native-fixture-user", memberCount: 8, privacy: "private", role: "owner"), NativeSocialCircle(id: "circle-fixture-crew", name: "Creator Crew", ownerUserId: "native-fixture-user", memberCount: 5, privacy: "invite_only", role: "admin")]
     #endif
 
     func loadProfile() async throws -> NativeUserProfileRecord {
@@ -842,6 +930,25 @@ struct NativeProfileDataAPI {
         return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.update", method: "POST", input: Self.userPreferencesInput(vibeToken: vibeToken, parking: parking))
     }
 
+    func listSocialCirclesViaRpc(fallback: [NativeSocialCircle] = []) async -> NativeSocialCircleSnapshot {
+        #if DEBUG
+        if usesAuthenticatedFixtures { return NativeSocialCircleSnapshot(source: .backend, groups: Self.fixtureSocialCircles) }
+        #endif
+        do {
+            let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialGroupsListRoute, input: Self.socialCircleListInput())
+            let groups = NativeSocialCircle.normalizeSocialCircles(payload)
+            if !groups.isEmpty { return NativeSocialCircleSnapshot(source: .backend, groups: groups) }
+        } catch {}
+        return NativeSocialCircleSnapshot(source: .fallback, groups: fallback)
+    }
+
+    func createPrimaryEventDraftViaRpc(input: [String: Any]) async throws -> [NativePrimaryEventDraft] {
+        var payload = input
+        payload["surface"] = "profile_network_card"
+        let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.eventsDraftsCreateRoute, method: "POST", input: payload)
+        return NativePrimaryEventDraft.normalizeEventDrafts(response)
+    }
+
     static func notificationInput(_ preferences: NativeNotificationPreferences) -> [String: Any] {
         [
             "push": ["reservations": preferences.push.reservations, "promotions": preferences.push.promotions, "reminders": preferences.push.reminders, "insider": preferences.push.insider, "nearby": preferences.push.nearby],
@@ -862,6 +969,8 @@ struct NativeProfileDataAPI {
         }
         return input
     }
+
+    static func socialCircleListInput() -> [String: Any] { ["surface": "profile_network_card"] }
 
     private func vehicleInput(_ vehicle: NativeVehicleRecord, includeID: Bool) -> [String: Any] {
         var input: [String: Any] = [

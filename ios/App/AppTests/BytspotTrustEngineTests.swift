@@ -617,6 +617,65 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual((userInput["parking"] as? [String: Any])?["security"] as? String, "premium")
     }
 
+
+
+    func testProfileNetworkCardUsesSocialCirclesRpcSurface() throws {
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsCreateRoute, "/trpc/events.drafts.create")
+        XCTAssertEqual(NativeProfileDataAPI.socialCircleListInput()["surface"] as? String, "profile_network_card")
+
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.socialGroupsListRoute, input: NativeProfileDataAPI.socialCircleListInput())
+        let components = URLComponents(string: path)
+        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
+        let data = try XCTUnwrap(rawInput.data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(decoded["surface"] as? String, "profile_network_card")
+    }
+
+    func testPrimaryEventDraftBuilderUsesProfileNetworkCardSurfaceAndSocialCircleID() throws {
+        let record = NativeGroupEventRecord.created(type: "Dinner", title: "Trust Crew Dinner", hostName: "Ama", tier: .black, privacyStatus: .privateInvite, audienceCircle: "Trust Crew")
+
+        let input = NativePrimaryEventDraftBuilder.input(for: record, audienceGroupId: "circle-trust-crew")
+
+        XCTAssertEqual(input["surface"] as? String, "profile_network_card")
+        XCTAssertEqual(input["title"] as? String, "Trust Crew Dinner")
+        XCTAssertEqual(input["visibility"] as? String, "private")
+        XCTAssertEqual(input["audienceGroupIds"] as? [String], ["circle-trust-crew"])
+        XCTAssertEqual(input["capacityLimit"] as? Int, NativeGroupEventContract.entitlement(for: .black).participantCapacity)
+        let rsvp = try XCTUnwrap(input["rsvp"] as? [String: Any])
+        XCTAssertEqual(rsvp["requireGuestApproval"] as? Bool, false)
+        let metadata = try XCTUnwrap(input["metadata"] as? [String: Any])
+        XCTAssertEqual(metadata["audienceCircle"] as? String, "Trust Crew")
+    }
+
+    func testNormalizeSocialCircleMirrorsPrimaryEventRpcShape() throws {
+        let payload: [String: Any] = ["groups": [
+            ["id": "circle-1", "name": "Trust Crew", "ownerUserId": "user-1", "memberCount": 12, "privacy": "private", "role": "owner"],
+            ["groupId": "circle-2", "title": "Family", "membersCount": "4"]
+        ]]
+
+        let groups = NativeSocialCircle.normalizeSocialCircles(payload)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.first?.id, "circle-1")
+        XCTAssertEqual(groups.first?.name, "Trust Crew")
+        XCTAssertEqual(groups.first?.memberCount, 12)
+        XCTAssertEqual(groups.first?.privacy, "private")
+        XCTAssertEqual(groups.last?.id, "circle-2")
+        XCTAssertEqual(groups.last?.name, "Family")
+        XCTAssertEqual(groups.last?.memberCount, 4)
+        XCTAssertEqual(groups.last?.privacy, "invite_only")
+    }
+
+    func testNativeProfileWireframeRemovesRedundantFriendsMenuGroup() {
+        XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
+        XCTAssertFalse(NativeProfileWireframeGuard.socialActivityPanels.contains(.friends))
+        XCTAssertEqual(NativeProfileWireframeGuard.friendsPanelTitle, "Find Friends")
+        XCTAssertEqual(NativeProfileWireframeGuard.friendsPanelEyebrow, "NETWORK")
+        XCTAssertEqual(NativeProfileWireframeGuard.networkCardTitle, "Profile Network")
+    }
+
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
         XCTAssertEqual(NativeProfileDataAPI.fixtureEnvironmentKey, "BYT_NATIVE_PROFILE_DATA_FIXTURES")
         XCTAssertEqual(NativeProfileDataAPI.fixtureProfile.email, "member@example.com")
@@ -624,6 +683,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeProfileDataAPI.fixturePaymentMethods.first?.last4, "4242")
         XCTAssertEqual(NativeProfileDataAPI.fixtureNotificationPreferences, .webDefaults)
         XCTAssertEqual(NativeProfileDataAPI.fixtureUserPreferences.vibes, ["drinks"])
+        XCTAssertEqual(NativeProfileDataAPI.fixtureSocialCircles.first?.memberCount, 8)
         let fixtureStrings = [NativeProfileDataAPI.fixtureProfile.email, NativeProfileDataAPI.fixtureVehicles.first?.licensePlate, NativeProfileDataAPI.fixturePaymentMethods.first?.last4, NativeProfileDataAPI.fixturePaymentMethods.first?.brand].compactMap { $0 }
         XCTAssertFalse(fixtureStrings.contains { $0.contains("sk_") || $0.contains("pk_live") || $0.contains("Bearer ") })
     }

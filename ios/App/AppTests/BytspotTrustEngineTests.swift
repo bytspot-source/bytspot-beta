@@ -442,6 +442,52 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(venue.etaText, "~5 min approx")
     }
 
+    func testNativeMapPinTreatsAdapterPlacesAsRouteDestinations() {
+        let livePlace = NativeVenueSummary(id: "place-google-coffee", name: "Adapter Coffee", category: "coffee_shop", address: "123 Peachtree St NE", distance: "0.7 mi", rating: 4.6, latitude: 33.7901, longitude: -84.3891, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", ratingCount: 321, isOpen: true, etaText: "~5 min approx")
+        let parking = NativeVenueSummary(id: "parking-live", name: "Live Parking", category: "parking", address: "1380 W Peachtree", distance: "0.4 mi", rating: nil, latitude: 33.7900, longitude: -84.3890, crowd: nil, parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)
+        let partner = NativeVenueSummary(id: "partner-live", name: "Partner Place", category: "dining", address: "1197 Peachtree", distance: "Here", rating: 4.8, latitude: 33.7878, longitude: -84.3832, crowd: NativeCrowdSummary(level: 2, label: "Active", waitMins: nil), parking: NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr"), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)
+
+        let placePin = NativeMapPin(venue: livePlace)
+        XCTAssertEqual(placePin.kind, .place)
+        XCTAssertEqual(placePin.coordinate.latitude, 33.7901)
+        XCTAssertEqual(placePin.coordinate.longitude, -84.3891)
+        XCTAssertEqual(placePin.sourceLabel, "Google Places")
+        XCTAssertEqual(placePin.etaText, "~5 min approx")
+        XCTAssertTrue(placePin.subtitle.contains("Google Places"))
+        XCTAssertEqual(NativeMapFocusHandoff.kindString(for: livePlace), "place")
+        XCTAssertEqual(NativeMapPin(venue: parking).kind, .parking)
+        XCTAssertEqual(NativeMapPin(venue: partner).kind, .partner)
+    }
+
+    func testNativeMapFocusHandoffPersistsRouteMetadataWithoutVendorKeys() throws {
+        let livePlace = NativeVenueSummary(id: "place-google-coffee", name: "Adapter Coffee", category: "coffee_shop", address: "123 Peachtree St NE", distance: "0.7 mi", rating: 4.6, latitude: 33.7901, longitude: -84.3891, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", etaText: "~5 min approx")
+        NativeMapFocusHandoff.clear()
+        defer { NativeMapFocusHandoff.clear() }
+
+        NativeMapFocusHandoff.store(venue: livePlace)
+
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.kindKey), "place")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.modeKey), "Route")
+        XCTAssertEqual(UserDefaults.standard.double(forKey: NativeMapFocusHandoff.latitudeKey), 33.7901)
+        XCTAssertEqual(UserDefaults.standard.double(forKey: NativeMapFocusHandoff.longitudeKey), -84.3891)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.sourceLabelKey), "Google Places")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.etaTextKey), "~5 min approx")
+    }
+
+    func testNativeMapExternalHandoffURLsUseCoordinatesOnly() throws {
+        let apple = try XCTUnwrap(NativeMapExternalHandoff.appleMapsURL(latitude: 33.7901, longitude: -84.3891))
+        let google = try XCTUnwrap(NativeMapExternalHandoff.googleMapsURL(latitude: 33.7901, longitude: -84.3891))
+
+        XCTAssertEqual(apple.scheme, "https")
+        XCTAssertEqual(apple.host, "maps.apple.com")
+        XCTAssertTrue(apple.absoluteString.contains("daddr=33.7901,-84.3891"))
+        XCTAssertEqual(google.scheme, "https")
+        XCTAssertEqual(google.host, "www.google.com")
+        XCTAssertTrue(google.absoluteString.contains("api=1"))
+        XCTAssertTrue(google.absoluteString.contains("query=33.7901,-84.3891"))
+        XCTAssertFalse((apple.absoluteString + google.absoluteString).lowercased().contains("key="))
+    }
+
     func testBestValueQueryPathCarriesRawInputJSON() throws {
         let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
         let components = URLComponents(string: path)

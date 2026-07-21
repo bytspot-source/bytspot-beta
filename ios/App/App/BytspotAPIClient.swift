@@ -68,8 +68,12 @@ struct BytspotAPIClient {
 
     static func trpcQueryPath(_ path: String, input: [String: Any]) throws -> String {
         let inputData = try JSONSerialization.data(withJSONObject: input)
-        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return "\(path)?input=\(encoded)"
+        guard let rawInput = String(data: inputData, encoding: .utf8) else { throw APIError.invalidURL }
+        var components = URLComponents()
+        components.path = path
+        components.queryItems = [URLQueryItem(name: "input", value: rawInput)]
+        guard let value = components.string else { throw APIError.invalidURL }
+        return value
     }
 }
 

@@ -364,12 +364,22 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testPlacesTextSearchUsesTRPCQueryTransport() throws {
-        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": "coffee", "lat": 33.7866, "lng": -84.3833, "maxResults": 5])
+        let query = "coffee & tea = good? \"yes\""
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": 33.7866, "lng": -84.3833, "maxResults": 5])
         let request = try BytspotAPIClient().makeRequest(path: path)
+        let components = URLComponents(string: path)
+        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
+        let data = try XCTUnwrap(rawInput.data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertNil(request.httpBody)
         XCTAssertTrue(path.hasPrefix("/trpc/places.textSearch?input="))
+        XCTAssertEqual(decoded["query"] as? String, query)
+        XCTAssertEqual(decoded["lat"] as? Double, 33.7866)
+        XCTAssertEqual(decoded["lng"] as? Double, -84.3833)
+        XCTAssertEqual(decoded["maxResults"] as? Int, 5)
+        XCTAssertFalse(path.contains(" & "))
     }
 
     func testBestValueQueryPathCarriesRawInputJSON() throws {

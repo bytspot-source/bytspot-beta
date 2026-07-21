@@ -415,6 +415,24 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(here.distanceLabel(toLatitude: 33.7900, longitude: -84.3890)?.hasSuffix("mi") == true)
     }
 
+    func testNativeLocationPermissionUXUsesExplicitTapCopy() {
+        XCTAssertTrue(NativeLocationPermissionUX.shouldShowCard(state: .notDetermined, isUsingFallback: true))
+        XCTAssertEqual(NativeLocationPermissionUX.title(state: .notDetermined), "Use your location")
+        XCTAssertEqual(NativeLocationPermissionUX.ctaTitle(state: .notDetermined), "Use My Location")
+        XCTAssertFalse(NativeLocationPermissionUX.opensSettings(state: .notDetermined))
+        XCTAssertTrue(NativeLocationPermissionUX.subtitle(state: .notDetermined).contains("nearby places"))
+        XCTAssertEqual(NativeLocationPermissionUX.compactSubtitle(state: .notDetermined), "Weather, places, and parking near you.")
+    }
+
+    func testNativeLocationPermissionUXDeniedOpensSettingsAndAllowedCanHide() {
+        XCTAssertTrue(NativeLocationPermissionUX.shouldShowCard(state: .denied, isUsingFallback: true))
+        XCTAssertEqual(NativeLocationPermissionUX.ctaTitle(state: .denied), "Open Settings")
+        XCTAssertTrue(NativeLocationPermissionUX.opensSettings(state: .denied))
+        XCTAssertTrue(NativeLocationPermissionUX.opensSettings(state: .restricted))
+        XCTAssertFalse(NativeLocationPermissionUX.shouldShowCard(state: .allowed, isUsingFallback: false))
+        XCTAssertTrue(NativeLocationPermissionUX.shouldShowCard(state: .allowed, isUsingFallback: true))
+    }
+
     func testLocalTravelEstimateDoesNotClaimGoogleRoutes() throws {
         let api = NativeLiveDiscoveryAPI(client: BytspotAPIClient())
         let estimate = try XCTUnwrap(api.localTravelEstimate(origin: .midtown, destinationLat: 33.7900, destinationLng: -84.3890))

@@ -121,6 +121,11 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
         }
     }
 
+    func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         Task { @MainActor in
@@ -146,6 +151,63 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
         case .restricted: authorizationState = .restricted
         @unknown default: authorizationState = .unavailable
         }
+    }
+}
+
+enum NativeLocationPermissionUX {
+    static func shouldShowCard(state: NativeLocationStore.AuthorizationState, isUsingFallback: Bool) -> Bool {
+        state != .allowed || isUsingFallback
+    }
+
+    static func title(state: NativeLocationStore.AuthorizationState) -> String {
+        switch state {
+        case .notDetermined: return "Use your location"
+        case .allowed: return "Finding your location"
+        case .denied: return "Location is off"
+        case .restricted: return "Location restricted"
+        case .unavailable: return "Location unavailable"
+        }
+    }
+
+    static func subtitle(state: NativeLocationStore.AuthorizationState) -> String {
+        switch state {
+        case .notDetermined: return "Show live weather, nearby places, and smarter parking distances around you."
+        case .allowed: return "Updating nearby weather and Discover picks now."
+        case .denied: return "Using Midtown fallback. Enable location in Settings for nearby weather and distance labels."
+        case .restricted: return "Using Midtown fallback because location access is restricted on this device."
+        case .unavailable: return "Using Midtown fallback because location services are unavailable."
+        }
+    }
+
+    static func compactSubtitle(state: NativeLocationStore.AuthorizationState) -> String {
+        switch state {
+        case .notDetermined: return "Weather, places, and parking near you."
+        case .allowed: return "Refreshing nearby picks now."
+        case .denied: return "Using Midtown. Enable in Settings."
+        case .restricted: return "Using Midtown fallback."
+        case .unavailable: return "Using Midtown fallback."
+        }
+    }
+
+    static func ctaTitle(state: NativeLocationStore.AuthorizationState) -> String {
+        switch state {
+        case .notDetermined: return "Use My Location"
+        case .allowed: return "Refresh"
+        case .denied, .restricted: return "Open Settings"
+        case .unavailable: return "Using Midtown"
+        }
+    }
+
+    static func opensSettings(state: NativeLocationStore.AuthorizationState) -> Bool {
+        state == .denied || state == .restricted
+    }
+
+    static func shouldRefreshAfterGrant(state: NativeLocationStore.AuthorizationState, isUsingFallback: Bool) -> Bool {
+        state == .allowed && !isUsingFallback
+    }
+
+    static func shouldRequestFreshFixAfterGrant(state: NativeLocationStore.AuthorizationState, isUsingFallback: Bool) -> Bool {
+        state == .allowed && isUsingFallback
     }
 }
 
@@ -5637,6 +5699,7 @@ private struct NativeHomeDashboardView: View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
+            homeLocationPermissionCard
             if let liveGroupEvent { NativeHomeLiveGroupBanner(event: liveGroupEvent, action: { openGroupInvite(liveGroupEvent) }) }
             if launchPicksCompleted { launchPicksReadySection }
             tonightPickCard
@@ -5653,7 +5716,8 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }
         .task { await refreshLiveWeather() }
-        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshHomeLocationContent() } }
+        .onChange(of: locationStore.authorizationState) { state in if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) { locationStore.startIfAuthorized() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
@@ -5703,6 +5767,30 @@ private struct NativeHomeDashboardView: View {
             weatherSnapshot = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).weather(lat: location.latitude, lng: location.longitude)
         } catch {
             weatherSnapshot = .fallback
+        }
+    }
+
+    private func refreshHomeLocationContent() async {
+        await refreshLiveWeather()
+        await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
+    }
+
+    private func handleHomeLocationPermissionAction() {
+        nativeImpactLight()
+        if NativeLocationPermissionUX.opensSettings(state: locationStore.authorizationState) {
+            locationStore.openAppSettings()
+        } else {
+            locationStore.requestWhenInUseIfNeeded()
+            refreshOrRequestHomeLocationFixIfAllowed()
+        }
+    }
+
+    private func refreshOrRequestHomeLocationFixIfAllowed() {
+        let state = locationStore.authorizationState
+        if NativeLocationPermissionUX.shouldRefreshAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            Task { await refreshHomeLocationContent() }
+        } else if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            locationStore.startIfAuthorized()
         }
     }
 
@@ -6332,6 +6420,13 @@ private struct NativeHomeDashboardView: View {
         .padding(12)
         .nativePanel()
         .accessibilityIdentifier("native-home-weather-smart")
+    }
+
+    @ViewBuilder private var homeLocationPermissionCard: some View {
+        if NativeLocationPermissionUX.shouldShowCard(state: locationStore.authorizationState, isUsingFallback: locationStore.isUsingFallback) {
+            NativeLocationPermissionCard(state: locationStore.authorizationState, fallbackLabel: locationStore.displayLabel, action: handleHomeLocationPermissionAction)
+                .accessibilityIdentifier("native-home-location-permission-card")
+        }
     }
 
     private var quickActionsSection: some View {
@@ -9895,6 +9990,8 @@ private struct NativeDiscoverView: View {
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .onChange(of: locationStore.authorizationState) { state in if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) { locationStore.startIfAuthorized() } }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshDiscoverForLocation() } }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
@@ -9928,6 +10025,7 @@ private struct NativeDiscoverView: View {
     private var filterSystem: some View {
         VStack(alignment: .leading, spacing: 8) {
             discoverHeader
+            discoverLocationPermissionCard
             if let discoverStatusMessage { discoverStatusBanner(discoverStatusMessage) }
             categoryRail
             accessTierRail
@@ -9953,6 +10051,36 @@ private struct NativeDiscoverView: View {
         }
         .padding(.bottom, 4)
         .accessibilityIdentifier("native-discover-account-entry")
+    }
+
+    @ViewBuilder private var discoverLocationPermissionCard: some View {
+        if NativeLocationPermissionUX.shouldShowCard(state: locationStore.authorizationState, isUsingFallback: locationStore.isUsingFallback) {
+            NativeLocationPermissionCard(state: locationStore.authorizationState, fallbackLabel: locationStore.displayLabel, compact: true, action: handleDiscoverLocationPermissionAction)
+                .accessibilityIdentifier("native-discover-location-permission-card")
+        }
+    }
+
+    private func handleDiscoverLocationPermissionAction() {
+        nativeImpactLight()
+        if NativeLocationPermissionUX.opensSettings(state: locationStore.authorizationState) {
+            locationStore.openAppSettings()
+        } else {
+            locationStore.requestWhenInUseIfNeeded()
+            refreshOrRequestDiscoverLocationFixIfAllowed()
+        }
+    }
+
+    private func refreshOrRequestDiscoverLocationFixIfAllowed() {
+        let state = locationStore.authorizationState
+        if NativeLocationPermissionUX.shouldRefreshAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            Task { await refreshDiscoverForLocation() }
+        } else if NativeLocationPermissionUX.shouldRequestFreshFixAfterGrant(state: state, isUsingFallback: locationStore.isUsingFallback) {
+            locationStore.startIfAuthorized()
+        }
+    }
+
+    private func refreshDiscoverForLocation() async {
+        await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
     }
 
     private var categoryRail: some View {
@@ -15136,6 +15264,65 @@ private struct NativeAccountCenterButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open Account Center")
+    }
+}
+
+private struct NativeLocationPermissionCard: View {
+    let state: NativeLocationStore.AuthorizationState
+    let fallbackLabel: String
+    var compact: Bool = false
+    let action: () -> Void
+
+    private var accent: Color {
+        switch state {
+        case .allowed: return NativeTheme.emerald
+        case .denied, .restricted: return NativeTheme.orange
+        case .unavailable: return NativeTheme.textSecondary
+        case .notDetermined: return NativeTheme.cyan
+        }
+    }
+
+    private var isDisabled: Bool { state == .unavailable }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: state == .allowed ? "location.fill" : "location.circle.fill")
+                .font(.system(size: 17, weight: .black))
+                .foregroundColor(.black)
+                .frame(width: 38, height: 38)
+                .background(accent)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                Text(NativeLocationPermissionUX.title(state: state))
+                    .font(.system(size: compact ? 13.5 : 15, weight: .black))
+                    .foregroundColor(NativeTheme.textPrimary)
+                Text(compact ? NativeLocationPermissionUX.compactSubtitle(state: state) : NativeLocationPermissionUX.subtitle(state: state))
+                    .font(.system(size: compact ? 11.5 : 12.5, weight: .bold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .lineLimit(2)
+                Text(fallbackLabel.uppercased())
+                    .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                    .foregroundColor(accent)
+                    .tracking(0.8)
+            }
+            Spacer(minLength: 8)
+            Button(action: action) {
+                Text(NativeLocationPermissionUX.ctaTitle(state: state))
+                    .font(.system(size: 11.5, weight: .black))
+                    .foregroundColor(isDisabled ? NativeTheme.textSecondary : .black)
+                    .padding(.horizontal, 11)
+                    .frame(height: 32)
+                    .background(isDisabled ? NativeTheme.selectedControlSurface : accent)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
+            .accessibilityLabel(NativeLocationPermissionUX.ctaTitle(state: state))
+            .accessibilityHint(NativeLocationPermissionUX.opensSettings(state: state) ? "Opens Settings to enable location access." : "Requests location access for nearby weather and Discover results.")
+        }
+        .padding(compact ? 10 : 12)
+        .nativePanel()
+        .accessibilityElement(children: .contain)
     }
 }
 

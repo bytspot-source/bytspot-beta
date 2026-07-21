@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import MapKit
+import CoreLocation
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
@@ -76,6 +77,75 @@ final class NativeBridgeStore: ObservableObject {
             NativeIncomingURLCenter.publish(url, scanSource: .nfc)
         }
         #endif
+    }
+}
+
+@MainActor
+final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDelegate {
+    enum AuthorizationState: Equatable { case notDetermined, allowed, denied, restricted, unavailable }
+
+    @Published private(set) var authorizationState: AuthorizationState = .notDetermined
+    @Published private(set) var lastLocation: CLLocation?
+    @Published private(set) var lastErrorMessage: String?
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = 80
+        updateAuthorization(manager.authorizationStatus)
+    }
+
+    var coordinate: NativeLocationCoordinate {
+        guard let lastLocation, lastLocation.horizontalAccuracy >= 0 else { return .midtown }
+        return NativeLocationCoordinate(latitude: lastLocation.coordinate.latitude, longitude: lastLocation.coordinate.longitude, isFallback: false)
+    }
+
+    var isUsingFallback: Bool { coordinate.isFallback }
+    var displayLabel: String { coordinate.isFallback ? "Midtown fallback" : "Near you" }
+
+    func startIfAuthorized() {
+        updateAuthorization(manager.authorizationStatus)
+        guard authorizationState == .allowed else { return }
+        manager.requestLocation()
+    }
+
+    func requestWhenInUseIfNeeded() {
+        guard CLLocationManager.locationServicesEnabled() else { authorizationState = .unavailable; return }
+        updateAuthorization(manager.authorizationStatus)
+        switch authorizationState {
+        case .notDetermined: manager.requestWhenInUseAuthorization()
+        case .allowed: manager.requestLocation()
+        default: break
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            self.updateAuthorization(status)
+            if self.authorizationState == .allowed { self.manager.requestLocation() }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let latest = locations.last else { return }
+        Task { @MainActor in self.lastLocation = latest; self.lastErrorMessage = nil }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in self.lastErrorMessage = error.localizedDescription }
+    }
+
+    private func updateAuthorization(_ status: CLAuthorizationStatus) {
+        switch status {
+        case .notDetermined: authorizationState = .notDetermined
+        case .authorizedAlways, .authorizedWhenInUse: authorizationState = .allowed
+        case .denied: authorizationState = .denied
+        case .restricted: authorizationState = .restricted
+        @unknown default: authorizationState = .unavailable
+        }
     }
 }
 
@@ -542,6 +612,7 @@ private struct NativeContextualDestinationView: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
 
     var body: some View {
@@ -2996,6 +3067,16 @@ private struct NativeFriendSuggestionRow: View {
     }
 }
 
+private enum NativeDebugAutoSheetPreviewGate {
+    static var isEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["BYT_NATIVE_AUTOPRESENT_PREVIEWS"] == "1"
+        #else
+        return false
+        #endif
+    }
+}
+
 private struct NativeProfileNetworkCard: View {
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -3008,6 +3089,7 @@ private struct NativeProfileNetworkCard: View {
     @State private var showInviteAccess = false
     @State private var showHostDashboard = false
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
+    @State private var didRunGroupSetupPreviewCheck = false
     // Invite ids confirmed to exist on the server (groupEvents.create succeeded).
     // Sharing an invite the backend hasn't accepted yet would hand out a link the
     // App Clip can't join (groupEvents.join → NOT_FOUND), so share stays gated on
@@ -5301,6 +5383,181 @@ private enum NativePostAuthIntent: String, Equatable, CaseIterable {
     var authMode: NativeAuthMode { .login }
 }
 
+private enum NativeSearchRoute: Equatable {
+    case discoverFilter(String)
+    case map(destination: String, mode: String)
+    case rideHandoff
+}
+
+private struct NativeSearchSuggestion: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let address: String
+    let icon: String
+    let actionLabel: String
+    let badge: String?
+    let score: Int
+    let route: NativeSearchRoute
+}
+
+private enum NativeSearchRouter {
+    struct CategorySpec {
+        let filter: String
+        let title: String
+        let subtitle: String
+        let icon: String
+        let keywords: [String]
+    }
+
+    static let categories: [CategorySpec] = [
+        CategorySpec(filter: "parking", title: "Parking near me", subtitle: "Reserve-ready lots and route context", icon: "parkingsign.circle.fill", keywords: ["parking", "park", "garage", "spot", "spots", "lot", "covered"]),
+        CategorySpec(filter: "dining", title: "Food nearby", subtitle: "Restaurants, pickup, dinner, and vendors", icon: "fork.knife", keywords: ["food", "restaurant", "restaurants", "dining", "dinner", "lunch", "pickup", "delivery", "ghana", "jollof"]),
+        CategorySpec(filter: "coffee", title: "Coffee nearby", subtitle: "Walkable cafés and quick stops", icon: "cup.and.saucer.fill", keywords: ["coffee", "cafe", "café", "brunch", "tea"]),
+        CategorySpec(filter: "shopping", title: "Shopping nearby", subtitle: "Retail, malls, markets, and local stores", icon: "bag.fill", keywords: ["shopping", "shop", "shops", "mall", "malls", "store", "retail", "market"]),
+        CategorySpec(filter: "entertainment", title: "Events tonight", subtitle: "Tickets, music, passes, and experiences", icon: "ticket.fill", keywords: ["event", "events", "ticket", "tickets", "music", "show", "concert", "pass", "matchday"]),
+        CategorySpec(filter: "mobility", title: "Airport ride", subtitle: "Private transfers, vans, and route handoff", icon: "airplane.departure", keywords: ["ride", "airport", "transfer", "valet", "driver", "uber", "lyft", "transport", "shuttle"]),
+        CategorySpec(filter: "nightlife", title: "Nightlife", subtitle: "Bars, lounges, and evening energy", icon: "music.note", keywords: ["night", "nightlife", "bar", "bars", "drinks", "cocktail", "club"]),
+        CategorySpec(filter: "fitness", title: "Fitness nearby", subtitle: "Gyms, recovery, and wellness options", icon: "figure.mind.and.body", keywords: ["fitness", "gym", "wellness", "workout", "recovery"])
+    ]
+
+    static func suggestions(query rawQuery: String, snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate = .midtown, limit: Int = 8) -> [NativeSearchSuggestion] {
+        let query = normalized(rawQuery)
+        let cards = snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : snapshot.discoverCards
+        let venues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
+        var results: [NativeSearchSuggestion] = []
+
+        if isRouteIntent(query) {
+            let destination = strippedRouteDestination(rawQuery)
+            results.append(NativeSearchSuggestion(id: "route-\(normalized(destination))", title: "Route to \(destination)", subtitle: "Open Map with destination", address: destination, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 220, route: .map(destination: destination, mode: "Route")))
+        }
+
+        for spec in categories {
+            let score = categoryScore(spec, query: query)
+            if query.isEmpty || score > 0 {
+                let route: NativeSearchRoute = spec.filter == "parking" ? .map(destination: "Parking near me", mode: "Smart Parking") : spec.filter == "mobility" ? .rideHandoff : .discoverFilter(spec.filter)
+                results.append(NativeSearchSuggestion(id: "category-\(spec.filter)", title: spec.title, subtitle: spec.subtitle, address: location.displayName.capitalized, icon: spec.icon, actionLabel: spec.filter == "parking" ? "Open Map" : spec.filter == "mobility" ? "Request" : "Discover", badge: query.isEmpty ? location.shortLabel : nil, score: query.isEmpty ? 62 : 82 + score, route: route))
+            }
+        }
+
+        for card in cards {
+            let score = discoverScore(query: query, categoryHint: nil, title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel, metadataLine: card.metadataLine, features: card.features, verified: card.verified, premium: isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired), vibeScore: card.vibeScore)
+            guard query.isEmpty || score > 0 else { continue }
+            let isRide = card.id == NativeHomeDashboardView.valetRideServiceID || card.title.localizedCaseInsensitiveContains("airport transfer")
+            let route: NativeSearchRoute = isRide ? .rideHandoff : card.type == "parking" ? .map(destination: card.title, mode: "Smart Parking") : .discoverFilter(card.type)
+            let badge = searchBadge(verified: card.verified, premium: isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired))
+            results.append(NativeSearchSuggestion(id: "card-\(card.id)", title: card.title, subtitle: card.categoryLabel, address: card.subtitle.isEmpty ? card.metadataLine : card.subtitle, icon: card.icon, actionLabel: isRide ? "Request" : card.type == "parking" ? "Route" : "Discover", badge: badge, score: score + (query.isEmpty ? card.vibeScore : 0), route: route))
+        }
+
+        for venue in venues {
+            let premium = venue.verifiedPatchId != nil
+            let score = discoverScore(query: query, categoryHint: nil, title: venue.name, subtitle: venue.address, type: venue.discoverType, categoryLabel: venue.discoverType, metadataLine: venue.parking.priceLabel, features: [venue.address, venue.distance], verified: venue.verifiedPatchId != nil, premium: premium, vibeScore: (venue.crowd?.level ?? 2) * 2)
+            guard query.isEmpty || score > 0 else { continue }
+            let route: NativeSearchRoute = venue.discoverType == "parking" ? .map(destination: venue.name, mode: "Smart Parking") : .discoverFilter(venue.discoverType)
+            results.append(NativeSearchSuggestion(id: "venue-\(venue.id)", title: venue.name, subtitle: venue.discoverType.capitalized, address: venue.address, icon: NativeTabContentStore.icon(for: venue.discoverType), actionLabel: venue.discoverType == "parking" ? "Route" : "Discover", badge: searchBadge(verified: venue.verifiedPatchId != nil, premium: premium), score: score, route: route))
+        }
+
+        return Array(results.sorted { first, second in
+            first.score == second.score ? first.title < second.title : first.score > second.score
+        }.prefix(limit))
+    }
+
+    static func discoverScore(query rawQuery: String, categoryHint: String?, title: String, subtitle: String, type: String, categoryLabel: String, metadataLine: String, features: [String], verified: Bool, premium: Bool, vibeScore: Int) -> Int {
+        let query = normalized(rawQuery)
+        let hint = normalized(categoryHint ?? "")
+        let titleText = normalized(title)
+        let subtitleText = normalized(subtitle)
+        let typeText = normalized(type)
+        let categoryText = normalized(categoryLabel)
+        let metadataText = normalized(metadataLine)
+        let featureText = normalized(features.joined(separator: " "))
+        let fullText = [titleText, subtitleText, typeText, categoryText, metadataText, featureText].joined(separator: " ")
+        let intent = categoryIntent(for: query.isEmpty ? hint : query)
+        var relevance = 0
+
+        if query.isEmpty {
+            relevance = 12
+        } else if titleText == query {
+            relevance += 130
+        } else if titleText.hasPrefix(query) {
+            relevance += 96
+        } else if titleText.contains(query) {
+            relevance += 76
+        }
+
+        if !query.isEmpty {
+            let tokens = query.split(separator: " ").map(String.init).filter { $0.count > 1 }
+            let tokenHits = tokens.filter { fullText.contains($0) }.count
+            relevance += min(tokenHits * 18, 54)
+        }
+
+        if let intent {
+            if typeText == intent || categoryText.contains(intent) { relevance += 58 }
+            else if intent == "dining" && (categoryText.contains("dining") || featureText.contains("food") || titleText.contains("broni")) { relevance += 58 }
+            else if intent == "entertainment" && (categoryText.contains("event") || categoryText.contains("pass")) { relevance += 52 }
+            else if fullText.contains(intent) { relevance += 34 }
+        } else if !hint.isEmpty && (typeText == hint || categoryText.contains(hint)) {
+            relevance += 46
+        }
+
+        if !query.isEmpty && fullText.contains(query) { relevance += 22 }
+        guard query.isEmpty || relevance > 0 else { return 0 }
+
+        var score = relevance + min(max(vibeScore, 1), 10)
+        if premium && relevance >= 40 { score += 28 }
+        if verified && relevance >= 30 { score += 16 }
+        if metadataText.contains("available") || metadataText.contains("open") { score += 7 }
+        return score
+    }
+
+    static func categoryIntent(for query: String) -> String? {
+        let q = normalized(query)
+        return categories.first { spec in spec.filter == q || spec.keywords.contains { q.contains($0) } }?.filter
+    }
+
+    static func searchBadge(verified: Bool, premium: Bool) -> String? {
+        if premium { return "Featured" }
+        if verified { return "Verified" }
+        return nil
+    }
+
+    static func isPremium(title: String, type: String, entryType: String, membershipRequired: Bool) -> Bool {
+        membershipRequired || title.localizedCaseInsensitiveContains("Broni") || title.localizedCaseInsensitiveContains("Akwaaba") || title.localizedCaseInsensitiveContains("Private Airport")
+    }
+
+    static func normalized(_ value: String) -> String {
+        value.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func categoryScore(_ spec: CategorySpec, query: String) -> Int {
+        guard !query.isEmpty else { return 0 }
+        if spec.filter == query { return 60 }
+        if spec.keywords.contains(where: { query.contains($0) }) { return 48 }
+        if normalized(spec.title).contains(query) { return 36 }
+        return 0
+    }
+
+    private static func isRouteIntent(_ query: String) -> Bool {
+        ["route to", "directions to", "navigate to", "take me to", "go to"].contains { query.hasPrefix($0) }
+    }
+
+    private static func strippedRouteDestination(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["route to", "directions to", "navigate to", "take me to", "go to"] {
+            if value.lowercased().hasPrefix(prefix) {
+                value = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+        return value.isEmpty ? "Midtown Atlanta" : value
+    }
+}
+
 private struct NativeHomeDashboardView: View {
     enum ActionTarget: Equatable {
         case nativeTab(BytspotNativeTab)
@@ -5330,6 +5587,7 @@ private struct NativeHomeDashboardView: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalkPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
@@ -5346,6 +5604,9 @@ private struct NativeHomeDashboardView: View {
     @State private var showValetRideSheet = false
     @State private var didOpenValetPreview = false
     @State private var liveGroupEvent = NativeGroupEventStore.primaryHomepageVisibleEvent()
+    @State private var headerNow = Date()
+    @State private var showHomeSearchSheet = false
+    @State private var weatherSnapshot = NativeWeatherSnapshot.fallback
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
@@ -5390,7 +5651,10 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
-        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent() }
+        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }
+        .task { await refreshLiveWeather() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
             let detail = Group {
@@ -5411,6 +5675,16 @@ private struct NativeHomeDashboardView: View {
         .sheet(isPresented: $showValetRideSheet) {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
+        .sheet(isPresented: $showHomeSearchSheet) {
+            let sheet = NativeHomeSearchSheet(query: $searchText, snapshot: tabContentStore.snapshot, location: locationStore.coordinate, onSubmit: submitSearch, onSelect: handleHomeSearchSuggestion)
+            if #available(iOS 16.0, *) {
+                sheet
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            } else {
+                sheet
+            }
+        }
     }
 
     private func scheduleAuthenticatedLaunchPicksCollapseIfNeeded() {
@@ -5422,6 +5696,15 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func refreshLiveGroupEvent() { liveGroupEvent = NativeGroupEventStore.primaryHomepageVisibleEvent() }
+
+    private func refreshLiveWeather() async {
+        do {
+            let location = locationStore.coordinate
+            weatherSnapshot = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).weather(lat: location.latitude, lng: location.longitude)
+        } catch {
+            weatherSnapshot = .fallback
+        }
+    }
 
     private func openGroupInvite(_ event: NativeGroupEventRecord) {
         nativeImpactLight()
@@ -5436,40 +5719,58 @@ private struct NativeHomeDashboardView: View {
         let city = "ATL"
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 8) {
-                    HStack(spacing: 8) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "cloud.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
-                            Text("72°").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                HStack(alignment: .center, spacing: 6) {
+                    HStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "cloud.fill").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.cyan)
+                            Text("\(weatherSnapshot.temperatureF)°")
+                                .font(.system(size: 12, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundColor(NativeTheme.textPrimary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
+                        .frame(width: 42, alignment: .center)
                         Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 12)
-                        HStack(spacing: 5) {
-                            Image(systemName: "clock.fill").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
-                            Text(currentTimeLabel).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary.opacity(0.92))
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.fill").font(.system(size: 10.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                            Text(currentTimeLabel)
+                                .font(.system(size: 11, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
+                        .frame(width: 54, alignment: .center)
                     }
-                    .padding(.horizontal, 11).padding(.vertical, 7)
+                    .frame(width: 112, height: 40)
                     .background(NativeTheme.selectedControlSurface)
                     .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
                     .clipShape(Capsule())
 
-                    Spacer(minLength: 6)
-
                     HStack(spacing: 5) {
                         Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
                         Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                        Text("\(users)").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        Text("\(users)")
+                            .font(.system(size: 12, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .frame(width: 86, height: 40)
                     .background(NativeTheme.emerald.opacity(0.18))
                     .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
 
                     HStack(spacing: 5) {
                         Image(systemName: "mappin.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
-                        Text(city).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        Text(city)
+                            .font(.system(size: 12, weight: .black, design: .rounded))
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .frame(width: 72, height: 40)
                     .background(NativeTheme.cyan.opacity(0.16))
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
@@ -5478,7 +5779,7 @@ private struct NativeHomeDashboardView: View {
                         Image(systemName: "line.3.horizontal")
                             .font(.system(size: 14, weight: .black))
                             .foregroundColor(.white)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 40, height: 40)
                             .background(NativeTheme.purple)
                             .overlay(Circle().stroke(Color.white.opacity(0.20), lineWidth: 1))
                             .clipShape(Circle())
@@ -5486,7 +5787,8 @@ private struct NativeHomeDashboardView: View {
                     }
                     .accessibilityLabel("Open menu")
                 }
-                .padding(.horizontal, 14).padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 16).padding(.vertical, 8)
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 HStack(spacing: 0) {
                     statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: "\(spotsNearby)", label: "spots nearby")
@@ -5495,7 +5797,7 @@ private struct NativeHomeDashboardView: View {
                     Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
                     statStripItem(icon: "bolt.fill", iconColor: NativeTheme.purple, value: "\(forYou)", label: "for you", valueColor: NativeTheme.purple)
                 }
-                .padding(.horizontal, 10).padding(.vertical, 11)
+                .padding(.horizontal, 16).padding(.vertical, 8)
             }
             .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
@@ -5516,20 +5818,33 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor)
+        let displayLabel = label == "spots nearby" ? "spots\nnearby" : label
+        return HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
             if let v = value {
-                Text(v).font(.system(size: 13, weight: .black)).foregroundColor(valueColor)
+                Text(v)
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(valueColor)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            Text(label).font(.system(size: 12, weight: .semibold)).foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
+            Text(displayLabel)
+                .font(.system(size: label == "spots nearby" ? 10.5 : 11.5, weight: .bold, design: .rounded))
+                .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
+                .lineLimit(label == "spots nearby" ? 2 : 1)
+                .lineSpacing(-1)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
+        .frame(height: 28)
     }
 
     private var currentTimeLabel: String {
         let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f.string(from: Date())
+        f.dateFormat = "h:mm"
+        return f.string(from: headerNow)
     }
 
     private var contextualEyebrow: (String, String) {
@@ -5548,22 +5863,20 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeSearchBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
-            ZStack(alignment: .leading) {
-                if searchText.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("Search for").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeTheme.textPrimary.opacity(0.85))
-                        Text(searchPlaceholderRotation).font(.system(size: 15, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+        Button(action: { showHomeSearchSheet = true; nativeImpactLight() }) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+                HStack(spacing: 6) {
+                    Text(searchText.isEmpty ? "Search for" : searchText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(NativeTheme.textPrimary.opacity(0.88))
+                        .lineLimit(1)
+                    if searchText.isEmpty {
+                        Text(searchPlaceholderRotation).font(.system(size: 15, weight: .semibold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
                         Text("…").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeTheme.textTertiary.opacity(0.70))
                     }
+                    Spacer(minLength: 0)
                 }
-                TextField("", text: $searchText, onCommit: submitSearch)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(NativeTheme.textPrimary)
-                    .accentColor(NativeTheme.cyan)
-            }
-            Button(action: submitSearch) {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 14, weight: .black))
                     .foregroundColor(.white)
@@ -5571,8 +5884,8 @@ private struct NativeHomeDashboardView: View {
                     .background(NativeTheme.purple)
                     .clipShape(Circle())
             }
-            .accessibilityLabel("Voice search")
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .frame(minHeight: 56)
         .background(NativePolish.glassSurface)
@@ -6005,16 +6318,16 @@ private struct NativeHomeDashboardView: View {
 
     private var weatherSmartCard: some View {
         HStack(spacing: 11) {
-            Text("☀️").font(.system(size: 22))
+            Text(weatherSnapshot.emoji).font(.system(size: 22))
                 .frame(width: 42, height: 42)
                 .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.22), NativeTheme.purple.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text("72° Clear").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text("Good night for walking a block · covered parking if rain changes.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
+                Text("\(weatherSnapshot.temperatureF)° \(weatherSnapshot.conditionLabel)").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text(weatherSnapshot.parkingTip).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
             Spacer()
-            Text("WEATHER").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
+            Text(weatherSnapshot.source == .live ? "LIVE" : "WEATHER").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
         }
         .padding(12)
         .nativePanel()
@@ -6098,13 +6411,178 @@ private struct NativeHomeDashboardView: View {
 
     private func submitSearch() {
         nativeImpactLight()
-        openNativeTab(.discover)
+        if let first = NativeSearchRouter.suggestions(query: searchText, snapshot: tabContentStore.snapshot, location: locationStore.coordinate, limit: 1).first {
+            handleHomeSearchSuggestion(first)
+        } else if let intent = NativeSearchRouter.categoryIntent(for: searchText) {
+            openDiscoverFilter(intent)
+        } else {
+            openNativeTab(.discover)
+        }
+    }
+
+    private func handleHomeSearchSuggestion(_ suggestion: NativeSearchSuggestion) {
+        showHomeSearchSheet = false
+        searchText = suggestion.title
+        nativeImpactLight()
+        switch suggestion.route {
+        case .discoverFilter(let filter):
+            openDiscoverFilter(filter)
+        case .map(let destination, let mode):
+            mapHandoffDestination = destination
+            mapHandoffMode = mode
+            openNativeTab(.map)
+        case .rideHandoff:
+            handleRideHandoff()
+        }
     }
 
     private func crowdBadge(_ crowd: NativeCrowdSummary?) -> String { "\(crowdEmoji(crowd)) \(crowd?.label ?? "Chill")" }
     private func crowdEmoji(_ crowd: NativeCrowdSummary?) -> String { (crowd?.level ?? 1) >= 4 ? "🔴" : (crowd?.level ?? 1) == 3 ? "🟠" : (crowd?.level ?? 1) == 2 ? "🟡" : "🟢" }
     private func crowdColor(_ crowd: NativeCrowdSummary?) -> Color { (crowd?.level ?? 1) >= 4 ? .red : (crowd?.level ?? 1) == 3 ? NativeTheme.orange : (crowd?.level ?? 1) == 2 ? .yellow : NativeTheme.emerald }
     private func categoryEmoji(_ type: String) -> String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "mobility": "🚘", "boutique_apartment": "🏡"][type] ?? "📍" }
+}
+
+private struct NativeHomeSearchSheet: View {
+    @Binding var query: String
+    let snapshot: NativeTabContentSnapshot
+    let location: NativeLocationCoordinate
+    let onSubmit: () -> Void
+    let onSelect: (NativeSearchSuggestion) -> Void
+
+    private var suggestions: [NativeSearchSuggestion] {
+        NativeSearchRouter.suggestions(query: query, snapshot: snapshot, location: location, limit: 8)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Home Search")
+                    .font(.system(size: 24, weight: .black, design: .rounded))
+                    .foregroundColor(NativeTheme.textPrimary)
+                Text("Find places, vendors, routes, and Discover categories near \(location.displayName).")
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(NativeTheme.textSecondary)
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan)
+                TextField("Search address, place, food, parking…", text: $query, onCommit: onSubmit)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(NativeTheme.textPrimary)
+                    .accentColor(NativeTheme.cyan)
+                if !query.isEmpty {
+                    Button(action: { query = "" }) {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(NativeTheme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .background(NativeTheme.selectedControlSurface)
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            quickChips
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 10) {
+                    ForEach(suggestions) { suggestion in
+                        NativeHomeSearchSuggestionRow(suggestion: suggestion) { onSelect(suggestion) }
+                    }
+                }
+                .padding(.bottom, 16)
+            }
+        }
+        .padding(20)
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-home-search-sheet")
+    }
+
+    private var quickChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(NativeSearchRouter.categories.prefix(6)), id: \.filter) { spec in
+                    Button(action: { query = spec.keywords.first ?? spec.filter }) {
+                        Label(spec.title.replacingOccurrences(of: " nearby", with: ""), systemImage: spec.icon)
+                            .font(.system(size: 12.5, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .padding(.horizontal, 11)
+                            .frame(height: 34)
+                            .background(NativePolish.glassSurface)
+                            .overlay(Capsule().stroke(NativeTheme.purple.opacity(0.22), lineWidth: 1))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct NativeHomeSearchSuggestionRow: View {
+    let suggestion: NativeSearchSuggestion
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            HStack(spacing: 12) {
+                Image(systemName: suggestion.icon)
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundColor(.black)
+                    .frame(width: 38, height: 38)
+                    .background(iconColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 7) {
+                        Text(suggestion.title)
+                            .font(.system(size: 15.5, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
+                        if let badge = suggestion.badge {
+                            Text(badge.uppercased())
+                                .font(.system(size: 9.5, weight: .black))
+                                .foregroundColor(badge == "Featured" ? NativeTheme.purple : NativeTheme.cyan)
+                                .padding(.horizontal, 6)
+                                .frame(height: 18)
+                                .background((badge == "Featured" ? NativeTheme.purple : NativeTheme.cyan).opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text(suggestion.subtitle)
+                        .font(.system(size: 12.2, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(1)
+                    Text(suggestion.address)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(NativeTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text(suggestion.actionLabel)
+                    .font(.system(size: 11.5, weight: .black))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 9)
+                    .frame(height: 28)
+                    .background(NativeTheme.cyan)
+                    .clipShape(Capsule())
+            }
+            .padding(12)
+            .background(NativePolish.glassSurface)
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-home-search-suggestion-\(suggestion.id)")
+    }
+
+    private var iconColor: Color {
+        switch suggestion.route {
+        case .map: return NativeTheme.emerald
+        case .rideHandoff: return NativeTheme.orange
+        case .discoverFilter: return NativeTheme.cyan
+        }
+    }
 }
 
 private struct NativeHomeLiveGroupBanner: View {
@@ -9367,6 +9845,7 @@ private struct NativeDiscoverView: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
 
     struct DiscoverCardSpec: Identifiable, Equatable {
         let id: String
@@ -9413,8 +9892,8 @@ private struct NativeDiscoverView: View {
             .padding(20)
             .padding(.bottom, 12)
         }
-        .refreshable { await tabContentStore.refresh(sessionStore: sessionStore) }
-        .onAppear { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
+        .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
@@ -9464,7 +9943,7 @@ private struct NativeDiscoverView: View {
                 Text("Discover")
                     .font(.system(size: 24, weight: .black))
                     .foregroundColor(NativeTheme.textPrimary)
-                Text("Places, stays, rides, services, and parking")
+                Text("Places, rides, services, parking · \(locationStore.coordinate.shortLabel)")
                     .font(.system(size: 12.5, weight: .bold))
                     .foregroundColor(NativeTheme.textSecondary)
                     .lineLimit(1)
@@ -9582,10 +10061,22 @@ private struct NativeDiscoverView: View {
 
     private var rankedCards: [DiscoverCardSpec] {
         filteredCards.sorted { first, second in
+            if selectedFilter != nil {
+                let firstScore = searchScore(for: first, query: selectedFilter ?? "")
+                let secondScore = searchScore(for: second, query: selectedFilter ?? "")
+                if firstScore != secondScore { return firstScore > secondScore }
+            }
             if sortBy == "rating" { return first.rating > second.rating }
             if sortBy == "distance" { return first.distance < second.distance }
+            let firstDefaultScore = searchScore(for: first, query: selectedFilter ?? "")
+            let secondDefaultScore = searchScore(for: second, query: selectedFilter ?? "")
+            if firstDefaultScore != secondDefaultScore { return firstDefaultScore > secondDefaultScore }
             return first.vibeScore == second.vibeScore ? first.verified && !second.verified : first.vibeScore > second.vibeScore
         }
+    }
+
+    private func searchScore(for card: DiscoverCardSpec, query: String) -> Int {
+        NativeSearchRouter.discoverScore(query: query, categoryHint: selectedFilter, title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel, metadataLine: card.metadataLine, features: card.features, verified: card.verified, premium: Self.isPremiumSearchVendor(card), vibeScore: card.vibeScore)
     }
 
     private func selectEntryFilter(_ value: String) {
@@ -9723,6 +10214,10 @@ private struct NativeDiscoverView: View {
         card.type == "dining"
             || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
             || card.cta.localizedCaseInsensitiveContains("Menu")
+    }
+
+    fileprivate static func isPremiumSearchVendor(_ card: DiscoverCardSpec) -> Bool {
+        NativeSearchRouter.isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired)
     }
 
     private func partnerMenuTier(for venue: NativeVenueSummary) -> BytspotTier {
@@ -9955,6 +10450,9 @@ private struct NativeDiscoverFeatureCard: View {
                                 .background(categoryGradient)
                                 .clipShape(Capsule())
                                 .shadow(color: cardAccent.opacity(0.14), radius: 6, x: 0, y: 3)
+                            if let trustBadgeTitle {
+                                trustBadge(trustBadgeTitle)
+                            }
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 8) {
@@ -10220,6 +10718,25 @@ private struct NativeDiscoverFeatureCard: View {
         .frame(minHeight: 28)
         .background(NativeTheme.selectedControlSurface)
         .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
+        .clipShape(Capsule())
+    }
+
+    private var trustBadgeTitle: String? {
+        NativeSearchRouter.searchBadge(verified: card.verified, premium: NativeDiscoverView.isPremiumSearchVendor(card))
+    }
+
+    private func trustBadge(_ title: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: title == "Featured" ? "crown.fill" : "checkmark.seal.fill")
+                .font(.system(size: 9, weight: .black))
+            Text(title.uppercased())
+                .font(.system(size: 9.5, weight: .black))
+        }
+        .foregroundColor(title == "Featured" ? NativeTheme.purple : NativeTheme.cyan)
+        .padding(.horizontal, 8)
+        .frame(minHeight: 24)
+        .background(NativePolish.elevatedSurface.opacity(0.92))
+        .overlay(Capsule().stroke((title == "Featured" ? NativeTheme.purple : NativeTheme.cyan).opacity(0.30), lineWidth: 1))
         .clipShape(Capsule())
     }
 
@@ -11685,6 +12202,7 @@ private struct NativeMapExploreView: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var pairingStore: NativePatchPairingStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var onboardingMapDestination = ""
     @AppStorage(NativeOnboardingMapHandoff.modeKey) private var onboardingMapMode = ""
     @AppStorage(NativeMapFocusHandoff.idKey) private var mapFocusID = ""
@@ -11714,7 +12232,7 @@ private struct NativeMapExploreView: View {
     /// Honors the simulator proximity override for screenshot/regression runs.
     private var nearestVerifiedDistanceMeters: CLLocationDistance? {
         if let override = Self.previewProximityMetersOverride { return override }
-        guard let here = headingProvider.userLocation else { return nil }
+        guard let here = headingProvider.userLocation ?? locationStore.lastLocation else { return nil }
         return verifiedPins
             .map { here.distance(from: CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)) }
             .min()
@@ -11723,7 +12241,7 @@ private struct NativeMapExploreView: View {
     /// Horizontal accuracy of the current fix, in meters. CLLocation reports a
     /// negative value when the fix is invalid, which the gate treats as untrusted.
     private var currentHorizontalAccuracy: CLLocationAccuracy {
-        headingProvider.userLocation?.horizontalAccuracy ?? -1
+        (headingProvider.userLocation ?? locationStore.lastLocation)?.horizontalAccuracy ?? -1
     }
 
     /// Pure Trust Ladder L2 decision shared by the gate, the CTA, and self-tests.
@@ -11988,10 +12506,11 @@ private struct NativeMapExploreView: View {
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
         .accessibilityIdentifier("native-map-explore")
-        .onAppear { startLocationGateIfNeeded(); refreshProximityLatch(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
+        .onAppear { locationStore.requestWhenInUseIfNeeded(); startLocationGateIfNeeded(); refreshProximityLatch(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in refreshProximityLatch() }
         .onDisappear { headingProvider.stopLocating() }
     }
 
@@ -15855,6 +16374,10 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "all") && NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "all"), "NativeDiscoverParitySelfTests: All access must include both free and paid recommendations.")
         precondition(NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "free") && !NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "free"), "NativeDiscoverParitySelfTests: Free filter must exclude paid recommendations.")
         precondition(!NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "paid") && NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "paid"), "NativeDiscoverParitySelfTests: Paid filter must exclude free recommendations.")
+        let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
+        precondition(foodSearch.first?.title == "Broni Home Taste", "NativeDiscoverParitySelfTests: premium relevant dining vendor should lead food search.")
+        let parkingSearch = NativeSearchRouter.suggestions(query: "parking", snapshot: .fallback, limit: 3)
+        if case .map(_, "Smart Parking") = parkingSearch.first?.route {} else { preconditionFailure("NativeDiscoverParitySelfTests: parking intent must route to Map before unrelated premium vendors.") }
         precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.title) == ["Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: canonical service labels drifted.")
         precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.categoryLabel) == ["Dining", "Event Pass"], "NativeDiscoverParitySelfTests: special service cards should use user-facing labels, not backend Services wording.")
         precondition(!NativeTabContentSnapshot.canonicalServiceCards.map(\.badgeText).contains("PAID CHECKOUT"), "NativeDiscoverParitySelfTests: paid-checkout backend copy must not show on Discover cards.")

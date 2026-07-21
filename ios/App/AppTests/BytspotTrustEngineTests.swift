@@ -239,6 +239,27 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.placesEnrichRoute, "/trpc/places.enrich")
         XCTAssertEqual(NativeLiveContentV2Contract.vendorsMatchRoute, "/trpc/vendors.match")
         XCTAssertEqual(NativeLiveContentV2Contract.venueIntelligenceRoute, "/trpc/venues.intelligence")
+        XCTAssertEqual(NativeLiveContentV2Contract.googleRoutesProxyStatus, "pending_backend_route")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingSearchRoute, "/trpc/parking.search")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingQuoteRoute, "/trpc/parking.quote")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingReserveRoute, "/trpc/parking.reserve")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingAvailabilityRoute, "/trpc/parking.availability")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingCancelRoute, "/trpc/parking.cancel")
+        XCTAssertEqual(NativeLiveContentV2Contract.menusListRoute, "/trpc/menus.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.menusGetRoute, "/trpc/menus.get")
+        XCTAssertEqual(NativeLiveContentV2Contract.ordersQuoteRoute, "/trpc/orders.quote")
+        XCTAssertEqual(NativeLiveContentV2Contract.ordersCreateRoute, "/trpc/orders.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.tablesSearchRoute, "/trpc/tables.search")
+        XCTAssertEqual(NativeLiveContentV2Contract.tablesReserveRoute, "/trpc/tables.reserve")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsCreateRoute, "/trpc/events.drafts.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsUpdateRoute, "/trpc/events.drafts.update")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsPublishRoute, "/trpc/events.publish")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPRespondRoute, "/trpc/events.rsvp.respond")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPListRoute, "/trpc/events.rsvp.list")
         XCTAssertEqual(NativeLiveContentV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
     }
 
@@ -325,6 +346,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(path.hasPrefix("/trpc/live.bestValue?input="))
     }
 
+    func testPlacesNearbyUsesTRPCQueryTransport() throws {
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesNearbySearchRoute, input: ["lat": 33.7866, "lng": -84.3833, "type": "parking", "maxResults": 8])
+        let request = try BytspotAPIClient().makeRequest(path: path)
+        let components = URLComponents(string: path)
+        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
+        let data = try XCTUnwrap(rawInput.data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertNil(request.httpBody)
+        XCTAssertTrue(path.hasPrefix("/trpc/places.nearbySearch?input="))
+        XCTAssertEqual(decoded["lat"] as? Double, 33.7866)
+        XCTAssertEqual(decoded["lng"] as? Double, -84.3833)
+        XCTAssertEqual(decoded["type"] as? String, "parking")
+        XCTAssertEqual(decoded["maxResults"] as? Int, 8)
+    }
+
+    func testPlacesTextSearchUsesTRPCQueryTransport() throws {
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": "coffee", "lat": 33.7866, "lng": -84.3833, "maxResults": 5])
+        let request = try BytspotAPIClient().makeRequest(path: path)
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertNil(request.httpBody)
+        XCTAssertTrue(path.hasPrefix("/trpc/places.textSearch?input="))
+    }
+
     func testBestValueQueryPathCarriesRawInputJSON() throws {
         let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
         let components = URLComponents(string: path)
@@ -337,6 +384,34 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(decoded["lng"] as? Double, -84.3)
         XCTAssertEqual(decoded["limit"] as? Int, 2)
         XCTAssertEqual(decoded["strict"] as? Bool, false)
+    }
+
+    func testBestValueDefaultInputUsesLocationCoordinate() {
+        let coordinate = NativeLocationCoordinate(latitude: 34.1, longitude: -84.2, isFallback: false)
+        let input = NativeTabContentStore.bestValueQueryInput(location: coordinate)
+
+        XCTAssertEqual(input["lat"] as? Double, 34.1)
+        XCTAssertEqual(input["lng"] as? Double, -84.2)
+        XCTAssertEqual(input["productType"] as? String, "any")
+        XCTAssertEqual(input["strict"] as? Bool, false)
+    }
+
+    func testNativeLocationCoordinateFormatsNearbyDistances() {
+        let here = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
+
+        XCTAssertEqual(here.displayName, "your location")
+        XCTAssertEqual(here.distanceLabel(toLatitude: 33.7878, longitude: -84.3832), "Here")
+        XCTAssertEqual(NativeLocationCoordinate.midtown.displayName, "Midtown Atlanta")
+        XCTAssertTrue(here.distanceLabel(toLatitude: 33.7900, longitude: -84.3890)?.hasSuffix("mi") == true)
+    }
+
+    func testLocalTravelEstimateDoesNotClaimGoogleRoutes() throws {
+        let api = NativeLiveDiscoveryAPI(client: BytspotAPIClient())
+        let estimate = try XCTUnwrap(api.localTravelEstimate(origin: .midtown, destinationLat: 33.7900, destinationLng: -84.3890))
+
+        XCTAssertEqual(estimate.provider, "local_distance")
+        XCTAssertTrue(estimate.distanceText.hasSuffix("mi"))
+        XCTAssertTrue(estimate.durationText.hasPrefix("~"))
     }
 
     func testPremiumFunctionsLockedWithoutEntitlement() {

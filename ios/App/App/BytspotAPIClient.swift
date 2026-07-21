@@ -46,6 +46,10 @@ struct BytspotAPIClient {
         return Self.unwrapTRPCData(try await json(path: path, method: method, body: body))
     }
 
+    func trpcQueryPayload(path: String, input: [String: Any]) async throws -> Any {
+        Self.unwrapTRPCData(try await json(path: Self.trpcQueryPath(path, input: input)))
+    }
+
     func trpcDecode<T: Decodable>(_ type: T.Type, path: String, method: String = "GET", input: [String: Any]? = nil) async throws -> T {
         let payload = try await trpcPayload(path: path, method: method, input: input)
         let data = try JSONSerialization.data(withJSONObject: payload)
@@ -60,6 +64,12 @@ struct BytspotAPIClient {
             return unwrapTRPCData(data)
         }
         return value
+    }
+
+    static func trpcQueryPath(_ path: String, input: [String: Any]) throws -> String {
+        let inputData = try JSONSerialization.data(withJSONObject: input)
+        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return "\(path)?input=\(encoded)"
     }
 }
 
@@ -556,10 +566,34 @@ enum NativeCheckInV2Contract {
 enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
     static let ticketmasterProvider = "ticketmaster"
+    static let placesTextSearchRoute = "/trpc/places.textSearch"
+    static let placesNearbySearchRoute = "/trpc/places.nearbySearch"
     static let placesEnrichRoute = "/trpc/places.enrich"
     static let vendorsMatchRoute = "/trpc/vendors.match"
     static let venueIntelligenceRoute = "/trpc/venues.intelligence"
+    static let googleRoutesProxyStatus = "pending_backend_route"
+    static let parkingSearchRoute = "/trpc/parking.search"
+    static let parkingQuoteRoute = "/trpc/parking.quote"
+    static let parkingReserveRoute = "/trpc/parking.reserve"
+    static let parkingAvailabilityRoute = "/trpc/parking.availability"
+    static let parkingCancelRoute = "/trpc/parking.cancel"
+    static let menusListRoute = "/trpc/menus.list"
+    static let menusGetRoute = "/trpc/menus.get"
+    static let ordersQuoteRoute = "/trpc/orders.quote"
+    static let ordersCreateRoute = "/trpc/orders.create"
+    static let tablesSearchRoute = "/trpc/tables.search"
+    static let tablesReserveRoute = "/trpc/tables.reserve"
+    static let socialGroupsListRoute = "/trpc/social.groups.list"
+    static let socialGroupsCreateRoute = "/trpc/social.groups.create"
+    static let socialInvitesCreateRoute = "/trpc/social.invites.create"
+    static let socialInvitesListRoute = "/trpc/social.invites.list"
+    static let eventsDraftsCreateRoute = "/trpc/events.drafts.create"
+    static let eventsDraftsUpdateRoute = "/trpc/events.drafts.update"
+    static let eventsPublishRoute = "/trpc/events.publish"
+    static let eventsRSVPRespondRoute = "/trpc/events.rsvp.respond"
+    static let eventsRSVPListRoute = "/trpc/events.rsvp.list"
     static let groupJoinRoute = "/trpc/groupEvents.join"
+    static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
 struct NativeCheckInCreateResponse: Codable, Equatable {
@@ -638,6 +672,13 @@ enum NativeAuthRouteContract {
 
 struct NativeAuthDataAPI {
     var client: BytspotAPIClient
+
+    func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> NativeAuthResponse {
+        var input: [String: Any] = ["identityToken": identityToken, "ref": "native_ios"]
+        if let email, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["email"] = email.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["name"] = name.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.appleSignIn", method: "POST", input: input)
+    }
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
         try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.signup", method: "POST", input: Self.signupInput(email: email, password: password, name: name, ref: ref))
@@ -996,6 +1037,41 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let membershipRequired: Bool
 }
 
+struct NativeLocationCoordinate: Equatable, Sendable {
+    let latitude: Double
+    let longitude: Double
+    let isFallback: Bool
+
+    static let midtown = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: true)
+
+    var displayName: String { isFallback ? "Midtown Atlanta" : "your location" }
+    var shortLabel: String { isFallback ? "Midtown" : "Near you" }
+
+    func apiPoint() -> [String: Any] { ["lat": latitude, "lng": longitude] }
+
+    func distanceLabel(toLatitude targetLat: Double?, longitude targetLng: Double?) -> String? {
+        guard let miles = distanceMiles(toLatitude: targetLat, longitude: targetLng) else { return nil }
+        if miles < 0.12 { return "Here" }
+        if miles < 10 { return String(format: "%.1f mi", miles) }
+        return String(format: "%.0f mi", miles)
+    }
+
+    func distanceMiles(toLatitude targetLat: Double?, longitude targetLng: Double?) -> Double? {
+        guard let targetLat, let targetLng else { return nil }
+        return Self.haversineMiles(fromLat: latitude, lng: longitude, toLat: targetLat, lng: targetLng)
+    }
+
+    private static func haversineMiles(fromLat: Double, lng fromLng: Double, toLat: Double, lng toLng: Double) -> Double {
+        let radiusMiles = 3958.7613
+        let lat1 = fromLat * .pi / 180
+        let lat2 = toLat * .pi / 180
+        let dLat = (toLat - fromLat) * .pi / 180
+        let dLng = (toLng - fromLng) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2)
+        return radiusMiles * 2 * atan2(sqrt(a), sqrt(1 - a))
+    }
+}
+
 struct NativeLiveValueOption: Identifiable, Equatable {
     let id: String
     let productType: String
@@ -1010,6 +1086,161 @@ struct NativeLiveValueOption: Identifiable, Equatable {
     let valueScore: Int
     let eligible: Bool
     let explanation: [String]
+}
+
+struct NativeWeatherSnapshot: Equatable {
+    enum Source: String { case live, cached, fallback }
+    let temperatureF: Int
+    let feelsLikeF: Int
+    let humidity: Int
+    let windMph: Int
+    let precipitationIn: Double
+    let weatherCode: Int
+    let isDay: Bool
+    let updatedAt: Date
+    let source: Source
+
+    static let fallback = NativeWeatherSnapshot(temperatureF: 72, feelsLikeF: 72, humidity: 58, windMph: 6, precipitationIn: 0, weatherCode: 1, isDay: true, updatedAt: Date(timeIntervalSince1970: 0), source: .fallback)
+
+    var conditionLabel: String {
+        if weatherCode == 0 { return "Clear" }
+        if [1, 2].contains(weatherCode) { return "Partly cloudy" }
+        if weatherCode == 3 { return "Cloudy" }
+        if [45, 48].contains(weatherCode) { return "Foggy" }
+        if (51...67).contains(weatherCode) || (80...82).contains(weatherCode) { return "Rain nearby" }
+        if (71...77).contains(weatherCode) || (85...86).contains(weatherCode) { return "Snowy" }
+        if weatherCode >= 95 { return "Storm watch" }
+        return "Updated"
+    }
+
+    var emoji: String {
+        if weatherCode >= 95 { return "⛈️" }
+        if (51...67).contains(weatherCode) || weatherCode >= 80 { return "🌧️" }
+        if (45...48).contains(weatherCode) { return "🌫️" }
+        if weatherCode >= 3 { return "☁️" }
+        return isDay ? "☀️" : "🌙"
+    }
+
+    var parkingTip: String {
+        let wet = precipitationIn > 0 || weatherCode >= 51
+        if weatherCode >= 95 { return "Storms possible — prioritize valet or covered parking." }
+        if wet { return "Rain in the mix — look for covered parking and shorter walks." }
+        if temperatureF >= 88 { return "Hot out — choose shaded parking and quick indoor stops." }
+        if temperatureF <= 42 { return "Cold conditions — keep walks short and routes direct." }
+        if windMph >= 18 { return "Windy right now — secure light gear before you park." }
+        return "Good conditions for parking, walking, and exploring nearby."
+    }
+}
+
+struct NativePlaceSearchResult: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let address: String
+    let category: String
+    let latitude: Double?
+    let longitude: Double?
+    let rating: Double?
+    let photoUrl: URL?
+    let provider: String
+}
+
+struct NativeNavigationEstimate: Equatable {
+    let distanceText: String
+    let durationText: String
+    let provider: String
+}
+
+struct NativeLiveDiscoveryAPI {
+    let client: BytspotAPIClient
+    let urlSession: URLSession = .shared
+
+    func weather(lat: Double = 33.7866, lng: Double = -84.3833) async throws -> NativeWeatherSnapshot {
+        var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        components.queryItems = [
+            URLQueryItem(name: "latitude", value: String(lat)),
+            URLQueryItem(name: "longitude", value: String(lng)),
+            URLQueryItem(name: "current", value: "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day"),
+            URLQueryItem(name: "temperature_unit", value: "fahrenheit"),
+            URLQueryItem(name: "wind_speed_unit", value: "mph"),
+            URLQueryItem(name: "precipitation_unit", value: "inch"),
+            URLQueryItem(name: "timezone", value: "auto")
+        ]
+        guard let url = components.url else { throw BytspotAPIClient.APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any], let current = root["current"] as? [String: Any] else { throw BytspotAPIClient.APIError.invalidResponse }
+        return NativeWeatherSnapshot(
+            temperatureF: Int((Self.double(current["temperature_2m"]) ?? 72).rounded()),
+            feelsLikeF: Int((Self.double(current["apparent_temperature"]) ?? Self.double(current["temperature_2m"]) ?? 72).rounded()),
+            humidity: Int((Self.double(current["relative_humidity_2m"]) ?? 0).rounded()),
+            windMph: Int((Self.double(current["wind_speed_10m"]) ?? 0).rounded()),
+            precipitationIn: Self.double(current["precipitation"]) ?? 0,
+            weatherCode: Int((Self.double(current["weather_code"]) ?? 1).rounded()),
+            isDay: (Self.double(current["is_day"]) ?? 1) != 0,
+            updatedAt: Date(),
+            source: .live
+        )
+    }
+
+    func placesTextSearch(query: String, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": lat, "lng": lng, "maxResults": maxResults])
+        return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+    }
+
+    func placesNearbySearch(type: String?, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
+        var input: [String: Any] = ["lat": lat, "lng": lng, "maxResults": maxResults]
+        if let type, !type.isEmpty { input["type"] = type }
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, input: input)
+        return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+    }
+
+    func localTravelEstimate(origin: NativeLocationCoordinate, destinationLat: Double?, destinationLng: Double?) -> NativeNavigationEstimate? {
+        guard let distance = origin.distanceMiles(toLatitude: destinationLat, longitude: destinationLng) else { return nil }
+        let minutes = max(2, Int((distance / 18.0 * 60.0).rounded()))
+        let distanceText = distance < 10 ? String(format: "%.1f mi", distance) : String(format: "%.0f mi", distance)
+        return NativeNavigationEstimate(distanceText: distanceText, durationText: "~\(minutes) min", provider: "local_distance")
+    }
+
+    private static func placeRows(from value: Any) -> [Any] {
+        if let array = value as? [Any] { return array }
+        guard let dict = value as? [String: Any] else { return [] }
+        if let places = dict["places"] as? [Any] { return places }
+        if let results = dict["results"] as? [Any] { return results }
+        return []
+    }
+
+    private static func placeResult(_ pair: EnumeratedSequence<[Any]>.Element) -> NativePlaceSearchResult? {
+        let (index, value) = pair
+        guard let item = value as? [String: Any] else { return nil }
+        let location = item["location"] as? [String: Any]
+        let geometry = item["geometry"] as? [String: Any]
+        let geoLocation = geometry?["location"] as? [String: Any]
+        return NativePlaceSearchResult(
+            id: string(item["id"]) ?? string(item["placeId"]) ?? string(item["place_id"]) ?? "place-\(index)",
+            name: string(item["name"]) ?? string(item["title"]) ?? "Nearby place",
+            address: string(item["address"]) ?? string(item["formattedAddress"]) ?? string(item["formatted_address"]) ?? "Atlanta area",
+            category: string(item["category"]) ?? string(item["type"]) ?? "venue",
+            latitude: double(item["lat"]) ?? double(item["latitude"]) ?? double(location?["lat"]) ?? double(geoLocation?["lat"]),
+            longitude: double(item["lng"]) ?? double(item["longitude"]) ?? double(location?["lng"]) ?? double(geoLocation?["lng"]),
+            rating: double(item["rating"]),
+            photoUrl: string(item["photoUrl"]).flatMap(URL.init(string:)) ?? string(item["imageUrl"]).flatMap(URL.init(string:)),
+            provider: string(item["provider"]) ?? "google_places"
+        )
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        guard let value = value as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func double(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? String { return Double(value) }
+        return nil
+    }
 }
 
 struct NativeEventSummary: Identifiable, Equatable {
@@ -1046,7 +1277,7 @@ final class NativeTabContentStore: ObservableObject {
     @Published private(set) var snapshot = NativeTabContentSnapshot.fallback
     @Published private(set) var isRefreshing = false
 
-    func refresh(sessionStore: BytspotSessionStore) async {
+    func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -1054,38 +1285,35 @@ final class NativeTabContentStore: ObservableObject {
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
             if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
-                let valueOptions = (try? await fetchBestValue(client: client)) ?? []
-                snapshot = Self.enrichedSnapshot(bootstrapSnapshot, valueOptions: valueOptions)
+                let valueOptions = (try? await fetchBestValue(client: client, location: location)) ?? []
+                snapshot = Self.enrichedSnapshot(Self.locationAwareSnapshot(bootstrapSnapshot, location: location), valueOptions: valueOptions)
                 return
             }
 
             async let venues = fetchVenues(client: client)
             async let events = fetchEvents(client: client)
             async let vendorServices = fetchVendorServices(client: client)
-            async let bestValue = fetchBestValue(client: client)
-            let liveVenues = try await venues
+            async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
+            async let bestValue = fetchBestValue(client: client, location: location)
+            let liveVenues = Self.locationAwareVenues(try await venues, location: location)
             let liveServices = (try? await vendorServices) ?? []
+            let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? NativeTabContentSnapshot.fallback.events
             let valueOptions = (try? await bestValue) ?? []
-            let cards = Self.mergeBestValueCards(valueOptions, into: Self.discoverCards(from: liveVenues, services: liveServices))
+            let baseCards = Self.mergePlaceCards(livePlaceCards, into: Self.discoverCards(from: liveVenues, services: liveServices))
+            let cards = Self.mergeBestValueCards(valueOptions, into: baseCards)
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
                 discoverCards: cards,
                 events: liveEvents,
-                source: liveVenues.isEmpty && liveServices.isEmpty && valueOptions.isEmpty ? .fallback : valueOptions.isEmpty ? .live : .mixed,
+                source: liveVenues.isEmpty && liveServices.isEmpty && livePlaceCards.isEmpty && valueOptions.isEmpty ? .fallback : valueOptions.isEmpty ? .live : .mixed,
                 lastUpdated: Date(),
                 errorMessage: nil,
                 bestValueOptions: valueOptions
             )
         } catch {
-            snapshot = NativeTabContentSnapshot(
-                venues: NativeTabContentSnapshot.fallback.venues,
-                discoverCards: NativeTabContentSnapshot.fallback.discoverCards,
-                events: NativeTabContentSnapshot.fallback.events,
-                source: .fallback,
-                lastUpdated: Date(),
-                errorMessage: "Live tab data unavailable; using curated picks."
-            )
+            let fallback = Self.locationAwareSnapshot(.fallback, location: location)
+            snapshot = NativeTabContentSnapshot(venues: fallback.venues, discoverCards: fallback.discoverCards, events: fallback.events, source: .fallback, lastUpdated: Date(), errorMessage: "Live tab data unavailable; using curated picks.")
         }
     }
 
@@ -1135,20 +1363,32 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
-        let payload = try await client.json(path: NativeLiveContentV2Contract.eventsListRoute)
+        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.eventsListRoute, method: "POST", input: ["city": "Atlanta", "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": 8])
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
         return rows.enumerated().compactMap(Self.event(from:))
     }
 
-    private func fetchBestValue(client: BytspotAPIClient) async throws -> [NativeLiveValueOption] {
-        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: Self.bestValueQueryPath()))
+    private func fetchPlaceDiscoveryCards(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
+        let api = NativeLiveDiscoveryAPI(client: client)
+        let places = try await api.placesNearbySearch(type: nil, lat: location.latitude, lng: location.longitude, maxResults: 8)
+        var cards: [NativeDiscoverSummary] = []
+        for pair in places.enumerated() {
+            let place = pair.element
+            let eta = pair.offset < 3 ? api.localTravelEstimate(origin: location, destinationLat: place.latitude, destinationLng: place.longitude) : nil
+            cards.append(Self.discoverCard(fromPlace: pair, location: location, eta: eta))
+        }
+        return cards
+    }
+
+    private func fetchBestValue(client: BytspotAPIClient, location: NativeLocationCoordinate = .midtown) async throws -> [NativeLiveValueOption] {
+        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: Self.bestValueQueryPath(input: Self.bestValueQueryInput(location: location))))
         let root = payload as? [String: Any]
         let rows = (root?["options"] as? [Any]) ?? Self.findArray(named: "options", in: payload) ?? []
         return rows.compactMap(Self.liveValueOption(from:))
     }
 
-    nonisolated static func bestValueQueryInput() -> [String: Any] {
-        ["productType": "any", "lat": 33.7866, "lng": -84.3833, "durationHours": 2, "limit": 4, "strict": false]
+    nonisolated static func bestValueQueryInput(location: NativeLocationCoordinate = .midtown) -> [String: Any] {
+        ["productType": "any", "lat": location.latitude, "lng": location.longitude, "durationHours": 2, "limit": 4, "strict": false]
     }
 
     nonisolated static func bestValueQueryPath(input: [String: Any] = bestValueQueryInput()) throws -> String {
@@ -1201,6 +1441,59 @@ final class NativeTabContentStore: ObservableObject {
             merged.insert(card, at: 0)
         }
         return merged
+    }
+
+    private static func mergePlaceCards(_ places: [NativeDiscoverSummary], into cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
+        var merged = cards
+        for card in places where !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) {
+            merged.append(card)
+        }
+        return merged
+    }
+
+    private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
+        NativeTabContentSnapshot(venues: locationAwareVenues(snapshot.venues, location: location), discoverCards: locationAwareCards(snapshot.discoverCards, location: location), events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions)
+    }
+
+    private static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
+        venues.map { venue in
+            let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
+            return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl)
+        }
+    }
+
+    private static func locationAwareCards(_ cards: [NativeDiscoverSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
+        cards.map { card in
+            guard let venue = NativeTabContentSnapshot.fallbackVenues.first(where: { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }), let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+        }
+    }
+
+    private static func discoverCard(fromPlace pair: EnumeratedSequence<[NativePlaceSearchResult]>.Element, location: NativeLocationCoordinate, eta: NativeNavigationEstimate?) -> NativeDiscoverSummary {
+        let (index, place) = pair
+        let type = discoverType(forPlaceCategory: place.category)
+        let distance = location.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
+        let etaLine = eta.map { " · \($0.durationText) approx" } ?? ""
+        return NativeDiscoverSummary(
+            id: "place-\(place.id)",
+            type: type,
+            title: place.name,
+            subtitle: place.address,
+            distance: distance,
+            rating: place.rating.map { String(format: "%.1f", $0) } ?? "4.6",
+            icon: icon(for: type),
+            verified: false,
+            entryType: "free",
+            cta: type == "parking" ? "Route" : "Open details",
+            imageUrl: place.photoUrl,
+            categoryLabel: label(for: type),
+            badgeText: "GOOGLE PLACES",
+            metadataLine: "Live place · \(place.provider.replacingOccurrences(of: "_", with: " ").capitalized)\(etaLine)",
+            features: Array([label(for: type), distance, index < 3 ? "Nearby" : "Explore"].prefix(3)),
+            vibeScore: max(4, min(8, Int((place.rating ?? 4.3).rounded() + 2))),
+            availability: "Live place",
+            membershipRequired: false
+        )
     }
 
     private static func bestValueCard(from option: NativeLiveValueOption) -> NativeDiscoverSummary {
@@ -1327,6 +1620,18 @@ final class NativeTabContentStore: ObservableObject {
         case "event_pass": return "entertainment"
         default: return "service"
         }
+    }
+
+    private static func discoverType(forPlaceCategory category: String) -> String {
+        let normalized = category.lowercased()
+        if normalized.contains("restaurant") || normalized.contains("food") || normalized.contains("dining") { return "dining" }
+        if normalized.contains("coffee") || normalized.contains("cafe") { return "coffee" }
+        if normalized.contains("bar") || normalized.contains("club") || normalized.contains("night") { return "nightlife" }
+        if normalized.contains("parking") || normalized.contains("garage") { return "parking" }
+        if normalized.contains("shopping") || normalized.contains("store") || normalized.contains("mall") { return "shopping" }
+        if normalized.contains("event") || normalized.contains("stadium") || normalized.contains("theater") { return "entertainment" }
+        if normalized.contains("gym") || normalized.contains("fitness") { return "fitness" }
+        return "venue"
     }
 
     private static func cta(forProductType productType: String) -> String {

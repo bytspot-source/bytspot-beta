@@ -1,4 +1,6 @@
 import Foundation
+import AuthenticationServices
+import UIKit
 
 enum NativeAuthProvider: String, CaseIterable, Identifiable {
     case apple
@@ -149,6 +151,65 @@ private struct LegacyFallbackGoogleAuthAdapter: GoogleAuthAdapter {
     }
 }
 
+@MainActor
+private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private var continuation: CheckedContinuation<NativeAuthAdapterResult, Error>?
+
+    func signIn() async throws -> NativeAuthAdapterResult {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8) else {
+            finish(.failure(NativeAuthAdapterError.requiresLegacyFallback(provider: .apple)))
+            return
+        }
+        let displayName = [credential.fullName?.givenName, credential.fullName?.familyName]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                let api = NativeAuthDataAPI(client: BytspotAPIClient())
+                let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
+                guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.requiresLegacyFallback(provider: .apple) }
+                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
+            } catch {
+                finish(.failure(error))
+            }
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        finish(.failure(error))
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = (scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene) ?? scenes.first as? UIWindowScene
+        return windowScene?.keyWindow ?? windowScene?.windows.first ?? ASPresentationAnchor()
+    }
+
+    private func finish(_ result: Result<NativeAuthAdapterResult, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        switch result {
+        case .success(let value): continuation.resume(returning: value)
+        case .failure(let error): continuation.resume(throwing: error)
+        }
+    }
+}
+
 #if DEBUG
 private struct DebugMockAppleAuthAdapter: AppleAuthAdapter {
     let mode: String
@@ -179,7 +240,7 @@ private enum NativeAuthAdapterFactory {
             return DebugMockAppleAuthAdapter(mode: mode)
         }
         #endif
-        return LegacyFallbackAppleAuthAdapter()
+        return NativeAppleSignInAdapter()
     }
 
     @MainActor

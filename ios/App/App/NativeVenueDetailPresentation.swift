@@ -40,6 +40,7 @@ enum NativeVenueDetailPresentation {
     }
 
     static func actionTitle(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
+        if action.id == "call", hasSafeWebsiteURL(venue) { return "Website" }
         if isCoffeeVenue(venue) || isDiningVenue(venue) || isBoutiqueApartmentVenue(venue) {
             if action.id == "call" { return "Contact" }
             if action.id == "navigate" { return "Directions" }
@@ -61,6 +62,7 @@ enum NativeVenueDetailPresentation {
         if action.id == "bookRide", isMobilityVenue(venue) {
             return venue.name.localizedCaseInsensitiveContains("group") ? "bus.fill" : "car.side.fill"
         }
+        if action.id == "call", hasSafeWebsiteURL(venue) { return "safari.fill" }
         guard action.id == "getTickets" else { return action.systemImage }
         if isCoffeeVenue(venue) { return "figure.walk.circle.fill" }
         if isBoutiqueApartmentVenue(venue) { return "house.fill" }
@@ -71,7 +73,9 @@ enum NativeVenueDetailPresentation {
     }
 
     static func headerBadgeTitle(for venue: NativeVenueSummary) -> String? {
-        guard let patchId = venue.verifiedPatchId?.trimmingCharacters(in: .whitespacesAndNewlines), !patchId.isEmpty else { return nil }
+        guard let patchId = venue.verifiedPatchId?.trimmingCharacters(in: .whitespacesAndNewlines), !patchId.isEmpty else {
+            return venue.sourceLabel?.uppercased()
+        }
         if patchId == "DISCOVER-VERIFIED" {
             if isEventOrPassVenue(venue) { return "EVENT PASS" }
             if isBoutiqueApartmentVenue(venue) { return "BOUTIQUE STAY" }
@@ -82,6 +86,11 @@ enum NativeVenueDetailPresentation {
             return "VERIFIED"
         }
         return "VERIFIED PATCH"
+    }
+
+    private static func hasSafeWebsiteURL(_ venue: NativeVenueSummary) -> Bool {
+        guard let scheme = venue.websiteUrl?.scheme?.lowercased() else { return false }
+        return ["http", "https"].contains(scheme)
     }
 
     static func detailSection(for venue: NativeVenueSummary) -> NativeVenueDetailSection? {

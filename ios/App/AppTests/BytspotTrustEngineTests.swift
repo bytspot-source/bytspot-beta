@@ -277,6 +277,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")), "VERIFIED PATCH")
     }
 
+    func testVenueDetailUsesAdapterSourceAndWebsiteForLivePlaces() throws {
+        let callAction = try XCTUnwrap(NativeVenueDetailContract.actions.first { $0.id == "call" })
+        let venue = NativeVenueSummary(id: "place-cafe", name: "Adapter Cafe", category: "coffee_shop", address: "123 Peachtree", distance: "0.4 mi", rating: 4.7, latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", ratingCount: 128, isOpen: true, websiteUrl: URL(string: "https://example.com"), etaText: "~4 min approx")
+
+        XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue), "GOOGLE PLACES")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: callAction, venue: venue), "Website")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: callAction, venue: venue), "safari.fill")
+
+        let unsafeVenue = NativeVenueSummary(id: "place-unsafe", name: "Unsafe Cafe", category: "coffee_shop", address: "123 Peachtree", distance: "0.4 mi", rating: 4.7, latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", websiteUrl: URL(string: "javascript:alert(1)"))
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: callAction, venue: unsafeVenue), "Contact")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: callAction, venue: unsafeVenue), "phone.fill")
+    }
+
     func testVenueDetailCategorySectionsArePurposeBuilt() {
         let broni = NativeVenueDetailPresentation.detailSection(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"))
         XCTAssertEqual(broni?.title, "Included")
@@ -380,6 +393,53 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(decoded["lng"] as? Double, -84.3833)
         XCTAssertEqual(decoded["maxResults"] as? Int, 5)
         XCTAssertFalse(path.contains(" & "))
+    }
+
+    func testPlacesAdapterMapsRichBackendFieldsWithoutVendorSDK() throws {
+        let row: [String: Any] = [
+            "placeId": "google-place-1",
+            "displayName": ["text": "Adapter Coffee"],
+            "formattedAddress": "123 Peachtree St NE",
+            "primaryType": "coffee_shop",
+            "types": ["cafe", "food"],
+            "location": ["latitude": 33.7901, "longitude": -84.3891],
+            "rating": 4.6,
+            "ratingCount": 321,
+            "currentOpeningHours": ["openNow": true],
+            "websiteUri": "https://adapter.example/coffee",
+            "priceLevel": "PRICE_LEVEL_MODERATE",
+            "photoUrls": ["https://images.example/one.jpg", "https://images.example/two.jpg"],
+            "provider": "google_places"
+        ]
+        let place = try XCTUnwrap(NativeLiveDiscoveryAPI.placeResult(from: row))
+
+        XCTAssertEqual(place.id, "google-place-1")
+        XCTAssertEqual(place.name, "Adapter Coffee")
+        XCTAssertEqual(place.category, "coffee_shop")
+        XCTAssertEqual(place.latitude, 33.7901)
+        XCTAssertEqual(place.longitude, -84.3891)
+        XCTAssertEqual(place.ratingCount, 321)
+        XCTAssertEqual(place.isOpen, true)
+        XCTAssertEqual(place.websiteUrl?.host, "adapter.example")
+        XCTAssertEqual(place.photoUrls.count, 2)
+        XCTAssertEqual(place.sourceLabel, "Google Places")
+
+        var unsafeRow = row
+        unsafeRow["websiteUri"] = "javascript:alert(1)"
+        XCTAssertNil(NativeLiveDiscoveryAPI.placeResult(from: unsafeRow)?.websiteUrl)
+    }
+
+    func testHomeSearchLivePlaceDetailRoutePreservesAdapterCoordinates() throws {
+        let card = NativeDiscoverSummary(id: "place-google-place-1", type: "coffee", title: "Adapter Coffee", subtitle: "123 Peachtree St NE", distance: "0.7 mi", rating: "4.6", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "GOOGLE PLACES", metadataLine: "Live place · Google Places · ~5 min approx", features: ["Coffee", "0.7 mi", "321 ratings"], vibeScore: 7, availability: "Open now", membershipRequired: false, placeId: "google-place-1", sourceLabel: "Google Places", ratingCount: 321, isOpen: true, websiteUrl: URL(string: "https://adapter.example/coffee"), photoUrls: [], etaText: "~5 min approx", latitude: 33.7901, longitude: -84.3891)
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [card], events: [], source: .live, lastUpdated: nil, errorMessage: nil)
+        let suggestion = try XCTUnwrap(NativeSearchRouter.suggestions(query: "Adapter Coffee", snapshot: snapshot, limit: 1).first)
+
+        XCTAssertEqual(suggestion.actionLabel, "Details")
+        guard case .detail(let venue) = suggestion.route else { return XCTFail("Live place search result should open native detail.") }
+        XCTAssertEqual(venue.latitude, 33.7901)
+        XCTAssertEqual(venue.longitude, -84.3891)
+        XCTAssertEqual(venue.placeId, "google-place-1")
+        XCTAssertEqual(venue.etaText, "~5 min approx")
     }
 
     func testBestValueQueryPathCarriesRawInputJSON() throws {

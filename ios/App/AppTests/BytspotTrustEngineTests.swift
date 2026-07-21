@@ -239,6 +239,29 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.placesEnrichRoute, "/trpc/places.enrich")
         XCTAssertEqual(NativeLiveContentV2Contract.vendorsMatchRoute, "/trpc/vendors.match")
         XCTAssertEqual(NativeLiveContentV2Contract.venueIntelligenceRoute, "/trpc/venues.intelligence")
+        XCTAssertEqual(NativeLiveContentV2Contract.navigationRouteRoute, "/trpc/navigation.route")
+        XCTAssertEqual(NativeLiveContentV2Contract.navigationEtaRoute, "/trpc/navigation.eta")
+        XCTAssertEqual(NativeLiveContentV2Contract.navigationGeocodeRoute, "/trpc/navigation.geocode")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingSearchRoute, "/trpc/parking.search")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingQuoteRoute, "/trpc/parking.quote")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingReserveRoute, "/trpc/parking.reserve")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingAvailabilityRoute, "/trpc/parking.availability")
+        XCTAssertEqual(NativeLiveContentV2Contract.parkingCancelRoute, "/trpc/parking.cancel")
+        XCTAssertEqual(NativeLiveContentV2Contract.menusListRoute, "/trpc/menus.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.menusGetRoute, "/trpc/menus.get")
+        XCTAssertEqual(NativeLiveContentV2Contract.ordersQuoteRoute, "/trpc/orders.quote")
+        XCTAssertEqual(NativeLiveContentV2Contract.ordersCreateRoute, "/trpc/orders.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.tablesSearchRoute, "/trpc/tables.search")
+        XCTAssertEqual(NativeLiveContentV2Contract.tablesReserveRoute, "/trpc/tables.reserve")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsCreateRoute, "/trpc/events.drafts.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsUpdateRoute, "/trpc/events.drafts.update")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsPublishRoute, "/trpc/events.publish")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPRespondRoute, "/trpc/events.rsvp.respond")
+        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPListRoute, "/trpc/events.rsvp.list")
         XCTAssertEqual(NativeLiveContentV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
     }
 
@@ -337,6 +360,25 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(decoded["lng"] as? Double, -84.3)
         XCTAssertEqual(decoded["limit"] as? Int, 2)
         XCTAssertEqual(decoded["strict"] as? Bool, false)
+    }
+
+    func testBestValueDefaultInputUsesLocationCoordinate() {
+        let coordinate = NativeLocationCoordinate(latitude: 34.1, longitude: -84.2, isFallback: false)
+        let input = NativeTabContentStore.bestValueQueryInput(location: coordinate)
+
+        XCTAssertEqual(input["lat"] as? Double, 34.1)
+        XCTAssertEqual(input["lng"] as? Double, -84.2)
+        XCTAssertEqual(input["productType"] as? String, "any")
+        XCTAssertEqual(input["strict"] as? Bool, false)
+    }
+
+    func testNativeLocationCoordinateFormatsNearbyDistances() {
+        let here = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
+
+        XCTAssertEqual(here.displayName, "your location")
+        XCTAssertEqual(here.distanceLabel(toLatitude: 33.7878, longitude: -84.3832), "Here")
+        XCTAssertEqual(NativeLocationCoordinate.midtown.displayName, "Midtown Atlanta")
+        XCTAssertTrue(here.distanceLabel(toLatitude: 33.7900, longitude: -84.3890)?.hasSuffix("mi") == true)
     }
 
     func testPremiumFunctionsLockedWithoutEntitlement() {
@@ -667,6 +709,56 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertEqual(record.timing, .today)
         XCTAssertEqual(record.inviteNote, "Meet at 7 — offer claim before ordering.")
         XCTAssertFalse(record.allowNearbyOffers)
+    }
+
+    func testPrimaryEventTemplatePreservesSocialCircleMetadataAndManualPayments() throws {
+        let payment = NativePrimaryEventManualPayment(method: "Venmo", label: "Venmo @ama", url: "https://venmo.example/ama", note: "Add your name")
+        let record = NativeGroupEventRecord.created(
+            type: "Listening Party",
+            title: "Primary Event Social Night",
+            timing: .thisWeek,
+            hostName: "Ama",
+            tier: .platinum,
+            privacyStatus: .publicDiscovery,
+            audienceCircle: "Creators",
+            fontStyle: "Serif Luxe",
+            coHosts: ["DJ Kojo", "Broni Home Taste"],
+            playlistURLString: "https://music.example/playlist",
+            ticketingLabel: "$20 standard ticket",
+            chipInLabel: "Pay what you can",
+            manualPayment: payment,
+            rsvpCutoff: "Friday · 6 PM",
+            customQuestions: ["Any allergies?"],
+            hideActivityTimestamps: true,
+            hideGuestList: true,
+            dressCode: "All black",
+            foodSituation: "Small bites",
+            parkingInstructions: "Use rear garage",
+            accommodation: "Nearby hotel block",
+            eventNotes: "Bring photo ID",
+            linkURLString: "https://example.com/event",
+            iconName: "music.note"
+        )
+
+        XCTAssertEqual(record.privacyStatus, .publicDiscovery)
+        XCTAssertEqual(record.audienceCircle, "Creators")
+        XCTAssertEqual(record.fontStyle, "Serif Luxe")
+        XCTAssertEqual(record.coHosts, ["DJ Kojo", "Broni Home Taste"])
+        XCTAssertEqual(record.manualPayment?.verificationStatus, "manual_unverified")
+        XCTAssertEqual(record.primaryEventMetadataPayload["parking"] as? String, "Use rear garage")
+
+        let invite = try XCTUnwrap(NativeGroupEventContract.groupInvite(from: NativeGroupEventContract.inviteURL(for: record)))
+        XCTAssertEqual(invite.privateAssociation, .joinedViaInvite)
+        XCTAssertEqual(invite.audienceCircle, "Creators")
+        XCTAssertEqual(invite.fontStyle, "Serif Luxe")
+        XCTAssertEqual(invite.coHosts, ["DJ Kojo", "Broni Home Taste"])
+        XCTAssertEqual(invite.manualPayment?.verificationStatus, "manual_unverified")
+        XCTAssertEqual(invite.customQuestions, ["Any allergies?"])
+        XCTAssertTrue(invite.hideGuestList)
+
+        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONEncoder().encode(record))
+        XCTAssertEqual(decoded.dressCode, "All black")
+        XCTAssertEqual(decoded.manualPayment?.label, "Venmo @ama")
     }
 
     func testHomepagePrivacyHidesDinnerAndFamilyWithoutPrivateAssociation() {

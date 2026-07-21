@@ -116,6 +116,7 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var membershipStore = NativeMembershipStore()
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
+    @StateObject private var locationStore = NativeLocationStore()
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
     @State private var didCompleteLaunchFlow = false
@@ -165,24 +166,29 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(membershipStore)
             .environmentObject(contactSyncStore)
             .environmentObject(appearanceRuntimeStore)
+            .environmentObject(locationStore)
             .onAppear {
                 NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
+                locationStore.startIfAuthorized()
             }
             .task {
-                await tabContentStore.refresh(sessionStore: sessionStore)
+                await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
                 await walletLedgerStore.refresh(sessionStore: sessionStore)
                 await membershipStore.refresh(sessionStore: sessionStore)
                 await contactSyncStore.refresh(sessionStore: sessionStore)
             }
             .onChange(of: sessionStore.token ?? "") { _ in
                 Task {
-                    await tabContentStore.refresh(sessionStore: sessionStore)
+                    await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
                     await walletLedgerStore.refresh(sessionStore: sessionStore)
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
                 }
+            }
+            .onChange(of: locationStore.lastLocation?.timestamp) { _ in
+                Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
             }
             .onChange(of: launchAtmosphere) { _ in
                 NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)

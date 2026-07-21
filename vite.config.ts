@@ -19,6 +19,49 @@
     },
   });
 
+  const manualChunkGroups: Record<string, string[]> = {
+    'framework-react': ['react', 'react-dom'],
+    'motion-kit': ['motion', 'motion/react'],
+    'ui-radix': [
+      '@radix-ui/react-accordion',
+      '@radix-ui/react-alert-dialog',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-checkbox',
+      '@radix-ui/react-collapsible',
+      '@radix-ui/react-context-menu',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-hover-card',
+      '@radix-ui/react-label',
+      '@radix-ui/react-menubar',
+      '@radix-ui/react-navigation-menu',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-progress',
+      '@radix-ui/react-radio-group',
+      '@radix-ui/react-scroll-area',
+      '@radix-ui/react-select',
+      '@radix-ui/react-separator',
+      '@radix-ui/react-slider',
+      '@radix-ui/react-slot',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-toggle',
+      '@radix-ui/react-toggle-group',
+      '@radix-ui/react-tooltip',
+    ],
+    'api-client': ['@trpc/client'],
+    'charts-kit': ['recharts', 'recharts@2.15.2'],
+    'maps-kit': ['@react-google-maps/api'],
+    'icon-kit': ['lucide-react', 'lucide-react@0.487.0'],
+  };
+
+  const manualChunkFor = (id: string) => {
+    for (const [chunkName, packages] of Object.entries(manualChunkGroups)) {
+      if (packages.some(pkg => id.includes(`/node_modules/${pkg}/`) || id.endsWith(`/node_modules/${pkg}`))) return chunkName;
+    }
+    return undefined;
+  };
+
   export default defineConfig({
     plugins: [react(), analyticsStubPlugin()],
     resolve: {
@@ -74,41 +117,7 @@
         // Keep them external in the web bundle so browser builds degrade gracefully.
         external: ['@capacitor/haptics', '@capacitor/share', '@capawesome/capacitor-badge'],
         output: {
-          manualChunks: {
-            'framework-react': ['react', 'react-dom'],
-            'motion-kit': ['motion', 'motion/react'],
-            'ui-radix': [
-              '@radix-ui/react-accordion',
-              '@radix-ui/react-alert-dialog',
-              '@radix-ui/react-avatar',
-              '@radix-ui/react-checkbox',
-              '@radix-ui/react-collapsible',
-              '@radix-ui/react-context-menu',
-              '@radix-ui/react-dialog',
-              '@radix-ui/react-dropdown-menu',
-              '@radix-ui/react-hover-card',
-              '@radix-ui/react-label',
-              '@radix-ui/react-menubar',
-              '@radix-ui/react-navigation-menu',
-              '@radix-ui/react-popover',
-              '@radix-ui/react-progress',
-              '@radix-ui/react-radio-group',
-              '@radix-ui/react-scroll-area',
-              '@radix-ui/react-select',
-              '@radix-ui/react-separator',
-              '@radix-ui/react-slider',
-              '@radix-ui/react-slot',
-              '@radix-ui/react-switch',
-              '@radix-ui/react-tabs',
-              '@radix-ui/react-toggle',
-              '@radix-ui/react-toggle-group',
-              '@radix-ui/react-tooltip',
-            ],
-            'api-client': ['@trpc/client'],
-            'charts-kit': ['recharts', 'recharts@2.15.2'],
-            'maps-kit': ['@react-google-maps/api'],
-            'icon-kit': ['lucide-react', 'lucide-react@0.487.0'],
-          },
+          manualChunks: manualChunkFor,
         },
       },
     },

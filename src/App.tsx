@@ -35,7 +35,6 @@ import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
 import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
-const launchPreviewStorageKey = ['bytspot', ['on', 'boarding'].join(''), 'preview'].join('_');
 
 function AppStoreUnavailable() {
   return null;
@@ -982,7 +981,7 @@ export default function App() {
   const activeCoords = userCoords ?? cityCoords ?? { lat: 33.7866, lng: -84.3833 };
   const onboardingPreview = useMemo(() => {
     try {
-      const raw = localStorage.getItem(launchPreviewStorageKey);
+      const raw = localStorage.getItem('bytspot_onboarding_preview');
       if (!raw) return null;
       const parsed = JSON.parse(raw) as { context?: string; userCity?: string; picks?: Array<{ id: number | string; name: string; address?: string; category?: string; label?: string; crowd?: { level?: number; label?: string } }>; answers?: Record<string, string>; savedAt?: string };
       return parsed?.picks?.length ? parsed : null;
@@ -1552,7 +1551,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ ...springConfig, delay: 0.03 }}
-                    data-testid="home-launch-picks-ready"
+                    data-testid="home-onboarding-picks-ready"
                   >
                     <div className="relative overflow-hidden rounded-[22px] border border-cyan-300/25 bg-[#101116]/90 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
                       <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-cyan-500/20 blur-3xl" />
@@ -1573,7 +1572,7 @@ export default function App() {
                         {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
                           const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
                           return (
-                            <button key={`launch-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
+                            <button key={`onboarding-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
                               <span className="text-xl">{['🥇', '🥈', '🥉'][index] ?? '📍'}</span>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-[15px] text-white" style={{ fontWeight: 750 }}>{pick.name}</p>
@@ -2712,7 +2711,7 @@ export default function App() {
             })();
             const persistOnboardingPreview = () => {
               if (!picks.length) return;
-              localStorage.setItem(launchPreviewStorageKey, JSON.stringify({
+              localStorage.setItem('bytspot_onboarding_preview', JSON.stringify({
                 savedAt: new Date().toISOString(),
                 userCity,
                 context: contextLine,

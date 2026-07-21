@@ -1613,7 +1613,6 @@ export default function App() {
                     shopping: '🛍️', fitness: '💪', entertainment: '🎭',
                   };
                   const icon = catEmoji[card.type] || '📍';
-                  const imgUrl = card.image || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
                   return (
                     <motion.div
 	                      className="px-4 mb-3 pt-2"
@@ -1626,22 +1625,20 @@ export default function App() {
                         <div className="flex-1 h-px bg-white/10" />
                       </div>
                       <motion.button
-                        className="relative w-full rounded-2xl overflow-hidden text-left"
+                        className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#1C1C1E] via-[#221B34] to-[#102329] text-left"
 	                        style={{ height: 118 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => handleRecommendedHomeCardClick(card)}
                       >
-                        {/* Background image */}
-                        <img src={imgUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />
-                        {/* Gradient overlay */}
-                        <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
+                        <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-purple-500/20 blur-3xl" />
+                        <div className="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-cyan-500/15 blur-3xl" />
                         {/* AI Pick badge */}
                         <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
                           <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-                        <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+                        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10">
                           <div>
 	                            <div className="text-[16px] mb-0.5">{icon}</div>
                             <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{card.name}</h3>

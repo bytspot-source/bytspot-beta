@@ -5628,6 +5628,19 @@ enum NativeSearchRouter {
     }
 }
 
+enum NativeHomeAIPickRouting {
+    static func venue(for card: NativeDiscoverSummary, candidates: [NativeVenueSummary]) -> NativeVenueSummary {
+        if card.latitude == nil, card.longitude == nil,
+           let direct = candidates.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) {
+            return direct
+        }
+        let parsedRating = Double(card.rating)
+        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
+        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
+        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: card.latitude ?? 33.7866, longitude: card.longitude ?? -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
+    }
+}
+
 private struct NativeHomeDashboardView: View {
     enum ActionTarget: Equatable {
         case nativeTab(BytspotNativeTab)
@@ -6242,16 +6255,13 @@ private struct NativeHomeDashboardView: View {
 
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
-        if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        let parsedRating = Double(card.rating)
-        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
-        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
-        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl, placeId: card.placeId, sourceLabel: card.sourceLabel, ratingCount: card.ratingCount, isOpen: card.isOpen, websiteUrl: card.websiteUrl, priceLevel: card.priceLevel, photoUrls: card.photoUrls, etaText: card.etaText)
+        return NativeHomeAIPickRouting.venue(for: card, candidates: venues)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
-        mapHandoffDestination = venue.name
-        mapHandoffMode = venue.discoverType == "parking" ? "Smart Parking" : "Route"
+        mapHandoffDestination = ""
+        mapHandoffMode = ""
+        NativeMapFocusHandoff.store(venue: venue)
         openNativeTab(.map)
     }
 

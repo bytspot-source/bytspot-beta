@@ -442,6 +442,35 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(venue.etaText, "~5 min approx")
     }
 
+    func testHomeAIPickLivePlacePreservesAdapterCoordinates() {
+        let card = NativeDiscoverSummary(id: "place-google-place-1", type: "coffee", title: "Adapter Coffee", subtitle: "123 Peachtree St NE", distance: "0.7 mi", rating: "4.6", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "GOOGLE PLACES", metadataLine: "Live place · Google Places · ~5 min approx", features: ["Coffee", "0.7 mi", "321 ratings"], vibeScore: 7, availability: "Open now", membershipRequired: false, placeId: "google-place-1", sourceLabel: "Google Places", ratingCount: 321, isOpen: true, etaText: "~5 min approx", latitude: 33.7901, longitude: -84.3891)
+        let staleFallbackMatch = NativeVenueSummary(id: "place-google-place-1", name: "Adapter Coffee", category: "coffee", address: "Fallback Midtown", distance: "Nearby", rating: nil, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil)
+
+        let venue = NativeHomeAIPickRouting.venue(for: card, candidates: [staleFallbackMatch])
+
+        XCTAssertEqual(venue.latitude, 33.7901)
+        XCTAssertEqual(venue.longitude, -84.3891)
+        XCTAssertEqual(venue.placeId, "google-place-1")
+        XCTAssertEqual(venue.sourceLabel, "Google Places")
+        XCTAssertEqual(venue.etaText, "~5 min approx")
+    }
+
+    func testHomeAIPickLiveParkingUsesCoordinateFocusHandoff() {
+        let card = NativeDiscoverSummary(id: "place-google-parking-1", type: "parking", title: "Adapter Garage", subtitle: "1380 W Peachtree", distance: "0.4 mi", rating: "4.3", icon: "parkingsign.circle.fill", verified: false, entryType: "paid", cta: "Route", imageUrl: nil, categoryLabel: "Parking", badgeText: "GOOGLE PLACES", metadataLine: "$8/hr • live adapter", features: ["Parking", "0.4 mi"], vibeScore: 6, availability: "18 spaces", membershipRequired: false, placeId: "google-parking-1", sourceLabel: "Google Places", latitude: 33.7902, longitude: -84.3892)
+        NativeMapFocusHandoff.clear()
+        defer { NativeMapFocusHandoff.clear() }
+
+        let venue = NativeHomeAIPickRouting.venue(for: card, candidates: [])
+        NativeMapFocusHandoff.store(venue: venue)
+
+        XCTAssertEqual(venue.latitude, 33.7902)
+        XCTAssertEqual(venue.longitude, -84.3892)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.kindKey), "parking")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: NativeMapFocusHandoff.modeKey), "Smart Parking")
+        XCTAssertEqual(UserDefaults.standard.double(forKey: NativeMapFocusHandoff.latitudeKey), 33.7902)
+        XCTAssertEqual(UserDefaults.standard.double(forKey: NativeMapFocusHandoff.longitudeKey), -84.3892)
+    }
+
     func testNativeMapPinTreatsAdapterPlacesAsRouteDestinations() {
         let livePlace = NativeVenueSummary(id: "place-google-coffee", name: "Adapter Coffee", category: "coffee_shop", address: "123 Peachtree St NE", distance: "0.7 mi", rating: 4.6, latitude: 33.7901, longitude: -84.3891, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil, sourceLabel: "Google Places", ratingCount: 321, isOpen: true, etaText: "~5 min approx")
         let parking = NativeVenueSummary(id: "parking-live", name: "Live Parking", category: "parking", address: "1380 W Peachtree", distance: "0.4 mi", rating: nil, latitude: 33.7900, longitude: -84.3890, crowd: nil, parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)

@@ -167,7 +167,7 @@ export function AppStoreBanner() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Wordmark fontSize={52} />
           <div style={{ fontSize: 20, fontWeight: 500, color: BRAND.textSecondary, letterSpacing: '0.01em' }}>
-            AI-Powered Urban Mobility
+            Concierge-Backed Urban Mobility
           </div>
           <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
             {[

@@ -112,23 +112,23 @@ interface SensorData {
   latitude: number;
   longitude: number;
   accuracy: number; // meters
-  
+
   // WiFi
   wifiEnabled: boolean;
   wifiNetworks: WifiNetwork[];
   wifiAccuracy?: number;
-  
+
   // Bluetooth
   bleEnabled: boolean;
   bleBeacons: BleBeacon[];
   bleAccuracy?: number;
-  
+
   // IMU (motion sensors)
   imuEnabled: boolean;
   acceleration?: { x, y, z };
   rotation?: { alpha, beta, gamma };
   magnetometer?: { heading, accuracy };
-  
+
   // Fused results
   fusedAccuracy: number;
   confidenceLevel: 'low' | 'medium' | 'high' | 'very-high';

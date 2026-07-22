@@ -164,9 +164,9 @@ From `/styles/globals.css`:
 .custom-element {
   border-color: var(--brand-blue);
   background: linear-gradient(
-    135deg, 
-    var(--brand-blue) 0%, 
-    var(--brand-magenta) 50%, 
+    135deg,
+    var(--brand-blue) 0%,
+    var(--brand-magenta) 50%,
     var(--brand-orange) 100%
   );
 }
@@ -238,6 +238,6 @@ background: linear-gradient(135deg, #00BFFF 0%, #FF00FF 50%, #FF4500 100%);
 
 ---
 
-**Last Updated:** October 12, 2025  
-**Version:** 1.0.0  
+**Last Updated:** October 12, 2025
+**Version:** 1.0.0
 **Maintained by:** Bytspot Design Team

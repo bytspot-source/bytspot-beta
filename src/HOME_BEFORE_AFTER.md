@@ -134,8 +134,8 @@ User taps submit
 Navigate to results
 ```
 
-**Steps:** 4  
-**Time:** ~8 seconds  
+**Steps:** 4
+**Time:** ~8 seconds
 **Friction:** High (no guidance)
 
 ---
@@ -154,8 +154,8 @@ User taps suggestion
 Navigate to results
 ```
 
-**Steps:** 3  
-**Time:** ~2 seconds  
+**Steps:** 3
+**Time:** ~2 seconds
 **Friction:** Low (guided)
 
 **OR Alternative:**
@@ -170,8 +170,8 @@ Auto-filled & submitted
 Navigate to results
 ```
 
-**Steps:** 3  
-**Time:** ~3 seconds  
+**Steps:** 3
+**Time:** ~3 seconds
 **Friction:** Minimal (hands-free)
 
 ---
@@ -266,20 +266,20 @@ mass: 0.8
 ## 🎯 User Feedback (Mock)
 
 ### BEFORE:
-> "The search is okay but I never know what to search for."  
+> "The search is okay but I never know what to search for."
 > — User Testing, Oct 2024
 
-> "Looks nice but feels a bit generic."  
+> "Looks nice but feels a bit generic."
 > — Beta Tester #42
 
 ### AFTER:
-> "Love the suggestions! Makes finding parking so much faster."  
+> "Love the suggestions! Makes finding parking so much faster."
 > — User Testing, Oct 2025
 
-> "The greeting is a nice touch, feels personal."  
+> "The greeting is a nice touch, feels personal."
 > — Beta Tester #87
 
-> "Voice search with the animation is 🔥"  
+> "Voice search with the animation is 🔥"
 > — Beta Tester #103
 
 ---
@@ -398,8 +398,8 @@ A production-ready, premium home screen that rivals top-tier parking and mobilit
 
 ---
 
-**Status:** ✅ **PRODUCTION READY**  
-**Recommended:** Deploy immediately  
+**Status:** ✅ **PRODUCTION READY**
+**Recommended:** Deploy immediately
 **Next Steps:** Monitor analytics, A/B test variations
 
 ---

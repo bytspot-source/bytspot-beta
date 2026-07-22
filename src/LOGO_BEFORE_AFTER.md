@@ -129,9 +129,9 @@
 
 **Before:**
 ```tsx
-<path d="M60 28 L78 39 L78 61 L60 72 L42 61 L42 39 Z" 
-  fill="url(#gradient-hex)" 
-  opacity="0.9" 
+<path d="M60 28 L78 39 L78 61 L60 72 L42 61 L42 39 Z"
+  fill="url(#gradient-hex)"
+  opacity="0.9"
 />
 ```
 - Filled but no border
@@ -140,16 +140,16 @@
 **After:**
 ```tsx
 <!-- Fill -->
-<path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" 
-  fill="url(#gradient-hexagon)" 
-  opacity="0.95" 
+<path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z"
+  fill="url(#gradient-hexagon)"
+  opacity="0.95"
 />
 <!-- Border -->
-<path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" 
-  stroke="url(#gradient-hex-border)" 
-  strokeWidth="1.5" 
-  fill="none" 
-  opacity="0.8" 
+<path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z"
+  stroke="url(#gradient-hex-border)"
+  strokeWidth="1.5"
+  fill="none"
+  opacity="0.8"
 />
 ```
 - ✅ Smaller hexagon (better proportions)
@@ -258,7 +258,7 @@
 
 **Before:**
 ```
-[Muddy, grid lines invisible, 
+[Muddy, grid lines invisible,
  hard to distinguish elements]
 ```
 
@@ -466,7 +466,7 @@ import { BrandLogo } from './components/BrandLogo';
 
 ---
 
-**Status:** ✅ **Production Deployed**  
-**Version:** 2.0  
-**Last Updated:** October 14, 2025  
+**Status:** ✅ **Production Deployed**
+**Version:** 2.0
+**Last Updated:** October 14, 2025
 **Approved By:** Design & Brand Team

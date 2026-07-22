@@ -8,7 +8,7 @@ export type ProviderRole = 'parking' | 'venue' | 'event' | 'service';
 
 interface ProviderLandingProps {
   onStart: (role: ProviderRole) => void;
-  onBackToParker?: () => void;
+  onBackToBytspot?: () => void;
 }
 
 const roles: Array<{ id: ProviderRole; title: string; body: string; icon: typeof MapPin; gradient: string }> = [
@@ -18,7 +18,7 @@ const roles: Array<{ id: ProviderRole; title: string; body: string; icon: typeof
   { id: 'service', title: 'Valet / Service Team', body: 'Prepare dispatch, valet operations, add-ons, and provider tools.', icon: Car, gradient: 'from-emerald-500 to-cyan-500' },
 ];
 
-export function ProviderLanding({ onStart, onBackToParker }: ProviderLandingProps) {
+export function ProviderLanding({ onStart, onBackToBytspot }: ProviderLandingProps) {
   const [selectedRole, setSelectedRole] = useState<ProviderRole>('parking');
   const selected = useMemo(() => roles.find((role) => role.id === selectedRole) ?? roles[0], [selectedRole]);
   const headingId = useId();
@@ -75,12 +75,12 @@ export function ProviderLanding({ onStart, onBackToParker }: ProviderLandingProp
       </div>
 
       <div className="relative mx-auto max-w-[393px] px-5 pb-10 pt-5" style={isTablet ? { maxWidth: 820, padding: '32px 32px 48px' } : undefined}>
-        {onBackToParker && (
+        {onBackToBytspot && (
           <button
             data-testid="provider-back-cta"
             type="button"
-            onClick={onBackToParker}
-            aria-label="Back to Parker consumer app"
+            onClick={onBackToBytspot}
+            aria-label="Back to Bytspot"
             className="mb-5 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
             style={isTablet ? { width: 48, height: 48, marginBottom: 28 } : undefined}
           >

@@ -7,8 +7,8 @@ This guide provides a quick reference for all location service components in Byt
 ## 📦 Components
 
 ### 1. LocationPermissionFlow
-**Path:** `/components/LocationPermissionFlow.tsx`  
-**Purpose:** iOS-style permission request dialogs  
+**Path:** `/components/LocationPermissionFlow.tsx`
+**Purpose:** iOS-style permission request dialogs
 **When to use:** During onboarding or when requesting new permissions
 
 ```tsx
@@ -35,8 +35,8 @@ import { LocationPermissionFlow } from './components/LocationPermissionFlow';
 ---
 
 ### 2. GeofenceMonitor
-**Path:** `/components/GeofenceMonitor.tsx`  
-**Purpose:** Display active geofences and recent events  
+**Path:** `/components/GeofenceMonitor.tsx`
+**Purpose:** Display active geofences and recent events
 **When to use:** In settings or as a status indicator
 
 ```tsx
@@ -59,16 +59,16 @@ import { GeofenceMonitor } from './components/GeofenceMonitor';
 ---
 
 ### 3. GeofenceOverlay
-**Path:** `/components/GeofenceOverlay.tsx`  
-**Purpose:** Visualize geofence zones on a map  
+**Path:** `/components/GeofenceOverlay.tsx`
+**Purpose:** Visualize geofence zones on a map
 **When to use:** On the map view to show zone boundaries
 
 ```tsx
 import { GeofenceOverlay } from './components/GeofenceOverlay';
 
-<GeofenceOverlay 
-  isDarkMode={true} 
-  showLabels={true} 
+<GeofenceOverlay
+  isDarkMode={true}
+  showLabels={true}
 />
 ```
 
@@ -82,8 +82,8 @@ import { GeofenceOverlay } from './components/GeofenceOverlay';
 ---
 
 ### 4. SensorSettings (Updated)
-**Path:** `/components/SensorSettings.tsx`  
-**Purpose:** Comprehensive sensor and geofence configuration  
+**Path:** `/components/SensorSettings.tsx`
+**Purpose:** Comprehensive sensor and geofence configuration
 **When to use:** In app settings menu
 
 ```tsx
@@ -108,8 +108,8 @@ import { SensorSettings } from './components/SensorSettings';
 ## 🔧 Utilities
 
 ### GeofencingService
-**Path:** `/utils/geofencing.ts`  
-**Purpose:** Core geofencing engine  
+**Path:** `/utils/geofencing.ts`
+**Purpose:** Core geofencing engine
 **When to use:** To create zones or monitor geofence events
 
 ```tsx
@@ -156,8 +156,8 @@ unsubscribe();
 ---
 
 ### useGeofencing Hook
-**Path:** `/utils/geofencing.ts`  
-**Purpose:** React hook for geofencing in components  
+**Path:** `/utils/geofencing.ts`
+**Purpose:** React hook for geofencing in components
 **When to use:** When you need geofence state in a React component
 
 ```tsx
@@ -165,7 +165,7 @@ import { useGeofencing } from './utils/geofencing';
 
 function MyComponent() {
   const { activeZones, recentEvents, service } = useGeofencing(true);
-  
+
   return (
     <div>
       <p>Active Zones: {activeZones.length}</p>
@@ -183,8 +183,8 @@ function MyComponent() {
 ---
 
 ### useLocationPermissions Hook
-**Path:** `/components/LocationPermissionFlow.tsx`  
-**Purpose:** Check location permission status  
+**Path:** `/components/LocationPermissionFlow.tsx`
+**Purpose:** Check location permission status
 **When to use:** To conditionally show features based on permissions
 
 ```tsx
@@ -192,11 +192,11 @@ import { useLocationPermissions } from './components/LocationPermissionFlow';
 
 function MyComponent() {
   const { permissions, hasAllPermissions, needsPermissions } = useLocationPermissions();
-  
+
   if (needsPermissions()) {
     return <PermissionPrompt />;
   }
-  
+
   return <FullFeatures />;
 }
 ```
@@ -217,23 +217,23 @@ interface GeofenceZone {
   name: string;
   type: 'parking' | 'valet' | 'saved' | 'venue' | 'custom';
   priority: number; // 1-10
-  
+
   location?: {
     latitude: number;
     longitude: number;
     radiusMeters: number;
   };
-  
+
   bluetooth?: {
     beaconUUIDs: string[];
     triggerDistance: number;
   };
-  
+
   wifi?: {
     networkSSIDs: string[];
     signalThreshold?: number;
   };
-  
+
   metadata?: {
     address?: string;
     notes?: string;

@@ -278,7 +278,7 @@ STEP 3: Movement Adjustment
 STEP 4: Confidence Calculation
   ─────────────────────────────
   fusedAccuracy = Σ(sensorAccuracy × weight) / count
-  
+
   IF (fusedAccuracy < 3m)
     → confidence = 'very-high'
   ELSE IF (fusedAccuracy < 8m)
@@ -312,7 +312,7 @@ FOR EACH zone IN zones:
   STEP 2: Fusion Decision
     ─────────────────────
     isInZone = (gpsMatch OR bleMatch OR wifiMatch)
-    
+
     // Priority: BLE > WiFi > GPS for indoor
     // Priority: GPS > BLE > WiFi for outdoor
 
@@ -323,7 +323,7 @@ FOR EACH zone IN zones:
         dwellTimer.enterTime = now
       ELSE IF (now - dwellTimer.enterTime >= 3000ms):
         → TRIGGER ENTRY EVENT
-        
+
     ELSE IF (NOT isInZone AND wasInZone):
       IF (dwellTimer.exitTime == 0):
         dwellTimer.exitTime = now
@@ -447,10 +447,10 @@ User Controls
 ---
 
 This architecture provides:
-✅ Sub-10 meter accuracy with sensor fusion  
-✅ Battery-efficient operation  
-✅ Privacy-preserving local-first design  
-✅ Graceful degradation with limited permissions  
-✅ Real-time geofence monitoring  
-✅ Comprehensive event logging  
+✅ Sub-10 meter accuracy with sensor fusion
+✅ Battery-efficient operation
+✅ Privacy-preserving local-first design
+✅ Graceful degradation with limited permissions
+✅ Real-time geofence monitoring
+✅ Comprehensive event logging
 ✅ Beautiful iOS-style UX

@@ -35,7 +35,7 @@ final class BytspotContactSyncStore: ObservableObject {
     static let previewSuggestions: [NativeFriendSuggestion] = ranked([
         NativeFriendSuggestion(userId: "preview-venues", name: "Ama at Akwaaba", source: "google", mutual: false, mutualContacts: 0, sharedVerifiedVenues: 3),
         NativeFriendSuggestion(userId: "preview-mutual", name: "Kofi Mensah", source: "apple", mutual: true, mutualContacts: 0, sharedVerifiedVenues: 0),
-        NativeFriendSuggestion(userId: "preview-contacts", name: "Nia Parker", source: "apple", mutual: false, mutualContacts: 2, sharedVerifiedVenues: 0)
+        NativeFriendSuggestion(userId: "preview-contacts", name: "Nia Brooks", source: "apple", mutual: false, mutualContacts: 2, sharedVerifiedVenues: 0)
     ])
     #endif
 

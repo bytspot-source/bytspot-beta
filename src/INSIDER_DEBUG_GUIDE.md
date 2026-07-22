@@ -198,7 +198,7 @@ useEffect(() => {
     setVenues(prev => prev.map(venue => ({
       ...venue,
       currentCapacity: Math.max(10, Math.min(
-        venue.maxCapacity, 
+        venue.maxCapacity,
         venue.currentCapacity + Math.floor(Math.random() * 11) - 5
       )),
     })));
@@ -339,7 +339,7 @@ useEffect(() => {
       setShowVenueDetails(false);
     }
   };
-  
+
   window.addEventListener('keydown', handleEscape);
   return () => window.removeEventListener('keydown', handleEscape);
 }, []);
@@ -351,12 +351,12 @@ useEffect(() => {
 
 ### **After fixes, you should have:**
 
-✅ **100% clickable elements** - All cards and buttons work  
-✅ **Instant feedback** - Toast + haptic on every tap  
-✅ **Modal opens** - <300ms animation  
-✅ **Console logs** - Confirming every action  
-✅ **Live updates** - Venue data changes every 10s  
-✅ **Smooth animations** - Spring physics everywhere  
+✅ **100% clickable elements** - All cards and buttons work
+✅ **Instant feedback** - Toast + haptic on every tap
+✅ **Modal opens** - <300ms animation
+✅ **Console logs** - Confirming every action
+✅ **Live updates** - Venue data changes every 10s
+✅ **Smooth animations** - Spring physics everywhere
 
 ---
 
@@ -381,6 +381,6 @@ All 3 work = Fully functional! 🎊
 
 **If all tests pass, the Insider tab is 100% working!** ✨
 
-**Last Updated:** October 14, 2025  
-**Status:** ✅ FIXED & TESTED  
+**Last Updated:** October 14, 2025
+**Status:** ✅ FIXED & TESTED
 **Next:** Enjoy the fully interactive Insider experience! 🚀

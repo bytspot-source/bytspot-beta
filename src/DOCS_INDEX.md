@@ -95,7 +95,7 @@ All documentation files are currently in the root directory. For better organiza
 
 ## 🚀 Key Features
 
-### Parker App (Mobile)
+### Bytspot consumer app (Mobile)
 - Real-time parking spot discovery
 - Valet service booking
 - Venue recommendations with Insider stories

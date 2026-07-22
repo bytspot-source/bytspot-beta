@@ -173,7 +173,7 @@ test('rankDiscoverCardsWithSimplex powers Discover ordering from onboarding toke
   assert.equal(ranked[0].name, 'Broni Home Taste');
 });
 
-test('getRankedDiscoverCardsWithSimplex returns score details for Home AI Pick explainability', () => {
+test('getRankedDiscoverCardsWithSimplex returns score details for Home Tailored Pick explainability', () => {
   const ranked = getRankedDiscoverCardsWithSimplex([
     { id: 1, type: 'coffee', name: 'Quiet Cafe', image: 'coffee.jpg', distance: '0.3 mi', description: 'coffee work friendly', rating: 4.5 },
   ], { query: 'coffee work' });

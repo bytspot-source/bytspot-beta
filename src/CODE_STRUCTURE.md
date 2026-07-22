@@ -186,7 +186,7 @@ Utilities:
 
 ### Routing Strategy
 ```typescript
-type AppScreen = 
+type AppScreen =
   | 'splash'         // Initial splash
   | 'landing'        // Landing page
   | 'consent'        // Data consent
@@ -194,7 +194,7 @@ type AppScreen =
   | 'profile-setup'  // Profile creation
   | 'preferences'    // Interest selection
   | 'discovery'      // AI curation
-  | 'main'           // Main app (Parker)
+  | 'main'           // Main app (Member)
   | 'host'           // Host Dashboard
   | 'valet';         // Valet Driver App
 
@@ -558,6 +558,6 @@ localStorage.getItem('bytspot_behavior_data')
 
 ---
 
-**Last Updated:** October 10, 2025  
-**Version:** 1.0  
+**Last Updated:** October 10, 2025
+**Version:** 1.0
 **Status:** Production Demo Ready

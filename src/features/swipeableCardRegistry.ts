@@ -15,7 +15,7 @@ export const swipeableCardModules = [
     complianceRisk: 'low',
     score: { phiMarket: 9, phiExecution: 8, deltaDifferentiation: 7, feasibility: 9, lambdaSimilarity: 0.95 },
     constraints: { appStoreRisk: 2, engineeringEffort: 2, complianceRisk: 'low', revenuePotential: 4, timeToReleaseWeeks: 1 },
-    summary: 'Primary Parker swipe experience for venues, parking, and consumer-safe discovery cards.',
+    summary: 'Primary consumer swipe experience for venues, parking, and discovery cards.',
     dependencies: ['venues.list', 'google-places', 'saved-spots'],
   }),
   defineFeatureModule({
@@ -100,7 +100,7 @@ export const swipeableCardModules = [
     complianceRisk: 'low',
     score: { phiMarket: 7, phiExecution: 9, deltaDifferentiation: 5, feasibility: 9, lambdaSimilarity: 0.95 },
     constraints: { appStoreRisk: 1, engineeringEffort: 1, complianceRisk: 'low', revenuePotential: 2, timeToReleaseWeeks: 1 },
-    summary: 'Swipeable category chips that route Parker users into filtered discovery.',
+    summary: 'Swipeable category chips that route members into filtered discovery.',
     dependencies: ['preferences', 'search'],
   }),
   defineFeatureModule({
@@ -117,7 +117,7 @@ export const swipeableCardModules = [
     complianceRisk: 'low',
     score: { phiMarket: 8, phiExecution: 8, deltaDifferentiation: 6, feasibility: 9, lambdaSimilarity: 0.9 },
     constraints: { appStoreRisk: 2, engineeringEffort: 2, complianceRisk: 'low', revenuePotential: 3, timeToReleaseWeeks: 1 },
-    summary: 'Swipeable nearby parking and venue row for immediate Parker utility.',
+    summary: 'Swipeable nearby parking and venue row for immediate member utility.',
     dependencies: ['venues.list', 'parking-availability'],
   }),
 ] as const satisfies readonly FeatureModule[];

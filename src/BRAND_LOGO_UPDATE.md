@@ -52,7 +52,7 @@ The Bytspot logo has been refined to be cleaner, more professional, and aligned 
 ### **1. BrandLogo** (Base SVG Icon)
 
 ```tsx
-<BrandLogo 
+<BrandLogo
   size={120}          // Default size in pixels
   animated={false}    // Optional rotation animation
   showGlow={false}    // Optional glow effect
@@ -75,7 +75,7 @@ The Bytspot logo has been refined to be cleaner, more professional, and aligned 
 ### **2. BrandLogotype** (Logo + Text)
 
 ```tsx
-<BrandLogotype 
+<BrandLogotype
   size="large"        // "small" | "medium" | "large"
   showLogo={true}     // Show icon alongside text
   animated={false}    // Entrance animation
@@ -84,7 +84,7 @@ The Bytspot logo has been refined to be cleaner, more professional, and aligned 
 
 **Text Gradient:**
 ```css
-background: linear-gradient(90deg, 
+background: linear-gradient(90deg,
   #00BFFF 0%,   /* Cyan */
   #A855F7 50%,  /* Purple */
   #FF00FF 100%  /* Magenta */
@@ -103,7 +103,7 @@ background: linear-gradient(90deg,
 ### **3. BrandLogoCompact** (Horizontal Logo+Text)
 
 ```tsx
-<BrandLogoCompact 
+<BrandLogoCompact
   size={32}  // Controls both logo and text proportionally
 />
 ```
@@ -124,7 +124,7 @@ background: linear-gradient(90deg,
 ### **4. BrandLogoAnimated** (Splash Screen Version)
 
 ```tsx
-<BrandLogoAnimated 
+<BrandLogoAnimated
   size={180}
   withPulse={true}      // Breathing animation
   withRotation={false}  // Continuous rotation
@@ -184,7 +184,7 @@ letter-spacing: -0.02em (Tight);
 
 **Text Gradient:**
 ```css
-background: linear-gradient(90deg, 
+background: linear-gradient(90deg,
   #00BFFF 0%,   /* Cyan - Start */
   #A855F7 50%,  /* Purple - Middle */
   #FF00FF 100%  /* Magenta - End */
@@ -250,7 +250,7 @@ background: linear-gradient(90deg,
 
 ### **Component-Based:**
 ```tsx
-import { 
+import {
   BrandLogo,           // Base SVG icon
   BrandLogotype,       // Logo + text
   BrandLogoCompact,    // Horizontal compact
@@ -345,9 +345,9 @@ transition: {
 
 ### **Screen Reader Text:**
 ```tsx
-<img 
-  src="/logo.svg" 
-  alt="Bytspot - Premium Urban Mobility" 
+<img
+  src="/logo.svg"
+  alt="Bytspot - Premium Urban Mobility"
   role="img"
   aria-label="Bytspot brand logo"
 />
@@ -379,8 +379,8 @@ transition: {
 
 ### **Loading States:**
 ```tsx
-<BrandLogoAnimated 
-  size={80} 
+<BrandLogoAnimated
+  size={80}
   withPulse={true}
   withRotation={false}
 />
@@ -497,10 +497,10 @@ Gzipped:                 1.8 KB
 
 ### **Splash Screen:**
 ```tsx
-<BrandLogoAnimated 
-  size={180} 
-  withPulse={true} 
-  withRotation={false} 
+<BrandLogoAnimated
+  size={180}
+  withPulse={true}
+  withRotation={false}
 />
 ```
 
@@ -516,10 +516,10 @@ Gzipped:                 1.8 KB
 
 ### **Loading Spinner:**
 ```tsx
-<BrandLogoAnimated 
-  size={60} 
-  withPulse={true} 
-  withRotation={true} 
+<BrandLogoAnimated
+  size={60}
+  withPulse={true}
+  withRotation={true}
 />
 ```
 
@@ -539,6 +539,6 @@ A professional, scalable logo system that maintains brand identity while improvi
 
 ---
 
-**Status:** ✅ **Production Ready**  
-**Last Updated:** October 14, 2025  
+**Status:** ✅ **Production Ready**
+**Last Updated:** October 14, 2025
 **Maintained By:** Bytspot Design Team

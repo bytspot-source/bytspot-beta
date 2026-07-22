@@ -202,8 +202,8 @@ const peopleYouFollow = storyGroups
 
 // Events & Happenings
 const eventStories = storyGroups
-  .filter(group => group.stories.some(s => 
-    s.caption?.toLowerCase().includes('event') || 
+  .filter(group => group.stories.some(s =>
+    s.caption?.toLowerCase().includes('event') ||
     s.caption?.toLowerCase().includes('dj')
   ))
   .slice(0, 4);
@@ -217,7 +217,7 @@ const eventStories = storyGroups
 ```tsx
 // Gradient ring (purple-pink-orange)
 {group.hasUnviewed && (
-  <div className="absolute inset-0 border-2 rounded-full 
+  <div className="absolute inset-0 border-2 rounded-full
     bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500" />
 )}
 ```
@@ -553,18 +553,18 @@ const CONFIG = {
 
 The Insider tab is now a **full-featured Stories Hub** with:
 
-✅ **4 organized sections** - Trending, Nearby, Following, Events  
-✅ **Smart categorization** - Auto-filtered by engagement, location, and content  
-✅ **Rich visual design** - Brand-aligned gradients, badges, and indicators  
-✅ **Seamless integration** - Works with existing story viewer and creator  
-✅ **Mobile-optimized** - Perfect for 393px viewport  
-✅ **Production-ready** - No placeholder content, fully functional  
+✅ **4 organized sections** - Trending, Nearby, Following, Events
+✅ **Smart categorization** - Auto-filtered by engagement, location, and content
+✅ **Rich visual design** - Brand-aligned gradients, badges, and indicators
+✅ **Seamless integration** - Works with existing story viewer and creator
+✅ **Mobile-optimized** - Perfect for 393px viewport
+✅ **Production-ready** - No placeholder content, fully functional
 
 **Result:** A dedicated social discovery space that makes it easy to find interesting stories, discover new venues, stay connected with friends, and catch live events - all in one beautifully organized tab! 🚀
 
 ---
 
-**Status:** ✅ **COMPLETE & DEPLOYED**  
-**Version:** 1.0  
-**Date:** October 14, 2025  
+**Status:** ✅ **COMPLETE & DEPLOYED**
+**Version:** 1.0
+**Date:** October 14, 2025
 **Breaking Changes:** None (replaced existing Insider content)

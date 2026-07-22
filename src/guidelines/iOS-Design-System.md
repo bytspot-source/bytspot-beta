@@ -269,7 +269,7 @@ Apply to:
 
 ### Requirements
 - **Min Tap Target**: 44 × 44 px on all interactive elements
-- **Contrast Ratio**: 
+- **Contrast Ratio**:
   - Text Primary: 4.5:1 minimum
   - Text Secondary: 3:1 minimum
 - **Reduced Motion**: Provide alternative animations
@@ -434,7 +434,7 @@ When preparing Figma files for handoff:
 
 1. **Enable Dev Mode** for engineering team
 2. **Set Constraints**: Hug/Fixed appropriately
-3. **Semantic Naming**: 
+3. **Semantic Naming**:
    - Nav/Title/Large
    - Tab/Item/Active
    - Card/QuickAction/Default
@@ -445,6 +445,6 @@ When preparing Figma files for handoff:
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: October 5, 2025  
+**Document Version**: 1.0
+**Last Updated**: October 5, 2025
 **Maintained By**: Bytspot Design Team

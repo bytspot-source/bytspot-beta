@@ -1,7 +1,7 @@
 # Location Permissions & Privacy Strategy
 
 ## Overview
-Bytspot implements a comprehensive, privacy-focused location permission system that balances user control with service requirements. The system differentiates between **Parker** (customer) and **Driver** (valet contractor) use cases, with appropriate controls and transparency for each role.
+Bytspot implements a comprehensive, privacy-focused location permission system that balances user control with service requirements. The system differentiates between **Member** (customer) and **Driver** (valet contractor) use cases, with appropriate controls and transparency for each role.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Bytspot implements a comprehensive, privacy-focused location permission system t
 - Options:
   - **Always Allow**: Best experience with background geofencing
   - **Allow While Using App**: Location access only when app is open
-  - **Don't Allow**: Limited functionality (Parker only)
+  - **Don't Allow**: Limited functionality (Member only)
 
 **Additional Enhanced Features**
 - Bluetooth scanning for indoor positioning (optional)
@@ -47,18 +47,18 @@ Bytspot implements a comprehensive, privacy-focused location permission system t
    - Ideal for multi-level parking garages
    - **Driver**: Recommended for precise car retrieval
 
-2. **Background Location** (Default: OFF, Parker Only)
+2. **Background Location** (Default: OFF, Consumer Only)
    - Track valet return trip when app is closed
    - Requires "Always Allow" OS permission
    - Only needed during active valet service
    - Auto-enabled/disabled with job lifecycle
 
-3. **Location for Offers & Promotions** (Default: OFF, Parker Only)
+3. **Location for Offers & Promotions** (Default: OFF, Consumer Only)
    - General location for marketing and special offers
    - Separate from core service function (builds trust)
    - Near partner venues only
 
-4. **Venue Recommendations** (Default: OFF, Parker Only)
+4. **Venue Recommendations** (Default: OFF, Consumer Only)
    - Show recommended restaurants, shops, and attractions based on current location
    - **CONTEXTUAL PERMISSION**: Requested when user first opens Insider tab, not during onboarding
    - Completely optional - not required for any core functionality
@@ -72,7 +72,7 @@ Bytspot implements a comprehensive, privacy-focused location permission system t
    - Shows when location is actively being tracked
    - Explains why tracking is active
    - **Driver**: Always ON when on-duty
-   - **Parker**: ON only during active valet service
+   - **Member**: ON only during active valet service
 
 2. **Privacy Policy Link**
    - Direct access to full privacy documentation
@@ -98,16 +98,16 @@ Bytspot implements a comprehensive, privacy-focused location permission system t
 
 ## User Experience Flow
 
-### Parker (Customer) Journey
+### Consumer Journey
 
 1. **Onboarding**
    ```
-   Privacy & Permissions Overview → Sign In → Profile Setup → 
-   Interest Preferences → Pre-Permission Screen → OS Prompt → 
+   Privacy & Permissions Overview → Sign In → Profile Setup →
+   Interest Preferences → Pre-Permission Screen → OS Prompt →
    Bluetooth (optional) → Complete
    ```
    Note: WiFi scanning is auto-enabled without prompting to reduce friction
-   
+
    **DataConsentFlow** now shows only privacy overview (no location prompt)
    - Explains what data is collected and what Bytspot doesn't do
    - Builds trust before authentication
@@ -205,7 +205,7 @@ Following iOS best practices, Venue Recommendations uses a **contextual permissi
    - Pre-permission screen
    - OS permission dialogs
    - Bluetooth/WiFi scanning setup
-   - Role-specific messaging (parker vs driver)
+   - Role-specific messaging (consumer vs driver)
 
 2. **LocationSettings.tsx**
    - In-app permission management
@@ -273,7 +273,7 @@ bytspot_venue_recommendations_prompt_seen: 'true' | 'false'
 
 ## Best Practices
 
-### For Parkers (Customers)
+### For consumers (Customers)
 
 1. **Request Thoughtfully**: Only ask when needed
 2. **Explain Clearly**: Show value before OS prompt
@@ -293,7 +293,7 @@ bytspot_venue_recommendations_prompt_seen: 'true' | 'false'
 
 - [ ] Pre-permission screen appears before OS prompt
 - [ ] OS permission dialog shows with correct messaging
-- [ ] "Not Now" option works for Parkers
+- [ ] "Not Now" option works for Members
 - [ ] Drivers cannot skip location permission
 - [ ] Enhanced features toggle correctly
 - [ ] Background location requires "Always Allow"

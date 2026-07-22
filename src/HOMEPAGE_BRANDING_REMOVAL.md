@@ -13,7 +13,7 @@
 <motion.div className="px-4 pt-4 pb-3">
   {/* Greeting */}
   <p>Good morning, Alex</p>
-  
+
   {/* Logo & Brand */}
   <div className="flex items-center gap-3">
     <BrandLogo size={54} />
@@ -21,12 +21,12 @@
       Bytspot
     </h1>
   </div>
-  
+
   {/* Tagline */}
   <p className="text-headline">
     Your perfect spot awaits
   </p>
-  
+
   {/* Context hint */}
   <p>
     Start your day with the perfect parking spot
@@ -480,7 +480,7 @@ Removing redundant branding from homepage will:
 
 ---
 
-**Date:** October 14, 2025  
-**Version:** 2.2.0  
-**Breaking Changes:** None  
+**Date:** October 14, 2025
+**Version:** 2.2.0
+**Breaking Changes:** None
 **User Impact:** Positive (faster, cleaner)

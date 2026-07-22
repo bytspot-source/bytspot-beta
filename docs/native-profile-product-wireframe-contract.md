@@ -1,6 +1,6 @@
 # Native Profile Product + Wireframe Contract
 
-Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20  
+Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20
 Scope: migrate `src/components/ProfileSection.tsx` into a professional native
 SwiftUI Account/Profile surface without treating Profile as a settings junk drawer.
 
@@ -37,7 +37,7 @@ in order:
 | Vibe Preferences | preference screen | Discovery personalization |
 | Parking Preferences | preference screen | Arrival personalization |
 | Notifications | alert settings | Communication control |
-| Location & Privacy | parker location/data settings | Trust and privacy controls |
+| Location & Privacy | consumer location/data settings | Trust and privacy controls |
 | General | appearance, shortcuts, delete, version | App configuration |
 | Delete Account | type DELETE + final confirmation | Destructive account lifecycle |
 | Legal | privacy, terms, disclaimer | Compliance |
@@ -227,7 +227,7 @@ React source of truth:
 
 | Native surface | React source | Locked copy / contract |
 | --- | --- | --- |
-| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 3-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
+| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 3-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, Concierge. |
 | Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, Midtown crowd/parking/ride subtitle, `Let's Go`, Terms & Privacy footer. |
 | Personalization | `src/App.tsx` onboarding quiz + provided imagery | Bottom-sheet quiz: `What's your vibe tonight?`, `How far will you walk?`, `Solo or with crew?`, then `Here's your Atlanta` recommendations. |
 | Auth | `src/components/AuthenticationFlow.tsx`, `AppleSignInButton.tsx`, `GoogleSignInButton.tsx` | Sign Up / Log In toggle, Apple/Google buttons, email form, full name + optional invite code for signup, forgot password for login. |

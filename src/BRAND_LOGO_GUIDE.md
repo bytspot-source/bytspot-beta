@@ -127,8 +127,8 @@ All gradients are defined within the SVG `<defs>` and use the brand color system
 </h1>
 ```
 
-**Size:** 160px  
-**Animation:** Yes  
+**Size:** 160px
+**Animation:** Yes
 **Context:** App launch, full attention
 
 ---
@@ -143,8 +143,8 @@ All gradients are defined within the SVG `<defs>` and use the brand color system
 </h1>
 ```
 
-**Size:** 120px  
-**Animation:** Yes  
+**Size:** 120px
+**Animation:** Yes
 **Context:** First-time user, onboarding
 
 ---
@@ -159,8 +159,8 @@ All gradients are defined within the SVG `<defs>` and use the brand color system
 </h1>
 ```
 
-**Size:** 50px  
-**Animation:** No (avoid animation fatigue)  
+**Size:** 50px
+**Animation:** No (avoid animation fatigue)
 **Context:** Persistent header, returning users
 
 ---
@@ -175,8 +175,8 @@ All gradients are defined within the SVG `<defs>` and use the brand color system
 </h1>
 ```
 
-**Size:** 100px  
-**Animation:** Yes  
+**Size:** 100px
+**Animation:** Yes
 **Context:** Sub-app entry point, transitions
 
 ---
@@ -225,12 +225,12 @@ The logo is purely decorative. Ensure surrounding text provides context:
 
 ## Don'ts
 
-❌ **Don't** stretch or distort the logo  
-❌ **Don't** change the gradient colors  
-❌ **Don't** add drop shadows or additional effects  
-❌ **Don't** use animation on persistent UI elements  
-❌ **Don't** place on busy backgrounds without contrast  
-❌ **Don't** use sizes smaller than 24px (details become unclear)  
+❌ **Don't** stretch or distort the logo
+❌ **Don't** change the gradient colors
+❌ **Don't** add drop shadows or additional effects
+❌ **Don't** use animation on persistent UI elements
+❌ **Don't** place on busy backgrounds without contrast
+❌ **Don't** use sizes smaller than 24px (details become unclear)
 ❌ **Don't** combine BrandLogo and BrandLogotype together
 
 ---
@@ -259,9 +259,9 @@ import { BrandLogo, BrandLogotype } from './components/BrandLogo';
 
 ## Current Usage Locations
 
-✅ **SplashScreen.tsx** - `<BrandLogo size={160} animated={true} />`  
-✅ **LandingPage.tsx** - `<BrandLogo size={120} animated={true} />`  
-✅ **App.tsx** (Home Tab) - `<BrandLogo size={50} />`  
+✅ **SplashScreen.tsx** - `<BrandLogo size={160} animated={true} />`
+✅ **LandingPage.tsx** - `<BrandLogo size={120} animated={true} />`
+✅ **App.tsx** (Home Tab) - `<BrandLogo size={50} />`
 ✅ **HostLanding.tsx** - `<BrandLogo size={100} animated={true} />`
 
 ---
@@ -290,7 +290,7 @@ For email templates, documentation, or external use, export static versions:
 
 - **App Icon:** Use `BrandLogo` design at 1024x1024px
 - **Marketing:** Use `BrandLogotype` for screenshots, banners
-- **Loading Screens:** Use animated `BrandLogo` 
+- **Loading Screens:** Use animated `BrandLogo`
 
 ---
 
@@ -303,6 +303,6 @@ For brand guidelines, color usage, or logo modifications, refer to:
 
 ---
 
-**Last Updated:** October 12, 2025  
-**Version:** 1.0.0  
+**Last Updated:** October 12, 2025
+**Version:** 1.0.0
 **Maintained by:** Bytspot Design Team

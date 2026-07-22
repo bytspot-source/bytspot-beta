@@ -10,7 +10,7 @@ Scope: finish native SwiftUI parity for the existing App Store app without reint
 - Keep App Clip SwiftUI flow as the strongest native reference implementation.
 - Preserve BYT424 App Clip invocation and AASA behavior.
 - Every native slice must have native gate + simulator build proof before App Store release.
-- First public native release remains Parker consumer-only; Provider, Vendor, Admin, and internal review surfaces stay hidden.
+- First public native release remains consumer-only; Provider, Vendor, Admin, and internal review surfaces stay hidden.
 
 ## Current iOS State
 
@@ -52,7 +52,7 @@ Scope: finish native SwiftUI parity for the existing App Store app without reint
 | `bytspot://map` | Opens Map tab | Native tab route. |
 | `bytspot://venue/{id}` | Opens Discover venue detail | Native discover route. |
 | `bytspot://profile` | Opens profile/access area | Native account/access route. |
-| `/provider`, `/vendor`, `/admin` | Internal/provider routes | Do not advertise or expose in Parker consumer App Store build. Later native ERP/TestFlight workstream only. |
+| `/provider`, `/vendor`, `/admin` | Internal/provider routes | Do not advertise or expose in the consumer App Store build. Later native ERP/TestFlight workstream only. |
 | `/booking/success|cancelled` | Stripe return handler | Native booking return state. |
 | `/privacy`, `/terms`, `/disclaimer` | Static legal screens | Native or web fallback. |
 

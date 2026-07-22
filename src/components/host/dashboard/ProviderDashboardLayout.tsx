@@ -122,7 +122,7 @@ export function ProviderDashboardLayout({
           {onBackToMain && (
             <button
               type="button"
-              aria-label="Back to Parker"
+              aria-label="Back to Bytspot"
               onClick={onBackToMain}
               className={`w-10 h-10 rounded-full flex items-center justify-center border-2 tap-target ${palette.chromeSoft}`}
             >
@@ -182,7 +182,7 @@ export function ProviderDashboardLayout({
           <div className={`mt-4 shrink-0 border-t pt-4 ${palette.divider}`}>
             <motion.button
               type="button"
-              aria-label="Back to Parker"
+              aria-label="Back to Bytspot"
               onClick={onBackToMain}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
               whileTap={{ scale: 0.98 }}
@@ -190,7 +190,7 @@ export function ProviderDashboardLayout({
             >
               <LogOut className="w-5 h-5 shrink-0" strokeWidth={2.5} />
               <span className="text-[15px]" style={{ fontWeight: 500 }}>
-                Back to Parker
+                Back to Bytspot
               </span>
             </motion.button>
           </div>
@@ -279,7 +279,7 @@ export function ProviderDashboardLayout({
                 <div className={`mt-4 shrink-0 border-t pt-4 ${palette.divider}`}>
                   <motion.button
                     type="button"
-                    aria-label="Back to Parker"
+                    aria-label="Back to Bytspot"
                     onClick={onBackToMain}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 ${palette.navInactive}`}
                     whileTap={{ scale: 0.98 }}
@@ -287,7 +287,7 @@ export function ProviderDashboardLayout({
                   >
                     <LogOut className="w-5 h-5 shrink-0" strokeWidth={2.5} />
                     <span className="text-[15px]" style={{ fontWeight: 500 }}>
-                      Back to Parker
+                      Back to Bytspot
                     </span>
                   </motion.button>
                 </div>

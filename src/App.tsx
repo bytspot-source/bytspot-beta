@@ -652,7 +652,7 @@ export default function App() {
     setActiveTab('discover');
   }, []);
 
-  // ─── AI Pick: top Simplex-ranked Discover recommendation ───────────────────
+  // ─── Tailored Pick: top Simplex-ranked Discover recommendation ─────────────
   const homeAiPickCard = useMemo<DiscoverCard | null>(() => {
     const visibleCards = discoverCardsWithSavedRequests.filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)));
     return visibleCards[0] ?? null;
@@ -1280,7 +1280,7 @@ export default function App() {
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <ProviderLanding
             onStart={startProviderOnboarding}
-            onBackToParker={() => {
+            onBackToBytspot={() => {
               window.history.replaceState({}, '', '/');
               setProviderRouteVersion(version => version + 1);
             }}
@@ -1635,10 +1635,10 @@ export default function App() {
                         <img src={imgUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />
                         {/* Gradient overlay */}
                         <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
-                        {/* AI Pick badge */}
+                        {/* Tailored Pick badge */}
                         <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
                           <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
-                          <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
+                          <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>Tailored Pick</span>
                         </div>
                         {/* Content */}
                         <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
@@ -2734,7 +2734,7 @@ export default function App() {
             const ringR = 18; const ringC = 2 * Math.PI * ringR;
             const ringFill = isConfirmation ? 1 : (quizStep + 1) / total;
             return (
-              <motion.div key="parker-intro-quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              <motion.div key="member-intro-quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 z-[9999] flex items-end justify-center"
                 style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
                 <motion.div key={quizStep} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}

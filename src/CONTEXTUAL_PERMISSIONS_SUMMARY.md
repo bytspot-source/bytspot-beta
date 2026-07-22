@@ -37,7 +37,7 @@ Added toggle control in the settings UI:
 - Loads state from localStorage on mount
 - `handleVenueRecommendationsToggle()`: Updates setting with appropriate toast notifications
 - Placed after "Location for Offers & Promotions" for logical grouping
-- Parker-only feature (not shown to valet drivers)
+- consumer-only feature (not shown to valet drivers)
 
 ### 4. Documentation Update
 **Location**: `/LOCATION_PERMISSIONS_GUIDE.md`
@@ -137,7 +137,7 @@ interface VenueRecommendationsPermissionProps {
 If venue recommendations prove popular, could add a second-tier request:
 
 **After user enables "While Using" recommendations:**
-- Show a follow-up prompt for "Always Allow" 
+- Show a follow-up prompt for "Always Allow"
 - Benefit: "Get venue recommendations even when app is closed (like special deals when you pass a partner location)"
 - Timing: 3-7 days after initial enable, when user has seen value
 

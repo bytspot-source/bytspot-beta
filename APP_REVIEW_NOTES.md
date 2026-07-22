@@ -10,7 +10,7 @@ Thank you for reviewing Bytspot.
 - Launch the app, tap **Get Started**, then tap **Continue as Guest** to enter the core experience immediately.
 - The tab bar is **Home · Discover · Map · Concierge**. Profile is opened from the Home screen (avatar/profile entry), not from the tab bar.
 - The main reviewable flows for this build are:
-  - Home feed / tiered Parker experience cards
+  - Home feed / tiered member experience cards
   - Discover cards and filters (swipeable card deck)
   - Map view
   - Concierge chat (AI answers require a signed-in account; guest sessions receive on-device help responses labeled "Local help")
@@ -19,10 +19,10 @@ Thank you for reviewing Bytspot.
 
 ## Review-Build Notes
 
-- This submission build is focused on the Parker consumer experience. Non-consumer business tools and operations utilities are not available in the review build.
+- This submission build is focused on the Bytspot consumer experience. Non-consumer business tools and operations utilities are not available in the review build.
 - The iOS App target is pure native SwiftUI. It does not launch, embed, or package a Capacitor/React webview, web bundle, Cordova config, or Capacitor SwiftPM bridge.
 - The repository root still contains Capacitor npm packages for the separate React web beta only. Those packages are not linked into the iOS App target or bundled in the App Store submission.
-- Parker Home shows consumer-facing Explorer, My Access, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
+- Bytspot Home shows consumer-facing Explorer, My Access, and VIP experience cards only. Internal prioritization metrics are not exposed in the app.
 - Location permission is optional. The app can still be reviewed without granting location access.
 - The full App target does not request notification permission. The App Clip may request ephemeral notification authorization for invite follow-up, as declared in the App Clip plist.
 - The app does **not** use background location.

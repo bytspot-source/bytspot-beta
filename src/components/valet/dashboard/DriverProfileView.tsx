@@ -18,7 +18,7 @@ import {
 import { useState } from 'react';
 import { currentDriverProfile } from '../../../utils/valetProductionData';
 // SHARED: LocationSettings exposes a userRole='parker'|'driver' API and is intentionally
-// shared between the Parker consumer shell and the Valet driver shell.
+// shared between the consumer shell and the Valet driver shell.
 import { LocationSettings } from '../../LocationSettings';
 import { DriverGearRegistry } from './DriverGearRegistry';
 import { DriverAccountSettings } from './DriverAccountSettings';

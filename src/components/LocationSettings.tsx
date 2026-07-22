@@ -7,8 +7,33 @@ import { useLocationPermissions } from './LocationPermissionFlow';
 interface LocationSettingsProps {
   isDarkMode: boolean;
   onBack: () => void;
-  userRole?: 'parker' | 'driver'; // Parker (customer) vs Driver (valet contractor)
+  userRole?: 'parker' | 'driver'; // consumer vs Driver (valet contractor)
 }
+
+const toggleSpringConfig = {
+  type: "spring" as const,
+  stiffness: 320,
+  damping: 30,
+  mass: 0.8,
+};
+
+const ToggleSwitch = memo(({ enabled, onToggle, disabled = false }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) => (
+  <motion.button
+    onClick={() => !disabled && onToggle()}
+    className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
+      enabled ? 'bg-green-500' : 'bg-white/20'
+    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    whileTap={disabled ? {} : { scale: 0.95 }}
+    transition={toggleSpringConfig}
+    disabled={disabled}
+  >
+    <motion.div
+      className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
+      animate={{ x: enabled ? 20 : 0 }}
+      transition={toggleSpringConfig}
+    />
+  </motion.button>
+));
 
 export function LocationSettings({ isDarkMode, onBack, userRole = 'parker' }: LocationSettingsProps) {
   const { permissions } = useLocationPermissions();
@@ -27,21 +52,24 @@ export function LocationSettings({ isDarkMode, onBack, userRole = 'parker' }: Lo
 
   // Load settings from localStorage
   useEffect(() => {
-    const settings = localStorage.getItem('bytspot_location_settings');
-    if (settings) {
-      const parsed = JSON.parse(settings);
-      setEnhancedIndoorAccuracy(parsed.enhancedIndoorAccuracy ?? false);
-      setBackgroundLocation(parsed.backgroundLocation ?? false);
-      setLocationForOffers(parsed.locationForOffers ?? false);
-    }
+    const timer = window.setTimeout(() => {
+      const settings = localStorage.getItem('bytspot_location_settings');
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        setEnhancedIndoorAccuracy(parsed.enhancedIndoorAccuracy ?? false);
+        setBackgroundLocation(parsed.backgroundLocation ?? false);
+        setLocationForOffers(parsed.locationForOffers ?? false);
+      }
 
-    // Load venue recommendations setting
-    const venueRecsEnabled = localStorage.getItem('bytspot_venue_recommendations_enabled');
-    setVenueRecommendations(venueRecsEnabled === 'true');
+      // Load venue recommendations setting
+      const venueRecsEnabled = localStorage.getItem('bytspot_venue_recommendations_enabled');
+      setVenueRecommendations(venueRecsEnabled === 'true');
 
-    // Check if there's an active job (for tracking status)
-    const activeJob = localStorage.getItem('bytspot_active_valet_job');
-    setActiveJobTracking(!!activeJob);
+      // Check if there's an active job (for tracking status)
+      const activeJob = localStorage.getItem('bytspot_active_valet_job');
+      setActiveJobTracking(!!activeJob);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Save settings to localStorage
@@ -72,24 +100,6 @@ export function LocationSettings({ isDarkMode, onBack, userRole = 'parker' }: Lo
       });
     }
   };
-
-  const ToggleSwitch = memo(({ enabled, onToggle, disabled = false }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) => (
-    <motion.button
-      onClick={() => !disabled && onToggle()}
-      className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
-        enabled ? 'bg-green-500' : 'bg-white/20'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-      whileTap={disabled ? {} : { scale: 0.95 }}
-      transition={springConfig}
-      disabled={disabled}
-    >
-      <motion.div
-        className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
-        animate={{ x: enabled ? 20 : 0 }}
-        transition={springConfig}
-      />
-    </motion.button>
-  ));
 
   const getLocationStatusColor = () => {
     if (permissions.location === 'always') return 'text-green-400';

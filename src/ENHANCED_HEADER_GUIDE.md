@@ -49,7 +49,7 @@ A sophisticated, scroll-reactive header with multiple information layers.
 #### Usage:
 
 ```tsx
-<EnhancedHeader 
+<EnhancedHeader
   onProfileClick={() => setShowProfile(!showProfile)}
   scrollContainerRef={homeScrollRef}
 />
@@ -130,7 +130,7 @@ interface SearchSuggestion {
 ### Profile Button Gradient:
 
 ```css
-background: linear-gradient(to bottom right, 
+background: linear-gradient(to bottom right,
   rgba(168, 85, 247, 0.5) 0%,   /* Purple */
   rgba(0, 191, 255, 0.5) 100%   /* Cyan */
 );
@@ -148,7 +148,7 @@ With rotating overlay animation (8s duration).
 const hour = currentTime.getHours();
 
 if (hour < 12)       → "Good morning"
-else if (hour < 17)  → "Good afternoon"  
+else if (hour < 17)  → "Good afternoon"
 else if (hour < 21)  → "Good evening"
 else                 → "Late night"
 
@@ -313,7 +313,7 @@ const handleSuggestionClick = (suggestion) => {
 ### Scroll Container Reference:
 
 ```tsx
-<div 
+<div
   ref={homeScrollRef}
   className="absolute inset-0 overflow-y-auto"
   onScroll={handleScroll}
@@ -350,11 +350,11 @@ border: 2px solid rgba(255, 255, 255, 0.3);
 
 ```css
 /* Card elevation */
-box-shadow: 0 2px 16px rgba(0, 0, 0, 0.24), 
+box-shadow: 0 2px 16px rgba(0, 0, 0, 0.24),
             0 1px 4px rgba(0, 0, 0, 0.16);
 
 /* Hover elevation */
-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32), 
+box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
             0 2px 8px rgba(0, 0, 0, 0.24);
 ```
 
@@ -366,14 +366,14 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
 
 1. **Splash Screen** (3s)
    - Brand animation with all colors
-   
+
 2. **Landing Page**
    - Simplified header
    - Address input
-   
+
 3. **Onboarding** (Consent → Auth → Setup → Preferences)
    - Minimal header
-   
+
 4. **Home Screen**
    - **Full Enhanced Header appears**
    - Personalized greeting: "Morning in Midtown"
@@ -383,7 +383,7 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
 ### Returning User:
 
 1. **Splash Screen** (3s)
-   
+
 2. **Home Screen** (Direct)
    - Personalized greeting: "Good morning, Alex"
    - Context line: "Coffee, work spots, and easy arrivals nearby"
@@ -396,16 +396,16 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
 1. User taps search bar
    - Bar scales to 101%
    - Suggestions dropdown slides in
-   
+
 2. User types query
    - Live filtering of suggestions
    - Clear button (X) appears
-   
+
 3. User selects suggestion
    - Saved to recent searches
    - Navigate to appropriate tab
    - Toast notification confirms
-   
+
 4. Or user submits search
    - Intelligent classification
    - Route to Discover/Map tab
@@ -552,22 +552,22 @@ interface SearchSuggestion {
 
 ### Do's:
 
-✅ Use `EnhancedHeader` only on home tab  
-✅ Pass scroll container ref for animations  
-✅ Save searches to localStorage for persistence  
-✅ Classify search queries for smart routing  
-✅ Show loading states during voice input  
-✅ Use spring physics for all animations  
-✅ Test on real devices for scroll performance  
+✅ Use `EnhancedHeader` only on home tab
+✅ Pass scroll container ref for animations
+✅ Save searches to localStorage for persistence
+✅ Classify search queries for smart routing
+✅ Show loading states during voice input
+✅ Use spring physics for all animations
+✅ Test on real devices for scroll performance
 
 ### Don'ts:
 
-❌ Don't render header on other tabs  
-❌ Don't update clock every second (performance)  
-❌ Don't store sensitive data in recent searches  
-❌ Don't block scroll with heavy animations  
-❌ Don't change header layout mid-scroll  
-❌ Don't use non-spring animations (consistency)  
+❌ Don't render header on other tabs
+❌ Don't update clock every second (performance)
+❌ Don't store sensitive data in recent searches
+❌ Don't block scroll with heavy animations
+❌ Don't change header layout mid-scroll
+❌ Don't use non-spring animations (consistency)
 
 ---
 
@@ -580,6 +580,6 @@ interface SearchSuggestion {
 
 ---
 
-**Last Updated:** October 13, 2025  
-**Version:** 1.0.0  
+**Last Updated:** October 13, 2025
+**Version:** 1.0.0
 **Author:** Bytspot Development Team

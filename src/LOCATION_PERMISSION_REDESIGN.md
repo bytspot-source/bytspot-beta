@@ -342,9 +342,9 @@ Step 3: Enhanced feature (Bluetooth)
 
 ### **Functionality Preserved:**
 - ✅ All permission options work
-- ✅ Driver vs Parker differentiation maintained
+- ✅ Driver vs consumer differentiation maintained
 - ✅ Privacy notices included
-- ✅ Skip options available (for Parkers)
+- ✅ Skip options available (for Members)
 - ✅ Toast notifications fire correctly
 - ✅ LocalStorage persistence works
 - ✅ Browser geolocation API integration intact
@@ -499,7 +499,7 @@ Reduction: 1,600 bytes (10%)
 // In App.tsx (no changes needed)
 import { LocationPermissionFlow } from './components/LocationPermissionFlow';
 
-// For Parker (customer)
+// For consumer (customer)
 <LocationPermissionFlow
   isDarkMode={true}
   onComplete={(permissions) => {
@@ -574,8 +574,8 @@ import { LocationPermissionFlow } from './components/LocationPermissionFlow';
 
 ---
 
-**Status:** ✅ **Deployed to Production**  
-**Version:** 2.1.0  
-**Date:** October 14, 2025  
-**Performance:** 86% smaller, 49% faster  
+**Status:** ✅ **Deployed to Production**
+**Version:** 2.1.0
+**Date:** October 14, 2025
+**Performance:** 86% smaller, 49% faster
 **Breaking Changes:** None

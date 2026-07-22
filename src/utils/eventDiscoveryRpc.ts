@@ -37,7 +37,7 @@ export const EVENT_DISCOVERY_RPC_CONTRACT = {
   provider: 'ticketmaster',
   input: 'EventsListRpcInput',
   output: 'EventsListRpcResponse',
-  note: 'Backend owns Ticketmaster credentials; clients request normalized event cards for Parker/native/App Clip surfaces.',
+  note: 'Backend owns Ticketmaster credentials; clients request normalized event cards for consumer/native/App Clip surfaces.',
 } as const;
 
 type ProcedureLike<TInput, TOutput> = { query(input: TInput): Promise<TOutput> };
@@ -146,7 +146,7 @@ export async function loadEventsViaRpc(
     const events = normalizeEventsResponse(response);
     if (events.length > 0) return { source: 'backend', provider: 'ticketmaster', events };
   } catch {
-    // Event provider may be unavailable in preview/dev; keep Parker usable with curated events.
+    // Event provider may be unavailable in preview/dev; keep the consumer app usable with curated events.
   }
   return { source: 'fallback', provider: 'fallback', events: fallbackEvents };
 }

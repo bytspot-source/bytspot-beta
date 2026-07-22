@@ -244,7 +244,7 @@ export function SplashScreen({ onComplete, isDarkMode }: SplashScreenProps) {
           {[
             { label: 'Parking', color: 'border-[#00BFFF]/50 text-[#00BFFF]' },
             { label: 'Venues', color: 'border-[#FF00FF]/50 text-[#FF00FF]' },
-            { label: 'AI-Powered', color: 'border-[#A855F7]/50 text-[#A855F7]' },
+            { label: 'Concierge', color: 'border-[#A855F7]/50 text-[#A855F7]' },
           ].map((feature, i) => (
             <motion.div
               key={i}

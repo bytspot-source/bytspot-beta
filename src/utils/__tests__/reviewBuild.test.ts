@@ -13,7 +13,7 @@ describe('App Store consumer-only route gate', () => {
     }
   });
 
-  it('keeps Parker consumer routes available', () => {
+  it('keeps consumer routes available', () => {
     for (const path of ['/', '/privacy', '/terms', '/disclaimer', '/forgot-password', '/reset-password', '/booking/success', '/parking/success']) {
       assert.equal(isAppStoreConsumerOnlyBlockedPath(path), false, `${path} should remain available`);
     }

@@ -35,7 +35,7 @@ const releaseWorkModules = [
     complianceRisk: 'low',
     score: { phiMarket: 8, phiExecution: 9, deltaDifferentiation: 7, feasibility: 9, lambdaSimilarity: 0.95 },
     constraints: { appStoreRisk: 1, engineeringEffort: 1, complianceRisk: 'low', revenuePotential: 3, timeToReleaseWeeks: 1 },
-    summary: 'Keeps Parker release copy safe by scanning the final build before submission.',
+    summary: 'Keeps consumer release copy safe by scanning the final build before submission.',
     dependencies: ['build-app-store', 'purity-scan'],
   }),
   defineFeatureModule({

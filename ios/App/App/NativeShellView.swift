@@ -4176,7 +4176,7 @@ private struct NativeGroupEventSetupSheet: View {
             setupLabel("Guest invite preview")
             HStack(alignment: .top, spacing: 11) {
                 Image(systemName: iconName.isEmpty ? "bolt.fill" : iconName).font(.system(size: 16, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Untitled invite" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests get the time, host, location guidance, and a simple join button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
+                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Name this invite to preview it" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests get the time, host, location guidance, and a simple join button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
                 Spacer(minLength: 0)
             }
             .padding(14).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.24), lineWidth: 1))
@@ -5370,7 +5370,7 @@ enum NativeGroupEventProbe {
     static func parsedInvite(urlString: String) -> NativeGroupEventRecord? { URL(string: urlString).flatMap(NativeGroupEventContract.groupInvite(from:)) }
 }
 
-private struct NativeParkerBenefitsCard: View {
+private struct NativeMemberBenefitsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
@@ -7119,8 +7119,8 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var tonightPickCard: some View {
-        let card = personalizedAIPick
-        let v = venueForAIPick(card)
+        let card = personalizedPick
+        let v = venueForPersonalizedPick(card)
         return NativeHomeHeroCard(
             venue: v,
             eyebrow: Self.aiPickEyebrow,
@@ -7143,15 +7143,15 @@ private struct NativeHomeDashboardView: View {
         tabContentStore.snapshot.venues.first(where: { $0.verifiedPatchId != nil }) ?? tabContentStore.snapshot.venues.first ?? NativeTabContentSnapshot.fallback.venues[0]
     }
 
-    private var personalizedAIPick: NativeDiscoverSummary {
+    private var personalizedPick: NativeDiscoverSummary {
         let cards = tabContentStore.snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : tabContentStore.snapshot.discoverCards
-        let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        let types = Self.personalizedPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         return types.compactMap { type in cards.first { $0.type == type } }.first
             ?? cards.first(where: { !$0.membershipRequired })
             ?? NativeTabContentSnapshot.fallback.discoverCards[0]
     }
 
-    static func personalizedAIPickTypes(vibe: String, walk: String, crew: String) -> [String] {
+    static func personalizedPickTypes(vibe: String, walk: String, crew: String) -> [String] {
         var types: [String] = []
         switch vibe {
         case "food": types.append("dining")
@@ -7213,7 +7213,7 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
+    private func venueForPersonalizedPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
         let parsedRating = Double(card.rating)
@@ -13355,7 +13355,7 @@ private struct NativeMapExploreView: View {
     /// itself — it only gathers evidence and hands it to BytspotTrustEngine.reduce,
     /// which is the single place trust is computed (structurally killing the
     /// cosmetic drift the proximity gate was prone to). The map experience floors
-    /// at static-discovery (the parker is in-app browsing the verified map);
+    /// at static-discovery (the member is in-app browsing the verified map);
     /// signed-token/NFC evidence is not wired into the native preview yet. The
     /// simulator override is deterministic: perfect accuracy, no hysteresis carry.
     private var trustEvidence: BytspotTrustEvidence {
@@ -13398,7 +13398,7 @@ private struct NativeMapExploreView: View {
     }
 
     /// Load-bearing L2 enforcement: the direct-scan handoff is withheld unless the
-    /// parker is inside the 120 m VERIFIED_ZONE. The guard lives here (not just on
+    /// member is inside the 120 m VERIFIED_ZONE. The guard lives here (not just on
     /// the CTA's disabled styling) so the capability gate is impossible to bypass.
     private func performDirectScan() {
         guard can(.initiateDirectScan) else { nativeImpactLight(); return }
@@ -14364,7 +14364,7 @@ private struct NativeMapExploreView: View {
     }
 
     /// Section divider that frames the premium block — present whether or not the
-    /// parker holds the entitlement, so the upgrade surface is always discoverable.
+    /// member holds the entitlement, so the upgrade surface is always discoverable.
     private var premiumFunctionsHeader: some View {
         HStack(spacing: 8) {
             Image(systemName: membership.isPremium ? "crown.fill" : "lock.fill")
@@ -14380,7 +14380,7 @@ private struct NativeMapExploreView: View {
         .accessibilityIdentifier("native-map-premium-functions-header")
     }
 
-    /// One premium Map Function row. When the parker holds the entitlement it routes
+    /// One premium Map Function row. When the member holds the entitlement it routes
     /// to the live action; otherwise it renders a lock chip and opens the upgrade
     /// nudge instead. Unlock authority is the single `BytspotMapFunctionCatalog`
     /// source so UI and parity self-tests can never disagree.
@@ -15011,7 +15011,7 @@ private struct NativeTrafficIntelSheet: View {
     }
 }
 
-/// Upgrade nudge shown when a parker without the premium entitlement taps a locked
+/// Upgrade nudge shown when a member without the premium entitlement taps a locked
 /// Map Function. Names the function they reached for, lists the premium privilege
 /// set, and routes to the native Account Center rewards/membership panel. The
 /// native billing surface is still preview-grade, but the handoff stays inside Swift.
@@ -16286,7 +16286,7 @@ enum BytspotTrustCapability: CaseIterable {
     }
 }
 
-/// Advisory "descent profile" ring the parker currently occupies on approach to
+/// Advisory "descent profile" ring the member currently occupies on approach to
 /// a verified zone (contracts/native-trust-contract.json trustLadder[2].gate).
 /// ORDERED but TRUST-FREE: only `.armed` coincides with L2 eligibility, and even
 /// then trust is decided solely by directScanPermitted — the outer rings exist
@@ -16301,7 +16301,7 @@ enum BytspotDescentStage: Int, Comparable {
 
 /// Native premium-membership entitlement. Mirrors the React "Insider Premium"
 /// subscription (trpc.subscription.status.isPremium) and is ORTHOGONAL to the
-/// black/platinum/green service tier — a parker on any tier may or may not hold
+/// black/platinum/green service tier — a member on any tier may or may not hold
 /// premium. Native billing parity is not complete, so this defaults to `.free`
 /// (exactly as the web silently defaults to free for guests/errors) and is
 /// overridable for previews via BYT_NATIVE_PREVIEW_PREMIUM, the same way the tier
@@ -17037,13 +17037,13 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.filter) == ["coffee", "dining", "mobility", "shopping", "nightlife", "fitness", "entertainment"], "NativeHomeParitySelfTests: category chips must hand off Discover filters.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay tailored-pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
-        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
-        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
-        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "ride", walk: "medium", crew: "safe").first == "mobility", "NativeHomeParitySelfTests: AI Pick must prefer mobility for ride tokens.")
-        precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "covered_parking", walk: "medium", crew: "safe").first == "parking", "NativeHomeParitySelfTests: AI Pick must prefer parking for parking/safe tokens.")
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service tailored-pick CTA must be category-aware.")
+        precondition(NativeHomeDashboardView.personalizedPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: tailored-pick personalization ranking drifted for nightlife/group tokens.")
+        precondition(NativeHomeDashboardView.personalizedPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: tailored pick must prefer boutique stay for stay tokens.")
+        precondition(NativeHomeDashboardView.personalizedPickTypes(vibe: "ride", walk: "medium", crew: "safe").first == "mobility", "NativeHomeParitySelfTests: tailored pick must prefer mobility for ride tokens.")
+        precondition(NativeHomeDashboardView.personalizedPickTypes(vibe: "covered_parking", walk: "medium", crew: "safe").first == "parking", "NativeHomeParitySelfTests: tailored pick must prefer parking for parking/safe tokens.")
     }
 }
 #endif

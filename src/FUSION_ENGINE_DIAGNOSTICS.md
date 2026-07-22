@@ -36,7 +36,7 @@ The **Fusion Engine Diagnostics** interface has been integrated into the Bytspot
 Monitor the health and performance of the Fusion Engine in real-time:
 
 - **Active Users**: Current number of users being tracked
-- **Active Trips**: Ongoing valet/parker trips
+- **Active Trips**: Ongoing valet/consumer trips
 - **Average Accuracy**: System-wide location accuracy
 - **Processing Latency**: Backend processing speed
 - **Sensor Availability**: GPS, WiFi, BLE, and IMU uptime percentages
@@ -148,7 +148,7 @@ Searchable log of all geofence events:
 
 Access the Fusion Engine Diagnostics from the Host Dashboard:
 
-1. Navigate to Host Dashboard (from Parker app profile → "Become a Host")
+1. Navigate to Host Dashboard (from Bytspot consumer app profile → "Become a Host")
 2. Complete onboarding (if new host)
 3. Click "Fusion Engine" in the navigation menu
 4. Select view mode:
@@ -301,5 +301,5 @@ The interface follows Bytspot's premium dark theme with:
 
 ---
 
-Built for Bytspot - Premium AI-Powered Parking Platform
+Built for Bytspot - Premium Parking Platform
 Last Updated: October 2025

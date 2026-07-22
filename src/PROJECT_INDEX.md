@@ -12,7 +12,7 @@
 
 ### Developer Onboarding
 1. Read: **[README.md](README.md)** (10 min) - Understand what Bytspot is
-2. Skim: **[CODE_STRUCTURE.md](CODE_STRUCTURE.md)** (15 min) - Learn the architecture  
+2. Skim: **[CODE_STRUCTURE.md](CODE_STRUCTURE.md)** (15 min) - Learn the architecture
 3. Reference: **[QUICK_START.md](QUICK_START.md)** (ongoing) - Fast lookup for patterns
 4. Build: Start with **App.tsx** - Main entry point
 
@@ -119,10 +119,10 @@
 
 ## 📱 App-Specific Documentation
 
-### Parker (Customer App)
+### Consumer App
 ```
 Overview: README.md → Three Apps section
-Features: IMPLEMENTATION_SUMMARY.md → Parker Features
+Features: IMPLEMENTATION_SUMMARY.md → Consumer Features
 Code: CODE_STRUCTURE.md → Main App Components
 Reference: QUICK_START.md → Common Patterns
 ```
@@ -367,7 +367,7 @@ Day 4-5: Component exploration (hands-on)
 ### Week 3: Specialization
 ```
 Choose focus area:
-- Parker App: DiscoverSection, MapSection
+- Bytspot consumer app: DiscoverSection, MapSection
 - Host Dashboard: Onboarding flow
 - Valet App: Job management
 - Legal: Compliance components
@@ -454,9 +454,9 @@ Bytspot has **best-in-class documentation** with:
 
 ---
 
-**Last Updated:** October 10, 2025  
-**Version:** 1.0  
+**Last Updated:** October 10, 2025
+**Version:** 1.0
 **Status:** Complete & Maintained ✅
 
-**Index compiled by:** Bytspot Documentation Team  
+**Index compiled by:** Bytspot Documentation Team
 **Purpose:** Navigate 3,000+ lines of documentation with ease

@@ -18,7 +18,7 @@ export const featureModules = [
     complianceRisk: 'medium',
     score: { phiMarket: 9, phiExecution: 6, deltaDifferentiation: 8, feasibility: 7, lambdaSimilarity: 0.8 },
     constraints: { appStoreRisk: 4, engineeringEffort: 4, complianceRisk: 'medium', revenuePotential: 5, timeToReleaseWeeks: 4 },
-    summary: 'High-revenue arrival service for nightlife and hospitality use cases; hidden from the current Parker-only build.',
+    summary: 'High-revenue arrival service for nightlife and hospitality use cases; hidden from the current consumer-only build.',
     dependencies: ['payments', 'location', 'availability'],
   }),
   module({
@@ -103,7 +103,7 @@ export const featureModules = [
     complianceRisk: 'medium',
     score: { phiMarket: 6, phiExecution: 4, deltaDifferentiation: 7, feasibility: 5, lambdaSimilarity: 0.6 },
     constraints: { appStoreRisk: 4, engineeringEffort: 4, complianceRisk: 'medium', revenuePotential: 3, timeToReleaseWeeks: 4 },
-    summary: 'Keep light/frozen until Parker release is stable; avoid expanding AI scope for current App Store review.',
+    summary: 'Keep light/frozen until the consumer release is stable; avoid expanding advanced assistant scope for current App Store review.',
     dependencies: ['search', 'voice-input', 'privacy-review'],
   }),
 ] as const satisfies readonly FeatureModule[];

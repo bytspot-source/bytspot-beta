@@ -367,7 +367,7 @@ useEffect(() => {
     setVenues(prev => prev.map(venue => ({
       ...venue,
       currentCapacity: Math.max(10, Math.min(
-        venue.maxCapacity, 
+        venue.maxCapacity,
         venue.currentCapacity + Math.floor(Math.random() * 11) - 5
       )),
       socialBuzz: {
@@ -498,7 +498,7 @@ toast.success('Venue saved!', {
 ### **Memoization:**
 ```typescript
 // Story categorization is efficient
-const trendingStories = useMemo(() => 
+const trendingStories = useMemo(() =>
   storyGroups.filter(g => g.stories.some(s => s.views > 300)).slice(0, 5),
   [storyGroups]
 );
@@ -571,7 +571,7 @@ Swipe left/right    → Scroll through carousel
 
 ---
 
-**Date:** October 14, 2025  
-**Status:** ✅ FULLY FUNCTIONAL  
-**Breaking Changes:** None  
+**Date:** October 14, 2025
+**Status:** ✅ FULLY FUNCTIONAL
+**Breaking Changes:** None
 **Dependencies:** All modals and components exist and work correctly

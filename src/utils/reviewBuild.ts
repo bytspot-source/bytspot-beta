@@ -2,7 +2,7 @@
  * App Store / Apple review build safety gates.
  *
  * Web production can keep Provider/Vendor/Admin surfaces available for internal
- * beta operations, while iOS App Store builds ship as a Parker consumer-only app.
+ * beta operations, while iOS App Store builds ship as a consumer-only app.
  */
 type ReviewBuildEnv = {
   VITE_APP_STORE_CONSUMER_ONLY?: string;

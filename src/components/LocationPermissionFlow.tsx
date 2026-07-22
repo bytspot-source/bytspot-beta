@@ -17,14 +17,14 @@ interface LocationPermissionFlowProps {
   isDarkMode: boolean;
   onComplete: (permissions: LocationPermissions) => void;
   autoStart?: boolean;
-  userRole?: UserRole; // 'parker' for customers, 'driver' for valet contractors
+  userRole?: UserRole; // consumer app users vs valet contractors
 }
 
 export function LocationPermissionFlow({ 
   isDarkMode, 
   onComplete, 
   autoStart = true,
-  userRole = 'parker' // Default to parker (customer)
+  userRole = 'parker' // Default to the consumer role
 }: LocationPermissionFlowProps) {
   const [currentStep, setCurrentStep] = useState<PermissionType | null>(autoStart ? 'location' : null);
   const [permissions, setPermissions] = useState<LocationPermissions>({
@@ -47,11 +47,14 @@ export function LocationPermissionFlow({
 
   // Load existing permissions
   useEffect(() => {
-    const stored = localStorage.getItem('bytspot_location_permissions');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      setPermissions(parsed);
-    }
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem('bytspot_location_permissions');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setPermissions(parsed);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleLocationPermission = async (level: LocationPermissionLevel) => {
@@ -63,7 +66,7 @@ export function LocationPermissionFlow({
       toast.error('Location access denied', {
         description: 'Some features may be limited',
       });
-      // Skip to complete for parkers, but drivers need location
+      // Skip to complete for consumers, but drivers need location
       if (userRole === 'parker') {
         setCurrentStep('complete');
         onComplete(newPermissions);
@@ -94,7 +97,7 @@ export function LocationPermissionFlow({
         }
       }
 
-      // For parkers, bluetooth/wifi are optional enhancements
+      // For consumers, bluetooth/wifi are optional enhancements
       // For drivers, they're recommended for accuracy
       setTimeout(() => {
         setCurrentStep('bluetooth');
@@ -420,10 +423,13 @@ export function useLocationPermissions() {
   });
 
   useEffect(() => {
-    const stored = localStorage.getItem('bytspot_location_permissions');
-    if (stored) {
-      setPermissions(JSON.parse(stored));
-    }
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem('bytspot_location_permissions');
+      if (stored) {
+        setPermissions(JSON.parse(stored));
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const hasAllPermissions = () => {

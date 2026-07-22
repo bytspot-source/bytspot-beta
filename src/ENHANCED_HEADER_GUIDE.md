@@ -388,7 +388,7 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
    - Personalized greeting: "Good morning, Alex"
    - Context line: "Coffee, work spots, and easy arrivals nearby"
    - Recent searches populated (max 5)
-   - AI recommendations count updates
+   - Recommendation count updates
    - Time-based context changes
 
 ### Search Flow:

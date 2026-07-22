@@ -5,7 +5,7 @@
 ## 🚀 Getting Started in 60 Seconds
 
 ### Project Overview
-- **What:** Premium AI-powered parking & urban mobility platform
+- **What:** Premium parking & urban mobility platform
 - **Stack:** React + TypeScript + Tailwind v4 + Motion (Framer Motion)
 - **Target:** iOS mobile web app (393px width)
 - **Mode:** Dark mode only (OLED optimized)

@@ -283,7 +283,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
               {/* Separator */}
               <div className="w-px h-3 bg-white/15" />
               
-              {/* AI recommendations */}
+              {/* Recommendation count */}
               <div className="flex items-center gap-1.5">
                 <Zap className="w-3 h-3 text-[#A855F7]" strokeWidth={2.5} />
                 <span className="text-white/80" style={{ fontWeight: 500 }}>

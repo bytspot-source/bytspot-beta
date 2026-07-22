@@ -52,7 +52,7 @@ const hubSections = [
   { title: 'Resource Library', detail: 'Official-source links, plain-language explainers, and platform readiness notes.', icon: Library, color: 'from-violet-400 to-fuchsia-500' },
   { title: 'Verification Badges', detail: 'Track training, insurance, license, and review badges that can build customer trust.', icon: BadgeCheck, color: 'from-emerald-400 to-teal-500' },
   { title: 'Insurance Partners', detail: 'Explore coverage categories and partner referrals where available.', icon: Umbrella, color: 'from-amber-400 to-orange-500' },
-  { title: 'Ask Compliance Assistant', detail: `AI-powered general guidance. ${AI_LEGAL_NOTICE}`, icon: Bot, color: 'from-slate-300 to-cyan-400' },
+  { title: 'Ask Compliance Assistant', detail: `General guidance with compliance context. ${AI_LEGAL_NOTICE}`, icon: Bot, color: 'from-slate-300 to-cyan-400' },
 ];
 
 const georgiaChecklists: Array<{

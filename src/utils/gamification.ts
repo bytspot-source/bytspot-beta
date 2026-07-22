@@ -81,7 +81,7 @@ export const TIERS: Record<MembershipTier, TierInfo> = {
     gradient: 'from-gray-400 to-gray-500',
     icon: '🥈',
     benefits: [
-      'Enhanced AI recommendations (+15% accuracy)',
+      'Enhanced personalized recommendations (+15% accuracy)',
       '5% discount on valet services',
       'Priority customer support',
       'Early access to new features',

@@ -74,7 +74,7 @@
 - ✅ Time-aware context (morning/afternoon/evening)
 - ✅ Live parking availability stats
 - ✅ Peak hours indicator
-- ✅ AI recommendation count
+- ✅ Recommendation count
 - ✅ Smart search suggestions (recent + trending + nearby)
 - ✅ Scroll-reactive animations
 - ✅ Voice input with visual feedback

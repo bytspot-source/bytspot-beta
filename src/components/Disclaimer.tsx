@@ -1,5 +1,5 @@
 /**
- * Disclaimer — accuracy disclaimer for crowd data, parking prices, AI recommendations.
+ * Disclaimer — accuracy disclaimer for crowd data, parking prices, and recommendations.
  * Accessible at /disclaimer (no auth required).
  * Last updated: 2026-04-13
  */
@@ -11,7 +11,7 @@ export function Disclaimer() {
 
       <p className="mb-6">
         Bytspot ("App") provides real-time crowd data, parking information, venue details, and
-        AI-powered recommendations for informational purposes only. By using the App, you
+        personalized recommendations for informational purposes only. By using the App, you
         acknowledge and agree to the following disclaimers.
       </p>
 

@@ -463,7 +463,7 @@ trackEvent('category_selected', {
 | **Code Quality** | 9.5/10 | Clean architecture, proper TypeScript, good patterns |
 | **User Experience** | 9.5/10 | Smooth animations, responsive, excellent feedback |
 | **Design System** | 9.7/10 | Consistent iOS principles, glassmorphism, premium feel |
-| **Innovation** | 9.8/10 | AI-powered features, map intelligence, personalization |
+| **Innovation** | 9.8/10 | Concierge-backed features, map intelligence, personalization |
 
 ### **Overall: 9.5/10** ⭐
 

@@ -132,7 +132,7 @@ Status: ✅ Perfect balance
 - ✅ **Live Stats Row:**
   - 342 spots nearby
   - Peak hours indicator
-  - 8 AI recommendations
+  - 8 recommendation signals
 
 ### **Personalized Greeting:**
 - ✅ `"Good morning, Alex"` (time-sensitive)

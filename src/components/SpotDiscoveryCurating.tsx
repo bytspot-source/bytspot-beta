@@ -35,8 +35,8 @@ const discoveryStages: DiscoveryStage[] = [
   },
   {
     id: 'matching',
-    title: 'Matching Algorithm',
-    description: 'AI-powered preference matching in progress',
+    title: 'Reading Your Preferences',
+    description: 'Personal preference matching in progress',
     icon: <Zap className="w-6 h-6" />,
     progress: 60,
     color: 'from-orange-500 to-amber-500',
@@ -153,7 +153,7 @@ export function SpotDiscoveryCurating({ isDarkMode, onComplete }: SpotDiscoveryC
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
             >
-              AI-powered curation in progress
+              Curating your best-fit spots
             </motion.p>
           </div>
 

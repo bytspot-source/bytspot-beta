@@ -2336,7 +2336,7 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
         case .termsOfService:
             return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark")]
         case .disclaimer:
-            return [("Accuracy of data", "Crowd levels, wait times, venue details, and availability are estimates and may differ in real time.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("AI recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
+            return [("Accuracy of data", "Crowd levels, wait times, venue details, and availability are estimates and may differ in real time.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("Automated recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
         }
     }
 }

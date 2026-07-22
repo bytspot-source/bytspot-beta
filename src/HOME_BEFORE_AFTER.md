@@ -394,7 +394,7 @@ Features: Premium, polished, competitive
 - 📦 Bundle size: +4% (negligible)
 
 **Result:**
-A production-ready, premium home screen that rivals top-tier parking and mobility apps (SpotHero, ParkMobile, Uber) with unique AI-powered personalization and iOS-native polish.
+A production-ready, premium home screen that rivals top-tier parking and mobility apps (SpotHero, ParkMobile, Uber) with unique personalization and iOS-native polish.
 
 ---
 

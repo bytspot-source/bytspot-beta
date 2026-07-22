@@ -246,7 +246,7 @@ export function SocialBanner() {
           Know <span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>Before</span> You Go.
         </div>
         <div style={{ fontSize: 16, color: BRAND.textMuted, marginTop: 4 }}>
-          Live crowd levels · Real-time parking · AI-powered recommendations
+          Live crowd levels · Easy arrivals · Concierge-backed recommendations
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
           {['📊 Live Crowds', '🅿️ Easy Arrivals', '🚗 Ride Compare', '✨ Bytspot Concierge'].map((f) => (

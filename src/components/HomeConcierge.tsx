@@ -314,23 +314,23 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
 
     if (matched.length > 0) {
       const list = matched.slice(0, 3).map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open now'}`).join('\n');
-      return { reply: `Here's what I found in ${cityName}:\n\n${list}\n\nSign in for full AI-powered recommendations with live events & Google Places data! 🔓`, matchedVenues: matched.slice(0, 3) };
+      return { reply: `Here's what I found in ${cityName}:\n\n${list}\n\nSign in and Bytspot Concierge can tailor this with live events and Google Places context. 🔓`, matchedVenues: matched.slice(0, 3) };
     }
 
     if (q.includes('night') || q.includes('tonight') || q.includes('happening')) {
       const top = venues.filter(v => v.crowd && v.crowd.level >= 3).slice(0, 3);
       if (top.length > 0) {
         const list = top.map(v => `• **${v.name}** — ${v.crowd?.label}`).join('\n');
-        return { reply: `Here's what's buzzing tonight in ${cityName}:\n\n${list}\n\nSign in to unlock live events from Ticketmaster + AI-curated picks! ✨`, matchedVenues: top };
+        return { reply: `Here's what's buzzing tonight in ${cityName}:\n\n${list}\n\nSign in for live events from Ticketmaster and picks shaped around your night. ✨`, matchedVenues: top };
       }
-      return { reply: `${cityName} always has something going on! Sign in to get AI-powered picks with live event data from Ticketmaster & Google Places 🎶`, matchedVenues: [] };
+      return { reply: `${cityName} always has something going on. Sign in for tailored picks with live event data from Ticketmaster and Google Places. 🎶`, matchedVenues: [] };
     }
 
     if (q.includes('date')) {
       const chill = venues.filter(v => v.crowd && v.crowd.level <= 3).slice(0, 3);
       return { reply: chill.length > 0
-        ? `For date night vibes, check out:\n\n${chill.map(v => `• **${v.name}** — ${v.crowd?.label}`).join('\n')}\n\nSign in for personalized AI picks! 💜`
-        : `I've got great date night ideas! Sign in to get personalized AI recommendations based on your vibe quiz 💜`, matchedVenues: chill };
+        ? `For date night vibes, check out:\n\n${chill.map(v => `• **${v.name}** — ${v.crowd?.label}`).join('\n')}\n\nSign in for picks shaped around your night. 💜`
+        : `I've got great date night ideas. Sign in and Bytspot Concierge can tailor them to your vibe quiz. 💜`, matchedVenues: chill };
     }
 
     // Generic fallback

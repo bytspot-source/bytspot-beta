@@ -988,7 +988,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
 
         {/* Disclaimer */}
         <p className="text-[10px] text-white/40 text-center mt-2" style={{ fontWeight: 400 }}>
-          🤖 AI-powered suggestions • 📞 Human support available 24/7 • 🔒 Your data is secure
+          ✨ Personal guidance • 📞 Human support available 24/7 • 🔒 Your data is secure
         </p>
       </div>
     </div>

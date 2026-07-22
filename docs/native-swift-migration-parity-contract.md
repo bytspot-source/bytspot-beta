@@ -1,6 +1,6 @@
 # Native Swift Migration Parity Contract
 
-Status: Native root active; source-of-truth refreshed 2026-07-15  
+Status: Native root active; source-of-truth refreshed 2026-07-15
 Scope: finish native SwiftUI parity for the existing App Store app without reintroducing Capacitor, WebKit, or the React web bundle into the iOS App target.
 
 ## Non-negotiables

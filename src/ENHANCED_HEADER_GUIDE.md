@@ -28,13 +28,13 @@ A sophisticated, scroll-reactive header with multiple information layers.
 - Glassmorphism effect with brand color gradients
 
 **Large Title Section:**
-- Time-based personalized greeting ("Good morning, [Name]")
+- Time-based personalized greeting ("Good morning, Alex") or guest fallback ("Morning in Midtown")
 - Animated brand logo (54px size)
 - "Bytspot" wordmark with brand gradient
 - Context-aware tagline changes by time:
-  - Morning: "Start your day with the perfect parking spot"
-  - Afternoon: "Find venues and activities around you"
-  - Evening: "Discover nightlife and entertainment"
+  - Morning: "Coffee, work spots, and easy arrivals nearby"
+  - Afternoon: "Close stops, errands, and calm arrivals"
+  - Evening: "Dinner, drinks, and easy arrivals nearby"
 
 #### Scroll Behavior:
 
@@ -150,17 +150,21 @@ const hour = currentTime.getHours();
 if (hour < 12)       → "Good morning"
 else if (hour < 17)  → "Good afternoon"  
 else if (hour < 21)  → "Good evening"
-else                 → "Good night"
+else                 → "Late night"
 
 // With user name from localStorage
 "Good morning, Alex"
+
+// Without a known name
+"Morning in Midtown"
+"Coffee, work spots, and easy arrivals nearby"
 ```
 
 ### Context-Aware Taglines:
 
-- **6AM - 12PM:** "Start your day with the perfect parking spot"
-- **12PM - 5PM:** "Find venues and activities around you"
-- **5PM - 11PM:** "Discover nightlife and entertainment"
+- **6AM - 12PM:** "Coffee, work spots, and easy arrivals nearby"
+- **12PM - 5PM:** "Close stops, errands, and calm arrivals"
+- **5PM - 11PM:** "Dinner, drinks, and easy arrivals nearby"
 
 ### Recent Searches:
 
@@ -372,7 +376,7 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
    
 4. **Home Screen**
    - **Full Enhanced Header appears**
-   - Personalized greeting: "Good morning"
+   - Personalized greeting: "Morning in Midtown"
    - No recent searches yet
    - Default trending suggestions
 
@@ -382,6 +386,7 @@ box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
    
 2. **Home Screen** (Direct)
    - Personalized greeting: "Good morning, Alex"
+   - Context line: "Coffee, work spots, and easy arrivals nearby"
    - Recent searches populated (max 5)
    - AI recommendations count updates
    - Time-based context changes

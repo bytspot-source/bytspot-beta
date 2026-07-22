@@ -1263,7 +1263,7 @@ private struct NativeProfilePanelSheet: View {
         case .access:
             return []
         case .rewards:
-            return [("Bronze rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Parker progress", "Booking milestones unlock parking perks.", "chart.line.uptrend.xyaxis")]
+            return [("Bronze rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Your Bytspot benefits", "Booking milestones unlock easier arrivals.", "chart.line.uptrend.xyaxis")]
         case .personalInformation:
             return [("Profile identity", "Bytspot Member · Guest access.", "person.crop.circle.fill"), ("Contact details", "Name, email, phone, and birthday stay together here.", "text.badge.checkmark"), ("Ready to save", "Sign in to sync details across devices.", "checkmark.shield.fill")]
         case .vehicles:
@@ -5364,7 +5364,7 @@ private struct NativeParkerBenefitsCard: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Parker progress").font(.system(size: 18, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
+                    Text("Your Bytspot benefits").font(.system(size: 18, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
                     Text(NativeProfileDefaults.accessLevel).font(.system(size: 13, weight: .bold)).foregroundColor(NativeProfileStyle.body)
                 }
                 Spacer()
@@ -7060,36 +7060,36 @@ private struct NativeHomeDashboardView: View {
 
     private var launchPicksTitle: String {
         switch launchIntent {
-        case "sleep", "stay": return "Safe stays nearby"
-        case "parking", "covered_parking": return "Parking-aware picks"
-        case "ride": return "Ride-friendly options"
-        case "indoor": return "Indoor picks nearby"
-        case "drinks": return "Nightlife picks nearby"
-        case "events": return "Event-friendly picks"
-        case "coffee": return "Coffee and quick stops"
-        default: return "Recommended from your quiz"
+        case "sleep", "stay": return "A softer landing nearby"
+        case "parking", "covered_parking": return "Easy arrivals near Midtown"
+        case "ride": return "A smoother way home"
+        case "indoor": return "Comfort-first plans nearby"
+        case "drinks": return "A night worth stepping into"
+        case "events": return "Plans that fit the crowd"
+        case "coffee": return "A good stop before you go"
+        default: return "Shaped around your night"
         }
     }
 
     private var launchPicksSubtitle: String {
         switch launchIntent {
-        case "sleep", "stay": return "Safe stays and short-rest options stay visible while you browse."
-        case "parking", "covered_parking": return "Parking-aware Midtown picks are active on this device."
-        case "ride": return "Ride-aware nearby picks are active on this device."
-        default: return "Based on your vibe, location, and local conditions near Midtown."
+        case "sleep", "stay": return "Comfort-first stays stay visible while you browse."
+        case "parking", "covered_parking": return "Easy arrivals, short walks, and Midtown timing are ready for you."
+        case "ride": return "Routes, pickup points, and smoother exits are ready when you are."
+        default: return "Chosen around your mood, the hour, and what feels close enough."
         }
     }
 
     private var launchPicksWhy: String {
         switch launchIntent {
-        case "sleep", "stay": return "Late night · Midtown · safe area preference · short-rest options"
-        case "parking", "covered_parking": return "Midtown · easy parking preference · short walk options"
-        case "ride": return "Local conditions · ride-aware route · nearby pickup options"
-        case "indoor": return "Weather-aware · indoor comfort · short walk priority"
-        case "drinks": return "Evening vibe · Midtown · drinks and social spots"
-        case "events": return "Evening vibe · Midtown · entertainment nearby"
-        case "coffee": return "Daytime vibe · Midtown · quick walk preference"
-        default: return "Your vibe · local conditions · nearby activity around Midtown"
+        case "sleep", "stay": return "Late-night comfort · Midtown timing · safer arrival"
+        case "parking", "covered_parking": return "Easy arrival · short walk · Midtown timing"
+        case "ride": return "Better pickup points · cleaner route · less waiting"
+        case "indoor": return "Dry, comfortable, and close enough"
+        case "drinks": return "Evening energy · good rooms · easy arrival"
+        case "events": return "Show timing · crowd flow · easier exits"
+        case "coffee": return "Daytime rhythm · close stops · low-friction arrival"
+        default: return "Your mood · the hour · what feels close enough"
         }
     }
 

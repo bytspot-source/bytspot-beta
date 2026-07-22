@@ -235,14 +235,14 @@ enum NativeAuthLaunchContract {
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
-    static let landingSubtitle = "Live crowd levels, parking & ride ETAs for Atlanta Midtown — all in one place."
-    static let landingFeatures = ["Live crowd levels at Midtown venues", "Smart parking with live spot availability", "Ride ETAs & valet options nearby"]
-    static let vibeQuestion = "What's your evening vibe?"
-    static let vibeOptions = ["🍽️ Dinner", "🍸 Drinks", "🎶 Events", "💕 Date night"]
-    static let walkQuestion = "How close should it be?"
-    static let walkOptions = ["📍 Closest", "🚶 5 min walk", "🚗 Easy parking", "🗺️ Open to explore"]
-    static let crewQuestion = "Who's this for?"
-    static let crewOptions = ["🙋 Just me", "💕 Date night", "👥 Group", "💼 Work/client"]
+    static let landingSubtitle = "Live crowds, easy arrivals, and ride timing for Atlanta Midtown — all in one place."
+    static let landingFeatures = ["Live crowd levels at Midtown venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
+    static let vibeQuestion = "What kind of night are we shaping?"
+    static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
+    static let walkQuestion = "How far are you comfortable going?"
+    static let walkOptions = ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"]
+    static let crewQuestion = "Who's coming with you?"
+    static let crewOptions = ["🙋 Just me", "💕 Date-night ready", "👥 A group", "💼 Work or client"]
     static let atlantaHeadline = "Recommended for you"
     static let atlantaSubtitle = "Based on your vibe, location, and local conditions"
     static let atlantaPicks = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
@@ -297,31 +297,32 @@ enum NativeLaunchPersonalizationStorage {
 
     static func token(for option: String) -> String {
         let normalized = option.lowercased()
-        if normalized.contains("drinks") { return "drinks" }
+        if normalized.contains("drinks") || normalized.contains("good drink") || normalized.contains("keep the night going") { return "drinks" }
         if normalized.contains("coffee") { return "coffee" }
         if normalized.contains("dinner") { return "food" }
-        if normalized.contains("food") { return "food" }
+        if normalized.contains("food") || normalized.contains("proper meal") || normalized.contains("good to eat") { return "food" }
         if normalized.contains("fitness") { return "fitness" }
         if normalized.contains("work") { return "work" }
-        if normalized.contains("event") { return "events" }
-        if normalized.contains("parking") { return normalized.contains("covered") ? "covered_parking" : "parking" }
+        if normalized.contains("event") || normalized.contains("happening") { return "events" }
+        if normalized.contains("parking") || normalized.contains("arrival") { return normalized.contains("covered") ? "covered_parking" : "parking" }
         if normalized.contains("keep going") { return "drinks" }
         if normalized.contains("sleep") { return "sleep" }
-        if normalized.contains("stay nearby") { return "stay" }
+        if normalized.contains("stay nearby") || normalized.contains("comfortable stay") { return "sleep" }
         if normalized.contains("ride") { return "ride" }
         if normalized.contains("5 min") || normalized.contains("short walk") { return "close" }
         if normalized.contains("10 min") { return "medium" }
-        if normalized.contains("open to explore") { return "far" }
-        if normalized.contains("closest") { return "closest" }
-        if normalized.contains("hotel") { return normalized.contains("boutique") ? "boutique" : "hotel" }
-        if normalized.contains("apartment") { return "apartment" }
-        if normalized.contains("short stay") { return "short_stay" }
+        if normalized.contains("open to explore") || normalized.contains("hidden gem") { return "far" }
+        if normalized.contains("closest") || normalized.contains("right nearby") { return "closest" }
+        if normalized.contains("boutique") { return "boutique" }
+        if normalized.contains("hotel") { return "hotel" }
+        if normalized.contains("apartment") || normalized.contains("private suite") { return "apartment" }
+        if normalized.contains("short stay") || normalized.contains("tonight only") { return "short_stay" }
         if normalized.contains("just me") || normalized.contains("solo") { return "solo" }
         if normalized.contains("date") { return "date_night" }
         if normalized.contains("group") { return "group" }
-        if normalized.contains("price") { return "price" }
-        if normalized.contains("rated") { return "rated" }
-        if normalized.contains("safest") { return "safe" }
+        if normalized.contains("price") || normalized.contains("value") { return "price" }
+        if normalized.contains("rated") || normalized.contains("reviewed") { return "rated" }
+        if normalized.contains("safest") || normalized.contains("comfortable arrival") { return "safe" }
         return normalized.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
     }
 }
@@ -785,9 +786,9 @@ private enum NativeLaunchQuizContext {
 
     var line: String {
         switch self {
-        case .day: return "Daytime near Midtown · coffee, food, work spots, and parking"
-        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy parking"
-        case .lateNight: return "Late night near Midtown · keep going, get home, or stay nearby"
+        case .day: return "Daytime near Midtown · coffee, food, quiet corners, and easy arrivals"
+        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy arrivals"
+        case .lateNight: return "Late night near Midtown · keep going, get home, or land softly"
         }
     }
 }
@@ -805,11 +806,11 @@ private enum NativePersonalizationStep: Equatable {
     func question(context: NativeLaunchQuizContext, selectedIntent: String) -> String {
         switch self {
         case .vibe:
-            return context == .lateNight ? "What do you need tonight?" : context == .day ? "What are you looking for nearby?" : NativeAuthLaunchContract.vibeQuestion
+            return context == .lateNight ? "What would make tonight easier?" : context == .day ? "What would make the next hour easier?" : NativeAuthLaunchContract.vibeQuestion
         case .walk:
-            return Self.isSleepIntent(selectedIntent) ? "What kind of stay fits tonight?" : NativeAuthLaunchContract.walkQuestion
+            return Self.isSleepIntent(selectedIntent) ? "What kind of landing feels right?" : NativeAuthLaunchContract.walkQuestion
         case .crew:
-            return Self.isSleepIntent(selectedIntent) ? "What matters most?" : NativeAuthLaunchContract.crewQuestion
+            return Self.isSleepIntent(selectedIntent) ? "What should feel effortless?" : NativeAuthLaunchContract.crewQuestion
         }
     }
 
@@ -819,14 +820,14 @@ private enum NativePersonalizationStep: Equatable {
         switch self {
         case .vibe:
             switch context {
-            case .day: return ["☕ Coffee", "🍔 Food", "💻 Work spot", "🚗 Parking"]
+            case .day: return ["☕ A good coffee stop", "🍔 A proper meal", "💻 A quiet place to settle", "🚗 Easy arrival"]
             case .evening: return NativeAuthLaunchContract.vibeOptions
-            case .lateNight: return ["🍸 Keep going", "🍔 Late food", "🛏️ Sleep nearby", "🚕 Ride home"]
+            case .lateNight: return ["🍸 Keep the night going", "🍔 Something good to eat", "🛏️ A comfortable stay", "🚕 A smooth ride home"]
             }
         case .walk:
-            return Self.isSleepIntent(selectedIntent) ? ["🏨 Hotel", "✨ Boutique hotel", "🏢 Apartment stay", "⏱️ Short stay"] : NativeAuthLaunchContract.walkOptions
+            return Self.isSleepIntent(selectedIntent) ? ["🏨 Full-service hotel", "✨ Boutique stay", "🏢 Private suite", "⏱️ Tonight only"] : NativeAuthLaunchContract.walkOptions
         case .crew:
-            return Self.isSleepIntent(selectedIntent) ? ["📍 Closest", "💸 Best price", "⭐ Best rated", "🔒 Safest area"] : NativeAuthLaunchContract.crewOptions
+            return Self.isSleepIntent(selectedIntent) ? ["📍 Right nearby", "💸 Best value", "⭐ Best reviewed", "🔒 Most comfortable arrival"] : NativeAuthLaunchContract.crewOptions
         }
     }
 

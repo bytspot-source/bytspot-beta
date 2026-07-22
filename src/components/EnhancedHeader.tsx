@@ -26,9 +26,33 @@ interface EnhancedHeaderProps {
   weatherLoading?: boolean;
 }
 
+function getTimeGreeting(hour: number) {
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 23) return 'Good evening';
+  return 'Late night';
+}
+
+function getMidtownContext(hour: number) {
+  if (hour >= 5 && hour < 9) return 'Coffee, work spots, and easy arrivals nearby';
+  if (hour >= 9 && hour < 12) return 'Coffee, errands, and low-friction parking';
+  if (hour >= 12 && hour < 14) return 'A good table, a short walk, and an easy return';
+  if (hour >= 14 && hour < 17) return 'Close stops, errands, and calm arrivals';
+  if (hour >= 17 && hour < 20) return 'Dinner, drinks, and easy arrivals nearby';
+  if (hour >= 20 && hour < 23) return 'Good rooms, late tables, and simpler routes';
+  return 'Food, rides, and a softer landing nearby';
+}
+
+function getGuestGreetingTitle(hour: number) {
+  if (hour >= 5 && hour < 12) return 'Morning in Midtown';
+  if (hour >= 12 && hour < 17) return 'Afternoon in Midtown';
+  if (hour >= 17 && hour < 20) return 'Evening in Midtown';
+  if (hour >= 20 && hour < 23) return 'Tonight is still open';
+  return 'Still out?';
+}
+
 export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [greeting, setGreeting] = useState('');
   const [spotsNearby, setSpotsNearby] = useState(12);
   const [aiRecs, setAiRecs] = useState(8);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -99,38 +123,10 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
     return () => clearInterval(timer);
   }, []);
 
-  // Generate personalized greeting with Midtown context
-  useEffect(() => {
-    const hour = currentTime.getHours();
-    const userName = localStorage.getItem('bytspot_user_name') || '';
-
-    let timeGreeting = '';
-    let midtownContext = '';
-    if (hour >= 5 && hour < 9) {
-      timeGreeting = 'Good morning';
-      midtownContext = 'Midtown is waking up ☕';
-    } else if (hour >= 9 && hour < 12) {
-      timeGreeting = 'Good morning';
-      midtownContext = 'Perfect time to explore 🌤️';
-    } else if (hour >= 12 && hour < 14) {
-      timeGreeting = 'Good afternoon';
-      midtownContext = 'Lunch rush in Midtown 🍽️';
-    } else if (hour >= 14 && hour < 17) {
-      timeGreeting = 'Good afternoon';
-      midtownContext = 'Midtown is buzzing 🌆';
-    } else if (hour >= 17 && hour < 20) {
-      timeGreeting = 'Good evening';
-      midtownContext = 'Happy hour time 🍸';
-    } else if (hour >= 20 && hour < 23) {
-      timeGreeting = 'Good evening';
-      midtownContext = 'Midtown is live tonight 🔥';
-    } else {
-      timeGreeting = 'Late night';
-      midtownContext = 'Late night in Midtown 🌙';
-    }
-
-    setGreeting(userName ? `${timeGreeting}, ${userName}` : `${timeGreeting} · ${midtownContext}`);
-  }, [currentTime]);
+  const hour = currentTime.getHours();
+  const userName = localStorage.getItem('bytspot_user_name') || '';
+  const greeting = userName ? `${getTimeGreeting(hour)}, ${userName}` : getGuestGreetingTitle(hour);
+  const midtownContext = getMidtownContext(hour);
 
   // Scroll-based animations
   const { scrollY } = useScroll({
@@ -313,30 +309,15 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
         >
           {greeting}
         </motion.p>
-        {(() => {
-          const userName = localStorage.getItem('bytspot_user_name') || '';
-          const hour = new Date().getHours();
-          let ctx = '';
-          if (hour >= 5 && hour < 9) ctx = 'Midtown is waking up ☕';
-          else if (hour >= 9 && hour < 12) ctx = 'Perfect time to explore 🌤️';
-          else if (hour >= 12 && hour < 14) ctx = 'Lunch rush in Midtown 🍽️';
-          else if (hour >= 14 && hour < 17) ctx = 'Midtown is buzzing 🌆';
-          else if (hour >= 17 && hour < 20) ctx = 'Happy hour time 🍸';
-          else if (hour >= 20 && hour < 23) ctx = 'Midtown is live tonight 🔥';
-          else ctx = 'Late night in Midtown 🌙';
-          if (!userName) return null;
-          return (
-            <motion.p
-              className="text-[11px] text-white/50 mt-0.5"
-              style={{ fontWeight: 400 }}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...springConfig, delay: 0.25 }}
-            >
-              {ctx}
-            </motion.p>
-          );
-        })()}
+        <motion.p
+          className="text-[11px] text-white/50 mt-0.5"
+          style={{ fontWeight: 400 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...springConfig, delay: 0.25 }}
+        >
+          {midtownContext}
+        </motion.p>
       </motion.div>
     </motion.div>
   );

@@ -989,14 +989,14 @@ export default function App() {
   }, [launchPreviewVersion, activeTab]);
   const onboardingPreviewCopy = useMemo(() => {
     const intent = onboardingPreview?.answers?.vibe ?? '';
-    if (['sleep', 'stay'].includes(intent)) return { title: 'Safe stays nearby', why: 'Late night · Midtown · safe area preference · short-rest options' };
-    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Parking-aware picks', why: 'Midtown · easy parking preference · short walk options' };
-    if (intent === 'ride') return { title: 'Ride-friendly options', why: 'Local conditions · ride-aware route · nearby pickup options' };
-    if (intent === 'indoor') return { title: 'Indoor picks nearby', why: 'Weather-aware · indoor comfort · short walk priority' };
-    if (intent === 'drinks') return { title: 'Nightlife picks nearby', why: 'Evening vibe · Midtown · drinks and social spots' };
-    if (intent === 'events') return { title: 'Event-friendly picks', why: 'Evening vibe · Midtown · entertainment nearby' };
-    if (intent === 'coffee') return { title: 'Coffee and quick stops', why: 'Daytime vibe · Midtown · quick walk preference' };
-    return { title: 'Recommended from your quiz', why: 'Your vibe · local conditions · nearby activity around Midtown' };
+    if (['sleep', 'stay'].includes(intent)) return { title: 'A softer landing nearby', why: 'Late-night comfort · Midtown timing · safer arrival' };
+    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Easy arrivals near Midtown', why: 'Easy arrival · short walk · Midtown timing' };
+    if (intent === 'ride') return { title: 'A smoother way home', why: 'Better pickup points · cleaner route · less waiting' };
+    if (intent === 'indoor') return { title: 'Comfort-first plans nearby', why: 'Dry, comfortable, and close enough' };
+    if (intent === 'drinks') return { title: 'A night worth stepping into', why: 'Evening energy · good rooms · easy arrival' };
+    if (intent === 'events') return { title: 'Plans that fit the crowd', why: 'Show timing · crowd flow · easier exits' };
+    if (intent === 'coffee') return { title: 'A good stop before you go', why: 'Daytime rhythm · close stops · low-friction arrival' };
+    return { title: 'Shaped around your night', why: 'Your mood · the hour · what feels close enough' };
   }, [onboardingPreview]);
   const viewOnboardingPicksOnMap = useCallback(() => {
     if (!hasAuthenticatedConsumerSession()) {
@@ -2641,36 +2641,36 @@ export default function App() {
             const evening = hour >= 16;
             const sleepIntent = ['sleep', 'stay'].includes(quizSelections.vibe ?? '');
             const contextLine = wet
-              ? `Rain near ${userCity} · indoor spots, covered parking, and short walks prioritized`
+              ? `Rain near ${userCity} · covered arrivals, indoor rooms, and short walks first`
               : uncomfortable
-                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first nearby picks`
+                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first stops and calm arrivals`
                 : lateNight
-                  ? `Late night near ${userCity} · keep going, get home, or stay nearby`
+                  ? `Late night near ${userCity} · keep going, get home, or land softly`
                   : evening
-                    ? `Evening near ${userCity} · dinner, drinks, events, and easy parking`
-                    : `Daytime near ${userCity} · coffee, food, work spots, and parking`;
+                    ? `Evening near ${userCity} · dinner, drinks, events, and easy arrivals`
+                    : `Daytime near ${userCity} · coffee, food, quiet corners, and easy arrivals`;
             const intentQuestion: QuizQuestion = wet
-              ? { emoji: '☔', question: 'Rain nearby — what do you need?', key: 'vibe', context: contextLine,
-                  options: [{ label: '☔ Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Covered parking', value: 'covered_parking' }, { label: '🚕 Ride instead', value: 'ride' }, { label: '🛏️ Stay nearby', value: 'stay' }] }
+              ? { emoji: '☔', question: 'Rain nearby — what would feel easiest?', key: 'vibe', context: contextLine,
+                  options: [{ label: '☔ A dry room nearby', value: 'indoor', recommended: true }, { label: '🚗 Covered arrival', value: 'covered_parking' }, { label: '🚕 A ride instead', value: 'ride' }, { label: '🛏️ A comfortable stay', value: 'stay' }] }
               : uncomfortable
-                ? { emoji: '🏠', question: "Let's keep it comfortable — what do you need?", key: 'vibe', context: contextLine,
-                    options: [{ label: '🏠 Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Close parking', value: 'parking' }, { label: '☕ Quick stop', value: 'coffee' }, { label: '🚕 Ride option', value: 'ride' }] }
+                ? { emoji: '🏠', question: "Let's keep it comfortable — what would help?", key: 'vibe', context: contextLine,
+                    options: [{ label: '🏠 Somewhere comfortable', value: 'indoor', recommended: true }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '☕ A quick good stop', value: 'coffee' }, { label: '🚕 A smoother ride', value: 'ride' }] }
                 : lateNight
-                  ? { emoji: '🌙', question: 'What do you need tonight?', key: 'vibe', context: contextLine,
-                      options: [{ label: '🍸 Keep going', value: 'drinks' }, { label: '🍔 Late food', value: 'food' }, { label: '🛏️ Sleep nearby', value: 'sleep', recommended: true }, { label: '🚕 Ride home', value: 'ride' }] }
+                  ? { emoji: '🌙', question: 'What would make tonight easier?', key: 'vibe', context: contextLine,
+                      options: [{ label: '🍸 Keep the night going', value: 'drinks' }, { label: '🍔 Something good to eat', value: 'food' }, { label: '🛏️ A comfortable stay', value: 'sleep', recommended: true }, { label: '🚕 A smooth ride home', value: 'ride' }] }
                   : evening
-                    ? { emoji: '✨', question: "What's your evening vibe?", key: 'vibe', context: contextLine,
-                        options: [{ label: '🍽️ Dinner', value: 'food' }, { label: '🍸 Drinks', value: 'drinks' }, { label: '🎶 Events', value: 'events' }, { label: '💕 Date night', value: 'date' }] }
-                    : { emoji: '☀️', question: 'What are you looking for nearby?', key: 'vibe', context: contextLine,
-                        options: [{ label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '💻 Work spot', value: 'work' }, { label: '🚗 Parking', value: 'parking' }] };
+                    ? { emoji: '✨', question: 'What kind of night are we shaping?', key: 'vibe', context: contextLine,
+                        options: [{ label: '🍽️ Dinner with atmosphere', value: 'food' }, { label: '🍸 A good drink', value: 'drinks' }, { label: '🎶 Something happening', value: 'events' }, { label: '💕 Date-night ready', value: 'date' }] }
+                    : { emoji: '☀️', question: 'What would make the next hour easier?', key: 'vibe', context: contextLine,
+                        options: [{ label: '☕ A good coffee stop', value: 'coffee' }, { label: '🍔 A proper meal', value: 'food' }, { label: '💻 A quiet place to settle', value: 'work' }, { label: '🚗 Easy arrival', value: 'parking' }] };
             const mobilityQuestion: QuizQuestion = sleepIntent
-              ? { emoji: '🛏️', question: 'What kind of stay fits tonight?', key: 'walk', options: [{ label: '🏨 Hotel', value: 'hotel' }, { label: '✨ Boutique hotel', value: 'boutique' }, { label: '🏢 Apartment stay', value: 'apartment' }, { label: '⏱️ Short stay', value: 'short_stay' }] }
+              ? { emoji: '🛏️', question: 'What kind of landing feels right?', key: 'walk', options: [{ label: '🏨 Full-service hotel', value: 'hotel' }, { label: '✨ Boutique stay', value: 'boutique' }, { label: '🏢 Private suite', value: 'apartment' }, { label: '⏱️ Tonight only', value: 'short_stay' }] }
               : wet
-                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered parking', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Closest option', value: 'closest' }] }
-                : { emoji: '🗺️', question: 'How close should it be?', key: 'walk', options: [{ label: '📍 Closest', value: 'closest' }, { label: '🚶 5 min walk', value: 'close' }, { label: '🚗 Easy parking', value: 'parking' }, { label: '🗺️ Open to explore', value: 'far' }] };
+                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered arrival', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Right nearby', value: 'closest' }] }
+                : { emoji: '🗺️', question: 'How far are you comfortable going?', key: 'walk', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '🚶 A short walk', value: 'close' }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '🗺️ Show me a hidden gem', value: 'far' }] };
             const preferenceQuestion: QuizQuestion = sleepIntent
-              ? { emoji: '🔒', question: 'What matters most?', key: 'group', options: [{ label: '📍 Closest', value: 'closest' }, { label: '💸 Best price', value: 'price' }, { label: '⭐ Best rated', value: 'rated' }, { label: '🔒 Safest area', value: 'safe', recommended: true }] }
-              : { emoji: '👥', question: "Who's this for?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }, { label: '💼 Work/client', value: 'work' }] };
+              ? { emoji: '🔒', question: 'What should feel effortless?', key: 'group', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '💸 Best value', value: 'price' }, { label: '⭐ Best reviewed', value: 'rated' }, { label: '🔒 Most comfortable arrival', value: 'safe', recommended: true }] }
+              : { emoji: '👥', question: "Who's coming with you?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date-night ready', value: 'date' }, { label: '👥 A group', value: 'group' }, { label: '💼 Work or client', value: 'work' }] };
             const quizQuestions = [intentQuestion, mobilityQuestion, preferenceQuestion];
             const total = quizQuestions.length;
             const isConfirmation = quizStep === total;

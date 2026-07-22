@@ -44,12 +44,12 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     {
       id: 1,
       type: 'ai' as const,
-      content: "👋 Hey there! I'm your Bytspot AI Concierge. I can help you find parking, discover venues, book valet services, and optimize your budget.\n\nWhat can I help you with today?",
+      content: "Good evening — I can help shape the next move. Tell me where you're headed, or I can start with parking, a table, a ride, or a safer route nearby.\n\nWhat should we make easier first?",
       timestamp: new Date(),
       suggestions: [
-        '🅿️ Find parking near Midtown',
-        '🎉 Best parking for events',
-        '💰 Cheapest options',
+        '🅿️ Make arrival easy near Midtown',
+        '🎉 Plan around an event tonight',
+        '💰 Keep it comfortable and under budget',
         '🆘 Help with reservation',
       ],
     },
@@ -105,7 +105,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: Date.now(),
             type: 'ai',
-            content: 'Voice input could not start on this device. Please type your question below and I will help right away.',
+            content: "Voice isn't available here yet. Type what you need and I'll keep going.",
             timestamp: new Date(),
           },
         ]);
@@ -139,7 +139,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       return true;
     } catch {
       setIsListening(false);
-      addVoiceFallbackMessage('Voice input could not start on this iPad. Please type your question below and I will help right away.');
+      addVoiceFallbackMessage("Voice isn't available on this iPad yet. Type what you need and I'll keep going.");
       return true;
     }
   }, [addVoiceFallbackMessage]);
@@ -157,7 +157,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     if (await startNativeVoiceInput()) return;
 
     if (!recognitionRef.current) {
-      addVoiceFallbackMessage('Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.');
+      addVoiceFallbackMessage("Voice isn't available on this device yet. Type what you need — I can still help with parking, venues, and plans nearby.");
       return;
     }
 
@@ -167,7 +167,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       toast('Listening... Speak now', { icon: '🎤', duration: 3000 });
     } catch {
       setIsListening(false);
-      addVoiceFallbackMessage('Voice input could not start. Please type your question below and I will help right away.');
+      addVoiceFallbackMessage("Voice couldn't start. Type what you need and I'll keep going.");
     }
   }, [addVoiceFallbackMessage, isListening, startNativeVoiceInput]);
 
@@ -204,7 +204,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Parking near Midtown under $15
     if (lowerMessage.includes('midtown') || (lowerMessage.includes('parking') && lowerMessage.includes('$15'))) {
       return {
-        content: `🎯 Found 6 covered parking options near Midtown under $15/hour:\n\nBased on current weather (${weather}), time (${new Date().toLocaleTimeString()}), and your budget, here are my top recommendations:`,
+        content: `I found a few easy Midtown arrivals under $15/hr.\n\nI weighed the hour (${new Date().toLocaleTimeString()}), weather (${weather}), walk, and price so the arrival feels simple:`,
         recommendations: [
           {
             id: '1',
@@ -214,7 +214,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             price: '$12/hr',
             distance: '0.1 mi',
             rating: 4.8,
-            badge: '🎯 Best Match',
+            badge: 'Best fit',
             icon: 'parking',
           },
           {
@@ -233,19 +233,19 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             id: '3',
             type: 'parking',
             title: 'Peachtree Center Garage',
-            subtitle: 'Covered • Easy Access',
+            subtitle: 'Covered • Easy arrival',
             price: '$11/hr',
             distance: '0.3 mi',
             rating: 4.5,
             savings: 'Save $5',
             walkTime: '5 min walk',
-            badge: '💰 Budget Pick',
+            badge: 'Best value',
             icon: 'parking',
           },
         ],
         suggestions: [
-          '🎫 Reserve Colony Square Garage now',
-          '💰 Show me all options under $10/hour',
+          '🎫 Hold Colony Square Garage',
+          '💰 Keep it under $10/hour',
           '🚶 What\'s the walking time for each?',
           '⚡ Which has EV charging?',
         ],
@@ -255,7 +255,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Atlanta United / game parking
     if (lowerMessage.includes('united') || lowerMessage.includes('game') || lowerMessage.includes('falcons') || lowerMessage.includes('stadium')) {
       return {
-        content: `⚽ Atlanta United game tonight at Mercedes-Benz Stadium! Traffic will be heavy.\n\nHere's your best strategy for easy parking & exit:\n\n🚗 **Smart Pick**: Park further out and avoid post-game gridlock. I found spots with dedicated shuttle service:`,
+        content: `Atlanta United is at Mercedes-Benz Stadium tonight, so the exit matters as much as the arrival.\n\nThe smoothest plan is to park a little farther out and avoid the post-game gridlock. I found options with cleaner exits and shuttle support:`,
         recommendations: [
           {
             id: '1',
@@ -265,34 +265,34 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             price: '$18 flat',
             distance: '0.3 mi',
             rating: 4.9,
-            badge: '⚡ Easy Exit',
+            badge: 'Easy exit',
             icon: 'parking',
           },
           {
             id: '2',
             type: 'valet',
-            title: 'MBS Premium Valet',
+            title: 'MBS door-side valet',
             subtitle: 'Door-to-door service',
             price: '$45 flat',
             distance: 'At venue',
             rating: 5.0,
-            badge: '⭐ Premium',
+            badge: 'Premium',
             icon: 'valet',
           },
           {
             id: '3',
             type: 'transportation',
-            title: 'MARTA + 5 min walk',
-            subtitle: 'No parking stress',
+            title: 'MARTA + short walk',
+            subtitle: 'Skip the parking rush',
             price: '$2.50',
             distance: 'N/A',
             savings: 'Save $16-42',
-            badge: '🚇 Eco Option',
+            badge: 'Low-stress',
             icon: 'train',
           },
         ],
         suggestions: [
-          '🎫 Reserve Gulch Deck now (25 spots left)',
+          '🎫 Hold Gulch Deck now (25 spots left)',
           '🚇 Show me MARTA options',
           '💰 Cheapest parking within 10 blocks',
           '⏱️ What time should I arrive?',
@@ -303,7 +303,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Cheapest secure parking
     if ((lowerMessage.includes('cheapest') || lowerMessage.includes('cheap')) && lowerMessage.includes('parking')) {
       return {
-        content: `💰 Here are the cheapest secure parking options within 5 blocks of your destination:\n\n**Budget Analysis**: By walking 2-3 extra blocks, you can save $5-15 per hour! All options have security cameras and are well-lit.`,
+        content: `Here are the best-value arrivals within five blocks that still feel comfortable.\n\nWorth knowing: walking two or three extra blocks can save $5-15/hr, and these options keep lighting or security in the mix.`,
         recommendations: [
           {
             id: '1',
@@ -313,7 +313,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             price: '$6/hr',
             distance: '0.4 mi',
             rating: 4.3,
-            badge: '💰 Cheapest',
+            badge: 'Lowest price',
             savings: 'Save $9/hr',
             walkTime: '6 min walk',
             icon: 'parking',
@@ -340,15 +340,15 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             rating: 4.6,
             savings: 'Save $5/hr',
             walkTime: '3 min walk',
-            badge: '⚖️ Best Value',
+            badge: 'Best value',
             icon: 'parking',
           },
         ],
         suggestions: [
-          '🎫 Reserve the cheapest spot now',
+          '🎫 Hold the best-value spot',
           '🚶 Show walking routes for each',
           '💡 What about monthly parking passes?',
-          '⚡ Include premium options for comparison',
+          '✨ Compare more comfortable options',
         ],
       };
     }
@@ -356,7 +356,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Expired reservation problem
     if (lowerMessage.includes('expired') || lowerMessage.includes('reservation')) {
       return {
-        content: `🆘 No worries! Your reservation expired 10 minutes ago, but I have solutions:\n\n**Option 1**: Extend your current spot (if available)\n**Option 2**: Find nearby alternatives immediately\n**Option 3**: Get valet to move your car\n\n⚡ **Urgent**: Your car may be at risk of citation. Here are instant options:`,
+        content: `No panic — let's protect the car and keep you moving.\n\nWe can try to extend the current spot, find a nearby alternative, or have a driver handle the move if valet is available. Because the reservation expired recently, I'd act now:`,
         recommendations: [
           {
             id: '1',
@@ -366,7 +366,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             price: '$16/2hr',
             distance: '0.0 mi',
             rating: 4.5,
-            badge: '⚡ Fastest',
+            badge: 'Fastest',
             icon: 'parking',
           },
           {
@@ -384,8 +384,8 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '3',
             type: 'valet',
-            title: 'Emergency Valet Service',
-            subtitle: 'We move your car for you',
+            title: 'Have a driver handle it',
+            subtitle: 'A driver moves the car while you stay where you are',
             price: '$30 flat',
             distance: 'Full service',
             badge: '🛎️ Concierge',
@@ -395,7 +395,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
         suggestions: [
           '✅ Extend current spot now',
           '📞 Call human support (urgent)',
-          '🚗 Book emergency valet',
+          '🚗 Have a driver move it',
           '💡 Set up auto-extend for future',
         ],
       };
@@ -404,13 +404,13 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Premium security features
     if (lowerMessage.includes('premium') || lowerMessage.includes('security')) {
       return {
-        content: `🛡️ **Premium Security Features Explained**:\n\n✓ 24/7 Security Patrol (on-site guards)\n✓ HD Camera System (recorded)\n✓ License Plate Recognition\n✓ Gated Access (key card entry)\n✓ Theft Insurance Coverage\n✓ Instant Alert System\n\n**Is it worth it?** Yes, if:\n• High-value vehicle ($40k+)\n• Overnight/extended parking\n• High-crime area\n• Peace of mind matters\n\n**Cost**: Usually $3-5 more per hour.\n\nHere's a comparison:`,
+        content: `For a quieter, more protected arrival, look for staffed garages, gated access, camera coverage, and clear overnight policies.\n\nIt's usually worth the extra $3-5/hr when you're parking longer, arriving late, or leaving a higher-value vehicle. Here's the cleaner comparison:`,
         recommendations: [
           {
             id: '1',
             type: 'parking',
-            title: 'Premium Secure Garage',
-            subtitle: 'All security features',
+            title: 'Staffed secure garage',
+            subtitle: 'Patrol, gate, and cameras',
             price: '$18/hr',
             distance: '0.2 mi',
             rating: 4.9,
@@ -420,7 +420,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '2',
             type: 'parking',
-            title: 'Standard Garage',
+            title: 'Simple covered garage',
             subtitle: 'Camera monitoring only',
             price: '$13/hr',
             distance: '0.2 mi',
@@ -431,12 +431,12 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           {
             id: '3',
             type: 'valet',
-            title: 'Valet + Premium Security',
-            subtitle: 'Attendant parks in secure lot',
+            title: 'Valet with secure staging',
+            subtitle: 'Attendant parks in a protected lot',
             price: '$35 flat',
             distance: 'Door service',
             rating: 5.0,
-            badge: '⭐ Best',
+            badge: 'Easiest',
             icon: 'valet',
           },
         ],
@@ -452,24 +452,24 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Group coordination
     if (lowerMessage.includes('group') || lowerMessage.includes('multiple')) {
       return {
-        content: `👥 **Group Parking Coordination**:\n\nI can help you book multiple spots with synchronized times! Here's what I found for your group:\n\n✓ Same garage, different levels\n✓ Synchronized booking times\n✓ Group discount available\n✓ Easy meetup coordination`,
+        content: `I can keep the group arriving together. I found options that preserve the meetup point, align timing, and avoid everyone hunting for different exits.`,
         recommendations: [
           {
             id: '1',
             type: 'parking',
-            title: 'Group Package (3-5 cars)',
+            title: 'Group arrival package',
             subtitle: 'Same garage • 15% group discount',
             price: '$12/hr each',
             distance: '0.2 mi',
             rating: 4.7,
-            badge: '👥 Group Deal',
+            badge: 'Group-friendly',
             savings: 'Save $3 each',
             icon: 'parking',
           },
           {
             id: '2',
             type: 'parking',
-            title: 'Adjacent Garages',
+            title: 'Adjacent garage pair',
             subtitle: 'Walk to same exit point',
             price: '$10-14/hr',
             distance: '0.1-0.2 mi',
@@ -482,7 +482,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
           '📋 Reserve spots for 3 vehicles',
           '📍 Show best meetup points',
           '💰 Calculate total group cost',
-          '⚡ Book all spots at once',
+          '✨ Hold the group plan',
         ],
       };
     }
@@ -490,24 +490,24 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     // Weather considerations
     if (lowerMessage.includes('weather') || lowerMessage.includes('rain')) {
       return {
-        content: `☔ **Weather-Smart Recommendations**:\n\nCurrent weather: ${weather}\nForecast: Clear skies all day\n\nBased on current conditions, here's what I recommend:`,
+        content: `Let's keep this comfortable from door to door. Current weather is ${weather}, so I'd favor covered arrivals, valet, or shorter walks first.`,
         recommendations: [
           {
             id: '1',
             type: 'parking',
-            title: 'Covered Garage',
-            subtitle: 'Protected from elements',
+            title: 'Covered arrival',
+            subtitle: 'Protected from the weather',
             price: '$15/hr',
             distance: '0.2 mi',
             rating: 4.8,
-            badge: '🌤️ Weather-proof',
+            badge: 'Weather-ready',
             icon: 'parking',
           },
           {
             id: '2',
             type: 'valet',
-            title: 'Valet Service',
-            subtitle: 'No walking in weather',
+            title: 'Door-side valet',
+            subtitle: 'Avoid the weather walk',
             price: '$30 flat',
             distance: 'Door service',
             rating: 4.9,
@@ -553,7 +553,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     if (!navigator.onLine) {
       const aiMessage: Message = {
         id: Date.now() + 1, type: 'ai',
-        content: '📡 You\'re offline. Concierge needs a live connection to answer accurately.',
+        content: "You're offline. Concierge needs a live connection to answer accurately, but I'll be ready as soon as you're back.",
         timestamp: new Date(), suggestions: ['Try again when online'], recommendations: [],
       };
       setMessages((prev) => [...prev, aiMessage]);
@@ -571,7 +571,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       const token = localStorage.getItem('bytspot_auth_token');
       if (!token) {
         const aiMessage: Message = {
-          id: Date.now() + 1, type: 'ai', content: 'Sign in to use live concierge recommendations.',
+          id: Date.now() + 1, type: 'ai', content: 'Sign in and I can tailor this with live places, routes, and access.',
           timestamp: new Date(), suggestions: ['Sign in', 'Explore nearby'], recommendations: [],
         };
         setMessages((prev) => [...prev, aiMessage]);
@@ -592,7 +592,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       if (result.livePlaces && result.livePlaces.length > 0) {
         suggestions.push(`📍 Tell me about ${result.livePlaces[0].name}`);
       }
-      suggestions.push('🅿️ Find parking nearby', '🌙 Plan my night');
+      suggestions.push('🅿️ Make arrival easier nearby', '🌙 Shape the rest of tonight');
 
       const aiMessage: Message = {
         id: Date.now() + 1,
@@ -611,7 +611,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
     } catch (err: any) {
       console.error('[Concierge] API error:', err?.message);
       const aiMessage: Message = {
-        id: Date.now() + 1, type: 'ai', content: 'Concierge is temporarily unavailable. Please try again in a moment.',
+        id: Date.now() + 1, type: 'ai', content: "Concierge is catching up. Try again in a moment and I'll pick up from here.",
         timestamp: new Date(), suggestions: ['Retry', 'Find parking nearby'], recommendations: [],
       };
       setMessages((prev) => [...prev, aiMessage]);
@@ -657,10 +657,10 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             </div>
             <div>
               <h2 className="text-title-2 text-white">
-                AI Concierge
+                Bytspot Concierge
               </h2>
               <p className="text-[11px] text-white/80" style={{ fontWeight: 500 }}>
-                Powered by Advanced AI • Online 24/7
+                Local guidance · parking, access, stays, and routes
               </p>
             </div>
           </div>
@@ -878,33 +878,33 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
         {/* Quick Actions Row */}
         <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-hide">
           <motion.button
-            onClick={() => handleSuggestion('🅿️ Find parking near me')}
+            onClick={() => handleSuggestion('🅿️ Make arrival easy near me')}
             className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] bg-[#1C1C1E]/80 border border-white/30 text-white whitespace-nowrap"
             style={{ fontWeight: 500 }}
             whileTap={{ scale: 0.95 }}
           >
             <MapPin className="w-3.5 h-3.5" />
-            Parking
+            Easy arrival
           </motion.button>
 
           <motion.button
-            onClick={() => handleSuggestion('🎉 Best venues tonight')}
+            onClick={() => handleSuggestion('🎉 Shape a good night nearby')}
             className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] bg-[#1C1C1E]/80 border border-white/30 text-white whitespace-nowrap"
             style={{ fontWeight: 500 }}
             whileTap={{ scale: 0.95 }}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            Venues
+            Tonight
           </motion.button>
 
           <motion.button
-            onClick={() => handleSuggestion('💰 Cheapest options')}
+            onClick={() => handleSuggestion('💰 Keep it comfortable and under budget')}
             className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] bg-[#1C1C1E]/80 border border-white/30 text-white whitespace-nowrap"
             style={{ fontWeight: 500 }}
             whileTap={{ scale: 0.95 }}
           >
             <DollarSign className="w-3.5 h-3.5" />
-            Budget
+            Value
           </motion.button>
 
           <motion.button
@@ -919,7 +919,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
             whileTap={{ scale: 0.95 }}
           >
             <Phone className="w-3.5 h-3.5" />
-            Human Support
+            Human help
           </motion.button>
         </div>
 
@@ -960,7 +960,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
                   handleSend();
                 }
               }}
-              placeholder={isListening ? 'Listening...' : 'Ask me anything...'}
+              placeholder={isListening ? 'Listening...' : "Tell me what you're trying to do tonight…"}
               className="flex-1 bg-transparent text-[15px] outline-none resize-none px-3 py-2 min-h-[40px] max-h-[120px] text-white placeholder:text-white/50"
               style={{ fontWeight: 400 }}
               rows={1}

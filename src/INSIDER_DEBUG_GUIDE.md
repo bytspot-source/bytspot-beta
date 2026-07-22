@@ -86,8 +86,8 @@ const handleStoryClick = (index: number) => {
 3. Click any venue card
 4. You should:
    ✅ Feel haptic vibration
-   ✅ See toast: "Opening [Venue Name]"
-   ✅ See console log: "Venue clicked: [Name]"
+   ✅ See toast: "Opening Lyla Lila"
+   ✅ See console log: "Venue clicked: Lyla Lila"
    ✅ Venue details modal opens
 ```
 

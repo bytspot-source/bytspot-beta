@@ -91,7 +91,7 @@ export const featureModules = [
   }),
   module({
     id: 'ai-concierge',
-    name: 'Advanced Search & AI Concierge',
+    name: 'Advanced Search & Bytspot Concierge',
     stage: 'frozen',
     audience: ['parker-consumer'],
     route: '/modules/ai-concierge',

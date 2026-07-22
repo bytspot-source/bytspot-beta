@@ -20,13 +20,13 @@ interface Message {
 const initialMessages: Message[] = [
   {
     id: 1,
-    text: `Hi! I'm your AI Concierge. I can help you with reservations, recommendations, parking info, and more. What would you like to know?`,
+    text: `Hi — I'm your Bytspot Concierge. I can help with reservations, local recommendations, arrivals, and the next best move. What can I shape for you?`,
     sender: 'ai',
     timestamp: new Date(),
     suggestions: [
       'Make a reservation',
       'What\'s the dress code?',
-      'Parking options nearby',
+      'Easy arrival options',
       'Best time to visit',
     ],
   },
@@ -36,7 +36,7 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
   const [messages, setMessages] = useState<Message[]>([
     {
       ...initialMessages[0],
-      text: `Hi! I'm your AI Concierge for ${venue.name}. I can help you with reservations, recommendations, parking info, and more. What would you like to know?`,
+      text: `Hi — I'm your Bytspot Concierge for ${venue.name}. I can help with reservations, arrival options, timing, and the best way to make the visit feel easy.`,
     },
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -80,7 +80,7 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
     if (!token) {
       const fallback: Message = {
         id: Date.now() + 1,
-        text: `Here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}${venue.crowd.waitMins ? ` (~${venue.crowd.waitMins}m wait)` : ''}` : '• Currently open'}\n${venue.location ?? venue.address ?? ''}\n\nSign in to chat with the full AI concierge for personalized tips & live data! 🔓`,
+        text: `Here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}${venue.crowd.waitMins ? ` (~${venue.crowd.waitMins}m wait)` : ''}` : '• Currently open'}\n${venue.location ?? venue.address ?? ''}\n\nSign in and I can tailor this with live guidance, routes, and arrival details. 🔓`,
         sender: 'ai',
         timestamp: new Date(),
       };
@@ -127,7 +127,7 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
       // Fall back to basic venue info instead of dead-end error
       const errorResponse: Message = {
         id: Date.now() + 1,
-        text: `I'm having trouble connecting to the AI right now, but here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}` : '• Currently open'}\n\nTry again in a moment! 🔄`,
+        text: `I'm having trouble reaching live guidance right now, but here's what I know about **${venue.name}**:\n\n${venue.crowd ? `• Crowd: ${venue.crowd.label}` : '• Currently open'}\n\nTry again in a moment and I'll pick it back up. 🔄`,
         sender: 'ai',
         timestamp: new Date(),
       };
@@ -161,7 +161,7 @@ export function ConciergeChat({ venue, isDarkMode, onClose }: ConciergeChatProps
                 </div>
                 <div>
                   <h2 className="text-[17px] text-white mb-0.5" style={{ fontWeight: 600 }}>
-                    AI Concierge
+                    Bytspot Concierge
                   </h2>
                   <div className="flex items-center gap-1.5">
                     <motion.div

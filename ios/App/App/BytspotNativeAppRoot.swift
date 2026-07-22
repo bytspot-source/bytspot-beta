@@ -304,6 +304,7 @@ enum NativeLaunchPersonalizationStorage {
         if normalized.contains("fitness") { return "fitness" }
         if normalized.contains("work") { return "work" }
         if normalized.contains("event") || normalized.contains("happening") { return "events" }
+        if normalized.contains("comfortable arrival") { return "safe" }
         if normalized.contains("parking") || normalized.contains("arrival") { return normalized.contains("covered") ? "covered_parking" : "parking" }
         if normalized.contains("keep going") { return "drinks" }
         if normalized.contains("sleep") { return "sleep" }
@@ -322,7 +323,7 @@ enum NativeLaunchPersonalizationStorage {
         if normalized.contains("group") { return "group" }
         if normalized.contains("price") || normalized.contains("value") { return "price" }
         if normalized.contains("rated") || normalized.contains("reviewed") { return "rated" }
-        if normalized.contains("safest") || normalized.contains("comfortable arrival") { return "safe" }
+        if normalized.contains("safest") { return "safe" }
         return normalized.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
     }
 }

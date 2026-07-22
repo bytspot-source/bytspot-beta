@@ -145,6 +145,9 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Keep the night going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🚶 A short walk") == "close", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "🔒 Most comfortable arrival") == "safe", "NativeAuthSplashSelfTests: comfortable arrival should normalize to safe before broad arrival matching.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "✨ Boutique stay") == "boutique", "NativeAuthSplashSelfTests: boutique stay token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "⏱️ Tonight only") == "short_stay", "NativeAuthSplashSelfTests: short stay token normalization drifted.")
         precondition(ProcessInfo.processInfo.environment["BYT_NATIVE_LAUNCH_AUTORUN"] == nil || NativeAuthLaunchContract.autoRunsLaunchJourney, "NativeAuthSplashSelfTests: launch autorun hook drifted.")
     }
 

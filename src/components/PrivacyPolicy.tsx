@@ -50,7 +50,7 @@ export function PrivacyPolicy() {
         <p className="mb-3">We use the following third-party services:</p>
         <BulletList items={[
           <><B>Google Places API</B> — To provide venue information, photos, and nearby search results. Subject to <a href="https://policies.google.com/privacy" className="text-cyan-400 underline" target="_blank" rel="noopener noreferrer">Google's Privacy Policy</a>.</>,
-          <><B>OpenAI</B> — To power the AI Concierge chat feature. Conversation context is sent to OpenAI's API for response generation. No personally identifiable information is included in these requests.</>,
+          <><B>OpenAI</B> — To power Bytspot Concierge chat and personalized assistant responses. Conversation context is sent to OpenAI's API for response generation. No personally identifiable information is included in these requests.</>,
           <><B>Ticketmaster</B> — To display live events near you.</>,
           <><B>Render.com</B> — Cloud hosting for our API servers and database.</>,
         ]} />

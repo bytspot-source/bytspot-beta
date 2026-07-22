@@ -113,7 +113,7 @@ function PremiumAIText({ text, animate }: { text: string; animate: boolean }) {
 }
 
 const SUGGESTIONS = [
-  'Find parking nearby',
+  'Make arrival easier nearby',
   'Book a private chef',
   'Access my booking',
   "What’s open now?",
@@ -160,11 +160,6 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
 
   const createMessageId = () => nextMessageIdRef.current++;
   const focusInputSoon = () => window.setTimeout(() => inputRef.current?.focus(), 0);
-  const saveHistory = (next: ConciergeConversation[]) => {
-    const limited = next.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12);
-    setHistory(limited);
-    localStorage.setItem(CONCIERGE_HISTORY_KEY, JSON.stringify(limited));
-  };
   const resetConversation = () => {
     nextMessageIdRef.current = 2;
     setConversationId(`concierge-${Date.now()}`);
@@ -190,7 +185,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
     const handoffs = inferHandoffs(query);
     const q = query.toLowerCase();
     let text = `I’m on it — I’ll use ${cityName} context and narrow this down for you.`;
-    if (q.includes('parking')) text = 'I can help find nearby parking and route you to the best option.';
+    if (q.includes('parking')) text = 'I can make arrival easier with nearby options, pricing, and the cleanest route.';
     if (q.includes('open')) text = `I’ll look for what’s open now around ${cityName}.`;
     if (q.includes('access')) text = 'I can help pull up booking and access options.';
     if (q.includes('chef')) text = 'A private chef request needs white-glove handling. I’ll start the request and route you to booking options.';
@@ -206,8 +201,11 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => {
     if (initialPrompt) {
-      setInput(initialPrompt);
-      focusInputSoon();
+      const timer = window.setTimeout(() => {
+        setInput(initialPrompt);
+        focusInputSoon();
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
   }, [initialPrompt]);
   useEffect(() => {
@@ -219,9 +217,15 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
       updatedAt: Date.now(),
       messages,
     };
-    const next = [record, ...history.filter(item => item.id !== conversationId)];
-    saveHistory(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const timer = window.setTimeout(() => {
+      setHistory(prevHistory => {
+        const next = [record, ...prevHistory.filter(item => item.id !== conversationId)];
+        const limited = next.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12);
+        localStorage.setItem(CONCIERGE_HISTORY_KEY, JSON.stringify(limited));
+        return limited;
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [messages, conversationId]);
 
   // Voice recognition setup: prefer native Capacitor on iOS/iPad, fall back to
@@ -332,8 +336,8 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
     // Generic fallback
     const sample = venues.slice(0, 3);
     return { reply: sample.length > 0
-      ? `Here are some spots in ${cityName}:\n\n${sample.map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open'}`).join('\n')}\n\nSign in to chat with the full AI concierge — live events, Google Places, and personalized picks! 🚀`
-      : `I'm your ${cityName} guide! Sign in to unlock AI-powered recommendations with live crowd data, events, and more 🔓`, matchedVenues: sample };
+      ? `Here are some spots in ${cityName}:\n\n${sample.map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open'}`).join('\n')}\n\nSign in and Bytspot Concierge can shape this with live events, Google Places, and personalized picks. 🚀`
+      : `I'm your ${cityName} guide. Sign in for tailored recommendations with live crowd data, events, and more. 🔓`, matchedVenues: sample };
   };
 
   const handleSend = async (text?: string) => {

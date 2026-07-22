@@ -524,10 +524,10 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
 
     // Default smart response
     return {
-      content: `I can help you navigate Atlanta! Here's what I do best:\n\n🅿️ **Parking** — find & reserve spots by location, price, or event\n📍 **Venues** — crowd levels, wait times, and what's trending\n🚗 **Rides** — compare options and plan your route\n🎉 **Events** — tonight's happenings and nearby plans\n\nTry asking me something like:\n• "Where should I park near Piedmont Park?"\n• "What's happening in Midtown tonight?"\n• "Find me cheap parking for the game"`,
+      content: `I can help shape the next move around Atlanta. I can make arrivals easier, read the room before you go, compare the route, and find what is worth stepping into tonight.\n\nTry asking me something like:\n• "Make arrival easy near Piedmont Park"\n• "What feels lively in Midtown tonight?"\n• "Shape a low-friction game-night plan"`,
       suggestions: [
-        '🅿️ Find parking near me',
-        '🎉 What\'s happening tonight?',
+        '🅿️ Make arrival easier nearby',
+        '🎉 Shape tonight around me',
         '📍 Trending spots in Midtown',
         '🚗 Plan my night out',
       ],
@@ -612,7 +612,7 @@ export function ConciergeSection({ isDarkMode }: ConciergeSectionProps) {
       console.error('[Concierge] API error:', err?.message);
       const aiMessage: Message = {
         id: Date.now() + 1, type: 'ai', content: "Concierge is catching up. Try again in a moment and I'll pick up from here.",
-        timestamp: new Date(), suggestions: ['Retry', 'Find parking nearby'], recommendations: [],
+        timestamp: new Date(), suggestions: ['Retry', 'Make arrival easier nearby'], recommendations: [],
       };
       setMessages((prev) => [...prev, aiMessage]);
     } finally {

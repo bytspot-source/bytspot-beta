@@ -18,7 +18,7 @@ Bytspot is a **comprehensive urban mobility ecosystem** featuring three integrat
 - 🗺️ Interactive map with real-time availability
 - ⭐ Premium valet services with add-ons
 - 👥 Insider community social features
-- 🤖 AI concierge for recommendations
+- ✨ Bytspot Concierge for recommendations
 - 📖 Ephemeral stories (24-hour venue updates)
 
 ### 2️⃣ Host Dashboard (Web Application)

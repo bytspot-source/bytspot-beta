@@ -174,7 +174,7 @@ export function AppStoreBanner() {
               { emoji: '📊', label: 'Live Crowds' },
               { emoji: '🅿️', label: 'Parking' },
               { emoji: '🚗', label: 'Rides' },
-              { emoji: '🤖', label: 'AI Concierge' },
+              { emoji: '✨', label: 'Bytspot Concierge' },
             ].map((f) => (
               <div key={f.label} style={{
                 display: 'flex',
@@ -249,7 +249,7 @@ export function SocialBanner() {
           Live crowd levels · Real-time parking · AI-powered recommendations
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-          {['📊 Live Crowds', '🅿️ Parking', '🚗 Ride Compare', '🤖 AI Concierge'].map((f) => (
+          {['📊 Live Crowds', '🅿️ Easy Arrivals', '🚗 Ride Compare', '✨ Bytspot Concierge'].map((f) => (
             <div key={f} style={{
               padding: '8px 18px',
               borderRadius: 999,

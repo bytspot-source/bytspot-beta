@@ -297,7 +297,7 @@ function ConsumerOnlyRouteRedirect() {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[#07080D] text-white" data-testid="consumer-only-route-redirect">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" aria-label="Loading Parker" />
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" aria-label="Loading Bytspot" />
     </div>
   );
 }

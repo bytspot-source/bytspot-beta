@@ -300,7 +300,7 @@ struct ClipGroupEventJoinView: View {
 
     private var eventDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Event Details")
+            Text("Your Invite")
                 .font(.system(size: 18, weight: .black, design: .rounded))
                 .foregroundColor(ink)
 
@@ -379,7 +379,7 @@ struct ClipGroupEventJoinView: View {
 
     private var guestList: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "Guest List", subtitle: guestListSubtitle) {
+            sectionHeader(title: "Guest Circle", subtitle: guestListSubtitle) {
                 Button(action: { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
                     Text("View all")
                         .font(.system(size: 16, weight: .black, design: .rounded))
@@ -410,7 +410,7 @@ struct ClipGroupEventJoinView: View {
                     }
                 }
             } else {
-                Text("Host is setting up the guest list")
+                Text("The guest circle is still coming together")
                     .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
                     .foregroundColor(ink.opacity(0.72))
                     .padding(.horizontal, 14)
@@ -457,7 +457,7 @@ struct ClipGroupEventJoinView: View {
     // rest so the album always reads as a live, fillable space.
     private var photoAlbum: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "Photo Album", subtitle: albumSubtitle) {
+            sectionHeader(title: "Shared Moments", subtitle: albumSubtitle) {
                 Button(action: shareInvite) {
                     Text("Share")
                         .font(.system(size: 16, weight: .black, design: .rounded))
@@ -525,7 +525,7 @@ struct ClipGroupEventJoinView: View {
 
     private var activityFeed: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(title: "Activity", subtitle: "1 update") {
+            sectionHeader(title: "Host Note", subtitle: "1 update") {
                 Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
                     Label("Comment", systemImage: "lock.fill")
                         .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
@@ -549,7 +549,7 @@ struct ClipGroupEventJoinView: View {
                             .background(Circle().fill(Color.black))
                     }
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("\(invite.hostName) sent a Text Blast 📣")
+                    Text("\(invite.hostName) shared a private note")
                         .font(.system(size: 21, weight: .regular, design: .rounded))
                         .foregroundColor(ink.opacity(0.88))
                         .fixedSize(horizontal: false, vertical: true)
@@ -603,7 +603,7 @@ struct ClipGroupEventJoinView: View {
                 .accessibilityHint("Opens the iOS share sheet")
             }
             Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
-                Text("Open Bytspot to unlock nearby offers & perks for this event")
+                Text("Open Bytspot for nearby perks matched to this invite")
                     .font(.system(size: 12, weight: .black, design: .rounded))
                     .foregroundColor(ink.opacity(0.68))
                     .frame(maxWidth: .infinity)
@@ -632,7 +632,7 @@ struct ClipGroupEventJoinView: View {
         let highlights = invite.activityHighlights.prefix(2).joined(separator: " · ")
         let groupDescriptor = invite.groupType.lowercased() == "private" ? "invite-only" : "private \(invite.groupType.lowercased())"
         if highlights.isEmpty {
-            return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). Tap in instantly, keep the group private, and continue in Bytspot."
+            return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). Tap in, keep the details private, and continue in Bytspot."
         }
         return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). \(highlights)."
     }
@@ -642,7 +642,7 @@ struct ClipGroupEventJoinView: View {
     }
 
     private var shareInviteItems: [Any] {
-        var items: [Any] = ["Join \(invite.title) on Bytspot"]
+        var items: [Any] = ["You're invited to \(invite.title) on Bytspot"]
         if let inviteURL { items.append(inviteURL) }
         return items
     }
@@ -739,7 +739,7 @@ struct ClipGroupEventJoinView: View {
         case .joined: return "You're in"
         case .pending: return "Request sent"
         case .declined: return "Not approved"
-        default: return "Join guest list"
+        default: return "Join the invite"
         }
     }
 
@@ -779,7 +779,7 @@ struct ClipGroupEventJoinView: View {
             switch status {
             case "joined":
                 membership = .joined
-                statusMessage = "You're in. Guest updates, photos, and matched offers will appear here."
+                statusMessage = "You're in. Invite updates, photos, and matched offers will appear here."
                 await loadGuests()
             case "pending":
                 membership = .pending
@@ -832,7 +832,7 @@ struct ClipGroupEventJoinView: View {
             UIApplication.shared.open(webURL)
         }
     }
-    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
+    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — ready to share privately." }
 }
 
 // MARK: - Sign in with Apple controller

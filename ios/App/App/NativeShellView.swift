@@ -714,7 +714,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
                 appClipInfo(title: "Hosted by \(event.hostName)", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.crop.circle.badge.checkmark")
                 rsvpPreview
                 appClipInfo(title: "Privacy protected", subtitle: "Your invite, RSVP, and circle stay separate from your phone contacts unless you choose to match.", icon: "lock.shield.fill")
-                Button(action: joinGroup) { Text(joined ? "Joined" : (event.requiresApproval ? "Request Access" : "Join Instantly")).font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
+                Button(action: joinGroup) { Text(joined ? "Joined" : (event.requiresApproval ? "Request Access" : "Join the Invite")).font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
                 Button(action: { dismiss() }) { Text("Back to Home").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
                 if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).frame(maxWidth: .infinity).multilineTextAlignment(.center) }
             }
@@ -779,7 +779,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
         nativeImpactLight()
         NativeGroupEventStore.upsert(event)
         joined = true
-        statusMessage = "You're in. Group updates and matched offers will appear here."
+        statusMessage = "You're in. Invite updates and matched offers will appear here."
     }
 }
 
@@ -3140,8 +3140,8 @@ private struct NativeProfileNetworkCard: View {
     // this until publish confirms.
     @State private var publishedGroupEventIDs: Set<String> = []
 
-    static let title = "Groups & Invites"
-    static let actionTitles = ["Create Private Group", "Social Circles", "Find friends"]
+    static let title = "Private Plans & Invites"
+    static let actionTitles = ["Plan a Private Invite", "Social Circles", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
     private var currentTier: BytspotTier { activeGroup?.tier ?? .green }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
@@ -3203,7 +3203,7 @@ private struct NativeProfileNetworkCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(Self.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Create private groups, invite from social circles, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                Text("Shape private plans, invite the right circle, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -3222,9 +3222,9 @@ private struct NativeProfileNetworkCard: View {
 
     private var startGroupBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Choose a template, pick a social circle, then publish a protected invite.", icon: "person.3.sequence.fill", color: tierAccent)
+            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Pick the kind of night, choose who sees it, then send a protected invite.", icon: "person.3.sequence.fill", color: tierAccent)
             Button(action: openGroupSetup) {
-                HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Create Private Group").font(.system(size: 14, weight: .black)) }
+                HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Plan Private Invite").font(.system(size: 14, weight: .black)) }
                     .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
@@ -3233,7 +3233,7 @@ private struct NativeProfileNetworkCard: View {
             }.buttonStyle(.plain)
             membershipStrip
             VStack(alignment: .leading, spacing: 8) {
-                Text("Quick templates").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(0.7)
+                Text("Invite starters").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(0.7)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(NativeGroupEventContract.defaultEventTypes.prefix(4)), id: \.self) { type in
@@ -3318,7 +3318,7 @@ private struct NativeProfileNetworkCard: View {
                     }
                 }
             }
-            Text("Create from the template, pick a circle, then publish public or private from the same Network card.").nativeBody(size: 11.5, color: NativeProfileStyle.muted)
+            Text("Start with an invite style, pick a circle, then publish public or private from the same Network card.").nativeBody(size: 11.5, color: NativeProfileStyle.muted)
         }
     }
 
@@ -3327,7 +3327,7 @@ private struct NativeProfileNetworkCard: View {
             Image(systemName: "person.3.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 32, height: 32).background(NativeTheme.cyan.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text("Social Circles").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Pick a circle while creating your group.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
+                Text("Pick a circle while shaping the invite.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
                 Text("Close Friends · Family · Crew").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -3627,7 +3627,7 @@ private struct NativeProfileNetworkCard: View {
         nativeImpactLight()
         guard ensureShareable(group) else { return }
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
-        networkStatus = "Invite link copied — non-app users can join instantly in the App Clip."
+        networkStatus = "Invite link copied — guests can join from the App Clip."
     }
 
     private func openInviteAccess(_ group: NativeGroupEventRecord, mode: NativeGroupInviteAccessMode) {
@@ -3722,9 +3722,9 @@ private struct NativeGroupInviteAccessSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("GROUP INVITE ACCESS").font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
+            Text("PRIVATE INVITE ACCESS").font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
             Text(event.title).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
-            Text("\(event.tier.displayName) · Private group · \(event.participantCount) joined").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+            Text("\(event.tier.displayName) · Private invite · \(event.participantCount) joined").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
 
@@ -3772,7 +3772,7 @@ private struct NativeGroupInviteAccessSheet: View {
                 }.padding(22)
             }
             .frame(height: 220)
-            Text("Program this URL onto a Bytspot NFC tag for one-tap private group join:").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+            Text("Program this URL onto a Bytspot NFC tag for one-tap private invite access:").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
             Text(inviteURL.absoluteString).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundColor(NativeTheme.textTertiary).lineLimit(4)
         }
         .padding(18)
@@ -4007,7 +4007,7 @@ private struct NativeGroupEventSetupSheet: View {
         self.onCreate = onCreate
         let safeType = NativeGroupEventContract.defaultEventTypes.contains(initialType) ? initialType : NativeGroupEventContract.defaultEventTypes[0]
         _selectedType = State(initialValue: safeType)
-        _eventName = State(initialValue: safeType == "Custom" ? "Private Group" : "\(safeType) Group")
+        _eventName = State(initialValue: NativeGroupEventContract.defaultTitle(for: safeType))
     }
 
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: tier) }
@@ -4020,7 +4020,7 @@ private struct NativeGroupEventSetupSheet: View {
                 composerHero
                 composerEssentials
                 composerAddOns
-                inputField(title: "Note for guests", placeholder: "Pull up when you can — details stay inside the invite.", text: $inviteNote, lineLimit: 3)
+                inputField(title: "Note for guests", placeholder: "Come when you're ready — details stay inside the invite.", text: $inviteNote, lineLimit: 3)
                 composerRSVP
                 composerHostControls
                 composerGuestPreview
@@ -4031,8 +4031,8 @@ private struct NativeGroupEventSetupSheet: View {
         }
         .background(NativeTheme.background.ignoresSafeArea())
         .onChange(of: selectedType) { type in
-            if eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || NativeGroupEventContract.defaultEventTypes.map({ $0 == "Custom" ? "Private Group" : "\($0) Group" }).contains(eventName) {
-                eventName = type == "Custom" ? "Private Group" : "\(type) Group"
+            if eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || NativeGroupEventContract.defaultEventTypes.map({ NativeGroupEventContract.defaultTitle(for: $0) }).contains(eventName) {
+                eventName = NativeGroupEventContract.defaultTitle(for: type)
             }
         }
         .onAppear { openComposerSheetPreviewIfRequested() }
@@ -4065,13 +4065,13 @@ private struct NativeGroupEventSetupSheet: View {
             Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
             Spacer()
             Button(action: { visibility = visibility == .privateInvite ? .publicDiscovery : .privateInvite; if visibility == .publicDiscovery { audienceCircle = "Public" } }) { Label(visibility == .privateInvite ? "Private Invite" : "Public", systemImage: visibility == .privateInvite ? "lock.fill" : "globe").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).frame(height: 36).background(NativePolish.elevatedSurface).clipShape(Capsule()) }.buttonStyle(.plain)
-            Button(action: goLive) { Text("Save").font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 38).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!canGoLive)
+            Button(action: goLive) { Text("Publish").font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 38).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!canGoLive)
         }
     }
 
     private var composerHero: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("Untitled Group", text: $eventName)
+            TextField("Name the moment", text: $eventName)
                 .font(.system(size: 31, weight: .black, design: .rounded))
                 .foregroundColor(NativeTheme.textPrimary)
                 .tint(NativeTheme.cyan)
@@ -4101,7 +4101,7 @@ private struct NativeGroupEventSetupSheet: View {
             ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in Button(action: { audienceCircle = circle; if circle == "Public" { visibility = .publicDiscovery } }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain) } } }
             inputField(title: "Date", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
             inputField(title: "Location", placeholder: "Shared after joining", text: $locationLabel)
-            setupFact(title: "Spots", subtitle: "Up to \(entitlement.participantCapacity) guests on \(tier.displayName).", icon: "person.2.fill")
+            setupFact(title: "Guest list", subtitle: "Room for up to \(entitlement.participantCapacity) guests on \(tier.displayName).", icon: "person.2.fill")
             costPerPersonRow
         }
     }
@@ -4115,7 +4115,7 @@ private struct NativeGroupEventSetupSheet: View {
                     Text(costPerPersonSummary).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(ticketingLabel.isEmpty && chipInLabel.isEmpty ? "Sell tickets!" : "Edit")
+                Text(ticketingLabel.isEmpty && chipInLabel.isEmpty ? "Add price" : "Edit")
                     .font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 30).background(NativeTheme.cyan).clipShape(Capsule())
             }
             .padding(13)
@@ -4155,8 +4155,8 @@ private struct NativeGroupEventSetupSheet: View {
 
     private var composerRSVP: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { setupLabel("RSVP Options"); Spacer(); Button(action: { showRSVPStylePicker = true }) { setupChip("\(rsvpStyle.leadingSymbol) \(rsvpStyle.displayName)", active: true, locked: false).frame(width: 132) }.buttonStyle(.plain) }
-            HStack(spacing: 10) { composerRSVPBubble(rsvpStyle.goingSymbol, "Going"); composerRSVPBubble(rsvpStyle.maybeSymbol, "Maybe"); composerRSVPBubble(rsvpStyle.cantGoSymbol, "Can't Go") }
+            HStack { setupLabel("RSVP style"); Spacer(); Button(action: { showRSVPStylePicker = true }) { setupChip("\(rsvpStyle.leadingSymbol) \(rsvpStyle.displayName)", active: true, locked: false).frame(width: 132) }.buttonStyle(.plain) }
+            HStack(spacing: 10) { composerRSVPBubble(rsvpStyle.goingSymbol, "Going"); composerRSVPBubble(rsvpStyle.maybeSymbol, "Maybe"); composerRSVPBubble(rsvpStyle.cantGoSymbol, "Can't make it") }
             inputField(title: "RSVP deadline", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
             inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
         }
@@ -4164,19 +4164,19 @@ private struct NativeGroupEventSetupSheet: View {
 
     private var composerHostControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Quick actions for hosts")
+            setupLabel("Host controls")
             Toggle("Require guest approval", isOn: $requiresApproval).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             Toggle("Hide guest list", isOn: $hideGuestList).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Toggle("Allow nearby offers", isOn: $allowNearbyOffers).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Toggle("Match nearby perks", isOn: $allowNearbyOffers).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
     private var composerGuestPreview: some View {
         VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Guest App Clip output")
+            setupLabel("Guest invite preview")
             HStack(alignment: .top, spacing: 11) {
                 Image(systemName: iconName.isEmpty ? "bolt.fill" : iconName).font(.system(size: 16, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Untitled Group" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests see RSVP, host, location rules, and join/request button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
+                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Untitled invite" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests get the time, host, location guidance, and a simple join button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
                 Spacer(minLength: 0)
             }
             .padding(14).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.24), lineWidth: 1))
@@ -4250,16 +4250,16 @@ private struct NativeGroupEventSetupSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("GROUP EVENT TEMPLATE").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
-            Text("Confirm details before going live.").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-            Text("\(tier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s"), up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Text("PRIVATE INVITE STUDIO").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
+            Text("Shape the invitation before it goes live.").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+            Text("\(tier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live invite\(entitlement.activeEventLimit == 1 ? "" : "s"), up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Text("Manual Venmo/Cash App/PayPal/custom links are saved as unverified host metadata only — Bytspot does not verify payment status in this phase.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var typeSelector: some View {
         VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Group type")
+            setupLabel("Invite style")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in
                     Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false) }.buttonStyle(.plain)
@@ -4317,7 +4317,7 @@ private struct NativeGroupEventSetupSheet: View {
             inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
             inputField(title: "Highlights", placeholder: "Chef menu, Private arrival, Invite-only offers", text: $activityHighlightsText, lineLimit: 2)
             inputField(title: "Instagram", placeholder: "@yourhandle", text: $instagramHandle)
-            Text("These details travel in the private invite URL so the App Clip can render context without a network round-trip. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
+            Text("These details travel in the private invite URL so the App Clip opens with context. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
         }
     }
 
@@ -4337,7 +4337,7 @@ private struct NativeGroupEventSetupSheet: View {
     private var rsvpFields: some View {
         VStack(alignment: .leading, spacing: 10) {
             setupLabel("RSVP & guest controls")
-            setupFact(title: "Quick responses", subtitle: "Guests answer with emoji RSVP: 1 Going, 2 Maybe, 3 Can't Go.", icon: "hand.tap.fill")
+            setupFact(title: "Quick responses", subtitle: "Guests answer with emoji RSVP: Going, Maybe, or Can't make it.", icon: "hand.tap.fill")
             inputField(title: "RSVP cutoff", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
             inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
             Toggle("Hide activity timestamps", isOn: $hideActivityTimestamps).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -4364,7 +4364,7 @@ private struct NativeGroupEventSetupSheet: View {
             setupFact(title: "Private invite link", subtitle: "Only people with the invite can join.", icon: "lock.fill")
             Toggle(isOn: $allowNearbyOffers) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Allow nearby offers").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text("Match nearby perks").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Text(NativeGroupEventContract.matchedOfferExplanation).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -4387,7 +4387,7 @@ private struct NativeGroupEventSetupSheet: View {
 
     private var goLiveButton: some View {
         Button(action: goLive) {
-            Text("Go Live").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Text("Publish Invite").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(!canGoLive)
@@ -5021,7 +5021,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     }
 
     static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
-        Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Pull up when you can.", privacyStatus: .privateInvite, privateAssociation: .host)
+        Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Come when you're ready — details stay in the invite.", privacyStatus: .privateInvite, privateAssociation: .host)
     }
 
     /// Cryptographically-random, URL-safe suffix so private invite slugs can't be
@@ -5034,9 +5034,9 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
 
     static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
+        let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
+        let resolvedTitle = cleanTitle.isEmpty ? NativeGroupEventContract.defaultTitle(for: safeType) : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
         return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, thumbnailURLString: thumbnailURLString, videoURLString: videoURLString, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURLString, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: manualPayment, rsvpCutoff: rsvpCutoff, customQuestions: customQuestions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURLString, iconName: iconName)
@@ -5187,15 +5187,26 @@ struct NativeGroupEventBannerSnapshot: Equatable {
 enum NativeGroupEventContract {
     static let storageKey = "bytspot_native_group_events"
     static let homepageSectionTitle = "Live Event Happening Now"
-    static let networkTitle = "Groups & Invites"
-    static let quickStartCTA = "Start a Private Group"
+    static let networkTitle = "Private Plans & Invites"
+    static let quickStartCTA = "Plan a Private Invite"
     static let inviteCTA = "Share Invite"
-    static let privacyBadge = "Private Group"
-    static let appClipJoinCTA = "Join Instantly"
-    static let matchedOfferExplanation = "Nearby offers can appear in this group without sharing your contacts or member list with vendors."
+    static let privacyBadge = "Private Invite"
+    static let appClipJoinCTA = "Join the Invite"
+    static let matchedOfferExplanation = "Nearby perks can appear for this invite without sharing your contacts or member list with vendors."
     static let defaultEventTypes = ["Dinner", "Family", "Birthday", "Watch Party", "Pickup", "Custom"]
     static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Creators", "Public"]
     static let defaultFontStyles = ["Bytspot Rounded", "Serif Luxe", "Poster Bold", "Minimal Mono"]
+
+    static func defaultTitle(for type: String) -> String {
+        switch type.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "Dinner": return "Dinner With Your Circle"
+        case "Family": return "Family Table"
+        case "Birthday": return "Birthday Moment"
+        case "Watch Party": return "Watch Party Plan"
+        case "Pickup": return "Pickup Run"
+        default: return "Private Moment"
+        }
+    }
 
     static func entitlement(for tier: BytspotTier) -> NativeGroupEventEntitlement { .entitlement(for: tier) }
     static func vendorEntitlement(for tier: BytspotTier) -> NativeVendorLTOEntitlement { .entitlement(for: tier) }
@@ -17364,7 +17375,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Social Circles", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
+        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Plan a Private Invite", "Social Circles", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one private-invite management card.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
         precondition(NativeSavedPlacesBoardContract.emptyPlanHeadline == "No next visit planned" && NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("next visit state") && NativeSavedPlacesBoardContract.summary.contains("verification"), "NativeAccountParitySelfTests: Saved Places Board summary copy drifted.")

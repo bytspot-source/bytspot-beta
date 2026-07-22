@@ -61,7 +61,7 @@ in order:
 
 ### 3. Progress
 
-- Parker Progress
+- Your Bytspot benefits
 - Rewards & Badges
 - Insider/subscription state as a status line or CTA, not a disconnected card
 

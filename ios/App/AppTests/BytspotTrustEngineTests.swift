@@ -373,16 +373,16 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testEventsListUsesDeployedTRPCQueryTransport() throws {
-        let input = NativeTabContentStore.eventsListQueryInput(city: "Atlanta", limit: 8)
+        let input = NativeTabContentStore.eventsListQueryInput(limit: 8)
         let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.eventsListRoute, input: input)
         let request = try BytspotAPIClient().makeRequest(path: path)
 
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertNil(request.httpBody)
         XCTAssertTrue(path.hasPrefix("/trpc/events.list?input="))
-        XCTAssertEqual(input["city"] as? String, "Atlanta")
         XCTAssertEqual(input["limit"] as? Int, 8)
-        XCTAssertEqual(input["providers"] as? [String], ["ticketmaster", "bytspot_curated"])
+        XCTAssertNil(input["city"])
+        XCTAssertNil(input["providers"])
     }
 
     func testBestValueQueryPathCarriesRawInputJSON() throws {

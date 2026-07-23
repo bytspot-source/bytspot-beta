@@ -6,7 +6,7 @@ const strict = process.argv.includes('--strict');
 const routes = [
   { name: 'venues.list', input: {}, required: true },
   { name: 'vendors.search', input: { limit: 20, tier: 'platinum' }, required: true },
-  { name: 'events.list', input: { city: 'Atlanta', providers: ['ticketmaster', 'bytspot_curated'], limit: 8 }, required: true },
+  { name: 'events.list', input: { limit: 8 }, required: true },
   { name: 'places.nearbySearch', input: { lat: 33.7866, lng: -84.3833, type: 'parking', maxResults: 8 }, required: true },
   { name: 'places.textSearch', input: { query: 'coffee', lat: 33.7866, lng: -84.3833, maxResults: 5 }, required: true },
   { name: 'native.bootstrap', input: {}, required: true },

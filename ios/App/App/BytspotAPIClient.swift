@@ -1368,8 +1368,8 @@ final class NativeTabContentStore: ObservableObject {
         return rows.enumerated().compactMap(Self.event(from:))
     }
 
-    nonisolated static func eventsListQueryInput(city: String = "Atlanta", limit: Int = 8) -> [String: Any] {
-        ["city": city, "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": limit]
+    nonisolated static func eventsListQueryInput(limit: Int = 8) -> [String: Any] {
+        ["limit": limit]
     }
 
     private func fetchPlaceDiscoveryCards(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {

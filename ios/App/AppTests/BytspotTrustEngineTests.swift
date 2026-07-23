@@ -372,6 +372,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(path.hasPrefix("/trpc/places.textSearch?input="))
     }
 
+    func testEventsListUsesDeployedTRPCQueryTransport() throws {
+        let input = NativeTabContentStore.eventsListQueryInput(city: "Atlanta", limit: 8)
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.eventsListRoute, input: input)
+        let request = try BytspotAPIClient().makeRequest(path: path)
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertNil(request.httpBody)
+        XCTAssertTrue(path.hasPrefix("/trpc/events.list?input="))
+        XCTAssertEqual(input["city"] as? String, "Atlanta")
+        XCTAssertEqual(input["limit"] as? Int, 8)
+        XCTAssertEqual(input["providers"] as? [String], ["ticketmaster", "bytspot_curated"])
+    }
+
     func testBestValueQueryPathCarriesRawInputJSON() throws {
         let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
         let components = URLComponents(string: path)
@@ -403,6 +416,30 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(here.distanceLabel(toLatitude: 33.7878, longitude: -84.3832), "Here")
         XCTAssertEqual(NativeLocationCoordinate.midtown.displayName, "Midtown Atlanta")
         XCTAssertTrue(here.distanceLabel(toLatitude: 33.7900, longitude: -84.3890)?.hasSuffix("mi") == true)
+    }
+
+    func testNativeHomeHeaderLocationPillReflectsAuthorizationAndFallback() {
+        let live = NativeLocationCoordinate(latitude: 33.7900, longitude: -84.3890, isFallback: false)
+
+        XCTAssertEqual(NativeHomeHeaderMetrics.locationPillState(authorization: .allowed, coordinate: live), .live)
+        XCTAssertEqual(NativeHomeHeaderMetrics.locationPillState(authorization: .allowed, coordinate: .midtown), .fallback)
+        XCTAssertEqual(NativeHomeHeaderMetrics.locationPillState(authorization: .notDetermined, coordinate: .midtown), .permissionNeeded)
+        XCTAssertEqual(NativeHomeHeaderMetrics.locationPillState(authorization: .denied, coordinate: live), .unavailable)
+    }
+
+    func testNativeHomeHeaderMetricsDeriveFromSnapshotAndCrowd() {
+        let venues = [
+            NativeVenueSummary(id: "a", name: "A", category: "parking", address: "Midtown", distance: "0.1 mi", rating: nil, latitude: 33.78, longitude: -84.38, crowd: NativeCrowdSummary(level: 1, label: "Calm", waitMins: nil), parking: NativeParkingSummary(totalAvailable: 4, priceLabel: "$4/hr"), verifiedPatchId: nil, imageUrl: nil),
+            NativeVenueSummary(id: "b", name: "B", category: "dining", address: "Midtown", distance: "0.2 mi", rating: nil, latitude: 33.79, longitude: -84.39, crowd: NativeCrowdSummary(level: 4, label: "Busy", waitMins: 12), parking: NativeParkingSummary(totalAvailable: 6, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)
+        ]
+        let card = NativeDiscoverSummary(id: "card", type: "dining", title: "Dinner", subtitle: "Nearby", distance: "0.2 mi", rating: "4.8", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "FREE ENTRY", metadataLine: "Open", features: ["Dining"], vibeScore: 7, availability: "Open", membershipRequired: false)
+        let snapshot = NativeTabContentSnapshot(venues: venues, discoverCards: [card, card], events: [], source: .live, lastUpdated: nil, errorMessage: nil)
+
+        XCTAssertEqual(NativeHomeHeaderMetrics.parkingSpots(in: snapshot), 10)
+        XCTAssertEqual(NativeHomeHeaderMetrics.recommendationCount(in: snapshot), 2)
+        XCTAssertEqual(NativeHomeHeaderMetrics.peakTrafficState(hour: 9, crowdLevels: [1]), .calm)
+        XCTAssertEqual(NativeHomeHeaderMetrics.peakTrafficState(hour: 18, crowdLevels: [1]), .building)
+        XCTAssertEqual(NativeHomeHeaderMetrics.peakTrafficState(hour: 15, crowdLevels: [4]), .peak)
     }
 
     func testLocalTravelEstimateDoesNotClaimGoogleRoutes() throws {

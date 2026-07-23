@@ -1363,9 +1363,13 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.eventsListRoute, method: "POST", input: ["city": "Atlanta", "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": 8])
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.eventsListRoute, input: Self.eventsListQueryInput())
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
         return rows.enumerated().compactMap(Self.event(from:))
+    }
+
+    nonisolated static func eventsListQueryInput(city: String = "Atlanta", limit: Int = 8) -> [String: Any] {
+        ["city": city, "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": limit]
     }
 
     private func fetchPlaceDiscoveryCards(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {

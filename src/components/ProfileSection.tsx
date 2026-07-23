@@ -35,6 +35,8 @@ const DEMO_VENUE_SERVICES = [
   { name: 'Concierge Help', detail: 'Request private chef, massage, rides, and venue help.' },
 ];
 
+const PROFILE_RELATIVE_TIME_ANCHOR_MS = Date.now();
+
 interface ProfileSectionProps {
   isDarkMode: boolean;
   onOpenVirtualPatch?: (context: VirtualPatchContext | null) => void;
@@ -252,13 +254,16 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
     window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
 
-    const profileFocus = localStorage.getItem('bytspot_profile_focus');
-    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment') {
-      setCurrentScreen(profileFocus);
-      localStorage.removeItem('bytspot_profile_focus');
-    }
+    const focusTimer = window.setTimeout(() => {
+      const profileFocus = localStorage.getItem('bytspot_profile_focus');
+      if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment') {
+        setCurrentScreen(profileFocus);
+        localStorage.removeItem('bytspot_profile_focus');
+      }
+    }, 0);
 
     return () => {
+      window.clearTimeout(focusTimer);
       window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
@@ -282,7 +287,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   // a verification persisted while ProfileSection was already alive is picked up.
   useEffect(() => {
     if (currentScreen !== 'tickets') return;
-    setVirtualPatchContext(readVirtualPatchContext());
+    const timer = window.setTimeout(() => setVirtualPatchContext(readVirtualPatchContext()), 0);
+    return () => window.clearTimeout(timer);
   }, [currentScreen]);
 
   // Load contact-graph friend suggestions whenever the Friends screen mounts.
@@ -1117,7 +1123,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       lvl === 1 ? 'text-cyan-300' : lvl === 2 ? 'text-purple-300' : lvl === 3 ? 'text-orange-400' : 'text-pink-400';
     const crowdEmoji = (lvl: number) => lvl === 1 ? '🔵' : lvl === 2 ? '🟣' : lvl === 3 ? '🟠' : '🔴';
     const formatTime = (iso: string) => {
-      const diff = Date.now() - new Date(iso).getTime();
+      const diff = PROFILE_RELATIVE_TIME_ANCHOR_MS - new Date(iso).getTime();
       const m = Math.floor(diff / 60000);
       if (m < 60) return `${m}m ago`;
       const h = Math.floor(m / 60);
@@ -1639,7 +1645,15 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}').id || 'guest'; }
             catch { return 'guest'; }
           })();
-          const referralUrl = `https://bytspot.app?ref=${userId}`;
+          const referralCode = (() => {
+            if (userId && userId !== 'guest') return encodeURIComponent(userId);
+            const existing = localStorage.getItem('bytspot_guest_referral_code');
+            if (existing) return existing;
+            const generated = 'guest-local';
+            localStorage.setItem('bytspot_guest_referral_code', generated);
+            return generated;
+          })();
+          const referralUrl = `https://bytspot.app/invite/${referralCode}`;
 
           const handleShare = async () => {
             impactLight();
@@ -1674,9 +1688,14 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   {referralUrl}
                 </p>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(referralUrl);
-                    toast.success('Copied!');
+                  onClick={async () => {
+                    impactLight();
+                    try {
+                      await navigator.clipboard.writeText(referralUrl);
+                      toast.success('Invite link copied', { description: referralCode });
+                    } catch {
+                      toast.error('Copy failed', { description: 'Press Share Invite Link to use your system share sheet.' });
+                    }
                   }}
                   className="shrink-0 text-[11px] text-fuchsia-300 border border-fuchsia-500/40 rounded-full px-2.5 py-1 tap-target"
                   style={{ fontWeight: 600 }}

@@ -4723,11 +4723,11 @@ private struct NativeGroupEventHeroMediaSheet: View {
             VStack(alignment: .leading, spacing: 15) {
                 HStack { closeButton; Spacer(); saveButton }
                 Text("Invite hero media").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-                Text("Paste a hosted HTTPS image URL. The native invite previews it now, then sends the same hero/thumbnail/photo parameters to the App Clip link.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                Text("Paste a hosted image URL (HTTP/HTTPS). The native invite previews it now, then sends the same hero/thumbnail/photo parameters to the App Clip link.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 previewCard
                 mediaField(title: "Hero image URL", placeholder: "https://cdn.example.com/invite-hero.jpg", text: $heroText)
                 mediaField(title: "Thumbnail URL", placeholder: "Optional — defaults to hero image", text: $thumbnailText)
-                if !isValid { Text("Use a full http:// or https:// URL with a host.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange) }
+                if !isValid { Text("Use a full http:// or https:// URL with a host and under \(NativeGroupEventContract.mediaURLMaxLength) characters.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange) }
                 Text("Full binary uploads need a storage endpoint. Until that backend exists, this safely activates the flow with hosted media URLs instead of storing local device files in the invite link.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(20)
@@ -5335,12 +5335,7 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
     }
 
     private static func mediaURLString(_ value: String?) -> String? {
-        guard let clean = clean(value, maxLength: 300),
-              let url = URL(string: clean),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              url.host?.isEmpty == false else { return nil }
-        return url.absoluteString
+        NativeGroupEventContract.normalizedMediaURLString(from: value)
     }
 }
 
@@ -5395,10 +5390,12 @@ enum NativeGroupEventContract {
     static let defaultEventTypes = ["Dinner", "Family", "Birthday", "Watch Party", "Pickup", "Custom"]
     static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Creators", "Public"]
     static let defaultFontStyles = ["Bytspot Rounded", "Serif Luxe", "Poster Bold", "Minimal Mono"]
+    static let mediaURLMaxLength = 2048
 
     static func normalizedMediaURL(from raw: String?) -> URL? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty,
+              trimmed.count <= mediaURLMaxLength,
               let url = URL(string: trimmed),
               let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme),

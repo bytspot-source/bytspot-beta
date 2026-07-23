@@ -88,6 +88,8 @@ struct ClipGroupEventInvite: Equatable {
     let photoURLs: [URL]
     let instagramHandle: String?
 
+    private static let mediaURLMaxLength = 2048
+
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
     var handoffURL: URL? {
@@ -129,7 +131,7 @@ struct ClipGroupEventInvite: Equatable {
         let fallback = tierFallback(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
         let explicitPhotos = queryURLs(in: queryItems, names: ["photos", "album", "gallery"])
         let heroImageURL = queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"]) ?? explicitPhotos?.first
-        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? explicitPhotos?.dropFirst().first ?? heroImageURL ?? fallback.poster
+        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? heroImageURL ?? fallback.poster
         var seenPhotos = Set<URL>()
         let photoURLs = (explicitPhotos ?? [heroImageURL, thumbnailURL].compactMap { $0 })
             .filter { seenPhotos.insert($0).inserted }
@@ -169,7 +171,7 @@ struct ClipGroupEventInvite: Equatable {
     }
 
     private static func queryURL(in items: [URLQueryItem], names: [String]) -> URL? {
-        queryValue(in: items, names: names).flatMap(URL.init(string:))
+        mediaURL(from: queryValue(in: items, names: names))
     }
 
     private static func queryArray(in items: [URLQueryItem], names: [String]) -> [String]? {
@@ -180,8 +182,19 @@ struct ClipGroupEventInvite: Equatable {
 
     private static func queryURLs(in items: [URLQueryItem], names: [String]) -> [URL]? {
         guard let raw = queryValue(in: items, names: names) else { return nil }
-        let urls = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { URL(string: $0) }
+        let urls = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { mediaURL(from: $0) }
         return urls.isEmpty ? nil : urls
+    }
+
+    private static func mediaURL(from raw: String?) -> URL? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty,
+              trimmed.count <= mediaURLMaxLength,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host?.isEmpty == false else { return nil }
+        return url
     }
 
     private static func inferredGroupType(from title: String) -> String {

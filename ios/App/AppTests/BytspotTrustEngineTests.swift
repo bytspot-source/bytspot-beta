@@ -754,6 +754,20 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertEqual(parsed.thumbnailURLString, hero)
     }
 
+    func testMediaURLValidationMatchesRecordPersistence() {
+        let valid = "https://cdn.example.com/invites/hero.jpg"
+        XCTAssertTrue(NativeGroupEventContract.isBlankOrValidMediaURL(valid))
+        XCTAssertEqual(NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", heroImageURLString: valid).heroImageURLString, valid)
+
+        let invalidScheme = "file:///private/var/mobile/hero.jpg"
+        XCTAssertFalse(NativeGroupEventContract.isBlankOrValidMediaURL(invalidScheme))
+        XCTAssertNotEqual(NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", heroImageURLString: invalidScheme).heroImageURLString, invalidScheme)
+
+        let tooLong = "https://cdn.example.com/" + String(repeating: "a", count: NativeGroupEventContract.mediaURLMaxLength)
+        XCTAssertFalse(NativeGroupEventContract.isBlankOrValidMediaURL(tooLong))
+        XCTAssertNotEqual(NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", heroImageURLString: tooLong).heroImageURLString, tooLong)
+    }
+
     @MainActor
     func testGroupInviteURLRoutesToAppClipStyleJoinDestination() {
         let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=Platinum&timing=this-week&source=app_clip&participants=12&scheduled=Tonight%20%C2%B7%208%3A00%20PM&host=Kojo%20Asante&location=Host-selected%20private%20table&theme=Premium%20dinner&activities=Chef%20menu,Private%20arrival"

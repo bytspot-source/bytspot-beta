@@ -204,6 +204,23 @@ enum BytspotAviationFallbackTests {
         precondition(platinum?.handoffURL?.absoluteString.contains("handoff=1") == true, "Phase4F App Clip: private group handoff URL must mark handoff intent.")
         precondition(platinum?.handoffURL?.absoluteString.contains("activities=12h%20live%20window") == true || platinum?.handoffURL?.absoluteString.contains("activities=12h+live+window") == true, "Phase4F App Clip: handoff URL must carry private group activity metadata.")
 
+        let secondPhoto = "https://cdn.example.com/invites/platinum-private-dinner-2.jpg"
+        let multiPhoto = ClipGroupEventInvite.from(pathParts: ["group", "platinum-private-dinner"], queryItems: [
+            URLQueryItem(name: "photos", value: "\(hero),\(secondPhoto)")
+        ], tier: .platinum)
+        precondition(multiPhoto?.heroImageURL?.absoluteString == hero, "Phase4F App Clip: photos[0] must become the hero fallback.")
+        precondition(multiPhoto?.displayPosterURL?.absoluteString == hero, "Phase4F App Clip: photos[1] must not replace the hero as poster fallback.")
+        precondition(multiPhoto?.photoURLs.map(\.absoluteString) == [hero, secondPhoto], "Phase4F App Clip: valid photos must remain in album order.")
+
+        let externallyControlled = ClipGroupEventInvite.from(pathParts: ["group", "external-media"], queryItems: [
+            URLQueryItem(name: "hero", value: "file:///private/var/mobile/hero.jpg"),
+            URLQueryItem(name: "thumbnail", value: "custom://poster"),
+            URLQueryItem(name: "photos", value: "data:image/png;base64,abc,https://cdn.example.com/invites/safe.jpg"),
+            URLQueryItem(name: "video", value: "file:///private/var/mobile/video.m3u8")
+        ], tier: .green)
+        precondition(externallyControlled?.heroImageURL?.absoluteString == "https://cdn.example.com/invites/safe.jpg", "Phase4F App Clip: externally supplied media must ignore non-http(s) URLs.")
+        precondition(externallyControlled?.videoURL == nil, "Phase4F App Clip: invalid external video URL must be ignored.")
+
         let green = ClipGroupEventInvite.from(pathParts: ["group", "green-family"], queryItems: [
             URLQueryItem(name: "title", value: "Green Family Group"),
             URLQueryItem(name: "type", value: "Family"),

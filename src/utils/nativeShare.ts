@@ -7,7 +7,7 @@
  * Apple App Review: demonstrates native OS integration (share sheet).
  */
 
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface ShareOptions {
   title: string;

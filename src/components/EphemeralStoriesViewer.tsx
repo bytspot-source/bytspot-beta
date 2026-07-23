@@ -5,7 +5,7 @@ import {
   User, Clock, Eye, MessageCircle
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
 interface Story {

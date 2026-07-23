@@ -11,7 +11,7 @@ import {
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapFunction, MapViewMode } from './map/mapTypes';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';

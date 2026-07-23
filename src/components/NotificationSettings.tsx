@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, Bell, Mail, MessageSquare, Save, Loader2, BellRing, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc } from '../utils/trpc';
 import { isPushSupported, getPermissionState, isSubscribed, subscribeToPush } from '../utils/pushNotifications';
 

@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, Plus, CreditCard, Trash2, Check, Shield, Loader2, ExternalLink } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc } from '../utils/trpc';
 
 interface PaymentMethodsProps {

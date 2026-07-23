@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle, Loader2, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight, XCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc } from '../../utils/trpc';
 import { getAdminApprovalAccessFromToken } from '../../utils/adminAccess';
 

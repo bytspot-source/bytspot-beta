@@ -5,7 +5,7 @@ import {
   Clock, Calendar, Target, Users, MapPin, Camera, UserPlus, UserCheck
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { isFollowing, followUser, unfollowUser, getFollowedUsers } from '../utils/social';
 import {
   getUserPoints,

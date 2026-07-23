@@ -100,7 +100,7 @@ async function subscribeWeb(): Promise<boolean> {
 
     // Fetch VAPID public key from backend via tRPC
     const { key } = await trpc.push.vapidPublicKey.query();
-    const applicationServerKey = urlBase64ToUint8Array(key);
+    const applicationServerKey = urlBase64ToUint8Array(key).buffer as ArrayBuffer;
 
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,

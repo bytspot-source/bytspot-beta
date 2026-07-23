@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, MapPin, Bluetooth, Wifi, Shield, Bell, Gift, Eye, ExternalLink, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { useState, useEffect, memo } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useLocationPermissions } from './LocationPermissionFlow';
 
 interface LocationSettingsProps {

@@ -1,7 +1,7 @@
 import { motion, PanInfo, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef, forwardRef, lazy, Suspense } from 'react';
 import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket, CreditCard } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { type DiscoverCard, type CardType } from '../utils/mockData';

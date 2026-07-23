@@ -3,7 +3,7 @@ import { CapacitorNfc, type PluginListenerHandle } from '@capgo/capacitor-nfc';
 import { AnimatePresence, motion } from 'motion/react';
 import { Camera, CreditCard, LoaderCircle, QrCode, ShieldCheck, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { impactLight, notifyError, notifySuccess } from '../utils/haptics';
 import { trackEvent } from '../utils/analytics';
 import { trpc } from '../utils/trpc';

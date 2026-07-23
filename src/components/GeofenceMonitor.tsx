@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Bluetooth, Wifi, Navigation, Clock, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { useState } from 'react';
 import { useGeofencing, type GeofenceZone, type GeofenceEvent } from '../utils/geofencing';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface GeofenceMonitorProps {
   isDarkMode: boolean;

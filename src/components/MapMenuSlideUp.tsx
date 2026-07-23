@@ -5,7 +5,7 @@ import {
   Zap, Star, Shield, Clock, Map, Globe
 } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import type { MapFunction, MapViewMode } from './map/mapTypes';
 
 interface MapMenuSlideUpProps {

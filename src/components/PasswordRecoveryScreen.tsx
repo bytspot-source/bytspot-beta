@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Lock, Mail } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   getPasswordResetTokenFromLocation,
   requestPasswordReset,

@@ -12,7 +12,7 @@ import { EphemeralStoriesViewer } from './EphemeralStoriesViewer';
 import { EphemeralPostCreator } from './EphemeralPostCreator';
 import { VenueInsiderDetails } from './VenueInsiderDetails';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type EnergyLevel = 'chill' | 'social' | 'energetic' | 'peak';
 type VenueCategory = 'bar' | 'nightclub' | 'restaurant' | 'lounge' | 'cafe';

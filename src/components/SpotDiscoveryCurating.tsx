@@ -11,7 +11,7 @@ type DiscoveryStage = {
   id: string;
   title: string;
   description: string;
-  icon: JSX.Element;
+  icon: React.ReactElement;
   progress: number;
   color: string;
 };

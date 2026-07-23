@@ -6,7 +6,7 @@ import {
   CreditCard, Info
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
 import { impactLight, impactMedium, impactHeavy, notifySuccess, selectionChanged } from '../utils/haptics';
 

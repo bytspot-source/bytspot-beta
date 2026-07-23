@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
 import { addPoints } from '../utils/gamification';
 import { trpc } from '../utils/trpc';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
 import { broadcastOwnCheckin } from '../utils/social';

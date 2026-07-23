@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Users, Activity, Bell, TrendingUp, RefreshCw, Lock, Plus, Copy, CheckCircle, Megaphone, Gauge } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc } from '../utils/trpc';
 import { EMPTY_SYSTEM_HEALTH, type SystemHealth } from '../utils/fusionEngineTelemetry';
 import { buildEfficiencyInputsFromSystemHealth, EFFICIENCY_COMPONENT_META } from '../utils/efficiencyTelemetry';

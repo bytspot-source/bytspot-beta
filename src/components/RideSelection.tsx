@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { X, Star, Navigation, ArrowRight, ExternalLink } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc, type ApiRidesResponse } from '../utils/trpc';
 
 interface RideSelectionProps {

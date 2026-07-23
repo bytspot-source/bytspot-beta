@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { trpc } from '../utils/trpc';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { savePendingParkingCheckout } from '../utils/parkingReservations';
 
 interface ParkingSpot {

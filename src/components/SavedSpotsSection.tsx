@@ -17,7 +17,7 @@ import {
   type SpotType,
   type SavedCollection,
 } from '../utils/savedSpots';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface SavedSpotsSectionProps {
   isDarkMode: boolean;
@@ -46,13 +46,9 @@ export function SavedSpotsSection({ isDarkMode, onNavigateToSpot }: SavedSpotsSe
 
   // Get filtered and sorted spots
   const displayedSpots = useMemo(() => {
-    let spots: SavedSpot[] = [];
-
-    if (viewMode === 'collections' && selectedCollection) {
-      spots = getCollectionSpots(selectedCollection.id);
-    } else {
-      spots = searchQuery ? searchSavedSpots(searchQuery) : getSortedSavedSpots(sortBy);
-    }
+    let spots: SavedSpot[] = viewMode === 'collections' && selectedCollection
+      ? getCollectionSpots(selectedCollection.id)
+      : searchQuery ? searchSavedSpots(searchQuery) : getSortedSavedSpots(sortBy);
 
     if (filterType !== 'all') {
       spots = spots.filter(spot => spot.type === filterType);

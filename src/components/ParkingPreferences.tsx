@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, Shield, Zap, DollarSign, MapPin, Star, Save } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface ParkingPreferencesProps {
   isDarkMode: boolean;

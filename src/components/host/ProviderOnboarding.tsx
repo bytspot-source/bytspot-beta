@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { trpc } from '../../utils/trpc';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { evaluateProviderApplication, persistProviderReviewState } from '../../utils/providerApproval';
 import { saveProviderProgress, submitProviderApplication } from '../../utils/providerOnboardingApi';
 import { isProviderStripeConnectPath, syncProviderStripeConnectReturn } from '../../utils/providerStripeConnectReturn';

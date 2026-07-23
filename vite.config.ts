@@ -65,11 +65,14 @@
     return undefined;
   };
 
-  export default defineConfig({
+  export default defineConfig(({ mode }) => {
+    const isAppStoreMode = mode === 'app-store';
+    return {
     plugins: [react(), analyticsStubPlugin()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
+        '@/AppEntry': path.resolve(__dirname, isAppStoreMode ? './src/AppEntry.app-store.tsx' : './src/AppEntry.tsx'),
         'vaul@1.1.2': 'vaul',
         'sonner@2.0.3': 'sonner',
         'recharts@2.15.2': 'recharts',
@@ -128,4 +131,5 @@
       port: 3000,
       open: true,
     },
+    };
   });

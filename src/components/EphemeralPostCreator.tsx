@@ -5,7 +5,7 @@ import {
   Music, Users, Check, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { impactLight, impactMedium, notifySuccess, selectionChanged } from '../utils/haptics';
 

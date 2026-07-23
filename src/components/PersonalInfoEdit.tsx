@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, Camera, User, Mail, Phone, MapPin, Calendar, Save, Loader2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { trpc } from '../utils/trpc';
 

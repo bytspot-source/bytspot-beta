@@ -5,7 +5,7 @@
  * REAL-WORLD READINESS: Graceful degradation for offline scenarios
  */
 
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export type ConnectionType = 'wifi' | '4g' | '3g' | '2g' | 'slow-2g' | 'unknown';
 

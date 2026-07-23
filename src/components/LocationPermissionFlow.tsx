@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Bluetooth, Shield, CheckCircle, XCircle, Navigation2, Clock, Sparkles } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type PermissionType = 'location' | 'bluetooth' | 'complete';
 type LocationPermissionLevel = 'always' | 'whenInUse' | 'denied';

@@ -15,7 +15,7 @@ import { VenueDetails } from './components/VenueDetails';
 import { HomeConcierge } from './components/HomeConcierge';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useOffline } from './utils/hooks/useOffline';
 import { prefetchOfflineData } from './utils/offline';
 import { useVenues } from './utils/hooks/useVenues';

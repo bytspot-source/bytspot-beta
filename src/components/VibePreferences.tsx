@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Sparkles, Save, TrendingUp, Users, DollarSign, MapPin, Clock, Utensils, Heart, Brain, Zap, Crown, ChevronRight, Check } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { saveUserPreferences } from '../utils/personalization';
 
 interface VibePreferencesProps {

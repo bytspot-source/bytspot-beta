@@ -42,7 +42,7 @@ export function readProviderDashboardAccess(): ProviderDashboardAccess {
   try {
     storedUser = JSON.parse(localStorage.getItem('bytspot_user') || '{}') as Record<string, unknown>;
   } catch {
-    storedUser = {};
+    // Keep the empty fallback when saved user metadata is unreadable.
   }
 
   const role = normalizeProviderRole(

@@ -3,7 +3,7 @@ import { Send, Sparkles, MapPin, DollarSign, Clock, Mic, MicOff, Navigation, Cal
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SpeechRecognition } from '@capgo/capacitor-speech-recognition';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { trpc } from '../utils/trpc';
 
 interface ConciergeSectionProps {

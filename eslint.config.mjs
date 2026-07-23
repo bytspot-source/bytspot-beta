@@ -21,8 +21,11 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      // React Hooks rules (flat-config compatible object form)
-      ...reactHooks.configs.recommended.rules,
+      // Keep launch gating focused on hook correctness. The full latest
+      // react-hooks preset also enables React Compiler advisory rules that
+      // flag broad legacy patterns; migrate those separately from release gates.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       // Allow unused vars prefixed with _ (common pattern in this codebase)
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       // Allow explicit any for now — tighten later

@@ -98,7 +98,7 @@ export async function subscribeToPush(): Promise<{ success: boolean; error?: str
 
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
     });
   } catch (err: any) {
     return { success: false, error: err?.message || 'Failed to create push subscription.' };

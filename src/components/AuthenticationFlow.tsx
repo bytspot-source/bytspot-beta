@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, User, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { trpc } from '../utils/trpc';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { AppleSignInButton } from './AppleSignInButton';
 

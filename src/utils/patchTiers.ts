@@ -121,7 +121,8 @@ export function resolveBytspotPatchTier(input: {
     if (urlTier) return { tier: urlTier, source: 'url-tier', dynamic: false };
   }
 
-  const pathMarker = input.url?.pathname.split('/').filter(Boolean).at(-1) ?? null;
+  const pathParts = input.url?.pathname.split('/').filter(Boolean) ?? [];
+  const pathMarker = pathParts.length ? pathParts[pathParts.length - 1] : null;
   const codedTier = detectTierCodedPatchId(input.patchId ?? pathMarker);
   if (codedTier) return { tier: codedTier, source: 'tier-coded-tag', dynamic: false };
 

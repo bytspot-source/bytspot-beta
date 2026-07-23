@@ -186,14 +186,18 @@ enum BytspotAviationFallbackTests {
     }
 
     private static func assertPrivateGroupRichInviteContract() {
+        let hero = "https://cdn.example.com/invites/platinum-private-dinner.jpg"
         let platinum = ClipGroupEventInvite.from(pathParts: ["group", "platinum-private-dinner"], queryItems: [
             URLQueryItem(name: "title", value: "Platinum Dinner Group"),
             URLQueryItem(name: "type", value: "Dinner"),
             URLQueryItem(name: "participants", value: "12"),
-            URLQueryItem(name: "timing", value: "now")
+            URLQueryItem(name: "timing", value: "now"),
+            URLQueryItem(name: "hero", value: hero)
         ], tier: .platinum)
         precondition(platinum?.theme == "Premium dinner", "Phase4F App Clip: Platinum private group theme drifted.")
         precondition(platinum?.hostName == "Platinum Dinner Host", "Phase4F App Clip: Platinum private group host metadata missing.")
+        precondition(platinum?.heroImageURL?.absoluteString == hero, "Phase4F App Clip: private group custom hero image missing.")
+        precondition(platinum?.displayPosterURL?.absoluteString == hero, "Phase4F App Clip: custom hero must drive the event poster when no thumbnail is supplied.")
         precondition(platinum?.hasPlayableVideo == true, "Phase4F App Clip: Platinum private group must expose DEBUG HLS loop.")
         precondition(platinum?.activityHighlights.contains("12h live window") == true, "Phase4F App Clip: Platinum private group highlights missing live window.")
         precondition(platinum?.handoffURL?.path == "/group/platinum-private-dinner", "Phase4F App Clip: private group handoff must preserve /group route.")

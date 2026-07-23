@@ -731,6 +731,29 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertTrue(NativeGroupEventContract.inviteURL(for: black).absoluteString.contains("tier=black"))
     }
 
+    func testCustomHeroMediaPersistsIntoAppClipInviteURL() throws {
+        let hero = "https://cdn.example.com/invites/ama-hero.jpg?fit=crop"
+        let record = NativeGroupEventRecord.created(
+            type: "Birthday",
+            title: "Ama's Birthday Dinner",
+            hostName: "Ama",
+            tier: .platinum,
+            heroImageURLString: "  \(hero)  "
+        )
+        XCTAssertEqual(record.heroImageURLString, hero)
+        XCTAssertEqual(record.thumbnailURLString, hero, "A custom hero should become the App Clip poster when no thumbnail is supplied.")
+
+        let components = try XCTUnwrap(URLComponents(url: NativeGroupEventContract.inviteURL(for: record), resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in item.value.map { (item.name, $0) } })
+        XCTAssertEqual(query["hero"], hero)
+        XCTAssertEqual(query["thumbnail"], hero)
+        XCTAssertEqual(query["photos"], hero)
+
+        let parsed = try XCTUnwrap(NativeGroupEventContract.groupInvite(from: try XCTUnwrap(components.url)))
+        XCTAssertEqual(parsed.heroImageURLString, hero)
+        XCTAssertEqual(parsed.thumbnailURLString, hero)
+    }
+
     @MainActor
     func testGroupInviteURLRoutesToAppClipStyleJoinDestination() {
         let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=Platinum&timing=this-week&source=app_clip&participants=12&scheduled=Tonight%20%C2%B7%208%3A00%20PM&host=Kojo%20Asante&location=Host-selected%20private%20table&theme=Premium%20dinner&activities=Chef%20menu,Private%20arrival"

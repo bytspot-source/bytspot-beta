@@ -4028,6 +4028,7 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var audienceCircle = NativeGroupEventContract.defaultAudienceCircles[0]
     @State private var fontStyle = NativeGroupEventContract.defaultFontStyles[0]
     @State private var coHostsText = ""
+    @State private var heroImageURL = ""
     @State private var playlistURL = ""
     @State private var thumbnailURL = ""
     @State private var videoURL = ""
@@ -4058,6 +4059,7 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var activeAddOnField: NativeGroupEventAddOnField?
     @State private var addOnTitles: [String: String] = [:]
     @State private var addOnIcons: [String: String] = [:]
+    @State private var showHeroMediaEditor = false
     @State private var didRunComposerPreviewCheck = false
 
     init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
@@ -4115,6 +4117,13 @@ private struct NativeGroupEventSetupSheet: View {
             }
             if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
         }
+        .sheet(isPresented: $showHeroMediaEditor) {
+            let sheet = NativeGroupEventHeroMediaSheet(initialHeroURL: heroImageURL, initialThumbnailURL: thumbnailURL) { hero, thumbnail in
+                heroImageURL = hero
+                thumbnailURL = thumbnail
+            }
+            if #available(iOS 16.0, *) { sheet.presentationDetents([.height(520), .large]).presentationDragIndicator(.visible) } else { sheet }
+        }
         .accessibilityIdentifier("native-group-event-setup-sheet")
     }
 
@@ -4137,11 +4146,41 @@ private struct NativeGroupEventSetupSheet: View {
                 HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false).frame(width: 112) }.buttonStyle(.plain) } }
             }
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 26, style: .continuous).fill(LinearGradient(colors: [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: iconName.isEmpty ? "person.3.sequence.fill" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
-                Image(systemName: "pencil").font(.system(size: 13, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(Circle()).padding(12)
+                if let previewURL = heroPreviewURL {
+                    NativeRemoteImage(url: previewURL, fallbackColors: heroFallbackColors, fallbackEmoji: nil, emojiSize: 74, emojiOpacity: 0.18)
+                    LinearGradient(colors: [Color.black.opacity(0.04), Color.black.opacity(0.58)], startPoint: .top, endPoint: .bottom)
+                } else {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous).fill(LinearGradient(colors: heroFallbackColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Image(systemName: iconName.isEmpty ? "person.3.sequence.fill" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(heroPreviewURL == nil ? "Upload hero image" : "Hero image ready")
+                        .font(.system(size: 12, weight: .black))
+                    Text(heroPreviewURL == nil ? "Paste a hosted URL" : "Flows into the App Clip")
+                        .font(.system(size: 10.5, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 48)
+                .background(Color.black.opacity(0.34))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(12)
+                Button(action: { nativeImpactLight(); showHeroMediaEditor = true }) {
+                    Image(systemName: heroPreviewURL == nil ? "square.and.arrow.up" : "pencil")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(.black)
+                        .frame(width: 38, height: 38)
+                        .background(NativeTheme.emerald)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(12)
+                .accessibilityLabel("Edit invite hero image")
+                .accessibilityHint("Paste a hosted image URL for the invite and App Clip")
             }
             .frame(height: 210)
+            .clipped()
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
             ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultFontStyles, id: \.self) { style in Button(action: { fontStyle = style }) { setupChip(style, active: fontStyle == style, locked: false).frame(width: 132) }.buttonStyle(.plain) } } }
         }
@@ -4149,6 +4188,15 @@ private struct NativeGroupEventSetupSheet: View {
         .background(NativePolish.elevatedSurface.opacity(0.76))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private var heroPreviewURL: URL? {
+        NativeGroupEventContract.normalizedMediaURL(from: heroImageURL)
+            ?? NativeGroupEventContract.normalizedMediaURL(from: thumbnailURL)
+    }
+
+    private var heroFallbackColors: [Color] {
+        [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface]
     }
 
     private var composerEssentials: some View {
@@ -4498,7 +4546,7 @@ private struct NativeGroupEventSetupSheet: View {
         let coHosts = coHostsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let questions = customQuestionsText.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let payment = NativePrimaryEventManualPayment.optional(method: paymentMethod, label: paymentLabel.isEmpty ? paymentMethod : paymentLabel, url: paymentURL, note: paymentNote)
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURL, thumbnailURLString: thumbnailURL, videoURLString: videoURL, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: payment, rsvpCutoff: rsvpCutoff, customQuestions: questions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURL, iconName: iconName)
+        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, heroImageURLString: heroImageURL, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURL, thumbnailURLString: thumbnailURL, videoURLString: videoURL, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: payment, rsvpCutoff: rsvpCutoff, customQuestions: questions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURL, iconName: iconName)
         onCreate(record)
         dismiss()
     }
@@ -4651,6 +4699,87 @@ private struct NativeGroupEventCustomFieldSheet: View {
 
     private var closeButton: some View { Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 28, height: 28).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain) }
     private var saveButton: some View { Button(action: { onSave(titleText, selectedIcon, valueText); dismiss() }) { Text("Save").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 30).background(NativeTheme.emerald).clipShape(Capsule()) }.buttonStyle(.plain) }
+}
+
+private struct NativeGroupEventHeroMediaSheet: View {
+    let onSave: (String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var heroText: String
+    @State private var thumbnailText: String
+
+    init(initialHeroURL: String, initialThumbnailURL: String, onSave: @escaping (String, String) -> Void) {
+        self.onSave = onSave
+        _heroText = State(initialValue: initialHeroURL)
+        _thumbnailText = State(initialValue: initialThumbnailURL)
+    }
+
+    private var heroURL: URL? { NativeGroupEventContract.normalizedMediaURL(from: heroText) }
+    private var thumbnailURL: URL? { NativeGroupEventContract.normalizedMediaURL(from: thumbnailText) }
+    private var isValid: Bool { NativeGroupEventContract.isBlankOrValidMediaURL(heroText) && NativeGroupEventContract.isBlankOrValidMediaURL(thumbnailText) }
+    private var previewURL: URL? { heroURL ?? thumbnailURL }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 15) {
+                HStack { closeButton; Spacer(); saveButton }
+                Text("Invite hero media").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+                Text("Paste a hosted HTTPS image URL. The native invite previews it now, then sends the same hero/thumbnail/photo parameters to the App Clip link.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                previewCard
+                mediaField(title: "Hero image URL", placeholder: "https://cdn.example.com/invite-hero.jpg", text: $heroText)
+                mediaField(title: "Thumbnail URL", placeholder: "Optional — defaults to hero image", text: $thumbnailText)
+                if !isValid { Text("Use a full http:// or https:// URL with a host.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange) }
+                Text("Full binary uploads need a storage endpoint. Until that backend exists, this safely activates the flow with hosted media URLs instead of storing local device files in the invite link.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(20)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-group-event-hero-media-sheet")
+    }
+
+    private var previewCard: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let previewURL {
+                NativeRemoteImage(url: previewURL, fallbackColors: fallbackColors, fallbackEmoji: nil, emojiSize: 84, emojiOpacity: 0.18)
+                LinearGradient(colors: [Color.black.opacity(0.04), Color.black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
+            } else {
+                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(LinearGradient(colors: fallbackColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "photo.on.rectangle.angled").font(.system(size: 54, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.42)).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            Text(previewURL == nil ? "Preview appears here" : "Preview ready")
+                .font(.system(size: 13, weight: .black))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(Color.black.opacity(0.36))
+                .clipShape(Capsule())
+                .padding(12)
+        }
+        .frame(height: 190)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+    }
+
+    private var fallbackColors: [Color] { [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface] }
+
+    private func mediaField(title: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.0)
+            TextField(placeholder, text: text)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+                .tint(NativeTheme.cyan)
+                .padding(14)
+                .background(NativePolish.elevatedSurface.opacity(0.82))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var closeButton: some View { Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 34, height: 34).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain) }
+    private var saveButton: some View { Button(action: { onSave(heroText, thumbnailText); dismiss() }) { Text("Save media").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 15).frame(height: 34).background(isValid ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!isValid) }
 }
 
 private enum NativeGroupEventCostMode: String, CaseIterable, Identifiable { case sellTickets, requestMoney; var id: String { rawValue } }
@@ -5056,9 +5185,10 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         self.theme = Self.clean(theme) ?? fallback.theme
         self.guestSummary = Self.clean(guestSummary) ?? fallback.guests
         self.activityHighlights = (activityHighlights?.filter { !Self.clean($0, maxLength: 64).isNilOrEmpty } ?? []).isEmpty ? fallback.highlights : activityHighlights ?? fallback.highlights
-        self.heroImageURLString = heroImageURLString ?? fallback.hero
-        self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
-        self.videoURLString = videoURLString ?? fallback.video
+        let customHero = Self.mediaURLString(heroImageURLString)
+        self.heroImageURLString = customHero ?? fallback.hero
+        self.thumbnailURLString = Self.mediaURLString(thumbnailURLString) ?? customHero ?? fallback.thumbnail
+        self.videoURLString = Self.mediaURLString(videoURLString) ?? fallback.video
         self.instagramHandle = Self.clean(instagramHandle, maxLength: 64).map { $0.replacingOccurrences(of: "@", with: "") }
         self.audienceCircle = Self.clean(audienceCircle, maxLength: 40) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
         self.fontStyle = Self.clean(fontStyle, maxLength: 40) ?? NativeGroupEventContract.defaultFontStyles[0]
@@ -5092,14 +5222,14 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         return String((0..<length).compactMap { _ in alphabet.randomElement() })
     }
 
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) -> Self {
+    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) -> Self {
         let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private" : cleanType
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = cleanTitle.isEmpty ? NativeGroupEventContract.defaultTitle(for: safeType) : cleanTitle
         let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
         let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, thumbnailURLString: thumbnailURLString, videoURLString: videoURLString, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURLString, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: manualPayment, rsvpCutoff: rsvpCutoff, customQuestions: customQuestions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURLString, iconName: iconName)
+        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, heroImageURLString: heroImageURLString, thumbnailURLString: thumbnailURLString, videoURLString: videoURLString, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURLString, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: manualPayment, rsvpCutoff: rsvpCutoff, customQuestions: customQuestions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURLString, iconName: iconName)
     }
 
     var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
@@ -5203,6 +5333,15 @@ struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(maxLength))
     }
+
+    private static func mediaURLString(_ value: String?) -> String? {
+        guard let clean = clean(value, maxLength: 300),
+              let url = URL(string: clean),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host?.isEmpty == false else { return nil }
+        return url.absoluteString
+    }
 }
 
 private extension Optional where Wrapped == String {
@@ -5257,6 +5396,24 @@ enum NativeGroupEventContract {
     static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Creators", "Public"]
     static let defaultFontStyles = ["Bytspot Rounded", "Serif Luxe", "Poster Bold", "Minimal Mono"]
 
+    static func normalizedMediaURL(from raw: String?) -> URL? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host?.isEmpty == false else { return nil }
+        return url
+    }
+
+    static func normalizedMediaURLString(from raw: String?) -> String? {
+        normalizedMediaURL(from: raw)?.absoluteString
+    }
+
+    static func isBlankOrValidMediaURL(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || normalizedMediaURL(from: raw) != nil
+    }
+
     static func defaultTitle(for type: String) -> String {
         switch type.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "Dinner": return "Dinner With Your Circle"
@@ -5270,6 +5427,13 @@ enum NativeGroupEventContract {
 
     static func entitlement(for tier: BytspotTier) -> NativeGroupEventEntitlement { .entitlement(for: tier) }
     static func vendorEntitlement(for tier: BytspotTier) -> NativeVendorLTOEntitlement { .entitlement(for: tier) }
+
+    private static func photoListValue(for event: NativeGroupEventRecord) -> String? {
+        var seen = Set<String>()
+        let media = [event.heroImageURLString, event.thumbnailURLString].compactMap { normalizedMediaURLString(from: $0) }
+            .filter { seen.insert($0).inserted }
+        return media.isEmpty ? nil : media.joined(separator: ",")
+    }
 
     static func inviteURL(for event: NativeGroupEventRecord) -> URL {
         var components = URLComponents()
@@ -5311,6 +5475,7 @@ enum NativeGroupEventContract {
             URLQueryItem(name: "activities", value: event.activityHighlights.joined(separator: ",")),
             URLQueryItem(name: "hero", value: event.heroImageURLString),
             URLQueryItem(name: "thumbnail", value: event.thumbnailURLString),
+            URLQueryItem(name: "photos", value: photoListValue(for: event)),
             URLQueryItem(name: "video", value: event.videoURLString),
             URLQueryItem(name: "instagram", value: event.instagramHandle),
             URLQueryItem(name: "source", value: "app_clip")
@@ -5333,6 +5498,9 @@ enum NativeGroupEventContract {
         let paymentUrl = queryValue(in: query, names: ["paymentUrl", "paymentLink"])
         let payment = paymentUrl.map { NativePrimaryEventManualPayment(method: queryValue(in: query, names: ["paymentMethod"]) ?? "Custom", label: queryValue(in: query, names: ["paymentLabel"]) ?? "Manual payment", url: $0) }
         let questions = queryValue(in: query, names: ["questions", "customQuestions"])?.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let photos = queryArray(in: query, names: ["photos", "album", "gallery"])
+        let heroImage = queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]) ?? photos?.first
+        let thumbnail = queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? photos?.dropFirst().first ?? heroImage
         return NativeGroupEventRecord(
             id: id,
             title: title,
@@ -5350,8 +5518,8 @@ enum NativeGroupEventContract {
             theme: queryValue(in: query, names: ["theme", "eventTheme"]),
             guestSummary: queryValue(in: query, names: ["guestSummary", "guests"]),
             activityHighlights: queryArray(in: query, names: ["activities", "activityHighlights", "highlights"]),
-            heroImageURLString: queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]),
-            thumbnailURLString: queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]),
+            heroImageURLString: heroImage,
+            thumbnailURLString: thumbnail,
             videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"]),
             instagramHandle: queryValue(in: query, names: ["instagram", "ig", "instagramHandle", "social"]),
             audienceCircle: queryValue(in: query, names: ["circle", "audienceCircle"]),

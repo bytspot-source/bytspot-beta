@@ -127,10 +127,11 @@ struct ClipGroupEventInvite: Equatable {
         let participantCount = Int(queryValue(in: queryItems, names: ["participants", "p"]) ?? "1") ?? 1
         let groupType = queryValue(in: queryItems, names: ["type", "groupType"]) ?? inferredGroupType(from: title)
         let fallback = tierFallback(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
-        let heroImageURL = queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"])
-        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? fallback.poster
+        let explicitPhotos = queryURLs(in: queryItems, names: ["photos", "album", "gallery"])
+        let heroImageURL = queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"]) ?? explicitPhotos?.first
+        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? explicitPhotos?.dropFirst().first ?? heroImageURL ?? fallback.poster
         var seenPhotos = Set<URL>()
-        let photoURLs = (queryURLs(in: queryItems, names: ["photos", "album", "gallery"]) ?? [heroImageURL, thumbnailURL].compactMap { $0 })
+        let photoURLs = (explicitPhotos ?? [heroImageURL, thumbnailURL].compactMap { $0 })
             .filter { seenPhotos.insert($0).inserted }
         return Self(
             id: id,

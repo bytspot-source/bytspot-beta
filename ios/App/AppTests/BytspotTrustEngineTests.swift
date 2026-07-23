@@ -445,10 +445,10 @@ final class BytspotTrustEngineTests: XCTestCase {
 
 final class NativeProfileDataAPITests: XCTestCase {
     func testTRPCDecodeUnwrapsSuperjsonProfileEnvelope() throws {
-        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Avery Parker", "phone": "+1 404 555 0198", "address": "Atlanta, GA", "birthday": "1994-04-03"]]]]
+        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Avery Brooks", "phone": "+1 404 555 0198", "address": "Atlanta, GA", "birthday": "1994-04-03"]]]]
         let record = try decode(NativeUserProfileRecord.self, from: envelope)
         XCTAssertEqual(record.email, "member@example.com")
-        XCTAssertEqual(record.name, "Avery Parker")
+        XCTAssertEqual(record.name, "Avery Brooks")
     }
 
     func testTRPCDecodeUnwrapsVehicleArrayEnvelope() throws {
@@ -563,9 +563,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     func testAuthMutationInputsTrimAndNormalizeWithoutLoggingSecrets() {
-        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Avery Parker ", ref: " ab12 ")
+        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Avery Brooks ", ref: " ab12 ")
         XCTAssertEqual(signup["email"] as? String, "member@example.com")
-        XCTAssertEqual(signup["name"] as? String, "Avery Parker")
+        XCTAssertEqual(signup["name"] as? String, "Avery Brooks")
         XCTAssertEqual(signup["ref"] as? String, "AB12")
 
         let login = NativeAuthDataAPI.loginInput(email: " member@example.com ", password: "pw")
@@ -635,12 +635,12 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertEqual(banner.eyebrow, "LIVE NOW")
         XCTAssertEqual(banner.title, "Family Dinner")
         XCTAssertEqual(banner.tierBadge, "Black")
-        XCTAssertEqual(banner.privacyBadge, "Private Group")
+        XCTAssertEqual(banner.privacyBadge, "Private Invite")
         XCTAssertEqual(banner.ctaTitle, "Open Group")
         XCTAssertTrue(banner.subtitle.contains("48h live window"))
 
         XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).eyebrow, "WEEKLY")
-        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).ctaTitle, "Join Instantly")
+        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).ctaTitle, "Join the Invite")
     }
 
     func testInviteURLIsAppClipInstantJoinFriendly() {
@@ -723,7 +723,7 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertNil(NativeGroupEventStore.primaryLiveEvent())
         let record = NativeGroupEventRecord.created(type: "Dinner", hostName: "Bytspot Member", tier: .green)
         NativeGroupEventStore.upsert(record)
-        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.title, "Dinner Group")
+        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.title, "Dinner With Your Circle")
         XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.tier, .green)
         NativeGroupEventStore.clear()
     }

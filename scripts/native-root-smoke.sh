@@ -165,7 +165,7 @@ tap_launch_journey() {
 run_launch_visual_captures() {
   capture native-splash SIMCTL_CHILD_BYT_NATIVE_PREVIEW_SPLASH=1
   ocr native-splash
-  expect_ocr native-splash "BYTSPOT|Your perfect spot awaits|AI-Powered"
+  expect_ocr native-splash "BYTSPOT|Your perfect spot awaits|Concierge"
 
   capture native-landing SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LANDING=1
   ocr native-landing
@@ -251,7 +251,7 @@ run_panel privacyPolicy privacy-policy-panel "Privacy Policy|Information we coll
 run_panel termsOfService terms-panel "Terms of Service|License|User conduct"
 run_panel disclaimer disclaimer-panel "Disclaimer|Accuracy of data|Parking information"
 
-run_auth_fixture_panel personalInformation auth-personal-information-panel "Live profile sync|Avery Parker|member@example.com"
+run_auth_fixture_panel personalInformation auth-personal-information-panel "Live profile sync|Avery Brooks|member@example.com"
 run_auth_fixture_panel vehicles auth-vehicles-panel "Live vehicle garage|Tesla|BYT-424"
 run_auth_fixture_panel paymentMethods auth-payment-methods-panel "Visa|4242|Default"
 

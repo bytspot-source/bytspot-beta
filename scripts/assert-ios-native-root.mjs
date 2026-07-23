@@ -101,7 +101,7 @@ const checks = [
   ['No App-target Swift source references webview bridge symbols', appSwiftSources.every(([, source]) => forbiddenWebViewSymbols.every((symbol) => !source.includes(symbol)))],
   ['Native shell resolves legacy hybrid routes natively', nativeShell.includes('openNativeEquivalent(for: route)')],
   ['Native router covers AASA compatibility paths', nativeRouting.includes('path.hasPrefix("v/")') && nativeRouting.includes('path == "clip"') && nativeRouting.includes('path == "patch"')],
-  ['Native router covers required Parker paths', nativeRouting.includes('path == "access"') && nativeRouting.includes('path.hasPrefix("booking/")') && nativeRouting.includes('path == "profile"') && nativeRouting.includes('path == "map"') && nativeRouting.includes('path == "discover"') && nativeRouting.includes('path == "concierge"')],
+  ['Native router covers required consumer paths', nativeRouting.includes('path == "access"') && nativeRouting.includes('path.hasPrefix("booking/")') && nativeRouting.includes('path == "profile"') && nativeRouting.includes('path == "map"') && nativeRouting.includes('path == "discover"') && nativeRouting.includes('path == "concierge"')],
   ['AASA includes every required native universal-link pattern', requiredUniversalLinkPatterns.every((pattern) => aasaPatterns.has(pattern))],
   ['AASA does not advertise unsupported native universal-link patterns', [...aasaPatterns].every((pattern) => allowedUniversalLinkPatterns.has(pattern))],
   ['AASA component matrix exactly matches native route contract', JSON.stringify(aasaComponents) === JSON.stringify(expectedAasaComponents)],

@@ -13667,6 +13667,9 @@ private struct NativeMapExploreView: View {
 
     private var isPlainMapOpen: Bool {
         !didConsumeExplicitMapLaunch &&
+        !didOpenMapContext &&
+        selectedPin == nil &&
+        !showFunctionSheet &&
         Self.previewSelectedPinToken == nil &&
         !Self.previewShowsFunctionSheet &&
         onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&

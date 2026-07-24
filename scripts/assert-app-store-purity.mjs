@@ -18,6 +18,7 @@ const forbidden = [
 ];
 
 const thirdPartyAsset = /^(assets\/)?(framework-react|motion-kit|charts-kit|maps-kit|icon-kit|ui-radix|api-client|web-)/;
+const textualExtensions = new Set(['', '.html', '.js', '.css', '.json', '.webmanifest', '.txt', '.xml', '.svg']);
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -37,7 +38,7 @@ if (!fs.existsSync(distDir)) {
   process.exit(1);
 }
 
-const files = walk(distDir).filter((file) => /\.(html|js|css)$/.test(file));
+const files = walk(distDir).filter((file) => textualExtensions.has(path.extname(file).toLowerCase()));
 const failures = [];
 
 for (const file of files) {

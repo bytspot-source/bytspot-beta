@@ -1,4 +1,5 @@
 
+  import fs from 'node:fs';
   import { defineConfig, type Plugin } from 'vite';
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
@@ -16,6 +17,28 @@
         res.statusCode = 204;
         res.end();
       });
+    },
+  });
+
+  const appStoreManifestPlugin = (): Plugin => ({
+    name: 'bytspot:app-store-manifest',
+    closeBundle() {
+      const manifestPath = path.resolve(__dirname, 'dist/manifest.json');
+      const consumerManifest = {
+        name: 'Bytspot',
+        short_name: 'Bytspot',
+        description: 'Atlanta Midtown crowd levels, parking, rides, and concierge support.',
+        start_url: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#000000',
+        theme_color: '#00BFFF',
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      };
+      fs.writeFileSync(manifestPath, JSON.stringify(consumerManifest, null, 2));
     },
   });
 
@@ -68,7 +91,7 @@
   export default defineConfig(({ mode }) => {
     const isAppStoreMode = mode === 'app-store';
     return {
-    plugins: [react(), analyticsStubPlugin()],
+    plugins: [react(), analyticsStubPlugin(), ...(isAppStoreMode ? [appStoreManifestPlugin()] : [])],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

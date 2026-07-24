@@ -114,7 +114,7 @@ test.describe('Apple Review simulation', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Open profile' }).click();
 
-    await expect(page.getByRole('button', { name: 'Privacy Policy' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('link', { name: 'Privacy Policy' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Become a Provider')).toHaveCount(0);
     await expect(page.getByText('Provider Dashboard')).toHaveCount(0);
     await expect(page.getByText('Valet Driver App')).toHaveCount(0);
@@ -130,6 +130,9 @@ test.describe('Apple Review simulation', () => {
       };
     });
     expect(profileLayout.logoutBottom).toBeLessThan(profileLayout.navTop - 16);
+
+    await page.getByRole('link', { name: 'Privacy Policy' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
   });
 
   test('App Clip or NFC deep link opens Parker map tap/scan flow without internal routes', async ({ page }) => {
@@ -164,7 +167,7 @@ test.describe('Apple Review simulation', () => {
     expect(patchLayout.verifyHeight).toBeGreaterThanOrEqual(48);
   });
 
-  for (const path of ['/provider', '/vendor', '/host', '/admin', '/admin/approvals'] as const) {
+  for (const path of ['/provider', '/vendor', '/host', '/admin', '/admin/approvals', '/valet', '/valet/dashboard', '/marketing', '/marketing/assets'] as const) {
     test(`${path} stays hidden from Apple Review`, async ({ page }) => {
       await page.goto(path);
       await expect(page).toHaveURL(/\/$/);

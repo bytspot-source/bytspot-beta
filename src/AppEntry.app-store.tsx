@@ -8,6 +8,8 @@ const blockedPathCodes = [
   [47, 118, 101, 110, 100, 111, 114],
   [47, 104, 111, 115, 116],
   [47, 97, 100, 109, 105, 110],
+  [47, 118, 97, 108, 101, 116],
+  [47, 109, 97, 114, 107, 101, 116, 105, 110, 103],
 ];
 
 function text(codes: number[]) {
@@ -81,7 +83,7 @@ function MapPanel() {
 }
 
 function Profile() {
-  return <section className="space-y-4 pb-32"><h1 className="text-2xl font-black">Profile</h1><button className="block rounded-2xl border border-white/15 px-4 py-3">Privacy Policy</button><button className="block rounded-2xl border border-white/15 px-4 py-3">Terms of Service</button><button className="mt-8 rounded-2xl px-4 py-3 text-white/70">Log Out</button></section>;
+  return <section className="space-y-4 pb-32"><h1 className="text-2xl font-black">Profile</h1><a className="block rounded-2xl border border-white/15 px-4 py-3" href="/privacy">Privacy Policy</a><a className="block rounded-2xl border border-white/15 px-4 py-3" href="/terms">Terms of Service</a><button className="mt-8 rounded-2xl px-4 py-3 text-white/70">Log Out</button></section>;
 }
 
 export default function AppEntry() {

@@ -203,6 +203,7 @@ struct BytspotNativeShellView: View {
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var pendingDiscoverFilter: String?
+    @State private var plainMapOpenGeneration = Self.previewInitialTab == .map ? 1 : 0
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
@@ -287,14 +288,14 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membership: membershipStore.membership)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membership: membershipStore.membership, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                BytspotNativeBottomTabBar(selectedTab: $selectedTab, tier: activeTier)
+                BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -449,6 +450,26 @@ struct BytspotNativeShellView: View {
         true
     }
 
+    private var plainTabSelectionBinding: Binding<BytspotNativeTab> {
+        Binding(
+            get: { selectedTab },
+            set: { tab in
+                if tab == .map { preparePlainMapOpen() }
+                selectedTab = tab
+            }
+        )
+    }
+
+    private func preparePlainMapOpen() {
+        clearMapHandoffsForPlainTabOpen()
+        plainMapOpenGeneration += 1
+    }
+
+    private func clearMapHandoffsForPlainTabOpen() {
+        NativeOnboardingMapHandoff.clear()
+        NativeMapFocusHandoff.clear()
+    }
+
     private func openNativeProfile() {
         openNativeProfile(panel: nil)
     }
@@ -499,8 +520,7 @@ struct BytspotNativeShellView: View {
         case .explorePicks:
             selectedTab = .discover
         case .mapPicks:
-            UserDefaults.standard.set(NativeHomeDashboardView.defaultLaunchMapDestination, forKey: NativeOnboardingMapHandoff.destinationKey)
-            UserDefaults.standard.set("Route", forKey: NativeOnboardingMapHandoff.modeKey)
+            NativeOnboardingMapHandoff.write(destination: NativeHomeDashboardView.defaultLaunchMapDestination, mode: "Route")
             selectedTab = .map
         case .savePicks:
             forceHomeAfterSavePicksAuth()
@@ -540,9 +560,16 @@ struct BytspotNativeShellView: View {
     private func selectNativeTab(_ tab: BytspotNativeTab) {
         nativeImpactLight()
         cancelPostAuthHomeHold()
+        if tab == .map && !hasExplicitMapHandoff {
+            preparePlainMapOpen()
+        }
         withAnimation(.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)) {
             selectedTab = tab
         }
+    }
+
+    private var hasExplicitMapHandoff: Bool {
+        NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus
     }
 
     private func openDiscoverFilter(_ filter: String) {
@@ -6496,6 +6523,31 @@ private enum NativeSearchRouter {
                 let route: NativeSearchRoute = spec.filter == "parking" ? .map(destination: "Parking near me", mode: "Smart Parking") : spec.filter == "mobility" ? .rideHandoff : .discoverFilter(spec.filter)
                 results.append(NativeSearchSuggestion(id: "category-\(spec.filter)", title: spec.title, subtitle: spec.subtitle, address: location.displayName.capitalized, icon: spec.icon, actionLabel: spec.filter == "parking" ? "Open Map" : spec.filter == "mobility" ? "Request" : "Discover", badge: query.isEmpty ? location.shortLabel : nil, score: query.isEmpty ? 62 : 82 + score, route: route))
             }
+    static let timestampKey = "bytspot_native_onboarding_map_timestamp"
+    private static let maxAge: TimeInterval = 45
+
+    static func write(destination: String, mode: String) {
+        UserDefaults.standard.set(destination, forKey: destinationKey)
+        UserDefaults.standard.set(mode, forKey: modeKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: destinationKey)
+        UserDefaults.standard.removeObject(forKey: modeKey)
+        UserDefaults.standard.removeObject(forKey: timestampKey)
+    }
+
+    static var isFresh: Bool {
+        let timestamp = UserDefaults.standard.double(forKey: timestampKey)
+        guard timestamp > 0 else { return false }
+        return Date().timeIntervalSince1970 - timestamp <= maxAge
+    }
+
+    static var hasFreshDestination: Bool {
+        guard isFresh else { return false }
+        return !(UserDefaults.standard.string(forKey: destinationKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
         }
 
         for card in cards {
@@ -6650,8 +6702,6 @@ private struct NativeHomeDashboardView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalkPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
-    @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var mapHandoffDestination = ""
-    @AppStorage(NativeOnboardingMapHandoff.modeKey) private var mapHandoffMode = ""
     @State private var aiPickDetailVenue: NativeVenueSummary?
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
@@ -7053,8 +7103,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func openLaunchPicksOnMap() {
-        mapHandoffDestination = Self.launchPreviewPicks.first?.0 ?? "Ladybird Grove & Mess Hall"
-        mapHandoffMode = launchIntent == "parking" || launchIntent == "covered_parking" ? "Smart Parking" : "Route"
+        NativeOnboardingMapHandoff.write(destination: Self.launchPreviewPicks.first?.0 ?? "Ladybird Grove & Mess Hall", mode: launchIntent == "parking" || launchIntent == "covered_parking" ? "Smart Parking" : "Route")
         openNativeTab(.map)
     }
 
@@ -7212,8 +7261,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
-        mapHandoffDestination = venue.name
-        mapHandoffMode = venue.discoverType == "parking" ? "Smart Parking" : "Route"
+        NativeOnboardingMapHandoff.write(destination: venue.name, mode: venue.discoverType == "parking" ? "Smart Parking" : "Route")
         openNativeTab(.map)
     }
 
@@ -7486,8 +7534,7 @@ private struct NativeHomeDashboardView: View {
         case .discoverFilter(let filter):
             openDiscoverFilter(filter)
         case .map(let destination, let mode):
-            mapHandoffDestination = destination
-            mapHandoffMode = mode
+            NativeOnboardingMapHandoff.write(destination: destination, mode: mode)
             openNativeTab(.map)
         case .rideHandoff:
             handleRideHandoff()
@@ -9039,6 +9086,12 @@ private struct NativeParkingBookingSheet: View {
         }
         .padding(16)
         .nativePanel()
+    }
+
+    static var hasPendingFocus: Bool {
+        let id = (UserDefaults.standard.string(forKey: idKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (UserDefaults.standard.string(forKey: titleKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !id.isEmpty || !title.isEmpty
     }
 
     private var paymentPanel: some View {
@@ -13309,11 +13362,16 @@ private struct NativeMapExploreView: View {
     /// Sensor fusion + hysteresis:
     /// - `accuracy` < 0 (invalid) or worse than `verifiedZoneAccuracyFloorMeters`
     ///   is fail-safe denied — a fix too noisy to trust the distance can't arm L2.
+    var plainOpenGeneration: Int = 0
     ///   The default of 0 keeps the pure-distance call sites (and self-tests) at
     ///   "perfect accuracy" so the boundary semantics are unchanged for them.
     /// - `wasInZone` selects the Schmitt boundary: arm at `verifiedZoneRadiusMeters`,
     ///   release only at the wider `verifiedZoneExitMeters`, so a fix dithering at
     ///   the edge can't oscillate the gate.
+    @State private var didConsumeExplicitMapLaunch = false
+    @State private var didOpenMapContext = false
+    @State private var consumedPlainOpenGeneration = 0
+    @State private var suppressPlainOpenHandoffs = false
     static func directScanPermitted(
         nearestVerifiedMeters distance: CLLocationDistance?,
         horizontalAccuracy accuracy: CLLocationAccuracy = 0,
@@ -13515,7 +13573,7 @@ private struct NativeMapExploreView: View {
                     .padding(.trailing, NativePolish.mapActionTrailingInset)
                     .padding(.top, NativePolish.mapActionTopInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                if selectedPin != nil || showFunctionSheet {
+                if shouldShowSpatialSheet {
                     spatialSheet
                         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.985, anchor: .bottom)), removal: .move(edge: .bottom).combined(with: .opacity)))
                 }
@@ -13564,7 +13622,8 @@ private struct NativeMapExploreView: View {
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
         .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
         .accessibilityIdentifier("native-map-explore")
-        .onAppear { locationStore.requestWhenInUseIfNeeded(); startLocationGateIfNeeded(); refreshProximityLatch(); autoOpenTrafficIntelIfRequested(); applySelectedPinPreviewIfRequested(); applyOnboardingMapHandoffIfRequested(); applyNativeMapFocusHandoffIfRequested() }
+        .onAppear { handleMapAppear() }
+        .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch() }
@@ -13662,10 +13721,52 @@ private struct NativeMapExploreView: View {
             trafficIntelVenue = trafficIntelCandidate
             showTrafficIntel = true
         }
+    private func handleMapAppear() {
+        requestMapLocationPermissionIfNeeded()
+        startLocationGateIfNeeded()
+        refreshProximityLatch()
+        let consumedPlainOpen = consumePlainMapOpenIfNeeded()
+        autoOpenTrafficIntelIfRequested()
+        applySelectedPinPreviewIfRequested()
+        if !consumedPlainOpen {
+            applyOnboardingMapHandoffIfRequested()
+            applyNativeMapFocusHandoffIfRequested()
+        }
+        resetPlainMapLaunchIfNeeded()
     }
 
+    private var shouldShowSpatialSheet: Bool {
+        if hasUnconsumedPlainMapOpen { return false }
+        if isPlainMapOpen { return false }
+        return showFunctionSheet || (selectedPin != nil && didOpenMapContext)
+    }
+
+    private var hasUnconsumedPlainMapOpen: Bool {
+        plainOpenGeneration > consumedPlainOpenGeneration &&
+        Self.previewSelectedPinToken == nil &&
+        !Self.previewShowsFunctionSheet
+    }
+
+    private var isPlainMapOpen: Bool {
+        !didConsumeExplicitMapLaunch &&
+        Self.previewSelectedPinToken == nil &&
+        !Self.previewShowsFunctionSheet &&
+        onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func requestMapLocationPermissionIfNeeded() {
+        guard !Self.shouldSuppressLocationPromptForPreview else { return }
+        locationStore.requestWhenInUseIfNeeded()
+    }
+
+    }
+
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
     private var topSearchOverlay: some View {
-        Button(action: { showFunctionSheet = true; nativeImpactLight() }) {
+        Button(action: { didOpenMapContext = true; showFunctionSheet = true; nativeImpactLight() }) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 19, weight: .black))
@@ -13687,9 +13788,14 @@ private struct NativeMapExploreView: View {
             .clipShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
             .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 12)
         }
+        guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
         .buttonStyle(.plain)
     }
+        guard NativeOnboardingMapHandoff.isFresh else { NativeOnboardingMapHandoff.clear(); return }
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
 
+        NativeOnboardingMapHandoff.clear()
     private var showFullRightActionStack: Bool {
         selectedPin == nil && !showFunctionSheet
     }
@@ -13704,9 +13810,12 @@ private struct NativeMapExploreView: View {
         }
     }
 
+        guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
     private var trafficIntelFABState: NativeTrafficIntelFABState {
         if showTrafficIntel || trafficIntelVenue != nil { return .active }
         if selectedMode == "Route" || hasProximityAlert { return .aware }
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
         return .calm
     }
 
@@ -13738,6 +13847,35 @@ private struct NativeMapExploreView: View {
             if showFullRightActionStack {
                 Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "plus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
                 Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "minus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
+    private func resetPlainMapLaunchIfNeeded() {
+        guard isPlainMapOpen else { return }
+        resetPlainMapState()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard isPlainMapOpen else { return }
+            resetPlainMapState()
+        }
+    }
+
+    @discardableResult
+    private func consumePlainMapOpenIfNeeded() -> Bool {
+        guard hasUnconsumedPlainMapOpen else { return false }
+        consumedPlainOpenGeneration = plainOpenGeneration
+        suppressPlainOpenHandoffs = true
+        NativeOnboardingMapHandoff.clear()
+        NativeMapFocusHandoff.clear()
+        resetPlainMapState()
+        return true
+    }
+
+    private func resetPlainMapState() {
+        selectedMode = "Nearby"
+        selectedPin = nil
+        routeFocusedPinID = nil
+        activeRoutePinID = nil
+        didOpenMapContext = false
+        showFunctionSheet = false
+    }
+
                 Button(action: { openTrafficIntel() }) { NativeTrafficIntelFAB(state: trafficIntelFABState, size: Self.rightSecondaryActionControlSize) }
                 Button(action: { handlePartnerFocus() }) { NativeHexActionButton(active: showVerifiedOnly) }
             }
@@ -13780,7 +13918,7 @@ private struct NativeMapExploreView: View {
                     emptyTapZoneState
                 } else {
                     ForEach(Array(filteredPins.prefix(3))) { pin in
-                        Button(action: { selectedPin = pin; nativeImpactLight() }) { mapResultRow(pin) }.buttonStyle(.plain)
+                        Button(action: { didOpenMapContext = true; selectedPin = pin; nativeImpactLight() }) { mapResultRow(pin) }.buttonStyle(.plain)
                     }
                 }
             }
@@ -13864,7 +14002,7 @@ private struct NativeMapExploreView: View {
     }
 
     private var closeSheetButton: some View {
-        Button(action: { selectedPin = nil; routeFocusedPinID = nil; activeRoutePinID = nil; showFunctionSheet = false; nativeImpactLight() }) {
+        Button(action: { didOpenMapContext = false; selectedPin = nil; routeFocusedPinID = nil; activeRoutePinID = nil; showFunctionSheet = false; nativeImpactLight() }) {
             Image(systemName: "xmark")
                 .font(.system(size: 23, weight: .black))
                 .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
@@ -14040,15 +14178,8 @@ private struct NativeMapExploreView: View {
             parkingBookingVenue = venueForDetail(pin)
             return
         }
-        if pin.kind == .parking && isRouteFocus(pin) {
-            activateRoute(to: pin)
-            return
-        }
-        if sessionStore.isAuthenticated {
-            activateRoute(to: pin)
-        } else {
-            presentGuestMapPrompt(title: "Save route to \(pin.title)?", subtitle: "Sign in to keep this route, parking context, and arrival notes across devices.", cta: "Sign in to save route")
-        }
+        activateRoute(to: pin)
+        startTurnByTurn(to: pin)
     }
 
     private func nonPartnerPrimaryTitle(for pin: NativeMapPin) -> String {
@@ -14152,6 +14283,7 @@ private struct NativeMapExploreView: View {
         }
         .padding(14)
         .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+        didOpenMapContext = true
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-partner-peek-card")
@@ -14532,7 +14664,7 @@ private struct NativeMapExploreView: View {
                 Text("LIVE").font(.system(size: 10, weight: .black)).foregroundColor(.black).padding(.horizontal, 8).padding(.vertical, 4).background(NativeTheme.pink).clipShape(Capsule())
             }
             ForEach(pins.filter { $0.kind == .parking }) { pin in
-                Button(action: { selectedPin = pin; selectedMode = "Smart Parking"; routeFocusedPinID = nil; activeRoutePinID = nil; nativeImpactLight() }) {
+                Button(action: { didOpenMapContext = true; selectedPin = pin; selectedMode = "Smart Parking"; routeFocusedPinID = nil; activeRoutePinID = nil; nativeImpactLight() }) {
                     HStack(spacing: 10) {
                         Image(systemName: "parkingsign.circle.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(pin.title).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
@@ -14796,6 +14928,7 @@ private struct NativeMapExploreView: View {
         nativeImpactLight()
     }
 
+        didOpenMapContext = true
     private func dropRecenterModeForUserPan() {
         guard recenterMode != .off else { return }
         recenterMode = .off
@@ -14851,6 +14984,7 @@ private struct NativeMapVisualMarker: Identifiable {
 private struct NativeTrafficIntelSheet: View {
     let venue: NativeVenueSummary
     let reports: [NativeCommunityReport]
+        didOpenMapContext = true
     let onAddReport: (NativeCommunityReport.Category) -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var showReportPicker = false
@@ -14866,6 +15000,7 @@ private struct NativeTrafficIntelSheet: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
+            didOpenMapContext = false
                 header
                 NativeTrafficIntelMetricCard(
                     icon: "waveform.path.ecg",
@@ -14885,6 +15020,7 @@ private struct NativeTrafficIntelSheet: View {
                 )
                 NativeTrafficIntelMetricCard(
                     icon: "parkingsign.circle.fill",
+        didOpenMapContext = true
                     title: "Parking Density",
                     value: parkingDensityLabel,
                     subtitle: "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)",

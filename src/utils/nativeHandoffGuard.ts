@@ -11,6 +11,7 @@ export type NativeHandoffContext = {
 const APP_HOSTS = new Set(['bytspot.app', 'www.bytspot.app', 'bytspot.com', 'www.bytspot.com']);
 const PATCH_PATHS = new Set(['p', 'patch', 't']);
 const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
+const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));
@@ -84,7 +85,7 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
   }
 
   const patchId = patchIdFrom(url, parts);
-  if (patchId || isAppClipHandoff || first === 'access') {
+  if (patchId || isAppClipHandoff || (first && ACCESS_COMPATIBILITY_PATHS.has(first))) {
     const nativeURL = new URL(patchId ? `bytspot://access/${patchId}` : 'bytspot://access');
     cloneQuery(url, nativeURL);
     return {

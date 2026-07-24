@@ -11,6 +11,20 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);
 }
 
+function registerServiceWorkerAfterLoad() {
+  if (!('serviceWorker' in navigator)) return;
+  const register = () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // SW registration failed — push won't work but app still functions.
+    });
+  };
+  if (document.readyState === 'complete') {
+    register();
+  } else {
+    window.addEventListener('load', register, { once: true });
+  }
+}
+
 function renderNativeHandoffOnly() {
   const context = nativeHandoffContext(window.location.href);
   if (!context) return false;
@@ -47,16 +61,9 @@ async function bootReactApp() {
     import('./App.tsx'),
   ]);
   createRoot(document.getElementById('root')!).render(createElement(App));
-
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // SW registration failed — push won't work but app still functions.
-      });
-    });
-  }
 }
 
 if (!renderNativeHandoffOnly()) {
+  registerServiceWorkerAfterLoad();
   void bootReactApp();
 }

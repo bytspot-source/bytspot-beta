@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { Script, createContext } from 'node:vm';
 import {
   nativeAppClipArgumentFor,
   nativeHandoffContext,
@@ -30,6 +32,26 @@ test('canonicalizes NFC patch URLs into App Clip arguments', () => {
 test('blocks root BYT tag and query patch links', () => {
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/BYT424-0301?tier=platinum'), true);
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/?patchId=BYT424-0301&tier=platinum'), true);
+});
+
+test('blocks bare native compatibility paths listed in AASA', () => {
+  assert.equal(nativeHandoffContext('https://bytspot.app/access')?.kind, 'access');
+  assert.equal(nativeHandoffContext('https://bytspot.app/access/BYT424-0301')?.kind, 'patch');
+  assert.equal(nativeHandoffContext('https://bytspot.app/patch')?.kind, 'access');
+  assert.equal(nativeHandoffContext('https://bytspot.app/patch/BYT424-0301')?.kind, 'patch');
+});
+
+test('service worker bypass classifier stays aligned for handoff navigation URLs', () => {
+  const source = readFileSync(new URL('../../../public/sw.js', import.meta.url), 'utf8');
+  const context = createContext({ URL, self: { addEventListener() {} } });
+  new Script(`${source}\nglobalThis.__isNativeHandoffURL = isNativeHandoffURL;`).runInContext(context);
+  const isNativeHandoffURL = context.__isNativeHandoffURL as (url: URL) => boolean;
+
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/access')), true);
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/access/BYT424-0301')), true);
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch')), true);
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch/BYT424-0301')), true);
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/discover')), false);
 });
 
 test('does not block ordinary web pages', () => {

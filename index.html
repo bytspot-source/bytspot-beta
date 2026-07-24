@@ -58,14 +58,16 @@
               var pathParts = current.pathname.split('/').filter(Boolean);
               if (!patchId && pathParts[0] && pathParts[0].toUpperCase().indexOf('BYT') === 0) patchId = pathParts[0];
               if (!patchId && (pathParts[0] === 'p' || pathParts[0] === 'patch' || pathParts[0] === 't') && pathParts[1]) patchId = pathParts[1];
-              if (patchId) {
+              if (pathParts[0] === 'group' && pathParts[1]) {
+                canonicalArgument = current.toString();
+              } else if (patchId) {
                 var next = new URL('https://bytspot.app/p/app-clip');
                 next.searchParams.set('patchId', patchId);
                 current.searchParams.forEach(function (value, key) {
                   if (key !== 'patchId' && key !== 'patch' && key !== 'p') next.searchParams.set(key, value);
                 });
                 canonicalArgument = next.toString();
-              } else if (current.pathname.indexOf('/p/') === 0 || current.pathname.toUpperCase().indexOf('/BYT') === 0) {
+              } else if (current.pathname.indexOf('/p/') === 0 || current.pathname.indexOf('/access/') === 0 || current.pathname.toUpperCase().indexOf('/BYT') === 0) {
                 canonicalArgument = current.toString();
               }
             } catch (_) {}
@@ -74,13 +76,6 @@
         })();
       </script>
       <script type="module" src="/src/main.tsx"></script>
-      <script>
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js').catch(() => {});
-          });
-        }
-      </script>
     </body>
   </html>
   

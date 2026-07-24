@@ -13879,7 +13879,7 @@ private struct NativeMapExploreView: View {
     private var mapControls: some View {
         VStack(alignment: .trailing, spacing: NativePolish.mapActionStackSpacing) {
             Button(action: { openNativeProfile(nil) }) { NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
-            Button(action: { showFunctionSheet.toggle(); nativeImpactLight() }) { NativeRoundButton(symbol: "square.3.layers.3d.top.filled", tint: NativeTheme.textPrimary, size: Self.rightActionControlSize, isActive: showFunctionSheet) }
+            Button(action: { if !showFunctionSheet { didOpenMapContext = true }; showFunctionSheet.toggle(); nativeImpactLight() }) { NativeRoundButton(symbol: "square.3.layers.3d.top.filled", tint: NativeTheme.textPrimary, size: Self.rightActionControlSize, isActive: showFunctionSheet) }
             Button(action: { cycleRecenterMode() }) { NativeMapRecenterButton(mode: recenterMode, size: Self.rightActionControlSize, heading: headingProvider.heading) }
             if showFullRightActionStack {
                 Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "plus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }

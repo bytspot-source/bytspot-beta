@@ -6431,6 +6431,31 @@ private struct NativeWalletLine: View {
 private enum NativeOnboardingMapHandoff {
     static let destinationKey = "bytspot_native_onboarding_map_destination"
     static let modeKey = "bytspot_native_onboarding_map_mode"
+    static let timestampKey = "bytspot_native_onboarding_map_timestamp"
+    private static let maxAge: TimeInterval = 45
+
+    static func write(destination: String, mode: String) {
+        UserDefaults.standard.set(destination, forKey: destinationKey)
+        UserDefaults.standard.set(mode, forKey: modeKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: destinationKey)
+        UserDefaults.standard.removeObject(forKey: modeKey)
+        UserDefaults.standard.removeObject(forKey: timestampKey)
+    }
+
+    static var isFresh: Bool {
+        let timestamp = UserDefaults.standard.double(forKey: timestampKey)
+        guard timestamp > 0 else { return false }
+        return Date().timeIntervalSince1970 - timestamp <= maxAge
+    }
+
+    static var hasFreshDestination: Bool {
+        guard isFresh else { return false }
+        return !(UserDefaults.standard.string(forKey: destinationKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 private struct NativeGuestSavePromptSheet: View {
@@ -6523,31 +6548,6 @@ private enum NativeSearchRouter {
                 let route: NativeSearchRoute = spec.filter == "parking" ? .map(destination: "Parking near me", mode: "Smart Parking") : spec.filter == "mobility" ? .rideHandoff : .discoverFilter(spec.filter)
                 results.append(NativeSearchSuggestion(id: "category-\(spec.filter)", title: spec.title, subtitle: spec.subtitle, address: location.displayName.capitalized, icon: spec.icon, actionLabel: spec.filter == "parking" ? "Open Map" : spec.filter == "mobility" ? "Request" : "Discover", badge: query.isEmpty ? location.shortLabel : nil, score: query.isEmpty ? 62 : 82 + score, route: route))
             }
-    static let timestampKey = "bytspot_native_onboarding_map_timestamp"
-    private static let maxAge: TimeInterval = 45
-
-    static func write(destination: String, mode: String) {
-        UserDefaults.standard.set(destination, forKey: destinationKey)
-        UserDefaults.standard.set(mode, forKey: modeKey)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
-    }
-
-    static func clear() {
-        UserDefaults.standard.removeObject(forKey: destinationKey)
-        UserDefaults.standard.removeObject(forKey: modeKey)
-        UserDefaults.standard.removeObject(forKey: timestampKey)
-    }
-
-    static var isFresh: Bool {
-        let timestamp = UserDefaults.standard.double(forKey: timestampKey)
-        guard timestamp > 0 else { return false }
-        return Date().timeIntervalSince1970 - timestamp <= maxAge
-    }
-
-    static var hasFreshDestination: Bool {
-        guard isFresh else { return false }
-        return !(UserDefaults.standard.string(forKey: destinationKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
         }
 
         for card in cards {
@@ -8998,6 +8998,12 @@ private enum NativeMapFocusHandoff {
         UserDefaults.standard.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
     }
 
+    static var hasPendingFocus: Bool {
+        let id = (UserDefaults.standard.string(forKey: idKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (UserDefaults.standard.string(forKey: titleKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !id.isEmpty || !title.isEmpty
+    }
+
     static func clear() {
         [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey].forEach { UserDefaults.standard.removeObject(forKey: $0) }
     }
@@ -9086,12 +9092,6 @@ private struct NativeParkingBookingSheet: View {
         }
         .padding(16)
         .nativePanel()
-    }
-
-    static var hasPendingFocus: Bool {
-        let id = (UserDefaults.standard.string(forKey: idKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (UserDefaults.standard.string(forKey: titleKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return !id.isEmpty || !title.isEmpty
     }
 
     private var paymentPanel: some View {
@@ -13280,11 +13280,16 @@ private struct NativeMapExploreView: View {
     /// Premium-membership entitlement (orthogonal to tier). Drives whether the
     /// Map Functions sheet's premium rows unlock or show the upgrade nudge.
     var membership: BytspotMembership = .free
+    var plainOpenGeneration: Int = 0
     @State private var region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045))
     @State private var selectedMode = modeTitles[0]
     @State private var selectedPin: NativeMapPin?
     @State private var routeFocusedPinID: String?
     @State private var activeRoutePinID: String?
+    @State private var didConsumeExplicitMapLaunch = false
+    @State private var didOpenMapContext = false
+    @State private var consumedPlainOpenGeneration = 0
+    @State private var suppressPlainOpenHandoffs = false
     /// Native Venue Details (WS-C). Presented from the non-partner peek card's
     /// "Details" action — an L0 read-only surface (viewVenue) that replaces the
     /// former coarse openHybrid(.discover) handoff. nil ⇒ no detail presented.
@@ -13362,16 +13367,11 @@ private struct NativeMapExploreView: View {
     /// Sensor fusion + hysteresis:
     /// - `accuracy` < 0 (invalid) or worse than `verifiedZoneAccuracyFloorMeters`
     ///   is fail-safe denied — a fix too noisy to trust the distance can't arm L2.
-    var plainOpenGeneration: Int = 0
     ///   The default of 0 keeps the pure-distance call sites (and self-tests) at
     ///   "perfect accuracy" so the boundary semantics are unchanged for them.
     /// - `wasInZone` selects the Schmitt boundary: arm at `verifiedZoneRadiusMeters`,
     ///   release only at the wider `verifiedZoneExitMeters`, so a fix dithering at
     ///   the edge can't oscillate the gate.
-    @State private var didConsumeExplicitMapLaunch = false
-    @State private var didOpenMapContext = false
-    @State private var consumedPlainOpenGeneration = 0
-    @State private var suppressPlainOpenHandoffs = false
     static func directScanPermitted(
         nearestVerifiedMeters distance: CLLocationDistance?,
         horizontalAccuracy accuracy: CLLocationAccuracy = 0,
@@ -13535,6 +13535,8 @@ private struct NativeMapExploreView: View {
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
         let environment = ProcessInfo.processInfo.environment
         if ["1", "true", "yes"].contains(environment[suppressLocationPromptEnvironmentKey]?.lowercased() ?? "") { return true }
+        if ["1", "true", "yes"].contains(nativeLaunchArgument("byt-native-suppress-location-prompt")?.lowercased() ?? "") { return true }
+        if nativeLaunchArgument("byt-native-preview-tab") != nil { return true }
         return [
             "BYT_NATIVE_PREVIEW_TAB",
             "BYT_NATIVE_PREVIEW_PROFILE",
@@ -13637,90 +13639,6 @@ private struct NativeMapExploreView: View {
         headingProvider.startLocating()
     }
 
-    private func applySelectedPinPreviewIfRequested() {
-        guard let token = Self.previewSelectedPinToken, selectedPin == nil else { return }
-        let lookup = pins
-        let lower = token.lowercased()
-        let resolved: NativeMapPin? = {
-            if let exact = lookup.first(where: { $0.id.lowercased() == lower }) { return exact }
-            switch lower {
-            case "parking": return lookup.first(where: { $0.kind == .parking })
-            case "partner": return lookup.first(where: { $0.kind == .partner })
-            case "access": return lookup.first(where: { $0.kind == .access })
-            default: return lookup.first(where: { $0.title.lowercased().contains(lower) })
-            }
-        }()
-        guard let pin = resolved else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            selectedPin = pin
-            showFunctionSheet = false
-        }
-    }
-
-    private static var previewSelectedPinToken: String? {
-        ProcessInfo.processInfo.environment[selectedPinEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    private func applyOnboardingMapHandoffIfRequested() {
-        let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !destination.isEmpty else { return }
-        let mode = onboardingMapMode.isEmpty ? "Route" : onboardingMapMode
-        let lower = destination.lowercased()
-        let resolved = pins.first { pin in
-            let title = pin.title.lowercased()
-            return title.contains(lower) || lower.contains(title)
-        } ?? NativeMapPin.onboardingFallback(title: destination)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            selectedMode = mode
-            selectedPin = mode == "Smart Parking" ? pins.first(where: { $0.kind == .parking }) ?? resolved : resolved
-            if let coordinate = selectedPin?.coordinate { region.center = coordinate }
-            showFunctionSheet = false
-            onboardingMapDestination = ""
-            onboardingMapMode = ""
-        }
-    }
-
-    private func applyNativeMapFocusHandoffIfRequested() {
-        let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty || !title.isEmpty else { return }
-        let coordinate = CLLocationCoordinate2D(latitude: mapFocusLatitude, longitude: mapFocusLongitude)
-        let lowerID = id.lowercased()
-        let lowerTitle = title.lowercased()
-        let existing = pins.first { pin in
-            pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
-        }
-        let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : .access
-        let focused = existing ?? NativeMapPin(
-            id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,
-            title: title.isEmpty ? "Selected destination" : title,
-            subtitle: mapFocusSubtitle.isEmpty ? (kind == .parking ? "Parking" : "Selected destination") : mapFocusSubtitle,
-            distance: "Selected",
-            coordinate: coordinate,
-            color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink,
-            kind: kind,
-            crowdLevel: kind == .parking ? 1 : nil
-        )
-        focusedHandoffPin = focused
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
-            selectedMode = resolvedMode
-            routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
-            activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
-            if focused.kind == .parking { showParking = true }
-            selectedPin = focused
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
-            showFunctionSheet = false
-            NativeMapFocusHandoff.clear()
-        }
-    }
-
-    private func autoOpenTrafficIntelIfRequested() {
-        guard Self.previewAutoOpensTrafficIntel, trafficIntelVenue == nil else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            trafficIntelVenue = trafficIntelCandidate
-            showTrafficIntel = true
-        }
     private func handleMapAppear() {
         requestMapLocationPermissionIfNeeded()
         startLocationGateIfNeeded()
@@ -13761,10 +13679,134 @@ private struct NativeMapExploreView: View {
         locationStore.requestWhenInUseIfNeeded()
     }
 
-    }
-
+    private func applySelectedPinPreviewIfRequested() {
+        guard let token = Self.previewSelectedPinToken, selectedPin == nil else { return }
         didConsumeExplicitMapLaunch = true
         didOpenMapContext = true
+        let lookup = pins
+        let lower = token.lowercased()
+        let resolved: NativeMapPin? = {
+            if let exact = lookup.first(where: { $0.id.lowercased() == lower }) { return exact }
+            switch lower {
+            case "parking": return lookup.first(where: { $0.kind == .parking })
+            case "partner": return lookup.first(where: { $0.kind == .partner })
+            case "access": return lookup.first(where: { $0.kind == .access })
+            default: return lookup.first(where: { $0.title.lowercased().contains(lower) })
+            }
+        }()
+        guard let pin = resolved else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            selectedPin = pin
+            showFunctionSheet = false
+        }
+    }
+
+    private static var previewSelectedPinToken: String? {
+        ProcessInfo.processInfo.environment[selectedPinEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private func applyOnboardingMapHandoffIfRequested() {
+        guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
+        let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !destination.isEmpty else { return }
+        guard NativeOnboardingMapHandoff.isFresh else { NativeOnboardingMapHandoff.clear(); return }
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
+        let mode = onboardingMapMode.isEmpty ? "Route" : onboardingMapMode
+        NativeOnboardingMapHandoff.clear()
+        let lower = destination.lowercased()
+        let resolved = pins.first { pin in
+            let title = pin.title.lowercased()
+            return title.contains(lower) || lower.contains(title)
+        } ?? NativeMapPin.onboardingFallback(title: destination)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            selectedMode = mode
+            selectedPin = mode == "Smart Parking" ? pins.first(where: { $0.kind == .parking }) ?? resolved : resolved
+            if let coordinate = selectedPin?.coordinate { region.center = coordinate }
+            showFunctionSheet = false
+        }
+    }
+
+    private func applyNativeMapFocusHandoffIfRequested() {
+        guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
+        let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty || !title.isEmpty else { return }
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
+        let coordinate = CLLocationCoordinate2D(latitude: mapFocusLatitude, longitude: mapFocusLongitude)
+        let lowerID = id.lowercased()
+        let lowerTitle = title.lowercased()
+        let existing = pins.first { pin in
+            pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
+        }
+        let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : .access
+        let focused = existing ?? NativeMapPin(
+            id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,
+            title: title.isEmpty ? "Selected destination" : title,
+            subtitle: mapFocusSubtitle.isEmpty ? (kind == .parking ? "Parking" : "Selected destination") : mapFocusSubtitle,
+            distance: "Selected",
+            coordinate: coordinate,
+            color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink,
+            kind: kind,
+            crowdLevel: kind == .parking ? 1 : nil
+        )
+        focusedHandoffPin = focused
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
+            selectedMode = resolvedMode
+            routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
+            activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
+            if focused.kind == .parking { showParking = true }
+            selectedPin = focused
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+            showFunctionSheet = false
+            NativeMapFocusHandoff.clear()
+        }
+    }
+
+    private func resetPlainMapLaunchIfNeeded() {
+        guard isPlainMapOpen else { return }
+        resetPlainMapState()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard isPlainMapOpen else { return }
+            resetPlainMapState()
+        }
+    }
+
+    @discardableResult
+    private func consumePlainMapOpenIfNeeded() -> Bool {
+        guard hasUnconsumedPlainMapOpen else { return false }
+        consumedPlainOpenGeneration = plainOpenGeneration
+        suppressPlainOpenHandoffs = true
+        NativeOnboardingMapHandoff.clear()
+        NativeMapFocusHandoff.clear()
+        resetPlainMapState()
+        let generation = plainOpenGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            guard consumedPlainOpenGeneration == generation else { return }
+            suppressPlainOpenHandoffs = false
+        }
+        return true
+    }
+
+    private func resetPlainMapState() {
+        selectedMode = "Nearby"
+        selectedPin = nil
+        routeFocusedPinID = nil
+        activeRoutePinID = nil
+        didOpenMapContext = false
+        showFunctionSheet = false
+    }
+
+    private func autoOpenTrafficIntelIfRequested() {
+        guard Self.previewAutoOpensTrafficIntel, trafficIntelVenue == nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            trafficIntelVenue = trafficIntelCandidate
+            showTrafficIntel = true
+        }
+    }
+
     private var topSearchOverlay: some View {
         Button(action: { didOpenMapContext = true; showFunctionSheet = true; nativeImpactLight() }) {
             HStack(spacing: 12) {
@@ -13788,14 +13830,9 @@ private struct NativeMapExploreView: View {
             .clipShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
             .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 12)
         }
-        guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
         .buttonStyle(.plain)
     }
-        guard NativeOnboardingMapHandoff.isFresh else { NativeOnboardingMapHandoff.clear(); return }
-        didConsumeExplicitMapLaunch = true
-        didOpenMapContext = true
 
-        NativeOnboardingMapHandoff.clear()
     private var showFullRightActionStack: Bool {
         selectedPin == nil && !showFunctionSheet
     }
@@ -13810,12 +13847,9 @@ private struct NativeMapExploreView: View {
         }
     }
 
-        guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
     private var trafficIntelFABState: NativeTrafficIntelFABState {
         if showTrafficIntel || trafficIntelVenue != nil { return .active }
         if selectedMode == "Route" || hasProximityAlert { return .aware }
-        didConsumeExplicitMapLaunch = true
-        didOpenMapContext = true
         return .calm
     }
 
@@ -13847,35 +13881,6 @@ private struct NativeMapExploreView: View {
             if showFullRightActionStack {
                 Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "plus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
                 Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "minus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
-    private func resetPlainMapLaunchIfNeeded() {
-        guard isPlainMapOpen else { return }
-        resetPlainMapState()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            guard isPlainMapOpen else { return }
-            resetPlainMapState()
-        }
-    }
-
-    @discardableResult
-    private func consumePlainMapOpenIfNeeded() -> Bool {
-        guard hasUnconsumedPlainMapOpen else { return false }
-        consumedPlainOpenGeneration = plainOpenGeneration
-        suppressPlainOpenHandoffs = true
-        NativeOnboardingMapHandoff.clear()
-        NativeMapFocusHandoff.clear()
-        resetPlainMapState()
-        return true
-    }
-
-    private func resetPlainMapState() {
-        selectedMode = "Nearby"
-        selectedPin = nil
-        routeFocusedPinID = nil
-        activeRoutePinID = nil
-        didOpenMapContext = false
-        showFunctionSheet = false
-    }
-
                 Button(action: { openTrafficIntel() }) { NativeTrafficIntelFAB(state: trafficIntelFABState, size: Self.rightSecondaryActionControlSize) }
                 Button(action: { handlePartnerFocus() }) { NativeHexActionButton(active: showVerifiedOnly) }
             }
@@ -14201,6 +14206,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func selectRoute(to pin: NativeMapPin) {
+        didOpenMapContext = true
         selectedMode = "Route"
         routeFocusedPinID = pin.id
         selectedPin = pin
@@ -14283,7 +14289,6 @@ private struct NativeMapExploreView: View {
         }
         .padding(14)
         .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-        didOpenMapContext = true
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-partner-peek-card")
@@ -14846,6 +14851,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func selectMarker(_ marker: NativeMapVisualMarker) {
+        didOpenMapContext = true
         if marker.opensTrafficIntel, let venue = trafficIntelVenue(for: marker) {
             selectedPin = marker.pinID.flatMap { pinID in pins.first(where: { $0.id == pinID }) }
             showTrafficIntel = true
@@ -14901,6 +14907,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func selectMode(_ mode: String) {
+        didOpenMapContext = true
         selectedMode = mode
         routeFocusedPinID = mode == "Route" ? selectedPin?.id : nil
         activeRoutePinID = nil
@@ -14916,6 +14923,7 @@ private struct NativeMapExploreView: View {
         case .off:
             recenterMode = .follow
             region.center = CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833)
+            didOpenMapContext = false
             selectedPin = nil
             showFunctionSheet = false
         case .follow:
@@ -14928,7 +14936,6 @@ private struct NativeMapExploreView: View {
         nativeImpactLight()
     }
 
-        didOpenMapContext = true
     private func dropRecenterModeForUserPan() {
         guard recenterMode != .off else { return }
         recenterMode = .off
@@ -14936,6 +14943,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func handlePartnerFocus() {
+        didOpenMapContext = true
         let activating = !showVerifiedOnly
         showVerifiedOnly = activating
         showTapZones = true
@@ -14984,7 +14992,6 @@ private struct NativeMapVisualMarker: Identifiable {
 private struct NativeTrafficIntelSheet: View {
     let venue: NativeVenueSummary
     let reports: [NativeCommunityReport]
-        didOpenMapContext = true
     let onAddReport: (NativeCommunityReport.Category) -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var showReportPicker = false
@@ -15000,7 +15007,6 @@ private struct NativeTrafficIntelSheet: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-            didOpenMapContext = false
                 header
                 NativeTrafficIntelMetricCard(
                     icon: "waveform.path.ecg",
@@ -15020,7 +15026,6 @@ private struct NativeTrafficIntelSheet: View {
                 )
                 NativeTrafficIntelMetricCard(
                     icon: "parkingsign.circle.fill",
-        didOpenMapContext = true
                     title: "Parking Density",
                     value: parkingDensityLabel,
                     subtitle: "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)",

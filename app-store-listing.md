@@ -28,10 +28,10 @@ LIVE CROWD INTELLIGENCE
 See how packed venues are before you go. Live crowd signals help you time your night and skip the longest waits. Check bars, restaurants, coffee shops, and entertainment venues at a glance.
 
 SMART PARKING
-Find available parking near any venue instantly. Compare prices, see walk times, and reserve your spot — all before you leave home. Save time and money with AI-powered parking recommendations.
+Find available parking near any venue instantly. Compare prices, see walk times, and reserve your spot — all before you leave home. Save time and move with confidence using live local recommendations.
 
-SMART CONCIERGE
-Ask our AI anything: "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Sign in to chat with the AI concierge; guests get instant local suggestions.
+BYTSPOT CONCIERGE
+Ask Bytspot Concierge questions like "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Sign in for personalized help; guests get instant local suggestions.
 
 DISCOVER & EXPLORE
 Swipe through curated venue cards with live photos, ratings, and crowd indicators. Filter by dining, nightlife, coffee, shopping, fitness, and more. Every card shows you what's happening right now, not last week.
@@ -44,7 +44,7 @@ Bookmark your favorite spots and share venues with friends using the native shar
 
 FEATURES:
 • Live crowd levels for venues and parking
-• AI concierge chat (signed-in) with instant local help for guests
+• Bytspot Concierge chat with instant local help for signed-in members and guests
 • Live parking availability with pricing
 • Venue discovery with swipeable cards
 • Personalized feed based on your preferences
@@ -58,7 +58,7 @@ Currently focused on Atlanta Midtown.
 
 ## Keywords (100 chars max, comma-separated)
 ```
-parking,crowd,live,venues,Atlanta,nightlife,restaurants,AI,concierge,discover,spots,Midtown,bars
+parking,crowd,live,venues,Atlanta,nightlife,restaurants,concierge,discover,spots,Midtown,bars
 ```
 
 ## Primary Category
@@ -101,5 +101,5 @@ https://bytspot.com
 
 ## What's New in This Version (for updates)
 ```
-Native SwiftUI update with a faster, cleaner Home experience, improved parking/discovery flow, and continued App Clip access support.
+Native SwiftUI update with a faster, cleaner Home experience, live parking/discovery metrics, improved group invite handoff, and continued App Clip access support.
 ```

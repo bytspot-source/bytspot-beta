@@ -1285,7 +1285,7 @@ private struct NativeProfilePanelSheet: View {
         case .locationPrivacy:
             return [("Permission status", "Primary location remains managed in iOS Settings.", "location.fill"), ("Optional location", "Enhanced accuracy, valet return help, offers, and venue recommendations are opt-in.", "hand.raised.fill"), ("Privacy controls", "You can change these choices anytime.", "checkmark.shield.fill")]
         case .generalSettings:
-            return [("Theme", "Auto theme keeps Bytspot aligned with device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v1.1.7.", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
+            return [("Theme", "Auto theme keeps Bytspot aligned with device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v1.1.8.", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
         case .appearance:
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
@@ -2284,7 +2284,7 @@ private struct NativeLocationPrivacyPanel: View {
 private struct NativeGeneralSettingsPanel: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
 
-    private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.7" }
+    private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.8" }
     private var appearance: NativeAppearanceMode { NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw) }
 
     var body: some View {
@@ -5831,7 +5831,7 @@ private struct NativeProfileLogoutButton: View {
 
 private struct NativeProfileVersionLabel: View {
     private var version: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.7"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.8"
     }
 
     var body: some View {

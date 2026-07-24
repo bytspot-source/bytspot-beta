@@ -14400,7 +14400,7 @@ private struct NativeMapExploreView: View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: NativePolish.mapFunctionGridGap) {
             mapFunctionButton(icon: "mappin.circle", title: "Service\nHere") { selectedMode = "Nearby"; showFunctionSheet = false }
             mapFunctionButton(icon: "magnifyingglass", title: "Search") { nativeImpactLight() }
-            mapFunctionButton(icon: "square.3.layers.3d.top.filled", title: "Layers") { showFunctionSheet = true }
+            mapFunctionButton(icon: "square.3.layers.3d.top.filled", title: "Layers") { didOpenMapContext = true; showFunctionSheet = true }
             mapFunctionButton(icon: "bookmark", title: "Routes") { selectMode("Route") }
         }
         .padding(NativePolish.mapFunctionGridPadding)

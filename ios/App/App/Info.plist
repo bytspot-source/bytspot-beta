@@ -39,8 +39,6 @@
         </array>
       </dict>
     </array>
-    <key>GIDClientID</key>
-    <string>$(GOOGLE_IOS_CLIENT_ID)</string>
     <key>GIDServerClientID</key>
     <string>$(GOOGLE_CLIENT_ID)</string>
     <key>BytspotApplePayMerchantID</key>

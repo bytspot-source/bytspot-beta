@@ -172,21 +172,23 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
     }
 
     private static func configureIfNeeded() throws {
-        guard let clientID = googleString(infoKey: "GIDClientID", serviceKey: "CLIENT_ID") else {
+        guard let clientID = googleServiceString("CLIENT_ID") else {
             throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
         }
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(
             clientID: clientID,
-            serverClientID: googleString(infoKey: "GIDServerClientID", serviceKey: nil)
+            serverClientID: infoString("GIDServerClientID")
         )
     }
 
-    private static func googleString(infoKey: String, serviceKey: String?) -> String? {
-        if let value = usable(Bundle.main.object(forInfoDictionaryKey: infoKey) as? String) { return value }
-        guard let serviceKey,
-              let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
+    private static func infoString(_ key: String) -> String? {
+        usable(Bundle.main.object(forInfoDictionaryKey: key) as? String)
+    }
+
+    private static func googleServiceString(_ key: String) -> String? {
+        guard let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
               let dictionary = NSDictionary(contentsOf: url) as? [String: Any] else { return nil }
-        return usable(dictionary[serviceKey] as? String)
+        return usable(dictionary[key] as? String)
     }
 
     private static func usable(_ value: String?) -> String? {

@@ -11,6 +11,7 @@
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
+		6E3B8A112D20000000000011 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 6E3B8A102D20000000000010 /* GoogleSignIn */; };
 		7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
 		A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00002C0FF00100000001 /* NativeShellView.swift */; };
 		A13F01062C0FF00100000016 /* ClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01012C0FF00100000011 /* ClipApp.swift */; };
@@ -122,6 +123,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6E3B8A112D20000000000011 /* GoogleSignIn in Frameworks */,
 				7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -245,6 +247,7 @@
 			);
 			name = App;
 			packageProductDependencies = (
+				6E3B8A102D20000000000010 /* GoogleSignIn */,
 				7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */,
 			);
 			productName = App;
@@ -319,6 +322,7 @@
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
+				6E3B8A0F2D2000000000000F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
@@ -728,6 +732,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		6E3B8A0F2D2000000000000F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 		7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stripe/stripe-ios.git";
@@ -739,6 +751,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		6E3B8A102D20000000000010 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6E3B8A0F2D2000000000000F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
 		7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */;

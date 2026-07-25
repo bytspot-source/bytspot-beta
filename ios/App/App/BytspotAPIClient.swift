@@ -680,6 +680,10 @@ struct NativeAuthDataAPI {
         return try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.appleSignIn", method: "POST", input: input)
     }
 
+    func googleSignIn(idToken: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": "native_ios"])
+    }
+
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
         try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.signup", method: "POST", input: Self.signupInput(email: email, password: password, name: name, ref: ref))
     }

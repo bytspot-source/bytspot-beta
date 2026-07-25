@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import GoogleSignIn
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -58,6 +59,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        if GIDSignIn.sharedInstance.handle(url) { return true }
         // Custom-scheme deep links (bytspot://…) route through the native
         // incoming-URL pipeline consumed by the SwiftUI navigation coordinator.
         NativeIncomingURLCenter.publish(url, scanSource: .deepLink)

@@ -1,6 +1,7 @@
 import Foundation
 import AuthenticationServices
 import UIKit
+import GoogleSignIn
 
 enum NativeAuthProvider: String, CaseIterable, Identifiable {
     case apple
@@ -152,6 +153,77 @@ private struct LegacyFallbackGoogleAuthAdapter: GoogleAuthAdapter {
 }
 
 @MainActor
+private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
+    func signIn() async throws -> NativeAuthAdapterResult {
+        guard let presentingViewController = Self.presentingViewController() else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        try Self.configureIfNeeded()
+        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+        let user = try await Self.refreshedUser(result.user)
+        guard let idToken = user.idToken?.tokenString, !idToken.isEmpty else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        let response = try await NativeAuthDataAPI(client: BytspotAPIClient()).googleSignIn(idToken: idToken)
+        guard let token = response.token, !token.isEmpty else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        return NativeAuthAdapterResult(provider: .google, token: token, displayName: response.user?.name ?? user.profile?.name)
+    }
+
+    private static func configureIfNeeded() throws {
+        guard let clientID = googleString(infoKey: "GIDClientID", serviceKey: "CLIENT_ID") else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+            clientID: clientID,
+            serverClientID: googleString(infoKey: "GIDServerClientID", serviceKey: nil)
+        )
+    }
+
+    private static func googleString(infoKey: String, serviceKey: String?) -> String? {
+        if let value = usable(Bundle.main.object(forInfoDictionaryKey: infoKey) as? String) { return value }
+        guard let serviceKey,
+              let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
+              let dictionary = NSDictionary(contentsOf: url) as? [String: Any] else { return nil }
+        return usable(dictionary[serviceKey] as? String)
+    }
+
+    private static func usable(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+
+    private static func refreshedUser(_ user: GIDGoogleUser) async throws -> GIDGoogleUser {
+        try await withCheckedThrowingContinuation { continuation in
+            user.refreshTokensIfNeeded { refreshedUser, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let refreshedUser else {
+                    continuation.resume(throwing: NativeAuthAdapterError.requiresLegacyFallback(provider: .google))
+                    return
+                }
+                continuation.resume(returning: refreshedUser)
+            }
+        }
+    }
+
+    private static func presentingViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = (scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene) ?? scenes.first as? UIWindowScene
+        let root = windowScene?.keyWindow?.rootViewController ?? windowScene?.windows.first?.rootViewController
+        return topViewController(from: root)
+    }
+
+    private static func topViewController(from root: UIViewController?) -> UIViewController? {
+        if let navigation = root as? UINavigationController { return topViewController(from: navigation.visibleViewController) }
+        if let tab = root as? UITabBarController { return topViewController(from: tab.selectedViewController) }
+        if let presented = root?.presentedViewController { return topViewController(from: presented) }
+        return root
+    }
+}
+
+@MainActor
 private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     private var continuation: CheckedContinuation<NativeAuthAdapterResult, Error>?
 
@@ -252,6 +324,6 @@ private enum NativeAuthAdapterFactory {
             return DebugMockGoogleAuthAdapter(mode: mode)
         }
         #endif
-        return LegacyFallbackGoogleAuthAdapter()
+        return NativeGoogleSignInAdapter()
     }
 }

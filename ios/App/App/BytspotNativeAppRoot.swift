@@ -979,11 +979,9 @@ struct NativeAuthenticationScreen: View {
                     VStack(spacing: 10) { Text("👋").font(.system(size: sizing.compactHeight ? 28 : 34)).frame(width: sizing.compactHeight ? 56 : 64, height: sizing.compactHeight ? 56 : 64).background(theme.ctaGradient).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)).accessibilityHidden(true); Text("Welcome to Bytspot").font(.system(size: dynamicTypeSize.isAccessibilitySize ? 28 : sizing.compactHeight ? 30 : 34, weight: .black)).foregroundColor(.white).multilineTextAlignment(.center); Text(currentMode == .signup ? "Create your account to save spots, preferences, and reservations." : "Sign in to continue with your picks.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body).multilineTextAlignment(.center) }
                     .accessibilityElement(children: .combine)
                 authModeToggle
-                #if DEBUG
                 NativeSocialAuthButton(title: "Continue with Apple", icon: "apple.logo", loading: loading || isAuthenticating(.apple)) { signIn(.apple) }
                 NativeSocialAuthButton(title: "Continue with Google", icon: "person.crop.circle.badge.plus", loading: loading || isAuthenticating(.google)) { signIn(.google) }
                 HStack { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1); Text("or use email").font(.system(size: 12, weight: .bold)).foregroundColor(NativeLaunchTheme.muted); Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1) }.accessibilityHidden(true)
-                #endif
                 VStack(spacing: 12) {
                     if currentMode == .signup {
                         NativeLaunchTextField(title: "Full name", icon: "person.fill", text: $name, focus: $focusedField, field: .name, submitLabel: .next, onSubmit: { advanceFocus(after: .name) })

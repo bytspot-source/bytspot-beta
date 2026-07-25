@@ -118,17 +118,23 @@ platform :ios do
     )
 
     target_build = (options[:build_number] || ENV["SUBMIT_BUILD_NUMBER"]).to_s.strip
+    target_version = ENV["SUBMIT_APP_VERSION"].to_s.strip
     if target_build.empty?
       target_build = latest_testflight_build_number(
         api_key:        api_key,
         app_identifier: "com.bytspot.app"
       ).to_s
+      target_version = Actions.lane_context[SharedValues::LATEST_TESTFLIGHT_VERSION].to_s.strip
     end
-    UI.message("Submitting build #{target_build} of com.bytspot.app for App Store review")
+    if target_version.empty?
+      target_version = get_version_number(xcodeproj: "App.xcodeproj", target: "App").to_s.strip
+    end
+    UI.message("Submitting build #{target_build} of com.bytspot.app version #{target_version} for App Store review")
 
     deliver(
       api_key:                                api_key,
       app_identifier:                         "com.bytspot.app",
+      app_version:                            target_version,
       build_number:                           target_build,
       submit_for_review:                      true,
       automatic_release:                      false,

@@ -1,4 +1,29 @@
 require "shellwords"
+require "spaceship"
+
+APP_IDENTIFIER = "com.bytspot.app"
+DEFAULT_IOS_RELEASE_NOTES = "Adds native Google Sign-In for iOS and improves account access in the native app."
+
+def ensure_ios_release_notes(api_key:, app_identifier:, app_version:, release_notes:)
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+  app = Spaceship::ConnectAPI::App.find(app_identifier)
+  UI.user_error!("Could not find App Store Connect app #{app_identifier}") unless app
+
+  platform = Spaceship::ConnectAPI::Platform.map("ios")
+  app.ensure_version!(app_version, platform: platform)
+  version = app.get_edit_app_store_version(platform: platform)
+  UI.user_error!("Could not find editable iOS version #{app_version} for #{app_identifier}") unless version
+
+  release_notes.each do |locale, text|
+    localizations = version.get_app_store_version_localizations
+    localization = localizations.find { |candidate| candidate.locale == locale } ||
+                   version.create_app_store_version_localization(attributes: { locale: locale })
+    next if localization.whats_new.to_s.strip == text.to_s.strip
+
+    localization.update(attributes: { whats_new: text })
+    UI.message("Updated App Store release notes for #{locale}")
+  end
+end
 
 default_platform(:ios)
 
@@ -17,7 +42,7 @@ platform :ios do
     # and also unique across GitHub reruns/overlapping CI executions.
     latest = latest_testflight_build_number(
       api_key:        api_key,
-      app_identifier: "com.bytspot.app",
+      app_identifier: APP_IDENTIFIER,
       initial_build_number: 63
     )
     next_remote_build = latest.to_i + 1
@@ -122,20 +147,27 @@ platform :ios do
     if target_build.empty?
       target_build = latest_testflight_build_number(
         api_key:        api_key,
-        app_identifier: "com.bytspot.app"
+        app_identifier: APP_IDENTIFIER
       ).to_s
       target_version = Actions.lane_context[SharedValues::LATEST_TESTFLIGHT_VERSION].to_s.strip
     end
     if target_version.empty?
       target_version = get_version_number(xcodeproj: "App.xcodeproj", target: "App").to_s.strip
     end
-    UI.message("Submitting build #{target_build} of com.bytspot.app version #{target_version} for App Store review")
+    UI.message("Submitting build #{target_build} of #{APP_IDENTIFIER} version #{target_version} for App Store review")
+    ensure_ios_release_notes(
+      api_key:       api_key,
+      app_identifier: APP_IDENTIFIER,
+      app_version:   target_version,
+      release_notes: { "en-US" => DEFAULT_IOS_RELEASE_NOTES }
+    )
 
     deliver(
       api_key:                                api_key,
-      app_identifier:                         "com.bytspot.app",
+      app_identifier:                         APP_IDENTIFIER,
       app_version:                            target_version,
       build_number:                           target_build,
+      app_clip_default_experience_metadata_path: File.expand_path("app_clip_default_experience_metadata", __dir__),
       submit_for_review:                      true,
       automatic_release:                      false,
       force:                                  true,

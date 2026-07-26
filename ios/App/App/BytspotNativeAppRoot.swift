@@ -247,6 +247,7 @@ enum NativeAuthLaunchContract {
     static let atlantaSubtitle = "Based on your vibe, location, and local conditions"
     static let atlantaPicks = ["Midtown Smart Parking", "Colony Square", "Arts Center Access"]
     static let legacyAtlantaPickNames = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
+    static let legacyAtlantaPickNameTokens = legacyAtlantaPickNames.map(normalizedAtlantaPickName)
     static let authRoutes = NativeAuthRouteContract.routes
     static let authModes = ["signup", "login"]
     static let signupPasswordMinimum = 8
@@ -281,6 +282,25 @@ enum NativeAuthLaunchContract {
     static var bypassesLaunchFlowForPreview: Bool {
         let env = ProcessInfo.processInfo.environment
         return env["BYT_NATIVE_PREVIEW_PROFILE"] != nil || env["BYT_NATIVE_PREVIEW_TAB"] != nil || env["BYT_NATIVE_PROFILE_PANEL_SMOKE"] != nil
+    }
+
+    static func isLegacyAtlantaPickName(_ name: String) -> Bool {
+        legacyAtlantaPickNameTokens.contains(normalizedAtlantaPickName(name))
+    }
+
+    static func launchVenueCandidates(from venues: [NativeVenueSummary]) -> [NativeVenueSummary] {
+        let source = venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues
+        let filtered = source.filter { !isLegacyAtlantaPickName($0.name) }
+        return filtered.isEmpty ? NativeTabContentSnapshot.fallback.venues : filtered
+    }
+
+    static func normalizedAtlantaPickName(_ name: String) -> String {
+        name
+            .replacingOccurrences(of: "&", with: " and ")
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func truthy(_ raw: String?) -> Bool { ["1", "true", "yes"].contains(raw?.lowercased() ?? "") }
@@ -948,9 +968,7 @@ private struct NativeAtlantaPicksScreen: View {
     }
 
     static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeAtlantaPick] {
-        let sourceVenues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
-        let venues = sourceVenues.filter { !NativeAuthLaunchContract.legacyAtlantaPickNames.contains($0.name) }
-        let candidates = venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues
+        let candidates = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
         return candidates.sorted { first, second in
             let firstScore = score(first, location: location, intent: intent, walk: walk, crew: crew)
             let secondScore = score(second, location: location, intent: intent, walk: walk, crew: crew)

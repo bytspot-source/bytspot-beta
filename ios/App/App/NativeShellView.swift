@@ -7298,6 +7298,7 @@ private struct NativeHomeDashboardView: View {
     static let defaultLaunchMapDestination = NativeLocationCoordinate.midtown.displayName
 
     static func storeLaunchMapHandoff(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) {
+        NativeOnboardingMapHandoff.clear()
         guard let venue = topLaunchRecommendationVenue(snapshot: snapshot, location: location, intent: intent, walk: walk, crew: crew) else {
             NativeOnboardingMapHandoff.write(destination: defaultLaunchMapDestination, mode: "Route")
             return
@@ -7310,9 +7311,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [LaunchRecommendationPick] {
-        let sourceVenues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
-        let filteredVenues = sourceVenues.filter { !NativeAuthLaunchContract.legacyAtlantaPickNames.contains($0.name) }
-        let venues = filteredVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : filteredVenues
+        let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
         let ranked = venues.sorted { first, second in
             let firstScore = launchVenueScore(first, location: location, intent: intent, walk: walk, crew: crew)
             let secondScore = launchVenueScore(second, location: location, intent: intent, walk: walk, crew: crew)
@@ -13968,6 +13967,7 @@ private struct NativeMapExploreView: View {
 
     private func applyOnboardingMapHandoffIfRequested() {
         guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
+        guard !NativeMapFocusHandoff.hasPendingFocus else { NativeOnboardingMapHandoff.clear(); return }
         let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !destination.isEmpty else { return }
         guard NativeOnboardingMapHandoff.isFresh else { NativeOnboardingMapHandoff.clear(); return }
@@ -17453,6 +17453,10 @@ enum NativePostAuthIntentSelfTests {
         precondition(parkingPick?.id == "midtown-smart-parking", "NativePostAuthIntentSelfTests: parking onboarding picks must target the live venue-ranked parking option, not a static restaurant.")
         let foodPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: .fallback, location: .midtown, intent: "food", walk: "close", crew: "solo")
         precondition(foodPick?.id == "colony-square", "NativePostAuthIntentSelfTests: onboarding picks must be computed from snapshot venues, not the legacy hardcoded launch rail.")
+        let staleLegacyVenue = NativeVenueSummary(id: "stale-livingston", name: " livingston ", category: "parking", address: "659 Peachtree St NE", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: 1, label: "Chill", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil)
+        let staleSnapshot = NativeTabContentSnapshot(venues: [staleLegacyVenue] + NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil)
+        let rankedNames = NativeHomeDashboardView.rankedLaunchPicks(from: staleSnapshot, location: .midtown, intent: "parking", walk: "close", crew: "safe").map(\.title)
+        precondition(!rankedNames.contains { NativeAuthLaunchContract.isLegacyAtlantaPickName($0) } && rankedNames.first == "Midtown Smart Parking", "NativePostAuthIntentSelfTests: Home launch picks must filter stale legacy live venue variants before ranking.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: browse routes must resolve to native tabs — the React hybrid overlay is retired.")

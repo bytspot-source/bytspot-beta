@@ -11982,6 +11982,11 @@ enum NativeVenueHours {
     }
 }
 
+private enum NativeVenueGuestPromptAction: Equatable {
+    case openAuthOnly
+    case checkIn
+}
+
 private struct NativeVenueDetailView: View {
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
@@ -11998,6 +12003,8 @@ private struct NativeVenueDetailView: View {
     @State private var guestPromptTitle = "Save this spot?"
     @State private var guestPromptSubtitle = "Sign in to keep this spot in your favorites and sync it later."
     @State private var guestPromptCTA = "Sign in to save"
+    @State private var guestPromptAction: NativeVenueGuestPromptAction = .openAuthOnly
+    @State private var shouldCheckInAfterAuth = false
     @State private var selectedMediaIndex = 0
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
@@ -12034,7 +12041,7 @@ private struct NativeVenueDetailView: View {
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
-            NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: { openNativeAuth?() })
+            NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
         }
         .sheet(isPresented: $showParkingBooking) {
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth?() })
@@ -12046,6 +12053,8 @@ private struct NativeVenueDetailView: View {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
         }
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
+        .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
+        .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resumePendingCheckInIfReady() } }
     }
 
     private var stayProductHero: some View {
@@ -12369,7 +12378,7 @@ private struct NativeVenueDetailView: View {
             handleCapability(action, capability: capability)
         case .authedWrite:
             if sessionStore.isAuthenticated { Task { await submitCheckIn() } }
-            else { presentGuestPrompt(title: "Sign in to check in", subtitle: "Create an account to keep check-ins and visit history synced.", cta: "Sign in to check in") }
+            else { presentGuestPrompt(title: "Sign in to check in", subtitle: "Create an account to keep check-ins and visit history synced.", cta: "Sign in to check in", action: .checkIn) }
         case .handoff:
             openNativeTab?(.concierge)
         }
@@ -12427,11 +12436,26 @@ private struct NativeVenueDetailView: View {
         }
     }
 
-    private func presentGuestPrompt(title: String, subtitle: String, cta: String) {
+    private func presentGuestPrompt(title: String, subtitle: String, cta: String, action: NativeVenueGuestPromptAction = .openAuthOnly) {
         guestPromptTitle = title
         guestPromptSubtitle = subtitle
         guestPromptCTA = cta
+        guestPromptAction = action
         showGuestSavePrompt = true
+    }
+
+    private func continueGuestPromptSignIn() {
+        let action = guestPromptAction
+        guestPromptAction = .openAuthOnly
+        showGuestSavePrompt = false
+        if action == .checkIn { shouldCheckInAfterAuth = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { openNativeAuth?() }
+    }
+
+    private func resumePendingCheckInIfReady() {
+        guard shouldCheckInAfterAuth, sessionStore.isAuthenticated else { return }
+        shouldCheckInAfterAuth = false
+        Task { await submitCheckIn() }
     }
 
     private func handleDevice(_ id: String) {

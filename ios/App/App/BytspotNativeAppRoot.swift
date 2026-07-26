@@ -960,6 +960,7 @@ struct NativeAuthenticationScreen: View {
     @State private var loading = false
     @State private var error = ""
     @State private var showRecovery = false
+    @State private var didCompleteAuth = false
     @State private var touchedFields = Set<NativeAuthField>()
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @FocusState private var focusedField: NativeAuthField?
@@ -1013,7 +1014,11 @@ struct NativeAuthenticationScreen: View {
         .onAppear { focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: currentMode) { _ in error = ""; touchedFields.removeAll(); focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: focusedField) { newValue in if let field = newValue { touchedFields.insert(field) } }
-        .onChange(of: authCoordinator.status) { status in if case .failed(let message) = status { error = message } else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) is not configured for native production on this build. Use email sign-in or try again after provider setup." } }
+        .onChange(of: authCoordinator.status) { status in
+            if case .signedIn = status { completeAuthIfReady() }
+            else if case .failed(let message) = status { error = message }
+            else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) is not configured for native production on this build. Use email sign-in or try again after provider setup." }
+        }
     }
 
     private var authModeToggle: some View { HStack(spacing: 4) { ForEach(NativeAuthMode.allCases, id: \.rawValue) { item in Button(action: { currentMode = item; error = "" }) { Text(item == .signup ? "Sign Up" : "Log In").font(.system(size: 15, weight: .black)).foregroundColor(currentMode == item ? .black : .white.opacity(0.62)).frame(maxWidth: .infinity).frame(height: 42).background(currentMode == item ? Color.white : Color.clear).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)) }.buttonStyle(.plain).accessibilityLabel(item == .signup ? "Sign Up" : "Log In").accessibilityValue(currentMode == item ? "Selected" : "Not selected") } }.padding(4).background(Color.white.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).accessibilityElement(children: .contain) }
@@ -1025,13 +1030,14 @@ struct NativeAuthenticationScreen: View {
     private var api: NativeAuthDataAPI { NativeAuthDataAPI(client: BytspotAPIClient()) }
     private func isAuthenticating(_ provider: NativeAuthProvider) -> Bool { if case .authenticating(let active) = authCoordinator.status { return active == provider }; return false }
     private func signIn(_ provider: NativeAuthProvider) { error = ""; nativeAuthImpactLight(); authCoordinator.handle(.signIn(provider), sessionStore: sessionStore) }
+    private func completeAuthIfReady() { guard !didCompleteAuth, sessionStore.isAuthenticated else { return }; didCompleteAuth = true; onComplete() }
     @ViewBuilder private func validationCopy(_ message: String) -> some View { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).accessibilityLabel(message) }
     private func advanceFocus(after field: NativeAuthField) { touchedFields.insert(field); switch field { case .name: focusedField = .invite; case .invite: focusedField = .email; case .email: focusedField = .password; case .password: submitEmailAuth() } }
     private func submitEmailAuth() {
         guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }
         error = ""; focusedField = nil; nativeAuthImpactLight()
         loading = true; let selectedMode = currentMode
-        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); onComplete() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
+        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); completeAuthIfReady() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
     }
     private var firstInvalidField: NativeAuthField { currentMode == .signup && !NativeAuthInputValidator.nameIsValid(name, mode: currentMode) ? .name : !emailValid ? .email : .password }
 }

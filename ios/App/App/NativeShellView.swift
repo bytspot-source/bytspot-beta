@@ -215,6 +215,7 @@ struct BytspotNativeShellView: View {
     @State private var showGroupInvitePreviewSheet = false
     @State private var groupInvitePreviewMode: NativeGroupInviteAccessMode = .qr
     @State private var groupInvitePreviewEvent: NativeGroupEventRecord?
+    @State private var nativeAuthDismissalHandled = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
@@ -342,7 +343,7 @@ struct BytspotNativeShellView: View {
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
         }
         .preferredColorScheme(effectivePreferredColorScheme)
-        .fullScreenCover(isPresented: $showNativeAuth) {
+        .fullScreenCover(isPresented: $showNativeAuth, onDismiss: handleNativeAuthDismissed) {
             nativeAuthenticationCover
                 .preferredColorScheme(.dark)
         }
@@ -487,6 +488,7 @@ struct BytspotNativeShellView: View {
         contextualDestination = nil
         pendingPostAuthIntent = pendingIntent
         pendingPostAuthIntentRaw = pendingIntent?.rawValue ?? ""
+        nativeAuthDismissalHandled = false
         nativeAuthMode = mode
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             showNativeAuth = true
@@ -499,13 +501,27 @@ struct BytspotNativeShellView: View {
             sessionStore: sessionStore,
             authCoordinator: authCoordinator,
             onComplete: completeNativeAuth,
-            onBack: { showNativeAuth = false }
+            onBack: cancelNativeAuth
         )
     }
 
     private func completeNativeAuth() {
+        nativeAuthDismissalHandled = true
         showNativeAuth = false
         resolvePendingPostAuthIntentIfReady()
+    }
+
+    private func cancelNativeAuth() {
+        nativeAuthDismissalHandled = true
+        showNativeAuth = false
+        NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
+    }
+
+    private func handleNativeAuthDismissed() {
+        if !nativeAuthDismissalHandled {
+            NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
+        }
+        nativeAuthDismissalHandled = false
     }
 
     private func resolvePendingPostAuthIntentIfReady() {
@@ -11987,6 +12003,10 @@ private enum NativeVenueGuestPromptAction: Equatable {
     case checkIn
 }
 
+private extension Notification.Name {
+    static let nativeAuthenticationCancelled = Notification.Name("bytspot.nativeAuthenticationCancelled")
+}
+
 private struct NativeVenueDetailView: View {
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
@@ -12055,6 +12075,8 @@ private struct NativeVenueDetailView: View {
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
         .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resumePendingCheckInIfReady() } }
+        .onReceive(NotificationCenter.default.publisher(for: .nativeAuthenticationCancelled)) { _ in clearPendingCheckInAfterAuth() }
+        .onDisappear { clearPendingCheckInAfterAuth() }
     }
 
     private var stayProductHero: some View {
@@ -12441,6 +12463,7 @@ private struct NativeVenueDetailView: View {
         guestPromptSubtitle = subtitle
         guestPromptCTA = cta
         guestPromptAction = action
+        if action != .checkIn { clearPendingCheckInAfterAuth() }
         showGuestSavePrompt = true
     }
 
@@ -12454,8 +12477,12 @@ private struct NativeVenueDetailView: View {
 
     private func resumePendingCheckInIfReady() {
         guard shouldCheckInAfterAuth, sessionStore.isAuthenticated else { return }
-        shouldCheckInAfterAuth = false
+        clearPendingCheckInAfterAuth()
         Task { await submitCheckIn() }
+    }
+
+    private func clearPendingCheckInAfterAuth() {
+        shouldCheckInAfterAuth = false
     }
 
     private func handleDevice(_ id: String) {

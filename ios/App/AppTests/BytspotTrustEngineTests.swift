@@ -746,10 +746,17 @@ final class NativeGroupEventContractTests: XCTestCase {
         let eventID = "family-dinner"
         let silent = NativeGroupInvitePublishAnnouncement.updatedIDs([], eventID: eventID, announce: false)
         XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: silent))
-        let upgraded = NativeGroupInvitePublishAnnouncement.updatedIDs(silent, eventID: eventID, announce: true)
+        let upgraded = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(silent, eventID: eventID, announce: true)
         XCTAssertTrue(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: upgraded))
         let reset = NativeGroupInvitePublishAnnouncement.updatedIDs(upgraded, eventID: eventID, announce: false)
         XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: reset))
+    }
+
+    func testSilentDuplicatePublishDoesNotDowngradeAnnouncedInFlightPublish() {
+        let eventID = "family-dinner"
+        let announced = NativeGroupInvitePublishAnnouncement.updatedIDs([], eventID: eventID, announce: true)
+        let silentDuplicate = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(announced, eventID: eventID, announce: false)
+        XCTAssertTrue(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: silentDuplicate))
     }
 
     func testTieredGroupCreationCarriesPlatinumAndBlackMetadataIntoInviteURLs() {

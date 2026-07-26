@@ -3596,7 +3596,7 @@ private struct NativeProfileNetworkCard: View {
     private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
         guard sessionStore.isAuthenticated else { return }
         guard !publishingGroupEventIDs.contains(record.id) else {
-            announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
+            announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
             return
         }
         publishingGroupEventIDs.insert(record.id)
@@ -3745,6 +3745,13 @@ enum NativeGroupInvitePublishAnnouncement {
     static func updatedIDs(_ current: Set<String>, eventID: String, announce: Bool) -> Set<String> {
         var next = current
         if announce { next.insert(eventID) } else { next.remove(eventID) }
+        return next
+    }
+
+    static func updatedInFlightIDs(_ current: Set<String>, eventID: String, announce: Bool) -> Set<String> {
+        guard announce else { return current }
+        var next = current
+        next.insert(eventID)
         return next
     }
 

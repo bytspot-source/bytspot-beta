@@ -368,7 +368,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showGroupInvitePreviewSheet) {
-            NativeGroupInviteAccessSheet(event: groupInvitePreviewEvent ?? .preview(tier: activeTier), initialMode: groupInvitePreviewMode)
+            NativeGroupInviteAccessSheet(event: groupInvitePreviewEvent ?? .preview(tier: activeTier), initialMode: groupInvitePreviewMode, publishState: .draftSignedOut)
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
     }
@@ -3199,6 +3199,7 @@ private struct NativeProfileNetworkCard: View {
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
     @State private var didRunGroupSetupPreviewCheck = false
     @State private var publishingGroupEventIDs: Set<String> = []
+    @State private var announcedPublishingGroupEventIDs: Set<String> = []
     // Invite ids confirmed to exist on the server (groupEvents.create succeeded).
     // Buttons can still preview/copy a draft link immediately, but this lets the UI
     // truthfully distinguish published join-ready invites from local draft previews.
@@ -3245,7 +3246,7 @@ private struct NativeProfileNetworkCard: View {
         }
         .sheet(isPresented: $showInviteAccess) {
             if let activeGroup {
-                let sheet = NativeGroupInviteAccessSheet(event: activeGroup, initialMode: inviteAccessMode)
+                let sheet = NativeGroupInviteAccessSheet(event: activeGroup, initialMode: inviteAccessMode, publishState: invitePublishState(for: activeGroup))
                 if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
             }
         }
@@ -3594,8 +3595,12 @@ private struct NativeProfileNetworkCard: View {
     // status message (silent on background reconciliation).
     private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
         guard sessionStore.isAuthenticated else { return }
-        guard !publishingGroupEventIDs.contains(record.id) else { return }
+        guard !publishingGroupEventIDs.contains(record.id) else {
+            announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
+            return
+        }
         publishingGroupEventIDs.insert(record.id)
+        announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         var input: [String: Any] = [
             "id": record.id,
@@ -3630,17 +3635,21 @@ private struct NativeProfileNetworkCard: View {
             do {
                 _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput)
                 _ = try await api.create(input: input)
+                let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
                 publishingGroupEventIDs.remove(record.id)
+                announcedPublishingGroupEventIDs.remove(record.id)
                 publishedGroupEventIDs.insert(record.id)
-                if announce {
+                if shouldAnnounce {
                     networkStatus = record.requiresApproval
                         ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
                         : "\(record.title) is live. Share the invite for instant App Clip join."
                 }
             } catch {
+                let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
                 publishingGroupEventIDs.remove(record.id)
+                announcedPublishingGroupEventIDs.remove(record.id)
                 publishedGroupEventIDs.remove(record.id)
-                if announce {
+                if shouldAnnounce {
                     networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
                 }
             }
@@ -3649,6 +3658,12 @@ private struct NativeProfileNetworkCard: View {
 
     private func isPublished(_ group: NativeGroupEventRecord) -> Bool {
         publishedGroupEventIDs.contains(group.id)
+    }
+
+    private func invitePublishState(for group: NativeGroupEventRecord) -> NativeGroupInvitePublishState {
+        if isPublished(group) { return .published }
+        if publishingGroupEventIDs.contains(group.id) { return .publishing }
+        return sessionStore.isAuthenticated ? .draftAuthenticated : .draftSignedOut
     }
 
     private func prepareInviteAction(_ group: NativeGroupEventRecord, action: NativeGroupInviteActionKind) {
@@ -3726,6 +3741,51 @@ enum NativeGroupInviteActionKind: Equatable {
     }
 }
 
+enum NativeGroupInvitePublishAnnouncement {
+    static func updatedIDs(_ current: Set<String>, eventID: String, announce: Bool) -> Set<String> {
+        var next = current
+        if announce { next.insert(eventID) } else { next.remove(eventID) }
+        return next
+    }
+
+    static func shouldAnnounceCompletion(eventID: String, announcedIDs: Set<String>) -> Bool {
+        announcedIDs.contains(eventID)
+    }
+}
+
+enum NativeGroupInvitePublishState: Equatable {
+    case published, publishing, draftAuthenticated, draftSignedOut
+
+    var isPublished: Bool { self == .published }
+    var noticeTitle: String {
+        switch self {
+        case .published: return "Invite is live"
+        case .publishing: return "Publishing invite"
+        case .draftAuthenticated: return "Draft invite preview"
+        case .draftSignedOut: return "Draft invite — sign in required"
+        }
+    }
+    var noticeBody: String {
+        switch self {
+        case .published: return "Guests can use this link, QR, or NFC tag to join from the App Clip."
+        case .publishing: return "Guests can join after the group finishes publishing. Keep this as a preview for now."
+        case .draftAuthenticated: return "This link is not join-ready until the group publishes successfully."
+        case .draftSignedOut: return "Sign in and publish before sending this invite to guests."
+        }
+    }
+    var qrTitle: String { isPublished ? "Scan to Join" : "Draft QR Preview" }
+    var qrDetail: String { isPublished ? "Opens the App Clip for non-users; opens Bytspot for installed users." : "Guests can scan after this group publishes successfully." }
+    var nfcSubtitle: String { isPublished ? "Private NFC invite · App Clip ready" : self == .publishing ? "NFC invite preview · publishing" : "Draft NFC invite · not join-ready" }
+    var nfcInstruction: String {
+        switch self {
+        case .published: return "Program this URL onto a Bytspot NFC tag for one-tap private group join:"
+        case .publishing: return "Wait for publish to finish before programming or sending this NFC link:"
+        case .draftAuthenticated, .draftSignedOut: return "Do not program or send this NFC link until publish succeeds:"
+        }
+    }
+    var copiedStatus: String { isPublished ? "Invite link copied." : "Draft invite link copied — publish before sending to guests." }
+}
+
 private struct NativeProfileNetworkRowHeader: View {
     let title: String
     let subtitle: String
@@ -3754,12 +3814,14 @@ enum NativeGroupInviteAccessMode: String, CaseIterable, Equatable {
 
 private struct NativeGroupInviteAccessSheet: View {
     let event: NativeGroupEventRecord
+    let publishState: NativeGroupInvitePublishState
     @State private var mode: NativeGroupInviteAccessMode
     @State private var copyStatus: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(event: NativeGroupEventRecord, initialMode: NativeGroupInviteAccessMode) {
+    init(event: NativeGroupEventRecord, initialMode: NativeGroupInviteAccessMode, publishState: NativeGroupInvitePublishState) {
         self.event = event
+        self.publishState = publishState
         _mode = State(initialValue: initialMode)
     }
 
@@ -3776,6 +3838,7 @@ private struct NativeGroupInviteAccessSheet: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                publishNotice
                 modePicker
                 if mode == .qr { qrPreview } else { nfcPreview }
                 privacyCopy
@@ -3798,6 +3861,20 @@ private struct NativeGroupInviteAccessSheet: View {
         }
     }
 
+    private var publishNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: publishState.isPublished ? "checkmark.seal.fill" : "exclamationmark.triangle.fill").font(.system(size: 15, weight: .black)).foregroundColor(publishState.isPublished ? NativeTheme.emerald : NativeTheme.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(publishState.noticeTitle).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text(publishState.noticeBody).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(13)
+        .background((publishState.isPublished ? NativeTheme.emerald : NativeTheme.orange).opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke((publishState.isPublished ? NativeTheme.emerald : NativeTheme.orange).opacity(0.25), lineWidth: 1))
+    }
+
     private var modePicker: some View {
         HStack(spacing: 8) {
             ForEach(NativeGroupInviteAccessMode.allCases, id: \.rawValue) { item in
@@ -3815,13 +3892,13 @@ private struct NativeGroupInviteAccessSheet: View {
 
     private var qrPreview: some View {
         VStack(alignment: .center, spacing: 14) {
-            Text("Scan to Join").font(.system(size: 21, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Text(publishState.qrTitle).font(.system(size: 21, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             if let image = NativeParkingQRCodeRenderer.image(payload: inviteURL.absoluteString) {
                 Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(width: 220, height: 220).padding(18).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             } else {
                 Image(systemName: "qrcode").font(.system(size: 150, weight: .regular)).foregroundColor(NativeTheme.textPrimary).frame(width: 220, height: 220).padding(18).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
-            Text("Opens the App Clip for non-users; opens Bytspot for installed users.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center)
+            Text(publishState.qrDetail).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(18)
@@ -3838,11 +3915,11 @@ private struct NativeGroupInviteAccessSheet: View {
                 VStack(alignment: .leading, spacing: 9) {
                     Text("TAP BYTSPOT TAG").font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.75)).tracking(1.2)
                     Text(event.title).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                    Text("Private NFC invite · App Clip ready").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.78))
+                    Text(publishState.nfcSubtitle).font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.78))
                 }.padding(22)
             }
             .frame(height: 220)
-            Text("Program this URL onto a Bytspot NFC tag for one-tap private group join:").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+            Text(publishState.nfcInstruction).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
             Text(inviteURL.absoluteString).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundColor(NativeTheme.textTertiary).lineLimit(4)
         }
         .padding(18)
@@ -3867,7 +3944,7 @@ private struct NativeGroupInviteAccessSheet: View {
     private func copyInvite() {
         nativeImpactLight()
         UIPasteboard.general.string = inviteURL.absoluteString
-        copyStatus = "Invite link copied."
+        copyStatus = publishState.copiedStatus
     }
 }
 

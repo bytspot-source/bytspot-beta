@@ -732,6 +732,26 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertTrue(NativeGroupInviteActionKind.nfc.publishedStatus.contains("NFC invite opened"))
     }
 
+    func testInviteAccessSheetCopyIsDraftAwareUntilPublishSucceeds() {
+        XCTAssertEqual(NativeGroupInvitePublishState.published.qrTitle, "Scan to Join")
+        XCTAssertTrue(NativeGroupInvitePublishState.published.nfcSubtitle.contains("App Clip ready"))
+        XCTAssertEqual(NativeGroupInvitePublishState.draftSignedOut.qrTitle, "Draft QR Preview")
+        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.noticeBody.contains("Sign in and publish"))
+        XCTAssertTrue(NativeGroupInvitePublishState.draftAuthenticated.qrDetail.contains("after this group publishes"))
+        XCTAssertTrue(NativeGroupInvitePublishState.publishing.nfcInstruction.contains("Wait for publish"))
+        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.copiedStatus.contains("Draft invite link copied"))
+    }
+
+    func testSilentPublishCanBeUpgradedToAnnouncedByUserAction() {
+        let eventID = "family-dinner"
+        let silent = NativeGroupInvitePublishAnnouncement.updatedIDs([], eventID: eventID, announce: false)
+        XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: silent))
+        let upgraded = NativeGroupInvitePublishAnnouncement.updatedIDs(silent, eventID: eventID, announce: true)
+        XCTAssertTrue(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: upgraded))
+        let reset = NativeGroupInvitePublishAnnouncement.updatedIDs(upgraded, eventID: eventID, announce: false)
+        XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: reset))
+    }
+
     func testTieredGroupCreationCarriesPlatinumAndBlackMetadataIntoInviteURLs() {
         let platinum = NativeGroupEventRecord.created(
             type: "Dinner",

@@ -3198,10 +3198,10 @@ private struct NativeProfileNetworkCard: View {
     @State private var showHostDashboard = false
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
     @State private var didRunGroupSetupPreviewCheck = false
+    @State private var publishingGroupEventIDs: Set<String> = []
     // Invite ids confirmed to exist on the server (groupEvents.create succeeded).
-    // Sharing an invite the backend hasn't accepted yet would hand out a link the
-    // App Clip can't join (groupEvents.join → NOT_FOUND), so share stays gated on
-    // this until publish confirms.
+    // Buttons can still preview/copy a draft link immediately, but this lets the UI
+    // truthfully distinguish published join-ready invites from local draft previews.
     @State private var publishedGroupEventIDs: Set<String> = []
 
     static let title = "Profile Network"
@@ -3594,6 +3594,8 @@ private struct NativeProfileNetworkCard: View {
     // status message (silent on background reconciliation).
     private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
         guard sessionStore.isAuthenticated else { return }
+        guard !publishingGroupEventIDs.contains(record.id) else { return }
+        publishingGroupEventIDs.insert(record.id)
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         var input: [String: Any] = [
             "id": record.id,
@@ -3628,6 +3630,7 @@ private struct NativeProfileNetworkCard: View {
             do {
                 _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput)
                 _ = try await api.create(input: input)
+                publishingGroupEventIDs.remove(record.id)
                 publishedGroupEventIDs.insert(record.id)
                 if announce {
                     networkStatus = record.requiresApproval
@@ -3635,6 +3638,7 @@ private struct NativeProfileNetworkCard: View {
                         : "\(record.title) is live. Share the invite for instant App Clip join."
                 }
             } catch {
+                publishingGroupEventIDs.remove(record.id)
                 publishedGroupEventIDs.remove(record.id)
                 if announce {
                     networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
@@ -3647,17 +3651,17 @@ private struct NativeProfileNetworkCard: View {
         publishedGroupEventIDs.contains(group.id)
     }
 
-    // Guard every share entry point: never hand out an invite the backend hasn't
-    // accepted. Kicks a publish retry when authenticated, or prompts sign-in.
-    private func ensureShareable(_ group: NativeGroupEventRecord) -> Bool {
-        if isPublished(group) { return true }
+    private func prepareInviteAction(_ group: NativeGroupEventRecord, action: NativeGroupInviteActionKind) {
+        if isPublished(group) {
+            networkStatus = action.publishedStatus
+            return
+        }
         if sessionStore.isAuthenticated {
-            networkStatus = "Publishing \(group.title)… try sharing again in a moment so guests can join."
+            networkStatus = "\(action.draftStatus) Publishing \(group.title) so guests can join."
             publishGroupEvent(group)
         } else {
-            networkStatus = "Sign in to publish \(group.title) before sharing — guests can't join an unpublished invite."
+            networkStatus = "\(action.draftStatus) Sign in to publish before sending it to guests."
         }
-        return false
     }
 
     // On reappear, silently (re)publish an authenticated host's active group so a
@@ -3670,17 +3674,16 @@ private struct NativeProfileNetworkCard: View {
 
     private func copyInvite(_ group: NativeGroupEventRecord) {
         nativeImpactLight()
-        guard ensureShareable(group) else { return }
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
-        networkStatus = "Invite link copied — non-app users can join instantly in the App Clip."
+        prepareInviteAction(group, action: .copy)
     }
 
     private func openInviteAccess(_ group: NativeGroupEventRecord, mode: NativeGroupInviteAccessMode) {
         nativeImpactLight()
-        guard ensureShareable(group) else { return }
         inviteAccessMode = mode
         UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
         showInviteAccess = true
+        prepareInviteAction(group, action: mode == .qr ? .qr : .nfc)
     }
 
     private func openHostDashboard(_ group: NativeGroupEventRecord) {
@@ -3700,6 +3703,26 @@ private struct NativeProfileNetworkCard: View {
             showInviteAccess = true
         }
         #endif
+    }
+}
+
+enum NativeGroupInviteActionKind: Equatable {
+    case copy, qr, nfc
+
+    var draftStatus: String {
+        switch self {
+        case .copy: return "Draft invite link copied."
+        case .qr: return "QR invite preview opened and link copied."
+        case .nfc: return "NFC invite preview opened and link copied."
+        }
+    }
+
+    var publishedStatus: String {
+        switch self {
+        case .copy: return "Invite link copied — guests can join instantly in the App Clip."
+        case .qr: return "QR invite opened — guests can scan to join instantly."
+        case .nfc: return "NFC invite opened — encode this link to a tag for one-tap join."
+        }
     }
 }
 
@@ -3732,6 +3755,7 @@ enum NativeGroupInviteAccessMode: String, CaseIterable, Equatable {
 private struct NativeGroupInviteAccessSheet: View {
     let event: NativeGroupEventRecord
     @State private var mode: NativeGroupInviteAccessMode
+    @State private var copyStatus: String?
     @Environment(\.dismiss) private var dismiss
 
     init(event: NativeGroupEventRecord, initialMode: NativeGroupInviteAccessMode) {
@@ -3755,6 +3779,7 @@ private struct NativeGroupInviteAccessSheet: View {
                 modePicker
                 if mode == .qr { qrPreview } else { nfcPreview }
                 privacyCopy
+                if let copyStatus { Text(copyStatus).nativeBody(size: 12.5, color: accent) }
                 Button(action: copyInvite) { Text("Copy Invite Link").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
                 Button(action: { dismiss() }) { Text("Close").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
             }
@@ -3842,6 +3867,7 @@ private struct NativeGroupInviteAccessSheet: View {
     private func copyInvite() {
         nativeImpactLight()
         UIPasteboard.general.string = inviteURL.absoluteString
+        copyStatus = "Invite link copied."
     }
 }
 

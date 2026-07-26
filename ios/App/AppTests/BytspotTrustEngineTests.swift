@@ -723,6 +723,15 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertTrue(url.contains("source=app_clip"))
     }
 
+    func testInviteActionFeedbackKeepsButtonsResponsiveForDraftAndPublishedStates() {
+        XCTAssertEqual(NativeGroupInviteActionKind.copy.draftStatus, "Draft invite link copied.")
+        XCTAssertEqual(NativeGroupInviteActionKind.qr.draftStatus, "QR invite preview opened and link copied.")
+        XCTAssertEqual(NativeGroupInviteActionKind.nfc.draftStatus, "NFC invite preview opened and link copied.")
+        XCTAssertTrue(NativeGroupInviteActionKind.copy.publishedStatus.contains("Invite link copied"))
+        XCTAssertTrue(NativeGroupInviteActionKind.qr.publishedStatus.contains("QR invite opened"))
+        XCTAssertTrue(NativeGroupInviteActionKind.nfc.publishedStatus.contains("NFC invite opened"))
+    }
+
     func testTieredGroupCreationCarriesPlatinumAndBlackMetadataIntoInviteURLs() {
         let platinum = NativeGroupEventRecord.created(
             type: "Dinner",

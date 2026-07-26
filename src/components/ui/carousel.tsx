@@ -95,6 +95,9 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return;
+    // Seed the prev/next flags from Embla's current state on subscribe; the
+    // API isn't available on first render, so it must be read in the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     onSelect(api);
     api.on("reInit", onSelect);
     api.on("select", onSelect);

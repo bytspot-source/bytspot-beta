@@ -181,7 +181,7 @@ run_launch_visual_captures() {
 
   capture native-personalization-atlanta SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=atlanta
   ocr native-personalization-atlanta
-  expect_ocr native-personalization-atlanta "Here's your Atlanta|Ladybird|Livingston|Lyla Lila|Sign in to save these picks"
+  expect_ocr native-personalization-atlanta "Recommended for you|Midtown Smart Parking|Colony Square|Arts Center Access|Sign in to save these picks"
 
   tap_launch_journey
 

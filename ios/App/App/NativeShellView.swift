@@ -215,6 +215,7 @@ struct BytspotNativeShellView: View {
     @State private var showGroupInvitePreviewSheet = false
     @State private var groupInvitePreviewMode: NativeGroupInviteAccessMode = .qr
     @State private var groupInvitePreviewEvent: NativeGroupEventRecord?
+    @State private var nativeAuthDismissalHandled = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
@@ -227,7 +228,11 @@ struct BytspotNativeShellView: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
+    @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalkPreference = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
 
     private static var previewInitialTab: BytspotNativeTab {
         guard NativeMigrationConfig.isNativeRootEnabled,
@@ -342,7 +347,7 @@ struct BytspotNativeShellView: View {
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
         }
         .preferredColorScheme(effectivePreferredColorScheme)
-        .fullScreenCover(isPresented: $showNativeAuth) {
+        .fullScreenCover(isPresented: $showNativeAuth, onDismiss: handleNativeAuthDismissed) {
             nativeAuthenticationCover
                 .preferredColorScheme(.dark)
         }
@@ -487,6 +492,7 @@ struct BytspotNativeShellView: View {
         contextualDestination = nil
         pendingPostAuthIntent = pendingIntent
         pendingPostAuthIntentRaw = pendingIntent?.rawValue ?? ""
+        nativeAuthDismissalHandled = false
         nativeAuthMode = mode
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             showNativeAuth = true
@@ -499,13 +505,27 @@ struct BytspotNativeShellView: View {
             sessionStore: sessionStore,
             authCoordinator: authCoordinator,
             onComplete: completeNativeAuth,
-            onBack: { showNativeAuth = false }
+            onBack: cancelNativeAuth
         )
     }
 
     private func completeNativeAuth() {
+        nativeAuthDismissalHandled = true
         showNativeAuth = false
         resolvePendingPostAuthIntentIfReady()
+    }
+
+    private func cancelNativeAuth() {
+        nativeAuthDismissalHandled = true
+        showNativeAuth = false
+        NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
+    }
+
+    private func handleNativeAuthDismissed() {
+        if !nativeAuthDismissalHandled {
+            NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
+        }
+        nativeAuthDismissalHandled = false
     }
 
     private func resolvePendingPostAuthIntentIfReady() {
@@ -520,7 +540,7 @@ struct BytspotNativeShellView: View {
         case .explorePicks:
             selectedTab = .discover
         case .mapPicks:
-            NativeOnboardingMapHandoff.write(destination: NativeHomeDashboardView.defaultLaunchMapDestination, mode: "Route")
+            NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
             selectedTab = .map
         case .savePicks:
             forceHomeAfterSavePicksAuth()
@@ -811,12 +831,12 @@ private struct NativeGroupEventAppClipFallbackView: View {
 }
 
 /// Guest-default profile values mirrored from src/components/ProfileSection.tsx
-/// (getUserPointsLocal → 100, getUserTier → Bronze, explorer tier profile).
+/// (getUserPointsLocal → 100, member tier profile).
 private enum NativeProfileDefaults {
     static let userName = "Bytspot Member"
     static let points = 100
     static let tierIcon = "🥉"
-    static let tierName = "Bronze"
+    static let tierName = "Member"
     static let discount = 0
     static let badgesUnlocked = 0
     static let badgesTotal = 10
@@ -916,11 +936,13 @@ private struct NativeProfileStat: View {
 
 private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
-    @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
 
     private var userName: String {
         sessionStore.isAuthenticated ? "Signed in" : NativeProfileDefaults.userName
     }
+
+    private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -941,36 +963,26 @@ private struct NativeProfileHeaderCard: View {
                     NativeProfileMicroChip(sessionStore.isAuthenticated ? "Signed in" : "Guest", icon: sessionStore.isAuthenticated ? "checkmark.seal.fill" : "person.crop.circle", color: NativeTheme.cyan)
                 }
                 HStack(spacing: 16) {
-                    ZStack(alignment: .bottomTrailing) {
-                        ZStack {
-                            LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "person.fill").font(.system(size: 34, weight: .black)).foregroundColor(.white)
-                        }
-                        .frame(width: 78, height: 78)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(NativePolish.elevatedSurface.opacity(0.86), lineWidth: 3))
-                        .shadow(color: NativeTheme.purple.opacity(0.20), radius: 16, x: 0, y: 10)
-                        Text(NativeProfileDefaults.tierIcon)
-                            .font(.system(size: 15))
-                            .frame(width: 28, height: 28)
-                            .background(LinearGradient(colors: [NativeTheme.orange, NativeTheme.blackAmber], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(NativePolish.elevatedSurface, lineWidth: 2))
-                            .offset(x: 4, y: 4)
+                    ZStack {
+                        LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "person.fill").font(.system(size: 34, weight: .black)).foregroundColor(.white)
                     }
+                    .frame(width: 78, height: 78)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(NativePolish.elevatedSurface.opacity(0.86), lineWidth: 3))
+                    .shadow(color: NativeTheme.purple.opacity(0.20), radius: 16, x: 0, y: 10)
                     VStack(alignment: .leading, spacing: 8) {
                         Text(userName).font(.system(size: 24, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
-                        HStack(spacing: 7) {
-                            NativeProfileMicroChip("\(NativeProfileDefaults.tierIcon) \(NativeProfileDefaults.tierName)", color: NativeTheme.orange)
-                            NativeProfileMicroChip(appearanceMode.chipTitle, icon: appearanceMode.icon, color: NativeTheme.purple)
-                        }
+                        Text(sessionStore.isAuthenticated ? "Member account" : "Guest account")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(NativeProfileStyle.muted)
                     }
                     Spacer()
                 }
                 VStack(spacing: 0) {
                     Rectangle().fill(NativeProfileStyle.hairline).frame(height: 1)
                     HStack(spacing: 0) {
-                        NativeProfileStat(value: "\(NativeProfileDefaults.following)", label: "Following")
+                        NativeProfileStat(value: "\(connectionCount)", label: "Connections")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
                         NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)), label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
@@ -984,8 +996,6 @@ private struct NativeProfileHeaderCard: View {
         .nativeProfileCard(accent: NativeTheme.purple)
         .accessibilityIdentifier("native-profile-header")
     }
-
-    private var appearanceMode: NativeAppearanceMode { NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw) }
 }
 
 private struct NativeProfileAccountView: View {
@@ -994,6 +1004,7 @@ private struct NativeProfileAccountView: View {
     let activeTier: BytspotTier
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var activePanel: NativeProfilePanel?
+    @State private var socialCircleSnapshot: NativeSocialCircleSnapshot = .empty
     @State private var didConsumeInitialPanel = false
     @State private var didConsumeDirectSmokePanel = false
 
@@ -1001,14 +1012,14 @@ private struct NativeProfileAccountView: View {
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
-            NativeProfileHeaderCard(sessionStore: sessionStore)
+            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
             NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
-            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier)
+            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileMenuGroup(section: .appSettings, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Sensitive account actions are separated from everyday controls.")
             NativeProfileMenuGroup(section: .safetyLegal, openPanel: { activePanel = $0 })
@@ -1020,6 +1031,7 @@ private struct NativeProfileAccountView: View {
             openInitialPanelIfNeeded()
             openDirectSmokePanelIfRequested()
         }
+        .task(id: sessionStore.isAuthenticated) { await refreshSocialCircles() }
         .sheet(item: $activePanel) { panel in
             let sheet = NativeProfilePanelSheet(panel: panel, openPanel: { activePanel = $0 })
             if #available(iOS 16.0, *) {
@@ -1056,6 +1068,16 @@ private struct NativeProfileAccountView: View {
         }
         #endif
     }
+
+    private func refreshSocialCircles() async {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        guard sessionStore.isAuthenticated else {
+            socialCircleSnapshot = .empty
+            return
+        }
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        socialCircleSnapshot = await api.listSocialCirclesViaRpc(fallback: NativeSocialCircle.fallbackStarter)
+    }
 }
 
 enum NativeProfilePanel: String, Identifiable, CaseIterable {
@@ -1067,7 +1089,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
-    static let p2SocialActivityPanels: [NativeProfilePanel] = [.friends, .savedSpots, .placesVisited]
+    static let p2SocialActivityPanels: [NativeProfilePanel] = [.savedSpots, .placesVisited]
 
     static func smokePanel(named raw: String) -> NativeProfilePanel? {
         let target = normalizeSmokeName(raw)
@@ -1088,7 +1110,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .paymentMethods: return "Payment Methods"
         case .savedSpots: return "Saved Places"
         case .placesVisited: return "Places I've Been"
-        case .friends: return "Friends"
+        case .friends: return "Find Friends"
         case .vibePreferences: return "Vibe Preferences"
         case .parkingPreferences: return "Parking Preferences"
         case .notifications: return "Notifications"
@@ -1106,7 +1128,8 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "ARRIVALS"
         case .access: return "WALLET"
         case .rewards: return "MEMBERSHIP"
-        case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited, .friends: return "ACCOUNT"
+        case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
+        case .friends: return "NETWORK"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
         case .deleteAccount: return "SAFETY"
@@ -1290,7 +1313,7 @@ private struct NativeProfilePanelSheet: View {
         case .access:
             return []
         case .rewards:
-            return [("Bronze rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Parker progress", "Booking milestones unlock parking perks.", "chart.line.uptrend.xyaxis")]
+            return [("Member rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Your Bytspot benefits", "Booking milestones unlock easier arrivals.", "chart.line.uptrend.xyaxis")]
         case .personalInformation:
             return [("Profile identity", "Bytspot Member · Guest access.", "person.crop.circle.fill"), ("Contact details", "Name, email, phone, and birthday stay together here.", "text.badge.checkmark"), ("Ready to save", "Sign in to sync details across devices.", "checkmark.shield.fill")]
         case .vehicles:
@@ -1312,7 +1335,7 @@ private struct NativeProfilePanelSheet: View {
         case .locationPrivacy:
             return [("Permission status", "Primary location remains managed in iOS Settings.", "location.fill"), ("Optional location", "Enhanced accuracy, valet return help, offers, and venue recommendations are opt-in.", "hand.raised.fill"), ("Privacy controls", "You can change these choices anytime.", "checkmark.shield.fill")]
         case .generalSettings:
-            return [("Theme", "Auto theme keeps Bytspot aligned with device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v1.1.8.", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
+            return [("Theme", "Appearance follows your device settings.", "circle.lefthalf.filled"), ("App version", "Bytspot v\(NativeAppVersionDisplay.version).", "info.circle.fill"), ("App controls", "General settings stay easy to review.", "checkmark.shield.fill")]
         case .appearance:
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
@@ -1331,6 +1354,14 @@ private enum NativeProfileBoardDesignContract {
     static let footerTitle = "Close"
     static let neutralActionSurface = "NativeTheme.selectedControlSurface"
     static let productBoardIDs = [NativeArrivalLedgerContract.accessibilityID, NativeSavedPlacesBoardContract.accessibilityID, "native-places-visited-board"]
+}
+
+enum NativeProfileWireframeGuard {
+    static let menuSectionTitles = NativeProfileAccountView.menuSectionOrder.map(\.title)
+    static let socialActivityPanels = NativeProfilePanel.p2SocialActivityPanels
+    static let friendsPanelTitle = NativeProfilePanel.friends.title
+    static let friendsPanelEyebrow = NativeProfilePanel.friends.eyebrow
+    static let networkCardTitle = NativeProfileNetworkCard.title
 }
 
 private enum NativeArrivalLedgerContract {
@@ -2308,16 +2339,21 @@ private struct NativeLocationPrivacyPanel: View {
     }
 }
 
+private enum NativeAppVersionDisplay {
+    static var version: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.9"
+    }
+}
+
 private struct NativeGeneralSettingsPanel: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
 
-    private var version: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.8" }
     private var appearance: NativeAppearanceMode { NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeWalletLine(title: "Appearance", subtitle: "Current setting: \(appearance.title). Use App Settings → Appearance to change it.", icon: appearance.icon)
-            NativeWalletLine(title: "App version", subtitle: "Bytspot v\(version).", icon: "info.circle.fill")
+            NativeWalletLine(title: "App version", subtitle: "Bytspot v\(NativeAppVersionDisplay.version).", icon: "info.circle.fill")
             NativeWalletLine(title: "Profile settings", subtitle: "Account controls stay easy to review in Bytspot.", icon: "checkmark.shield.fill")
         }
     }
@@ -3019,7 +3055,7 @@ private struct NativeFindFriendsCard: View {
     let sessionStore: BytspotSessionStore
 
     static let title = "Find friends"
-    static let privacyCopy = "Bytspot matches your contacts on-device using salted hashes. Your address book is never uploaded or stored."
+    static let privacyCopy = "Sync contacts privately."
     static let guestCopy = "Sign in to match contacts privately."
 
     var body: some View {
@@ -3153,6 +3189,7 @@ private struct NativeProfileNetworkCard: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     let sessionStore: BytspotSessionStore
     let activeTier: BytspotTier
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
     @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
     @State private var activeGroup = NativeGroupEventStore.primaryLiveEvent()
     @State private var networkStatus: String?
@@ -3167,11 +3204,18 @@ private struct NativeProfileNetworkCard: View {
     // this until publish confirms.
     @State private var publishedGroupEventIDs: Set<String> = []
 
-    static let title = "Groups & Invites"
-    static let actionTitles = ["Create Private Group", "Social Circles", "Find friends"]
+    static let title = "Profile Network"
+    static let actionTitles = ["Create Private Group", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
     private var currentTier: BytspotTier { activeGroup?.tier ?? .green }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
+    private var circlesForDisplay: [NativeSocialCircle] { socialCircleSnapshot.groups.isEmpty ? NativeSocialCircle.fallbackStarter : socialCircleSnapshot.groups }
+    private var circleNamesForGroupSetup: [String] {
+        var names: [String] = []
+        for name in circlesForDisplay.map(\.name) where !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !names.contains(name) { names.append(name) }
+        if !names.contains("Public") { names.append("Public") }
+        return names
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -3180,8 +3224,6 @@ private struct NativeProfileNetworkCard: View {
             if let activeGroup {
                 activeGroupBlock(activeGroup)
                 if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-                socialCirclesBlock
-                networkDivider
                 inviteBlock
                 networkDivider
                 findFriendsBlock
@@ -3194,7 +3236,7 @@ private struct NativeProfileNetworkCard: View {
         .nativeProfileCard(border: NativeTheme.pink.opacity(0.48), accent: NativeTheme.pink)
         .accessibilityIdentifier("native-profile-network-card")
         .sheet(isPresented: $showGroupSetup) {
-            let setup = NativeGroupEventSetupSheet(initialType: selectedGroupType, tier: currentTier, onCreate: createPrivateGroup)
+            let setup = NativeGroupEventSetupSheet(initialType: selectedGroupType, tier: currentTier, socialCircleNames: circleNamesForGroupSetup, onCreate: createPrivateGroup)
             if #available(iOS 16.0, *) {
                 setup.presentationDetents([.large]).presentationDragIndicator(.visible)
             } else {
@@ -3230,7 +3272,7 @@ private struct NativeProfileNetworkCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(Self.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Create private groups, invite from social circles, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                Text("Create private groups, share invites, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -3240,7 +3282,6 @@ private struct NativeProfileNetworkCard: View {
         VStack(alignment: .leading, spacing: 13) {
             startGroupBlock
             if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-            socialCirclesContextBlock
             compactInviteBlock
             compactFindFriendsBlock
             Text("Contacts stay private unless you choose to match.").nativeBody(size: 11, color: NativeProfileStyle.muted)
@@ -3249,7 +3290,7 @@ private struct NativeProfileNetworkCard: View {
 
     private var startGroupBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Choose a template, pick a social circle, then publish a protected invite.", icon: "person.3.sequence.fill", color: tierAccent)
+            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Choose a template, then publish a protected invite.", icon: "plus.app.fill", color: tierAccent)
             Button(action: openGroupSetup) {
                 HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Create Private Group").font(.system(size: 14, weight: .black)) }
                     .foregroundColor(.black)
@@ -3283,7 +3324,7 @@ private struct NativeProfileNetworkCard: View {
             Image(systemName: "leaf.fill").font(.system(size: 12, weight: .black)).foregroundColor(.black).frame(width: 28, height: 28).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Green Membership").font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Free private invites and starter social circles.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                Text("Free private invites for members and guests.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             NativeProfileMicroChip("Free", icon: "sparkles", color: NativeTheme.emerald)
@@ -3335,40 +3376,9 @@ private struct NativeProfileNetworkCard: View {
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
     }
 
-    private var socialCirclesBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NativeProfileNetworkRowHeader(title: "Social circles", subtitle: "Reusable invite lists power private event distribution without exposing your contacts.", icon: "person.3.fill", color: NativeTheme.cyan)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in
-                        NativeProfileMicroChip(circle, icon: "circle.grid.2x2.fill", color: circle == "Public" ? NativeTheme.emerald : NativeTheme.cyan)
-                    }
-                }
-            }
-            Text("Create from the template, pick a circle, then publish public or private from the same Network card.").nativeBody(size: 11.5, color: NativeProfileStyle.muted)
-        }
-    }
-
-    private var socialCirclesContextBlock: some View {
-        HStack(alignment: .center, spacing: 11) {
-            Image(systemName: "person.3.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 32, height: 32).background(NativeTheme.cyan.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Social Circles").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Pick a circle while creating your group.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
-                Text("Close Friends · Family · Crew").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(NativeProfileStyle.nestedSurface.opacity(0.84))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
-    }
-
     private func eventMetadataChips(_ group: NativeGroupEventRecord) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                NativeProfileMicroChip(group.audienceCircle, icon: "person.3.fill", color: NativeTheme.cyan)
                 NativeProfileMicroChip(group.fontStyle, icon: "textformat", color: NativeTheme.purple)
                 if group.hideGuestList { NativeProfileMicroChip("Guest list hidden", icon: "eye.slash.fill", color: NativeTheme.orange) }
                 if let chipIn = group.chipInLabel, !chipIn.isEmpty { NativeProfileMicroChip(chipIn, icon: "dollarsign.circle.fill", color: NativeTheme.emerald) }
@@ -3568,8 +3578,13 @@ private struct NativeProfileNetworkCard: View {
             networkStatus = "\(record.title) is saved as a draft on this device. Sign in to publish it so guests can join via the App Clip."
             return
         }
-        networkStatus = "Publishing \(record.title)… guests can join as soon as it syncs."
+        networkStatus = "Creating \(record.title) from your Profile Network… guests can join as soon as it syncs."
         publishGroupEvent(record)
+    }
+
+    private func audienceGroupID(for record: NativeGroupEventRecord) -> String? {
+        guard record.privacyStatus != .publicDiscovery else { return nil }
+        return socialCircleSnapshot.groups.first { $0.name.caseInsensitiveCompare(record.audienceCircle) == .orderedSame }?.id
     }
 
     // Mirror the local event to the server so App Clip guests can join and, for
@@ -3606,9 +3621,12 @@ private struct NativeProfileNetworkCard: View {
         ]
         if let payment = record.manualPayment { input["manualPayment"] = payment.payload }
         if let handle = record.instagramHandle, !handle.isEmpty { input["instagramHandle"] = handle }
+        let draftInput = NativePrimaryEventDraftBuilder.input(for: record, audienceGroupId: audienceGroupID(for: record))
         Task { @MainActor in
+            let profileAPI = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
             do {
+                _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput)
                 _ = try await api.create(input: input)
                 publishedGroupEventIDs.insert(record.id)
                 if announce {
@@ -3983,6 +4001,7 @@ private struct NativeGroupEventHostDashboardView: View {
 
 private struct NativeGroupEventSetupSheet: View {
     let tier: BytspotTier
+    let socialCircleNames: [String]
     let onCreate: (NativeGroupEventRecord) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedType: String
@@ -3994,7 +4013,7 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var locationLabel = "Host-selected private table"
     @State private var theme = "Premium dinner"
     @State private var visibility: NativeGroupEventPrivacyStatus = .privateInvite
-    @State private var audienceCircle = NativeGroupEventContract.defaultAudienceCircles[0]
+    @State private var audienceCircle: String
     @State private var fontStyle = NativeGroupEventContract.defaultFontStyles[0]
     @State private var coHostsText = ""
     @State private var playlistURL = ""
@@ -4020,6 +4039,8 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var eventNotes = ""
     @State private var linkURL = ""
     @State private var iconName = "sparkles"
+    @State private var selectedHeroImage: UIImage?
+    @State private var showHeroImagePicker = false
     @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
     @State private var instagramHandle = ""
     @State private var allowNearbyOffers = true
@@ -4029,16 +4050,20 @@ private struct NativeGroupEventSetupSheet: View {
     @State private var addOnIcons: [String: String] = [:]
     @State private var didRunComposerPreviewCheck = false
 
-    init(initialType: String, tier: BytspotTier, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
+    init(initialType: String, tier: BytspotTier, socialCircleNames: [String] = NativeGroupEventContract.defaultAudienceCircles, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
         self.tier = tier
+        let circles = socialCircleNames.isEmpty ? NativeGroupEventContract.defaultAudienceCircles : socialCircleNames
+        self.socialCircleNames = circles
         self.onCreate = onCreate
         let safeType = NativeGroupEventContract.defaultEventTypes.contains(initialType) ? initialType : NativeGroupEventContract.defaultEventTypes[0]
         _selectedType = State(initialValue: safeType)
         _eventName = State(initialValue: safeType == "Custom" ? "Private Group" : "\(safeType) Group")
+        _audienceCircle = State(initialValue: circles.first ?? "Close Friends")
     }
 
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: tier) }
     private var canGoLive: Bool { !eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var privateAudienceFallback: String { socialCircleNames.first(where: { $0 != "Public" }) ?? "Close Friends" }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -4073,6 +4098,9 @@ private struct NativeGroupEventSetupSheet: View {
             }
             if #available(iOS 16.0, *) { editor.presentationDetents([.height(430), .medium]).presentationDragIndicator(.visible) } else { editor }
         }
+        .sheet(isPresented: $showHeroImagePicker) {
+            NativeGroupEventHeroImagePicker(image: $selectedHeroImage)
+        }
         .sheet(isPresented: $showCostPerPersonSheet) {
             let sheet = NativeGroupEventCostPerPersonSheet(initialMode: costSheetInitialMode, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, paymentMethod: paymentMethod, paymentLabel: paymentLabel, paymentURL: paymentURL, paymentNote: paymentNote) { ticketing, chipIn, method, label, url, note in
                 ticketingLabel = ticketing
@@ -4091,7 +4119,7 @@ private struct NativeGroupEventSetupSheet: View {
         HStack(spacing: 10) {
             Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
             Spacer()
-            Button(action: { visibility = visibility == .privateInvite ? .publicDiscovery : .privateInvite; if visibility == .publicDiscovery { audienceCircle = "Public" } }) { Label(visibility == .privateInvite ? "Private Invite" : "Public", systemImage: visibility == .privateInvite ? "lock.fill" : "globe").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).frame(height: 36).background(NativePolish.elevatedSurface).clipShape(Capsule()) }.buttonStyle(.plain)
+            Button(action: { visibility = visibility == .privateInvite ? .publicDiscovery : .privateInvite; audienceCircle = visibility == .publicDiscovery ? "Public" : privateAudienceFallback }) { Label(visibility == .privateInvite ? "Private Invite" : "Public", systemImage: visibility == .privateInvite ? "lock.fill" : "globe").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).frame(height: 36).background(NativePolish.elevatedSurface).clipShape(Capsule()) }.buttonStyle(.plain)
             Button(action: goLive) { Text("Save").font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 38).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!canGoLive)
         }
     }
@@ -4107,8 +4135,21 @@ private struct NativeGroupEventSetupSheet: View {
             }
             ZStack(alignment: .bottomTrailing) {
                 RoundedRectangle(cornerRadius: 26, style: .continuous).fill(LinearGradient(colors: [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: iconName.isEmpty ? "person.3.sequence.fill" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
-                Image(systemName: "pencil").font(.system(size: 13, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(Circle()).padding(12)
+                if let selectedHeroImage {
+                    Image(uiImage: selectedHeroImage).resizable().scaledToFill().frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
+                } else {
+                    Image(systemName: iconName.isEmpty ? "sparkles" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
+                }
+                Button(action: { showHeroImagePicker = true }) {
+                    Image(systemName: selectedHeroImage == nil ? "photo.badge.plus" : "pencil")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(.black)
+                        .frame(width: 38, height: 38)
+                        .background(NativeTheme.emerald)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(12)
             }
             .frame(height: 210)
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
@@ -4125,7 +4166,7 @@ private struct NativeGroupEventSetupSheet: View {
             setupLabel("Essentials")
             timingSelector
             inputField(title: "Hosted by", placeholder: "Host nickname", text: $hostName)
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in Button(action: { audienceCircle = circle; if circle == "Public" { visibility = .publicDiscovery } }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain) } } }
+            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(socialCircleNames, id: \.self) { circle in Button(action: { audienceCircle = circle; visibility = circle == "Public" ? .publicDiscovery : .privateInvite }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain) } } }
             inputField(title: "Date", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
             inputField(title: "Location", placeholder: "Shared after joining", text: $locationLabel)
             setupFact(title: "Spots", subtitle: "Up to \(entitlement.participantCapacity) guests on \(tier.displayName).", icon: "person.2.fill")
@@ -4299,7 +4340,7 @@ private struct NativeGroupEventSetupSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             setupLabel("Visibility & discovery")
             HStack(spacing: 8) {
-                Button(action: { visibility = .privateInvite; audienceCircle = audienceCircle == "Public" ? "Close Friends" : audienceCircle }) { setupChip("Private", active: visibility == .privateInvite, locked: false) }.buttonStyle(.plain)
+                Button(action: { visibility = .privateInvite; audienceCircle = audienceCircle == "Public" ? privateAudienceFallback : audienceCircle }) { setupChip("Private", active: visibility == .privateInvite, locked: false) }.buttonStyle(.plain)
                 Button(action: { visibility = .publicDiscovery; audienceCircle = "Public" }) { setupChip("Public", active: visibility == .publicDiscovery, locked: false) }.buttonStyle(.plain)
             }
             Text(visibility == .publicDiscovery ? "Public events can appear on Home and Discovery." : "Private events distribute only to selected circles or invited guests.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
@@ -4337,7 +4378,7 @@ private struct NativeGroupEventSetupSheet: View {
             inputField(title: "Host", placeholder: "Kojo Asante", text: $hostName)
             inputField(title: "Co-hosts", placeholder: "DJ Ama, Broni Home Taste, Artist K", text: $coHostsText)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultAudienceCircles, id: \.self) { circle in Button(action: { audienceCircle = circle; if circle == "Public" { visibility = .publicDiscovery } }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 120) }.buttonStyle(.plain) } }
+                HStack(spacing: 8) { ForEach(socialCircleNames, id: \.self) { circle in Button(action: { audienceCircle = circle; visibility = circle == "Public" ? .publicDiscovery : .privateInvite }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 120) }.buttonStyle(.plain) } }
             }
             inputField(title: "Schedule", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
             inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
@@ -4506,7 +4547,7 @@ private enum NativeGroupEventRSVPStyle: String, CaseIterable, Identifiable, Equa
 private enum NativeGroupEventAddOnField: String, CaseIterable, Identifiable, Equatable {
     case link, playlist, registry, dressCode, foodSituation, parking, accommodation, additionalInfo
     var id: String { rawValue }
-    var chipTitle: String { "+ \(displayTitle)" }
+    var chipTitle: String { displayTitle }
     var displayTitle: String {
         switch self {
         case .link: return "Link"
@@ -4552,6 +4593,37 @@ private enum NativeGroupEventAddOnField: String, CaseIterable, Identifiable, Equ
         case .parking: return "Garage entrance, valet, street tips"
         case .accommodation: return "Hotel block, nearby stay, host note"
         case .additionalInfo: return "Anything guests should know"
+        }
+    }
+}
+
+private struct NativeGroupEventHeroImagePicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .photoLibrary
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let parent: NativeGroupEventHeroImagePicker
+        init(parent: NativeGroupEventHeroImagePicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            parent.image = info[.originalImage] as? UIImage
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
         }
     }
 }
@@ -5214,7 +5286,7 @@ struct NativeGroupEventBannerSnapshot: Equatable {
 enum NativeGroupEventContract {
     static let storageKey = "bytspot_native_group_events"
     static let homepageSectionTitle = "Live Event Happening Now"
-    static let networkTitle = "Groups & Invites"
+    static let networkTitle = "Profile Network"
     static let quickStartCTA = "Start a Private Group"
     static let inviteCTA = "Share Invite"
     static let privacyBadge = "Private Group"
@@ -5386,12 +5458,57 @@ enum NativeGroupEventProbe {
     static func parsedInvite(urlString: String) -> NativeGroupEventRecord? { URL(string: urlString).flatMap(NativeGroupEventContract.groupInvite(from:)) }
 }
 
+enum NativePrimaryEventDraftBuilder {
+    static let surface = "profile_network_card"
+    static let manualPaymentVerification = "manual_unverified"
+
+    static func capacity(for tier: BytspotTier) -> Int { NativeGroupEventContract.entitlement(for: tier).participantCapacity }
+
+    static func input(for record: NativeGroupEventRecord, audienceGroupId: String? = nil) -> [String: Any] {
+        var rsvp: [String: Any] = [
+            "requireGuestApproval": record.requiresApproval,
+            "hideActivityTimestamps": record.hideActivityTimestamps,
+            "hideGuestList": record.hideGuestList,
+            "customQuestions": record.customQuestions,
+            "remindersEnabled": true
+        ]
+        if let cutoff = record.rsvpCutoff, !cutoff.isEmpty { rsvp["cutoffAt"] = cutoff }
+        var metadata = record.primaryEventMetadataPayload
+        metadata["notes"] = record.eventNotes ?? ""
+        var input: [String: Any] = [
+            "id": record.id,
+            "title": record.title,
+            "visibility": record.privacyStatus == .publicDiscovery ? "public" : "private",
+            "hostName": record.hostName,
+            "tier": record.tier.rawValue,
+            "capacityLimit": capacity(for: record.tier),
+            "audienceGroupIds": audienceGroupId.map { [$0] } ?? [],
+            "invitedUserIds": [],
+            "fontStyle": record.fontStyle,
+            "coHosts": record.coHosts.map { ["name": $0, "role": "host"] },
+            "media": ["thumbnailUrl": record.thumbnailURLString ?? "", "videoUrls": record.videoURLString.map { [$0] } ?? []],
+            "rsvp": rsvp,
+            "metadata": metadata,
+            "surface": surface
+        ]
+        if let playlist = record.playlistURLString, !playlist.isEmpty { input["playlistUrl"] = playlist }
+        if let ticketing = record.ticketingLabel, !ticketing.isEmpty { input["ticketingLabel"] = ticketing }
+        if let chipIn = record.chipInLabel, !chipIn.isEmpty { input["chipInLabel"] = chipIn }
+        if let payment = record.manualPayment, !payment.url.isEmpty {
+            input["paymentLinks"] = [["method": payment.method.lowercased().replacingOccurrences(of: " ", with: "_"), "label": payment.label, "url": payment.url, "note": payment.note ?? "", "verification": manualPaymentVerification]]
+        } else {
+            input["paymentLinks"] = []
+        }
+        return input
+    }
+}
+
 private struct NativeParkerBenefitsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Parker progress").font(.system(size: 18, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
+                    Text("Your Bytspot benefits").font(.system(size: 18, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
                     Text(NativeProfileDefaults.accessLevel).font(.system(size: 13, weight: .bold)).foregroundColor(NativeProfileStyle.body)
                 }
                 Spacer()
@@ -5857,12 +5974,8 @@ private struct NativeProfileLogoutButton: View {
 }
 
 private struct NativeProfileVersionLabel: View {
-    private var version: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.8"
-    }
-
     var body: some View {
-        Text("Bytspot v\(version)")
+        Text("Bytspot v\(NativeAppVersionDisplay.version)")
             .font(.system(size: 12, weight: .semibold))
             .foregroundColor(NativeProfileStyle.muted)
             .frame(maxWidth: .infinity)
@@ -6685,6 +6798,39 @@ private struct NativeHomeDashboardView: View {
         let target: ActionTarget
     }
 
+    struct LaunchRecommendationPick: Identifiable {
+        let id: String
+        let venue: NativeVenueSummary
+        let title: String
+        let subtitle: String
+        let badge: String
+        let color: Color
+
+        init(venue: NativeVenueSummary, location: NativeLocationCoordinate) {
+            let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
+            let cleanDistance = distance == "—" ? "Nearby" : distance
+            self.id = venue.id
+            self.venue = venue
+            self.title = venue.name
+            self.subtitle = [cleanDistance, venue.address].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: " · ")
+            self.badge = venue.crowd?.label ?? Self.categoryLabel(for: venue.discoverType)
+            self.color = NativeHomeDashboardView.launchBadgeColor(for: venue)
+        }
+
+        private static func categoryLabel(for type: String) -> String {
+            switch type {
+            case "parking": return "Parking"
+            case "dining": return "Dining"
+            case "coffee": return "Coffee"
+            case "nightlife": return "Nightlife"
+            case "entertainment": return "Events"
+            case "fitness": return "Fitness"
+            case "shopping": return "Shopping"
+            default: return "Nearby"
+            }
+        }
+    }
+
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDiscoverFilter: (String) -> Void
@@ -6740,6 +6886,12 @@ private struct NativeHomeDashboardView: View {
     static let authenticatedLaunchPicksCollapseDelay: TimeInterval = 1.8
     static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
+    static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate crowd", "time/day"]
+    static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now in Midtown", "Trending Now", "What are you feeling?", "Nearby"]
+
+    private var launchRecommendationPicks: [LaunchRecommendationPick] {
+        Self.rankedLaunchPicks(from: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+    }
 
     var body: some View {
         NativeScreenScroll {
@@ -7005,6 +7157,7 @@ private struct NativeHomeDashboardView: View {
 
     private var launchPicksReadySection: some View {
         let theme = NativeJourneyTheme.current(intent: launchIntent)
+        let picks = launchRecommendationPicks
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 NativeIcon(symbol: "sparkles", color: theme.primary)
@@ -7014,7 +7167,7 @@ private struct NativeHomeDashboardView: View {
                     Text(launchPicksSubtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
-                Text("+1 more").font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).padding(.horizontal, 8).padding(.vertical, 5).background(theme.primary.opacity(0.12)).clipShape(Capsule())
+                Text(picks.count > 1 ? "+\(picks.count - 1) more" : locationStore.coordinate.shortLabel).font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).padding(.horizontal, 8).padding(.vertical, 5).background(theme.primary.opacity(0.12)).clipShape(Capsule())
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("WHY THESE?").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(0.9)
@@ -7025,15 +7178,15 @@ private struct NativeHomeDashboardView: View {
             .background(theme.primary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(spacing: 7) {
-                ForEach(Array(Self.launchPreviewPicks.prefix(2).enumerated()), id: \.offset) { index, pick in
+                ForEach(Array(picks.prefix(2).enumerated()), id: \.offset) { index, pick in
                     HStack(spacing: 12) {
                         Text(["🥇", "🥈"][index]).font(.system(size: 18)).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(pick.0).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
-                            Text(pick.1).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+                            Text(pick.title).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                            Text(pick.subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        Text(pick.2).font(.system(size: 11, weight: .black)).foregroundColor(pick.3).padding(.horizontal, 8).padding(.vertical, 5).background(pick.3.opacity(0.14)).clipShape(Capsule())
+                        Text(pick.badge).font(.system(size: 11, weight: .black)).foregroundColor(pick.color).padding(.horizontal, 8).padding(.vertical, 5).background(pick.color.opacity(0.14)).clipShape(Capsule())
                     }
                     .padding(10)
                     .background(NativeTheme.selectedControlSurface.opacity(0.66))
@@ -7103,52 +7256,134 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func openLaunchPicksOnMap() {
-        NativeOnboardingMapHandoff.write(destination: Self.launchPreviewPicks.first?.0 ?? "Ladybird Grove & Mess Hall", mode: launchIntent == "parking" || launchIntent == "covered_parking" ? "Smart Parking" : "Route")
+        Self.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         openNativeTab(.map)
     }
 
     private var launchPicksTitle: String {
         switch launchIntent {
-        case "sleep", "stay": return "Safe stays nearby"
-        case "parking", "covered_parking": return "Parking-aware picks"
-        case "ride": return "Ride-friendly options"
-        case "indoor": return "Indoor picks nearby"
-        case "drinks": return "Nightlife picks nearby"
-        case "events": return "Event-friendly picks"
-        case "coffee": return "Coffee and quick stops"
-        default: return "Recommended from your quiz"
+        case "sleep", "stay": return "A softer landing nearby"
+        case "parking", "covered_parking": return "Easy arrivals near Midtown"
+        case "ride": return "A smoother way home"
+        case "indoor": return "Comfort-first plans nearby"
+        case "drinks": return "A night worth stepping into"
+        case "events": return "Plans that fit the crowd"
+        case "coffee": return "A good stop before you go"
+        default: return "Shaped around your night"
         }
     }
 
     private var launchPicksSubtitle: String {
         switch launchIntent {
-        case "sleep", "stay": return "Safe stays and short-rest options stay visible while you browse."
-        case "parking", "covered_parking": return "Parking-aware Midtown picks are active on this device."
-        case "ride": return "Ride-aware nearby picks are active on this device."
-        default: return "Based on your vibe, location, and local conditions near Midtown."
+        case "sleep", "stay": return "Comfort-first stays stay visible while you browse."
+        case "parking", "covered_parking": return "Easy arrivals, short walks, and Midtown timing are ready for you."
+        case "ride": return "Routes, pickup points, and smoother exits are ready when you are."
+        default: return "Chosen around your mood, the hour, and what feels close enough."
         }
     }
 
     private var launchPicksWhy: String {
         switch launchIntent {
-        case "sleep", "stay": return "Late night · Midtown · safe area preference · short-rest options"
-        case "parking", "covered_parking": return "Midtown · easy parking preference · short walk options"
-        case "ride": return "Local conditions · ride-aware route · nearby pickup options"
-        case "indoor": return "Weather-aware · indoor comfort · short walk priority"
-        case "drinks": return "Evening vibe · Midtown · drinks and social spots"
-        case "events": return "Evening vibe · Midtown · entertainment nearby"
-        case "coffee": return "Daytime vibe · Midtown · quick walk preference"
-        default: return "Your vibe · local conditions · nearby activity around Midtown"
+        case "sleep", "stay": return "Late-night comfort · Midtown timing · safer arrival"
+        case "parking", "covered_parking": return "Easy arrival · short walk · Midtown timing"
+        case "ride": return "Better pickup points · cleaner route · less waiting"
+        case "indoor": return "Dry, comfortable, and close enough"
+        case "drinks": return "Evening energy · good rooms · easy arrival"
+        case "events": return "Show timing · crowd flow · easier exits"
+        case "coffee": return "Daytime rhythm · close stops · low-friction arrival"
+        default: return "Your mood · the hour · what feels close enough"
         }
     }
 
-    static let defaultLaunchMapDestination = "Ladybird Grove & Mess Hall"
+    static let defaultLaunchMapDestination = NativeLocationCoordinate.midtown.displayName
 
-    static let launchPreviewPicks: [(String, String, String, Color)] = [
-        ("Ladybird Grove & Mess Hall", "684 John Wesley Dobbs Ave NE", "Chill", NativeTheme.cyan),
-        ("Livingston", "659 Peachtree St NE", "Chill", NativeTheme.cyan),
-        ("Lyla Lila", "972 Brady Ave NW", "Active", NativeTheme.emerald)
-    ]
+    static func storeLaunchMapHandoff(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) {
+        guard let venue = topLaunchRecommendationVenue(snapshot: snapshot, location: location, intent: intent, walk: walk, crew: crew) else {
+            NativeOnboardingMapHandoff.write(destination: defaultLaunchMapDestination, mode: "Route")
+            return
+        }
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: launchMapMode(for: venue, intent: intent))
+    }
+
+    static func topLaunchRecommendationVenue(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) -> NativeVenueSummary? {
+        rankedLaunchPicks(from: snapshot, location: location, intent: intent, walk: walk, crew: crew, limit: 1).first?.venue
+    }
+
+    static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [LaunchRecommendationPick] {
+        let sourceVenues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
+        let filteredVenues = sourceVenues.filter { !NativeAuthLaunchContract.legacyAtlantaPickNames.contains($0.name) }
+        let venues = filteredVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : filteredVenues
+        let ranked = venues.sorted { first, second in
+            let firstScore = launchVenueScore(first, location: location, intent: intent, walk: walk, crew: crew)
+            let secondScore = launchVenueScore(second, location: location, intent: intent, walk: walk, crew: crew)
+            if firstScore != secondScore { return firstScore > secondScore }
+            let firstDistance = location.distanceMiles(toLatitude: first.latitude, longitude: first.longitude) ?? .greatestFiniteMagnitude
+            let secondDistance = location.distanceMiles(toLatitude: second.latitude, longitude: second.longitude) ?? .greatestFiniteMagnitude
+            return firstDistance == secondDistance ? first.name < second.name : firstDistance < secondDistance
+        }
+        return ranked.prefix(max(1, limit)).map { LaunchRecommendationPick(venue: $0, location: location) }
+    }
+
+    private static func launchVenueScore(_ venue: NativeVenueSummary, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) -> Double {
+        let preferredTypes = preferredLaunchVenueTypes(intent: intent, crew: crew)
+        let type = venue.discoverType
+        let distance = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude) ?? 8
+        var score = 100.0 - min(distance * 8, 48)
+        if preferredTypes.first == type { score += 64 }
+        else if preferredTypes.contains(type) { score += 36 }
+        if venue.verifiedPatchId != nil { score += 14 }
+        if isParkingIntent(intent) && (type == "parking" || venue.parking.totalAvailable > 0) { score += 28 + min(Double(venue.parking.totalAvailable) / 2, 18) }
+        if ["sleep", "stay", "indoor"].contains(intent) && (venue.crowd?.level ?? 2) <= 2 { score += 12 }
+        if crew == "safe" && (venue.verifiedPatchId != nil || type == "parking") { score += 12 }
+        if crew == "group" && ["nightlife", "entertainment", "dining"].contains(type) { score += 10 }
+        if crew == "date_night" && ["dining", "nightlife"].contains(type) { score += 10 }
+        if let maxWalk = maxLaunchWalkMiles(walk), distance > maxWalk { score -= min((distance - maxWalk) * 18, 42) }
+        if let crowdLevel = venue.crowd?.level { score += Double(max(0, 4 - crowdLevel)) * 3 }
+        return score
+    }
+
+    private static func preferredLaunchVenueTypes(intent: String, crew: String) -> [String] {
+        var types: [String]
+        switch intent {
+        case "food": types = ["dining", "coffee"]
+        case "drinks": types = ["nightlife", "dining"]
+        case "coffee", "work": types = ["coffee", "dining"]
+        case "events": types = ["entertainment", "nightlife"]
+        case "parking", "covered_parking": types = ["parking"]
+        case "ride": types = ["parking", "venue"]
+        case "fitness": types = ["fitness"]
+        case "sleep", "stay", "indoor": types = ["venue", "dining", "coffee", "entertainment"]
+        default: types = ["dining", "coffee", "parking", "entertainment"]
+        }
+        if crew == "safe" { types.insert("parking", at: 0) }
+        if crew == "group" { types.append(contentsOf: ["nightlife", "entertainment"]) }
+        if crew == "date_night" { types.append(contentsOf: ["dining", "nightlife"]) }
+        return types.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+    }
+
+    private static func isParkingIntent(_ intent: String) -> Bool { intent == "parking" || intent == "covered_parking" }
+
+    private static func maxLaunchWalkMiles(_ walk: String) -> Double? {
+        switch walk {
+        case "close", "closest": return 1.0
+        case "medium": return 3.0
+        default: return nil
+        }
+    }
+
+    private static func launchMapMode(for venue: NativeVenueSummary, intent: String) -> String {
+        isParkingIntent(intent) || venue.discoverType == "parking" ? "Smart Parking" : "Route"
+    }
+
+    private static func launchBadgeColor(for venue: NativeVenueSummary) -> Color {
+        if venue.discoverType == "parking" { return NativeTheme.emerald }
+        switch venue.crowd?.level ?? 2 {
+        case ...1: return NativeTheme.cyan
+        case 2: return NativeTheme.emerald
+        case 3: return NativeTheme.orange
+        default: return NativeTheme.pink
+        }
+    }
 
     private var searchPlaceholderRotation: String {
         let pool = ["restaurants", "coffee", "nightlife", "parking", "events", "shopping malls"]
@@ -7317,18 +7552,8 @@ private struct NativeHomeDashboardView: View {
                         Button(action: { perform(.discoverFilter("entertainment")) }) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ZStack(alignment: .bottomTrailing) {
-                                    NativeRemoteImage(
-                                        url: event.imageUrl,
-                                        fallbackColors: [NativeTheme.orange.opacity(0.55), NativeTheme.purple.opacity(0.45), NativeTheme.cyan.opacity(0.25)],
-                                        fallbackEmoji: event.emoji,
-                                        emojiSize: 90,
-                                        emojiOpacity: 0.40,
-                                        emojiOffset: CGSize(width: 16, height: 8)
-                                    )
-                                    LinearGradient(
-                                        colors: [Color.black.opacity(0.0), Color.black.opacity(0.65)],
-                                        startPoint: .top, endPoint: .bottom
-                                    )
+                                    LinearGradient(colors: [NativeTheme.orange.opacity(0.34), NativeTheme.purple.opacity(0.22), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    Text(event.emoji).font(.system(size: 46)).frame(maxWidth: .infinity, maxHeight: .infinity)
                                     Text(event.price)
                                         .font(.system(size: 11, weight: .black)).foregroundColor(.white)
                                         .padding(.horizontal, 9).padding(.vertical, 5)
@@ -7823,23 +8048,29 @@ private struct NativeHomeHeroCard: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            NativeRemoteImage(url: venue.imageUrl, fallbackColors: [NativeTheme.purple.opacity(0.55), NativeTheme.magenta.opacity(0.32), NativeTheme.cyan.opacity(0.22)], fallbackEmoji: categoryEmoji, emojiSize: 150, emojiOpacity: 0.16, emojiOffset: CGSize(width: 70, height: 10))
-            LinearGradient(colors: colorScheme == .dark ? [Color.black.opacity(0.02), Color.black.opacity(0.42), Color.black.opacity(0.92)] : [Color.white.opacity(0.02), Color.white.opacity(0.62), Color.white.opacity(0.94)], startPoint: .top, endPoint: .bottom)
-            VStack { HStack { Spacer(); aiBadge }.padding(12); Spacer() }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(categoryEmoji).font(.system(size: 17))
-                Text(venue.name).font(.system(size: 24, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2).shadow(color: colorScheme == .dark ? .black.opacity(0.45) : .white.opacity(0.0), radius: 4, x: 0, y: 1)
-                Text(reason.isEmpty ? venue.address : reason).font(.system(size: 13, weight: .black)).foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : NativeTheme.textSecondary).lineLimit(2).shadow(color: colorScheme == .dark ? .black.opacity(0.35) : .white.opacity(0.0), radius: 3, x: 0, y: 1)
-                metaRow
-                ctaRow.padding(.top, 4)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(categoryEmoji).font(.system(size: 26)).frame(width: 50, height: 50).background(eyebrowColor.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    aiBadge
+                    Text(venue.name).font(.system(size: 23, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
+                }
+                Spacer(minLength: 0)
             }
-            .padding(18)
+            Text(reason.isEmpty ? venue.address : reason)
+                .font(.system(size: 13, weight: .black))
+                .foregroundColor(NativeTheme.textSecondary)
+                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 8) {
+                metaRow
+                ctaRow
+            }
         }
-        .frame(height: 252)
-        .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-        .shadow(color: NativeTheme.softShadow, radius: 22, x: 0, y: 14)
+        .padding(16)
+        .background(LinearGradient(colors: [NativePolish.elevatedSurface, eyebrowColor.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(eyebrowColor.opacity(0.24), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
+        .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
     }
 
     private var aiBadge: some View {
@@ -7854,7 +8085,7 @@ private struct NativeHomeHeroCard: View {
 
     private var metaRow: some View {
         HStack(spacing: 8) {
-            if !crowdLabel.isEmpty { pill("\(crowdEmoji) \(crowdLabel)", foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary, background: colorScheme == .dark ? Color.black.opacity(0.55) : NativeTheme.selectedControlSurface) }
+            if !crowdLabel.isEmpty { pill("\(crowdEmoji) \(crowdLabel)", foreground: NativeTheme.textPrimary, background: NativeTheme.selectedControlSurface) }
             if let r = venue.rating { pill("★ " + String(format: "%.1f", r), foreground: colorScheme == .dark ? .white : .black, background: NativeTheme.orange.opacity(0.92)) }
         }
     }
@@ -10840,8 +11071,9 @@ private struct NativeHomeAvailableTonightCard: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 13) {
-                NativeRemoteImage(url: card.imageUrl, fallbackColors: [NativeTheme.purple.opacity(0.44), NativeTheme.cyan.opacity(0.20)], fallbackEmoji: "🏡", emojiSize: 52, emojiOpacity: 0.34)
+                Text("🏡").font(.system(size: 30))
                     .frame(width: 82, height: 82)
+                    .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.24), NativeTheme.cyan.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 VStack(alignment: .leading, spacing: 5) {
                     Text("AVAILABLE TONIGHT").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(0.9)
@@ -10870,28 +11102,18 @@ private struct NativeHomeServiceRecommendationCard: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                NativeRemoteImage(
-                    url: card.imageUrl,
-                    fallbackColors: [NativeTheme.cyan.opacity(0.42), NativeTheme.purple.opacity(0.30), NativeTheme.pink.opacity(0.20)],
-                    fallbackEmoji: card.title.contains("GH Akwaaba") ? "🇬🇭" : "🛎️",
-                    emojiSize: 120,
-                    emojiOpacity: 0.22,
-                    emojiOffset: CGSize(width: 62, height: 6)
-                )
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color.black.opacity(0.02), Color.black.opacity(0.48), Color.black.opacity(0.92)]
-                        : [Color.white.opacity(0.02), Color.white.opacity(0.58), Color.white.opacity(0.94)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(card.title.contains("GH Akwaaba") ? "🇬🇭" : "🛎️")
+                        .font(.system(size: 30))
+                        .frame(width: 54, height: 54)
+                        .background(NativeTheme.cyan.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    Spacer(minLength: 0)
+                    Text(serviceCategoryTitle).serviceChip(color: NativeTheme.cyan, foreground: .black)
+                }
                 VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 7) {
-                        Text(serviceCategoryTitle).serviceChip(color: NativeTheme.cyan, foreground: .black)
-                        if card.membershipRequired { Text("MEMBER").serviceChip(color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant) }
-                    }
-                    Spacer()
+                    if card.membershipRequired { Text("MEMBER").serviceChip(color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant) }
                     Text(card.title).font(.system(size: 19, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2)
                     Text(card.metadataLine).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).lineLimit(1)
                     HStack(spacing: 6) {
@@ -10899,9 +11121,10 @@ private struct NativeHomeServiceRecommendationCard: View {
                         Text(card.cta).serviceChip(color: NativeTheme.cyan, foreground: .black)
                     }
                 }
-                .padding(14)
             }
-            .frame(height: 228)
+            .padding(14)
+            .frame(height: 188)
+            .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativeTheme.cyan.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
             .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativeTheme.cyan.opacity(0.20), lineWidth: 1))
             .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
@@ -11982,6 +12205,15 @@ enum NativeVenueHours {
     }
 }
 
+private enum NativeVenueGuestPromptAction: Equatable {
+    case openAuthOnly
+    case checkIn
+}
+
+private extension Notification.Name {
+    static let nativeAuthenticationCancelled = Notification.Name("bytspot.nativeAuthenticationCancelled")
+}
+
 private struct NativeVenueDetailView: View {
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
@@ -11998,6 +12230,8 @@ private struct NativeVenueDetailView: View {
     @State private var guestPromptTitle = "Save this spot?"
     @State private var guestPromptSubtitle = "Sign in to keep this spot in your favorites and sync it later."
     @State private var guestPromptCTA = "Sign in to save"
+    @State private var guestPromptAction: NativeVenueGuestPromptAction = .openAuthOnly
+    @State private var shouldCheckInAfterAuth = false
     @State private var selectedMediaIndex = 0
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
@@ -12034,7 +12268,7 @@ private struct NativeVenueDetailView: View {
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
-            NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: { openNativeAuth?() })
+            NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
         }
         .sheet(isPresented: $showParkingBooking) {
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth?() })
@@ -12046,6 +12280,10 @@ private struct NativeVenueDetailView: View {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
         }
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
+        .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
+        .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resumePendingCheckInIfReady() } }
+        .onReceive(NotificationCenter.default.publisher(for: .nativeAuthenticationCancelled)) { _ in clearPendingCheckInAfterAuth() }
+        .onDisappear { clearPendingCheckInAfterAuth() }
     }
 
     private var stayProductHero: some View {
@@ -12369,7 +12607,7 @@ private struct NativeVenueDetailView: View {
             handleCapability(action, capability: capability)
         case .authedWrite:
             if sessionStore.isAuthenticated { Task { await submitCheckIn() } }
-            else { presentGuestPrompt(title: "Sign in to check in", subtitle: "Create an account to keep check-ins and visit history synced.", cta: "Sign in to check in") }
+            else { presentGuestPrompt(title: "Sign in to check in", subtitle: "Create an account to keep check-ins and visit history synced.", cta: "Sign in to check in", action: .checkIn) }
         case .handoff:
             openNativeTab?(.concierge)
         }
@@ -12427,11 +12665,31 @@ private struct NativeVenueDetailView: View {
         }
     }
 
-    private func presentGuestPrompt(title: String, subtitle: String, cta: String) {
+    private func presentGuestPrompt(title: String, subtitle: String, cta: String, action: NativeVenueGuestPromptAction = .openAuthOnly) {
         guestPromptTitle = title
         guestPromptSubtitle = subtitle
         guestPromptCTA = cta
+        guestPromptAction = action
+        if action != .checkIn { clearPendingCheckInAfterAuth() }
         showGuestSavePrompt = true
+    }
+
+    private func continueGuestPromptSignIn() {
+        let action = guestPromptAction
+        guestPromptAction = .openAuthOnly
+        showGuestSavePrompt = false
+        if action == .checkIn { shouldCheckInAfterAuth = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { openNativeAuth?() }
+    }
+
+    private func resumePendingCheckInIfReady() {
+        guard shouldCheckInAfterAuth, sessionStore.isAuthenticated else { return }
+        clearPendingCheckInAfterAuth()
+        Task { await submitCheckIn() }
+    }
+
+    private func clearPendingCheckInAfterAuth() {
+        shouldCheckInAfterAuth = false
     }
 
     private func handleDevice(_ id: String) {
@@ -17043,9 +17301,6 @@ private enum NativeMapPinKind { case partner, parking, access
 private struct NativeMapPin: Identifiable {
     let id: String; let title: String; let subtitle: String; let distance: String; let coordinate: CLLocationCoordinate2D; let color: Color; let kind: NativeMapPinKind; let crowdLevel: Int?
     static let samples = [
-        NativeMapPin(id: "launch-ladybird", title: "Ladybird Grove & Mess Hall", subtitle: "Recommended from your quiz · Dining", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7639, longitude: -84.3669), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1),
-        NativeMapPin(id: "launch-livingston", title: "Livingston", subtitle: "Recommended from your quiz · Date night", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7726, longitude: -84.3847), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1),
-        NativeMapPin(id: "launch-lyla-lila", title: "Lyla Lila", subtitle: "Recommended from your quiz · Active", distance: "1.1 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7818, longitude: -84.4113), color: NativeTheme.emerald, kind: .partner, crowdLevel: 0),
         NativeMapPin(id: "partner-colony", title: "Colony Square", subtitle: "Verified Tap Zone · Dining + access", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832), color: NativeTheme.cyan, kind: .partner, crowdLevel: 2),
         NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking, crowdLevel: 1),
         NativeMapPin(id: "access-arts", title: "Arts Center Access", subtitle: "Patch-ready entry and concierge help", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: NativeTheme.pink, kind: .access, crowdLevel: 3)
@@ -17170,6 +17425,8 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.filter) == ["coffee", "dining", "mobility", "shopping", "nightlife", "fitness", "entertainment"], "NativeHomeParitySelfTests: category chips must hand off Discover filters.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
+        let visibleHomeCopy = NativeHomeDashboardView.visibleHomeSurfaceLabels.joined(separator: " | ")
+        precondition(!NativeHomeDashboardView.prohibitedContextSnapshotLabels.contains { visibleHomeCopy.localizedCaseInsensitiveContains($0) }, "NativeHomeParitySelfTests: native Home must not expose context snapshot placeholder copy.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")
@@ -17192,7 +17449,10 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
         precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
-        precondition(NativeHomeDashboardView.defaultLaunchMapDestination == NativeHomeDashboardView.launchPreviewPicks.first?.0, "NativePostAuthIntentSelfTests: Map continuation must target the top launch pick.")
+        let parkingPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: .fallback, location: .midtown, intent: "parking", walk: "close", crew: "safe")
+        precondition(parkingPick?.id == "midtown-smart-parking", "NativePostAuthIntentSelfTests: parking onboarding picks must target the live venue-ranked parking option, not a static restaurant.")
+        let foodPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: .fallback, location: .midtown, intent: "food", walk: "close", crew: "solo")
+        precondition(foodPick?.id == "colony-square", "NativePostAuthIntentSelfTests: onboarding picks must be computed from snapshot venues, not the legacy hardcoded launch rail.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: browse routes must resolve to native tabs — the React hybrid overlay is retired.")
@@ -17236,6 +17496,7 @@ enum NativeMapParitySelfTests {
         precondition(pins.contains { $0.kind == .parking }, "NativeMapParitySelfTests: Smart Parking sample pin missing.")
         precondition(pins.contains { $0.kind == .partner }, "NativeMapParitySelfTests: partnered tap-zone sample pin missing.")
         precondition(pins.contains { $0.kind == .access }, "NativeMapParitySelfTests: access sample pin missing.")
+        precondition(!pins.contains { $0.id.hasPrefix("launch-") }, "NativeMapParitySelfTests: Map sample pins must not revive legacy hardcoded onboarding picks.")
         precondition(NativeMapExploreView.trafficIntelProximityMiles == 1.0, "NativeMapParitySelfTests: Traffic Intel Aware proximity radius drifted from 1.0 mi.")
         precondition(NativeMapExploreView.trafficIntelProximityFreshnessMinutes == 30, "NativeMapParitySelfTests: Traffic Intel Aware freshness window drifted from 30 minutes.")
         precondition(NativeMapExploreView.trafficIntelAutoEnvironmentKey == "BYT_NATIVE_TRAFFIC_AUTO", "NativeMapParitySelfTests: Traffic Intel auto-open env key drifted from BYT_NATIVE_TRAFFIC_AUTO.")
@@ -17508,8 +17769,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Social Circles", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
-        precondition(NativeProfilePanel.p2SocialActivityPanels == [.friends, .savedSpots, .placesVisited], "NativeAccountParitySelfTests: P2 social/activity panels must stay native for Social and Places & Activity.")
+        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
+        precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited] && NativeProfilePanel.friends.title == "Find Friends", "NativeAccountParitySelfTests: Profile must not reintroduce redundant Social/Friends menu groups.")
         precondition(NativeSavedPlacesBoardContract.emptyPlanHeadline == "No next visit planned" && NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("next visit state") && NativeSavedPlacesBoardContract.summary.contains("verification"), "NativeAccountParitySelfTests: Saved Places Board summary copy drifted.")
         precondition(NativeProfileSavedSpot.fallbackFixtureTitles == ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"], "NativeAccountParitySelfTests: Saved Places native fixture contract drifted.")

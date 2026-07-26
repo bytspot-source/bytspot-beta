@@ -22,7 +22,7 @@ in order:
 | Feature | React source behavior | Native product job |
 | --- | --- | --- |
 | Identity header | name/guest, tier, following, points, badges | Passport identity and status |
-| Parker progress | booking count, points, check-ins, insider state, next unlock | Progress toward benefits |
+| Your Bytspot benefits | booking count, points, check-ins, insider state, next unlock | Progress toward benefits |
 | Insider membership | active/available, Stripe checkout, review-build handling | Subscription/access state, not random promo |
 | My Reservations | parking pass count, spot, address, window, price, pass code | Active arrival logistics |
 | My Access | access passes, virtual patch, NFC/QR, service requests | Wallet for access and patch context |

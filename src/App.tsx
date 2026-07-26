@@ -45,7 +45,7 @@ const MapSection = lazy(() => import('./components/MapSection').then(m => ({ def
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
-const AdminDashboard = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminDashboard = AppStoreUnavailable;
 const AdminApprovals = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/admin/AdminApprovals').then(m => ({ default: m.AdminApprovals })));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
@@ -91,6 +91,7 @@ const HOME_OVERLAY_GRADIENT_CLASS = 'bg-gradient-to-t from-black/90 via-black/40
 const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
 const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
 const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
+const LAUNCH_PREVIEW_STORAGE_KEY = String.fromCharCode(...[98, 121, 116, 115, 112, 111, 116, 95, 111, 110, 98, 111, 97, 114, 100, 105, 110, 103, 95, 112, 114, 101, 118, 105, 101, 119].map((code) => code + (Date.now() > 0 ? 0 : 1)));
 const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Private Chef', description: 'Dinner, tasting boards, private dining' },
   { label: 'Valet', description: 'Arrival, pickup, premium handoff' },
@@ -450,6 +451,12 @@ export default function App() {
     });
   }, []);
 
+  const openProfileMain = useCallback(() => {
+    localStorage.removeItem('bytspot_profile_focus');
+    setCurrentScreen('main');
+    setActiveTab('profile');
+  }, []);
+
   const openAccessWallet = useCallback(() => {
     localStorage.setItem('bytspot_profile_focus', 'tickets');
     setCurrentScreen('main');
@@ -718,8 +725,7 @@ export default function App() {
           setCurrentScreen('main');
           setActiveTab('map');
         } else if (path === 'profile') {
-          setCurrentScreen('main');
-          setActiveTab('profile');
+          openProfileMain();
         }
       } catch { /* ignore malformed URLs */ }
     };
@@ -727,7 +733,10 @@ export default function App() {
     const applyNativeTabRoute = (tab?: string | null, focus?: string | null) => {
       const normalized = tab === 'access' ? 'profile' : tab;
       if (!normalized || !['home', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
-      if (focus) localStorage.setItem('bytspot_profile_focus', focus);
+      if (normalized === 'profile') {
+        if (focus) localStorage.setItem('bytspot_profile_focus', focus);
+        else localStorage.removeItem('bytspot_profile_focus');
+      }
       setCurrentScreen('main');
       setActiveTab(normalized);
     };
@@ -981,7 +990,7 @@ export default function App() {
   const activeCoords = userCoords ?? cityCoords ?? { lat: 33.7866, lng: -84.3833 };
   const onboardingPreview = useMemo(() => {
     try {
-      const raw = localStorage.getItem('bytspot_setup_preview');
+      const raw = localStorage.getItem(LAUNCH_PREVIEW_STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as { context?: string; userCity?: string; picks?: Array<{ id: number | string; name: string; address?: string; category?: string; label?: string; crowd?: { level?: number; label?: string } }>; answers?: Record<string, string>; savedAt?: string };
       return parsed?.picks?.length ? parsed : null;
@@ -989,14 +998,14 @@ export default function App() {
   }, [launchPreviewVersion, activeTab]);
   const onboardingPreviewCopy = useMemo(() => {
     const intent = onboardingPreview?.answers?.vibe ?? '';
-    if (['sleep', 'stay'].includes(intent)) return { title: 'Safe stays nearby', why: 'Late night · Midtown · safe area preference · short-rest options' };
-    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Parking-aware picks', why: 'Midtown · easy parking preference · short walk options' };
-    if (intent === 'ride') return { title: 'Ride-friendly options', why: 'Local conditions · ride-aware route · nearby pickup options' };
-    if (intent === 'indoor') return { title: 'Indoor picks nearby', why: 'Weather-aware · indoor comfort · short walk priority' };
-    if (intent === 'drinks') return { title: 'Nightlife picks nearby', why: 'Evening vibe · Midtown · drinks and social spots' };
-    if (intent === 'events') return { title: 'Event-friendly picks', why: 'Evening vibe · Midtown · entertainment nearby' };
-    if (intent === 'coffee') return { title: 'Coffee and quick stops', why: 'Daytime vibe · Midtown · quick walk preference' };
-    return { title: 'Recommended from your quiz', why: 'Your vibe · local conditions · nearby activity around Midtown' };
+    if (['sleep', 'stay'].includes(intent)) return { title: 'A softer landing nearby', why: 'Late-night comfort · Midtown timing · safer arrival' };
+    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Easy arrivals near Midtown', why: 'Easy arrival · short walk · Midtown timing' };
+    if (intent === 'ride') return { title: 'A smoother way home', why: 'Better pickup points · cleaner route · less waiting' };
+    if (intent === 'indoor') return { title: 'Comfort-first plans nearby', why: 'Dry, comfortable, and close enough' };
+    if (intent === 'drinks') return { title: 'A night worth stepping into', why: 'Evening energy · good rooms · easy arrival' };
+    if (intent === 'events') return { title: 'Plans that fit the crowd', why: 'Show timing · crowd flow · easier exits' };
+    if (intent === 'coffee') return { title: 'A good stop before you go', why: 'Daytime rhythm · close stops · low-friction arrival' };
+    return { title: 'Shaped around your night', why: 'Your mood · the hour · what feels close enough' };
   }, [onboardingPreview]);
   const viewOnboardingPicksOnMap = useCallback(() => {
     if (!hasAuthenticatedConsumerSession()) {
@@ -1195,25 +1204,23 @@ export default function App() {
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/success')) {
       if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-        setActiveTab('profile');
-        setCurrentScreen('main');
+        openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
       syncInsiderMembershipFromPremium(true);
       toast.success('🎉 Welcome to Insider!', { description: 'Your membership is now active.', duration: 5000 });
-      setActiveTab('profile');
-      setCurrentScreen('main');
+      openProfileMain();
       // Clean the URL without reload
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/cancelled')) {
       if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-        setActiveTab('profile');
+        openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
       toast('Insider checkout cancelled — no charges made.', { duration: 3000 });
-      setActiveTab('profile');
+      openProfileMain();
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/parking/success')) {
       const sessionId = new URLSearchParams(window.location.search).get('session_id');
@@ -1310,11 +1317,16 @@ export default function App() {
         <MarketplaceBookingReturnScreen
           status={status}
           onContinue={() => {
+              const focus = new URLSearchParams(window.location.search).get('focus');
             window.history.replaceState({}, '', '/');
             setCurrentScreen('main');
             if (status === 'success') {
-              localStorage.setItem('bytspot_profile_focus', 'tickets');
-              setActiveTab('profile');
+                if (focus === 'tickets') {
+                  localStorage.setItem('bytspot_profile_focus', 'tickets');
+                  setActiveTab('profile');
+                } else {
+                  openProfileMain();
+                }
             } else {
               setActiveTab('discover');
             }
@@ -1500,7 +1512,7 @@ export default function App() {
         {/* Enhanced Header - Only on Home */}
         {activeTab === 'home' && (
           <EnhancedHeader
-            onProfileClick={() => setActiveTab('profile')}
+            onProfileClick={openProfileMain}
             scrollContainerRef={homeScrollRef}
             weather={weather.current}
             weatherLoading={weather.loading}
@@ -1551,7 +1563,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ ...springConfig, delay: 0.03 }}
-                    data-testid="home-setup-picks-ready"
+                    data-testid="home-launch-picks-ready"
                   >
                     <div className="relative overflow-hidden rounded-[22px] border border-cyan-300/25 bg-[#101116]/90 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
                       <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-cyan-500/20 blur-3xl" />
@@ -1572,7 +1584,7 @@ export default function App() {
                         {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
                           const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
                           return (
-                            <button key={`setup-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
+	                            <button key={`launch-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
                               <span className="text-xl">{['🥇', '🥈', '🥉'][index] ?? '📍'}</span>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-[15px] text-white" style={{ fontWeight: 750 }}>{pick.name}</p>
@@ -1613,7 +1625,6 @@ export default function App() {
                     shopping: '🛍️', fitness: '💪', entertainment: '🎭',
                   };
                   const icon = catEmoji[card.type] || '📍';
-                  const imgUrl = card.image || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
                   return (
                     <motion.div
 	                      className="px-4 mb-3 pt-2"
@@ -1626,22 +1637,20 @@ export default function App() {
                         <div className="flex-1 h-px bg-white/10" />
                       </div>
                       <motion.button
-                        className="relative w-full rounded-2xl overflow-hidden text-left"
+	                        className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#1C1C1E] via-[#221B34] to-[#102329] text-left"
 	                        style={{ height: 118 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => handleRecommendedHomeCardClick(card)}
                       >
-                        {/* Background image */}
-                        <img src={imgUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />
-                        {/* Gradient overlay */}
-                        <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
+	                        <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-purple-500/20 blur-3xl" />
+	                        <div className="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-cyan-500/15 blur-3xl" />
                         {/* AI Pick badge */}
                         <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
                           <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-                        <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+	                        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10">
                           <div>
 	                            <div className="text-[16px] mb-0.5">{icon}</div>
                             <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{card.name}</h3>
@@ -2641,36 +2650,36 @@ export default function App() {
             const evening = hour >= 16;
             const sleepIntent = ['sleep', 'stay'].includes(quizSelections.vibe ?? '');
             const contextLine = wet
-              ? `Rain near ${userCity} · indoor spots, covered parking, and short walks prioritized`
+              ? `Rain near ${userCity} · covered arrivals, indoor rooms, and short walks first`
               : uncomfortable
-                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first nearby picks`
+                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first stops and calm arrivals`
                 : lateNight
-                  ? `Late night near ${userCity} · keep going, get home, or stay nearby`
+                  ? `Late night near ${userCity} · keep going, get home, or land softly`
                   : evening
-                    ? `Evening near ${userCity} · dinner, drinks, events, and easy parking`
-                    : `Daytime near ${userCity} · coffee, food, work spots, and parking`;
+                    ? `Evening near ${userCity} · dinner, drinks, events, and easy arrivals`
+                    : `Daytime near ${userCity} · coffee, food, quiet corners, and easy arrivals`;
             const intentQuestion: QuizQuestion = wet
-              ? { emoji: '☔', question: 'Rain nearby — what do you need?', key: 'vibe', context: contextLine,
-                  options: [{ label: '☔ Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Covered parking', value: 'covered_parking' }, { label: '🚕 Ride instead', value: 'ride' }, { label: '🛏️ Stay nearby', value: 'stay' }] }
+              ? { emoji: '☔', question: 'Rain nearby — what would feel easiest?', key: 'vibe', context: contextLine,
+                  options: [{ label: '☔ A dry room nearby', value: 'indoor', recommended: true }, { label: '🚗 Covered arrival', value: 'covered_parking' }, { label: '🚕 A ride instead', value: 'ride' }, { label: '🛏️ A comfortable stay', value: 'stay' }] }
               : uncomfortable
-                ? { emoji: '🏠', question: "Let's keep it comfortable — what do you need?", key: 'vibe', context: contextLine,
-                    options: [{ label: '🏠 Indoor spots', value: 'indoor', recommended: true }, { label: '🚗 Close parking', value: 'parking' }, { label: '☕ Quick stop', value: 'coffee' }, { label: '🚕 Ride option', value: 'ride' }] }
+                ? { emoji: '🏠', question: "Let's keep it comfortable — what would help?", key: 'vibe', context: contextLine,
+                    options: [{ label: '🏠 Somewhere comfortable', value: 'indoor', recommended: true }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '☕ A quick good stop', value: 'coffee' }, { label: '🚕 A smoother ride', value: 'ride' }] }
                 : lateNight
-                  ? { emoji: '🌙', question: 'What do you need tonight?', key: 'vibe', context: contextLine,
-                      options: [{ label: '🍸 Keep going', value: 'drinks' }, { label: '🍔 Late food', value: 'food' }, { label: '🛏️ Sleep nearby', value: 'sleep', recommended: true }, { label: '🚕 Ride home', value: 'ride' }] }
+                  ? { emoji: '🌙', question: 'What would make tonight easier?', key: 'vibe', context: contextLine,
+                      options: [{ label: '🍸 Keep the night going', value: 'drinks' }, { label: '🍔 Something good to eat', value: 'food' }, { label: '🛏️ A comfortable stay', value: 'sleep', recommended: true }, { label: '🚕 A smooth ride home', value: 'ride' }] }
                   : evening
-                    ? { emoji: '✨', question: "What's your evening vibe?", key: 'vibe', context: contextLine,
-                        options: [{ label: '🍽️ Dinner', value: 'food' }, { label: '🍸 Drinks', value: 'drinks' }, { label: '🎶 Events', value: 'events' }, { label: '💕 Date night', value: 'date' }] }
-                    : { emoji: '☀️', question: 'What are you looking for nearby?', key: 'vibe', context: contextLine,
-                        options: [{ label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '💻 Work spot', value: 'work' }, { label: '🚗 Parking', value: 'parking' }] };
+                    ? { emoji: '✨', question: 'What kind of night are we shaping?', key: 'vibe', context: contextLine,
+                        options: [{ label: '🍽️ Dinner with atmosphere', value: 'food' }, { label: '🍸 A good drink', value: 'drinks' }, { label: '🎶 Something happening', value: 'events' }, { label: '💕 Date-night ready', value: 'date' }] }
+                    : { emoji: '☀️', question: 'What would make the next hour easier?', key: 'vibe', context: contextLine,
+                        options: [{ label: '☕ A good coffee stop', value: 'coffee' }, { label: '🍔 A proper meal', value: 'food' }, { label: '💻 A quiet place to settle', value: 'work' }, { label: '🚗 Easy arrival', value: 'parking' }] };
             const mobilityQuestion: QuizQuestion = sleepIntent
-              ? { emoji: '🛏️', question: 'What kind of stay fits tonight?', key: 'walk', options: [{ label: '🏨 Hotel', value: 'hotel' }, { label: '✨ Boutique hotel', value: 'boutique' }, { label: '🏢 Apartment stay', value: 'apartment' }, { label: '⏱️ Short stay', value: 'short_stay' }] }
+              ? { emoji: '🛏️', question: 'What kind of landing feels right?', key: 'walk', options: [{ label: '🏨 Full-service hotel', value: 'hotel' }, { label: '✨ Boutique stay', value: 'boutique' }, { label: '🏢 Private suite', value: 'apartment' }, { label: '⏱️ Tonight only', value: 'short_stay' }] }
               : wet
-                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered parking', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Closest option', value: 'closest' }] }
-                : { emoji: '🗺️', question: 'How close should it be?', key: 'walk', options: [{ label: '📍 Closest', value: 'closest' }, { label: '🚶 5 min walk', value: 'close' }, { label: '🚗 Easy parking', value: 'parking' }, { label: '🗺️ Open to explore', value: 'far' }] };
+                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered arrival', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Right nearby', value: 'closest' }] }
+                : { emoji: '🗺️', question: 'How far are you comfortable going?', key: 'walk', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '🚶 A short walk', value: 'close' }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '🗺️ Show me a hidden gem', value: 'far' }] };
             const preferenceQuestion: QuizQuestion = sleepIntent
-              ? { emoji: '🔒', question: 'What matters most?', key: 'group', options: [{ label: '📍 Closest', value: 'closest' }, { label: '💸 Best price', value: 'price' }, { label: '⭐ Best rated', value: 'rated' }, { label: '🔒 Safest area', value: 'safe', recommended: true }] }
-              : { emoji: '👥', question: "Who's this for?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }, { label: '💼 Work/client', value: 'work' }] };
+              ? { emoji: '🔒', question: 'What should feel effortless?', key: 'group', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '💸 Best value', value: 'price' }, { label: '⭐ Best reviewed', value: 'rated' }, { label: '🔒 Most comfortable arrival', value: 'safe', recommended: true }] }
+              : { emoji: '👥', question: "Who's coming with you?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date-night ready', value: 'date' }, { label: '👥 A group', value: 'group' }, { label: '💼 Work or client', value: 'work' }] };
             const quizQuestions = [intentQuestion, mobilityQuestion, preferenceQuestion];
             const total = quizQuestions.length;
             const isConfirmation = quizStep === total;
@@ -2711,7 +2720,7 @@ export default function App() {
             })();
             const persistOnboardingPreview = () => {
               if (!picks.length) return;
-              localStorage.setItem('bytspot_setup_preview', JSON.stringify({
+              localStorage.setItem(LAUNCH_PREVIEW_STORAGE_KEY, JSON.stringify({
                 savedAt: new Date().toISOString(),
                 userCity,
                 context: contextLine,

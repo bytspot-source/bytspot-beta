@@ -59,6 +59,140 @@ interface VibeSettings {
 
 type ViewMode = 'main' | 'personality-quiz';
 
+const SliderControl = ({
+  value,
+  onChange,
+  leftLabel,
+  rightLabel,
+  leftIcon,
+  rightIcon
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  leftLabel: string;
+  rightLabel: string;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
+}) => (
+  <div className="space-y-3">
+    <div className="flex items-center justify-between text-[13px]">
+      <div className="flex items-center gap-2">
+        {leftIcon}
+        <span className="text-white/80" style={{ fontWeight: 500 }}>
+          {leftLabel}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-white/80" style={{ fontWeight: 500 }}>
+          {rightLabel}
+        </span>
+        {rightIcon}
+      </div>
+    </div>
+
+    <div className="relative">
+      <input
+        type="range"
+        min="1"
+        max="10"
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="w-full h-2 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gradient-to-br [&::-webkit-slider-thumb]:from-purple-500 [&::-webkit-slider-thumb]:to-pink-500 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/30"
+      />
+      <div className="flex justify-between mt-1 px-1">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+          <div
+            key={num}
+            className={`w-1 h-1 rounded-full transition-colors ${
+              num <= value ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-white/20'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+
+    <div className="text-center">
+      <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
+        {value}/10
+      </span>
+    </div>
+  </div>
+);
+
+const DualRangeSlider = ({
+  min,
+  max,
+  step,
+  values,
+  onChange,
+  formatLabel,
+}: {
+  min: number;
+  max: number;
+  step: number;
+  values: [number, number];
+  onChange: (values: [number, number]) => void;
+  formatLabel: (val: number) => string;
+}) => {
+  const [minVal, maxVal] = values;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-[15px]">
+        <span className="text-white" style={{ fontWeight: 600 }}>
+          {formatLabel(minVal)}
+        </span>
+        <span className="text-white/60">to</span>
+        <span className="text-white" style={{ fontWeight: 600 }}>
+          {formatLabel(maxVal)}
+        </span>
+      </div>
+
+      <div className="relative h-12 flex items-center">
+        <div className="absolute w-full h-2 bg-white/20 rounded-full" />
+
+        <div
+          className="absolute h-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
+          style={{
+            left: `${((minVal - min) / (max - min)) * 100}%`,
+            right: `${100 - ((maxVal - min) / (max - min)) * 100}%`,
+          }}
+        />
+
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={minVal}
+          onChange={(e) => {
+            const newMin = parseFloat(e.target.value);
+            if (newMin < maxVal) {
+              onChange([newMin, maxVal]);
+            }
+          }}
+          className="absolute w-full appearance-none bg-transparent pointer-events-auto cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-500 [&::-webkit-slider-thumb]:pointer-events-auto"
+        />
+
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={maxVal}
+          onChange={(e) => {
+            const newMax = parseFloat(e.target.value);
+            if (newMax > minVal) {
+              onChange([minVal, newMax]);
+            }
+          }}
+          className="absolute w-full appearance-none bg-transparent pointer-events-auto cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-pink-500 [&::-webkit-slider-thumb]:pointer-events-auto"
+        />
+      </div>
+    </div>
+  );
+};
+
 export function VibePreferences({ isDarkMode, onBack }: VibePreferencesProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [quizStep, setQuizStep] = useState(0);
@@ -200,140 +334,6 @@ export function VibePreferences({ isDarkMode, onBack }: VibePreferencesProps) {
       description: `Your ${vibeProfile.label} profile is ready!`,
     });
     setTimeout(() => onBack(), 1000);
-  };
-
-  const SliderControl = ({ 
-    value, 
-    onChange, 
-    leftLabel, 
-    rightLabel,
-    leftIcon,
-    rightIcon 
-  }: { 
-    value: number; 
-    onChange: (val: number) => void;
-    leftLabel: string;
-    rightLabel: string;
-    leftIcon?: React.ReactNode;
-    rightIcon?: React.ReactNode;
-  }) => (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between text-[13px]">
-        <div className="flex items-center gap-2">
-          {leftIcon}
-          <span className="text-white/80" style={{ fontWeight: 500 }}>
-            {leftLabel}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-white/80" style={{ fontWeight: 500 }}>
-            {rightLabel}
-          </span>
-          {rightIcon}
-        </div>
-      </div>
-      
-      <div className="relative">
-        <input
-          type="range"
-          min="1"
-          max="10"
-          value={value}
-          onChange={(e) => onChange(parseInt(e.target.value))}
-          className="w-full h-2 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gradient-to-br [&::-webkit-slider-thumb]:from-purple-500 [&::-webkit-slider-thumb]:to-pink-500 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/30"
-        />
-        <div className="flex justify-between mt-1 px-1">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-            <div 
-              key={num} 
-              className={`w-1 h-1 rounded-full transition-colors ${
-                num <= value ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-white/20'
-              }`}
-            />
-          ))}
-        </div>
-      </div>
-      
-      <div className="text-center">
-        <span className="text-[17px] text-white" style={{ fontWeight: 700 }}>
-          {value}/10
-        </span>
-      </div>
-    </div>
-  );
-
-  const DualRangeSlider = ({
-    min,
-    max,
-    step,
-    values,
-    onChange,
-    formatLabel,
-  }: {
-    min: number;
-    max: number;
-    step: number;
-    values: [number, number];
-    onChange: (values: [number, number]) => void;
-    formatLabel: (val: number) => string;
-  }) => {
-    const [minVal, maxVal] = values;
-    
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between text-[15px]">
-          <span className="text-white" style={{ fontWeight: 600 }}>
-            {formatLabel(minVal)}
-          </span>
-          <span className="text-white/60">to</span>
-          <span className="text-white" style={{ fontWeight: 600 }}>
-            {formatLabel(maxVal)}
-          </span>
-        </div>
-        
-        <div className="relative h-12 flex items-center">
-          <div className="absolute w-full h-2 bg-white/20 rounded-full" />
-          
-          <div 
-            className="absolute h-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
-            style={{
-              left: `${((minVal - min) / (max - min)) * 100}%`,
-              right: `${100 - ((maxVal - min) / (max - min)) * 100}%`,
-            }}
-          />
-          
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={minVal}
-            onChange={(e) => {
-              const newMin = parseFloat(e.target.value);
-              if (newMin < maxVal) {
-                onChange([newMin, maxVal]);
-              }
-            }}
-            className="absolute w-full appearance-none bg-transparent pointer-events-auto cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-500 [&::-webkit-slider-thumb]:pointer-events-auto"
-          />
-          
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={maxVal}
-            onChange={(e) => {
-              const newMax = parseFloat(e.target.value);
-              if (newMax > minVal) {
-                onChange([minVal, newMax]);
-              }
-            }}
-            className="absolute w-full appearance-none bg-transparent pointer-events-auto cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-pink-500 [&::-webkit-slider-thumb]:pointer-events-auto"
-          />
-        </div>
-      </div>
-    );
   };
 
   // Personality Quiz View

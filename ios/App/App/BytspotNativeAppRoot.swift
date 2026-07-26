@@ -235,17 +235,18 @@ enum NativeAuthLaunchContract {
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
-    static let landingSubtitle = "Live crowd levels, parking & ride ETAs for Atlanta Midtown — all in one place."
-    static let landingFeatures = ["Live crowd levels at Midtown venues", "Smart parking with live spot availability", "Ride ETAs & valet options nearby"]
-    static let vibeQuestion = "What's your evening vibe?"
-    static let vibeOptions = ["🍽️ Dinner", "🍸 Drinks", "🎶 Events", "💕 Date night"]
-    static let walkQuestion = "How close should it be?"
-    static let walkOptions = ["📍 Closest", "🚶 5 min walk", "🚗 Easy parking", "🗺️ Open to explore"]
-    static let crewQuestion = "Who's this for?"
-    static let crewOptions = ["🙋 Just me", "💕 Date night", "👥 Group", "💼 Work/client"]
+    static let landingSubtitle = "Live crowds, easy arrivals, and ride timing for Atlanta Midtown — all in one place."
+    static let landingFeatures = ["Live crowd levels at Midtown venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
+    static let vibeQuestion = "What kind of night are we shaping?"
+    static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
+    static let walkQuestion = "How far are you comfortable going?"
+    static let walkOptions = ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"]
+    static let crewQuestion = "Who's coming with you?"
+    static let crewOptions = ["🙋 Just me", "💕 Date-night ready", "👥 A group", "💼 Work or client"]
     static let atlantaHeadline = "Recommended for you"
     static let atlantaSubtitle = "Based on your vibe, location, and local conditions"
-    static let atlantaPicks = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
+    static let atlantaPicks = ["Midtown Smart Parking", "Colony Square", "Arts Center Access"]
+    static let legacyAtlantaPickNames = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
     static let authRoutes = NativeAuthRouteContract.routes
     static let authModes = ["signup", "login"]
     static let signupPasswordMinimum = 8
@@ -297,31 +298,32 @@ enum NativeLaunchPersonalizationStorage {
 
     static func token(for option: String) -> String {
         let normalized = option.lowercased()
-        if normalized.contains("drinks") { return "drinks" }
+        if normalized.contains("drinks") || normalized.contains("good drink") || normalized.contains("keep the night going") { return "drinks" }
         if normalized.contains("coffee") { return "coffee" }
         if normalized.contains("dinner") { return "food" }
-        if normalized.contains("food") { return "food" }
+        if normalized.contains("food") || normalized.contains("proper meal") || normalized.contains("good to eat") { return "food" }
         if normalized.contains("fitness") { return "fitness" }
         if normalized.contains("work") { return "work" }
-        if normalized.contains("event") { return "events" }
-        if normalized.contains("parking") { return normalized.contains("covered") ? "covered_parking" : "parking" }
+        if normalized.contains("event") || normalized.contains("happening") { return "events" }
+        if normalized.contains("parking") || normalized.contains("arrival") { return normalized.contains("covered") ? "covered_parking" : "parking" }
         if normalized.contains("keep going") { return "drinks" }
         if normalized.contains("sleep") { return "sleep" }
-        if normalized.contains("stay nearby") { return "stay" }
+        if normalized.contains("stay nearby") || normalized.contains("comfortable stay") { return "sleep" }
         if normalized.contains("ride") { return "ride" }
         if normalized.contains("5 min") || normalized.contains("short walk") { return "close" }
         if normalized.contains("10 min") { return "medium" }
-        if normalized.contains("open to explore") { return "far" }
-        if normalized.contains("closest") { return "closest" }
-        if normalized.contains("hotel") { return normalized.contains("boutique") ? "boutique" : "hotel" }
-        if normalized.contains("apartment") { return "apartment" }
-        if normalized.contains("short stay") { return "short_stay" }
+        if normalized.contains("open to explore") || normalized.contains("hidden gem") { return "far" }
+        if normalized.contains("closest") || normalized.contains("right nearby") { return "closest" }
+        if normalized.contains("boutique") { return "boutique" }
+        if normalized.contains("hotel") { return "hotel" }
+        if normalized.contains("apartment") || normalized.contains("private suite") { return "apartment" }
+        if normalized.contains("short stay") || normalized.contains("tonight only") { return "short_stay" }
         if normalized.contains("just me") || normalized.contains("solo") { return "solo" }
         if normalized.contains("date") { return "date_night" }
         if normalized.contains("group") { return "group" }
-        if normalized.contains("price") { return "price" }
-        if normalized.contains("rated") { return "rated" }
-        if normalized.contains("safest") { return "safe" }
+        if normalized.contains("price") || normalized.contains("value") { return "price" }
+        if normalized.contains("rated") || normalized.contains("reviewed") { return "rated" }
+        if normalized.contains("safest") || normalized.contains("comfortable arrival") { return "safe" }
         return normalized.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
     }
 }
@@ -484,6 +486,8 @@ private struct NativeLaunchFlowView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var selectedCrew = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var completedPersonalization = false
     @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
+    @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @State private var stage = NativeAuthLaunchContract.requestedLaunchStage ?? .splash
     @State private var didScheduleAutorun = false
 
@@ -501,7 +505,7 @@ private struct NativeLaunchFlowView: View {
             case .crew:
                 NativePersonalizationScreen(step: .crew, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
             case .atlanta:
-                NativeAtlantaPicksScreen(onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
+                NativeAtlantaPicksScreen(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
             case .auth:
                 NativeAuthenticationScreen(mode: NativeAuthLaunchContract.requestedAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: onComplete, onBack: { advance(to: .landing) })
             }
@@ -785,9 +789,9 @@ private enum NativeLaunchQuizContext {
 
     var line: String {
         switch self {
-        case .day: return "Daytime near Midtown · coffee, food, work spots, and parking"
-        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy parking"
-        case .lateNight: return "Late night near Midtown · keep going, get home, or stay nearby"
+        case .day: return "Daytime near Midtown · coffee, food, quiet corners, and easy arrivals"
+        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy arrivals"
+        case .lateNight: return "Late night near Midtown · keep going, get home, or land softly"
         }
     }
 }
@@ -805,11 +809,11 @@ private enum NativePersonalizationStep: Equatable {
     func question(context: NativeLaunchQuizContext, selectedIntent: String) -> String {
         switch self {
         case .vibe:
-            return context == .lateNight ? "What do you need tonight?" : context == .day ? "What are you looking for nearby?" : NativeAuthLaunchContract.vibeQuestion
+            return context == .lateNight ? "What would make tonight easier?" : context == .day ? "What would make the next hour easier?" : NativeAuthLaunchContract.vibeQuestion
         case .walk:
-            return Self.isSleepIntent(selectedIntent) ? "What kind of stay fits tonight?" : NativeAuthLaunchContract.walkQuestion
+            return Self.isSleepIntent(selectedIntent) ? "What kind of landing feels right?" : NativeAuthLaunchContract.walkQuestion
         case .crew:
-            return Self.isSleepIntent(selectedIntent) ? "What matters most?" : NativeAuthLaunchContract.crewQuestion
+            return Self.isSleepIntent(selectedIntent) ? "What should feel effortless?" : NativeAuthLaunchContract.crewQuestion
         }
     }
 
@@ -819,14 +823,14 @@ private enum NativePersonalizationStep: Equatable {
         switch self {
         case .vibe:
             switch context {
-            case .day: return ["☕ Coffee", "🍔 Food", "💻 Work spot", "🚗 Parking"]
+            case .day: return ["☕ A good coffee stop", "🍔 A proper meal", "💻 A quiet place to settle", "🚗 Easy arrival"]
             case .evening: return NativeAuthLaunchContract.vibeOptions
-            case .lateNight: return ["🍸 Keep going", "🍔 Late food", "🛏️ Sleep nearby", "🚕 Ride home"]
+            case .lateNight: return ["🍸 Keep the night going", "🍔 Something good to eat", "🛏️ A comfortable stay", "🚕 A smooth ride home"]
             }
         case .walk:
-            return Self.isSleepIntent(selectedIntent) ? ["🏨 Hotel", "✨ Boutique hotel", "🏢 Apartment stay", "⏱️ Short stay"] : NativeAuthLaunchContract.walkOptions
+            return Self.isSleepIntent(selectedIntent) ? ["🏨 Full-service hotel", "✨ Boutique stay", "🏢 Private suite", "⏱️ Tonight only"] : NativeAuthLaunchContract.walkOptions
         case .crew:
-            return Self.isSleepIntent(selectedIntent) ? ["📍 Closest", "💸 Best price", "⭐ Best rated", "🔒 Safest area"] : NativeAuthLaunchContract.crewOptions
+            return Self.isSleepIntent(selectedIntent) ? ["📍 Right nearby", "💸 Best value", "⭐ Best reviewed", "🔒 Most comfortable arrival"] : NativeAuthLaunchContract.crewOptions
         }
     }
 
@@ -899,14 +903,17 @@ private struct NativePersonalizationProgress: View {
 }
 
 private struct NativeAtlantaPicksScreen: View {
+    let snapshot: NativeTabContentSnapshot
+    let location: NativeLocationCoordinate
     let onContinue: () -> Void
     let onSignIn: () -> Void
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var selectedVibe = ""
-    private let picks = [
-        ("🥇", "Ladybird Grove & Mess Hall", "684 John Wesley Dobbs Ave NE", "Chill", NativeLaunchTheme.cyan),
-        ("🥈", "Livingston", "659 Peachtree St NE", "Chill", NativeLaunchTheme.cyan),
-        ("🥉", "Lyla Lila", "972 Brady Ave NW", "Active", NativeLaunchTheme.emerald)
-    ]
+    @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var selectedWalk = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var selectedCrew = ""
+
+    private var picks: [NativeAtlantaPick] {
+        Self.rankedPicks(snapshot: snapshot, location: location, intent: selectedVibe, walk: selectedWalk, crew: selectedCrew)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -920,7 +927,7 @@ private struct NativeAtlantaPicksScreen: View {
                     VStack(spacing: sizing.compactHeight ? 13 : 16) {
                 HStack { NativePersonalizationProgress(step: 3, total: 3, color: theme.primary).overlay(Image(systemName: "checkmark").font(.system(size: 18, weight: .black)).foregroundColor(theme.primary)); Spacer() }
                 VStack(spacing: 8) { Text("🗺️").font(.system(size: sizing.compactHeight ? 28 : 34)).accessibilityHidden(true); Text(NativeAuthLaunchContract.atlantaHeadline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(NativeAuthLaunchContract.atlantaSubtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.50)).multilineTextAlignment(.center) }
-                VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.offset) { _, pick in NativeAtlantaPickRow(medal: pick.0, title: pick.1, address: pick.2, label: pick.3, color: pick.4) } }
+                VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in NativeAtlantaPickRow(medal: ["🥇", "🥈", "🥉"][index], title: pick.title, address: pick.subtitle, label: pick.label, color: pick.color) } }
                 Text("You can explore now. Sign in anytime to save favorites and sync your picks.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
                 Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Explore These Spots", color: theme.ctaGradient, foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
                 Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save these picks").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
@@ -938,6 +945,74 @@ private struct NativeAtlantaPicksScreen: View {
                 .accessibilityIdentifier("native-launch-atlanta-picks")
             }
         }
+    }
+
+    static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeAtlantaPick] {
+        let sourceVenues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
+        let venues = sourceVenues.filter { !NativeAuthLaunchContract.legacyAtlantaPickNames.contains($0.name) }
+        let candidates = venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues
+        return candidates.sorted { first, second in
+            let firstScore = score(first, location: location, intent: intent, walk: walk, crew: crew)
+            let secondScore = score(second, location: location, intent: intent, walk: walk, crew: crew)
+            if firstScore != secondScore { return firstScore > secondScore }
+            let firstDistance = location.distanceMiles(toLatitude: first.latitude, longitude: first.longitude) ?? .greatestFiniteMagnitude
+            let secondDistance = location.distanceMiles(toLatitude: second.latitude, longitude: second.longitude) ?? .greatestFiniteMagnitude
+            return firstDistance == secondDistance ? first.name < second.name : firstDistance < secondDistance
+        }.prefix(limit).map { NativeAtlantaPick(venue: $0, location: location) }
+    }
+
+    private static func score(_ venue: NativeVenueSummary, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) -> Double {
+        let type = venue.discoverType
+        let preferred = preferredTypes(intent: intent, crew: crew)
+        let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude) ?? 8
+        var value = 100.0 - min(miles * 8, 48)
+        if preferred.first == type { value += 64 } else if preferred.contains(type) { value += 36 }
+        if venue.verifiedPatchId != nil { value += 14 }
+        if isParkingIntent(intent) && (type == "parking" || venue.parking.totalAvailable > 0) { value += 28 + min(Double(venue.parking.totalAvailable) / 2, 18) }
+        if crew == "safe" && (venue.verifiedPatchId != nil || type == "parking") { value += 12 }
+        if let maxWalk = maxWalkMiles(walk), miles > maxWalk { value -= min((miles - maxWalk) * 18, 42) }
+        if let crowdLevel = venue.crowd?.level { value += Double(max(0, 4 - crowdLevel)) * 3 }
+        return value
+    }
+
+    private static func preferredTypes(intent: String, crew: String) -> [String] {
+        var types: [String]
+        switch intent {
+        case "parking", "covered_parking": types = ["parking"]
+        case "coffee", "work": types = ["coffee", "dining"]
+        case "events": types = ["entertainment", "nightlife"]
+        case "drinks": types = ["nightlife", "dining"]
+        case "food": types = ["dining", "coffee"]
+        case "ride": types = ["parking", "venue"]
+        default: types = ["dining", "coffee", "parking", "entertainment"]
+        }
+        if crew == "safe" { types.insert("parking", at: 0) }
+        if crew == "group" { types.append(contentsOf: ["nightlife", "entertainment"]) }
+        if crew == "date_night" { types.append(contentsOf: ["dining", "nightlife"]) }
+        return types.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+    }
+
+    private static func isParkingIntent(_ intent: String) -> Bool { intent == "parking" || intent == "covered_parking" }
+
+    private static func maxWalkMiles(_ walk: String) -> Double? {
+        switch walk {
+        case "close", "closest": return 1.0
+        case "medium": return 3.0
+        default: return nil
+        }
+    }
+}
+
+private struct NativeAtlantaPick: Identifiable {
+    let id: String; let title: String; let subtitle: String; let label: String; let color: Color
+
+    init(venue: NativeVenueSummary, location: NativeLocationCoordinate) {
+        let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
+        id = venue.id
+        title = venue.name
+        subtitle = [distance == "—" ? "Nearby" : distance, venue.address].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: " · ")
+        label = venue.crowd?.label ?? (venue.discoverType == "parking" ? "Parking" : "Nearby")
+        color = venue.discoverType == "parking" ? NativeLaunchTheme.emerald : (venue.crowd?.level ?? 2) <= 1 ? NativeLaunchTheme.cyan : NativeLaunchTheme.emerald
     }
 }
 
@@ -960,6 +1035,7 @@ struct NativeAuthenticationScreen: View {
     @State private var loading = false
     @State private var error = ""
     @State private var showRecovery = false
+    @State private var didCompleteAuth = false
     @State private var touchedFields = Set<NativeAuthField>()
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @FocusState private var focusedField: NativeAuthField?
@@ -1013,7 +1089,11 @@ struct NativeAuthenticationScreen: View {
         .onAppear { focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: currentMode) { _ in error = ""; touchedFields.removeAll(); focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: focusedField) { newValue in if let field = newValue { touchedFields.insert(field) } }
-        .onChange(of: authCoordinator.status) { status in if case .failed(let message) = status { error = message } else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) is not configured for native production on this build. Use email sign-in or try again after provider setup." } }
+        .onChange(of: authCoordinator.status) { status in
+            if case .signedIn = status { completeAuthIfReady() }
+            else if case .failed(let message) = status { error = message }
+            else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) is not configured for native production on this build. Use email sign-in or try again after provider setup." }
+        }
     }
 
     private var authModeToggle: some View { HStack(spacing: 4) { ForEach(NativeAuthMode.allCases, id: \.rawValue) { item in Button(action: { currentMode = item; error = "" }) { Text(item == .signup ? "Sign Up" : "Log In").font(.system(size: 15, weight: .black)).foregroundColor(currentMode == item ? .black : .white.opacity(0.62)).frame(maxWidth: .infinity).frame(height: 42).background(currentMode == item ? Color.white : Color.clear).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)) }.buttonStyle(.plain).accessibilityLabel(item == .signup ? "Sign Up" : "Log In").accessibilityValue(currentMode == item ? "Selected" : "Not selected") } }.padding(4).background(Color.white.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).accessibilityElement(children: .contain) }
@@ -1025,13 +1105,14 @@ struct NativeAuthenticationScreen: View {
     private var api: NativeAuthDataAPI { NativeAuthDataAPI(client: BytspotAPIClient()) }
     private func isAuthenticating(_ provider: NativeAuthProvider) -> Bool { if case .authenticating(let active) = authCoordinator.status { return active == provider }; return false }
     private func signIn(_ provider: NativeAuthProvider) { error = ""; nativeAuthImpactLight(); authCoordinator.handle(.signIn(provider), sessionStore: sessionStore) }
+    private func completeAuthIfReady() { guard !didCompleteAuth, sessionStore.isAuthenticated else { return }; didCompleteAuth = true; onComplete() }
     @ViewBuilder private func validationCopy(_ message: String) -> some View { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).accessibilityLabel(message) }
     private func advanceFocus(after field: NativeAuthField) { touchedFields.insert(field); switch field { case .name: focusedField = .invite; case .invite: focusedField = .email; case .email: focusedField = .password; case .password: submitEmailAuth() } }
     private func submitEmailAuth() {
         guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }
         error = ""; focusedField = nil; nativeAuthImpactLight()
         loading = true; let selectedMode = currentMode
-        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); onComplete() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
+        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); completeAuthIfReady() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
     }
     private var firstInvalidField: NativeAuthField { currentMode == .signup && !NativeAuthInputValidator.nameIsValid(name, mode: currentMode) ? .name : !emailValid ? .email : .password }
 }

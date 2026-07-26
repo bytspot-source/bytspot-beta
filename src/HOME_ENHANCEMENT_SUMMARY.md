@@ -105,20 +105,20 @@
 
 **Time-Based Greetings:**
 ```typescript
-6AM - 12PM   → "Good morning, [Name]"
-12PM - 5PM   → "Good afternoon, [Name]"
-5PM - 9PM    → "Good evening, [Name]"
-9PM - 6AM    → "Good night, [Name]"
+6AM - 12PM   → "Good morning, Alex" or "Morning in Midtown"
+12PM - 5PM   → "Good afternoon, Alex" or "Afternoon in Midtown"
+5PM - 9PM    → "Good evening, Alex" or "Evening in Midtown"
+9PM - 6AM    → "Late night, Alex" or "Still out?"
 ```
 
 **Context Taglines:**
-- Morning: "Start your day with the perfect parking spot"
-- Afternoon: "Find venues and activities around you"
-- Evening: "Discover nightlife and entertainment"
+- Morning: "Coffee, work spots, and easy arrivals nearby"
+- Afternoon: "Close stops, errands, and calm arrivals"
+- Evening: "Dinner, drinks, and easy arrivals nearby"
 
 **User Name:**
 - Retrieved from `localStorage` (`bytspot_user_name`)
-- Falls back to greeting without name if not set
+- Falls back to warm local context if not set
 
 ### 3. **Smart Search Bar**
 

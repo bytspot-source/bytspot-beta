@@ -153,12 +153,12 @@ fitness
 parking
 ```
 
-`boutique_apartment` is a premium lodging/stay category. The filter rail may use the shorter `Boutique Stay`, while cards/details should render the full label `Boutique Apartment` and use stay-first language such as:
+`boutique_apartment` is an internal lodging/stay category. The UI should render it as `Boutique stay` or `Private suite`, and cards/details should use stay-first language such as:
 
 ```text
 From $189/night
-Available tonight
-1 bed · Sleeps 2 · Kitchen
+Tonight-ready
+Private suite · Sleeps 2 · Kitchen
 View Stay →
 ```
 

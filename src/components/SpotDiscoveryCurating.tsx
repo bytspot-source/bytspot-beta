@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Sparkles, Zap, Target, TrendingUp, Check } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 
 interface SpotDiscoveryCuratingProps {
   isDarkMode: boolean;
@@ -11,7 +11,7 @@ type DiscoveryStage = {
   id: string;
   title: string;
   description: string;
-  icon: JSX.Element;
+  icon: ReactNode;
   progress: number;
   color: string;
 };

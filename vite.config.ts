@@ -74,40 +74,17 @@
         // Keep them external in the web bundle so browser builds degrade gracefully.
         external: ['@capacitor/haptics', '@capacitor/share', '@capawesome/capacitor-badge'],
         output: {
-          manualChunks: {
-            'framework-react': ['react', 'react-dom'],
-            'motion-kit': ['motion', 'motion/react'],
-            'ui-radix': [
-              '@radix-ui/react-accordion',
-              '@radix-ui/react-alert-dialog',
-              '@radix-ui/react-avatar',
-              '@radix-ui/react-checkbox',
-              '@radix-ui/react-collapsible',
-              '@radix-ui/react-context-menu',
-              '@radix-ui/react-dialog',
-              '@radix-ui/react-dropdown-menu',
-              '@radix-ui/react-hover-card',
-              '@radix-ui/react-label',
-              '@radix-ui/react-menubar',
-              '@radix-ui/react-navigation-menu',
-              '@radix-ui/react-popover',
-              '@radix-ui/react-progress',
-              '@radix-ui/react-radio-group',
-              '@radix-ui/react-scroll-area',
-              '@radix-ui/react-select',
-              '@radix-ui/react-separator',
-              '@radix-ui/react-slider',
-              '@radix-ui/react-slot',
-              '@radix-ui/react-switch',
-              '@radix-ui/react-tabs',
-              '@radix-ui/react-toggle',
-              '@radix-ui/react-toggle-group',
-              '@radix-ui/react-tooltip',
-            ],
-            'api-client': ['@trpc/client'],
-            'charts-kit': ['recharts', 'recharts@2.15.2'],
-            'maps-kit': ['@react-google-maps/api'],
-            'icon-kit': ['lucide-react', 'lucide-react@0.487.0'],
+          // Vite 8 (rolldown) requires manualChunks to be a function; the
+          // legacy object form is ignored. Match by resolved module id.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (/[\\/]node_modules[\\/](react|react-dom)[\\/]/.test(id)) return 'framework-react';
+            if (id.includes('node_modules/motion')) return 'motion-kit';
+            if (id.includes('node_modules/@radix-ui/')) return 'ui-radix';
+            if (id.includes('node_modules/@trpc/client')) return 'api-client';
+            if (id.includes('node_modules/recharts')) return 'charts-kit';
+            if (id.includes('node_modules/@react-google-maps/api')) return 'maps-kit';
+            if (id.includes('node_modules/lucide-react')) return 'icon-kit';
           },
         },
       },

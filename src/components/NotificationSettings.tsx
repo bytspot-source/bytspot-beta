@@ -37,6 +37,30 @@ const DEFAULT_PREFS: NotificationPreferences = {
   sms: { reservations: true, reminders: true, emergencies: true },
 };
 
+const springConfig = {
+  type: "spring" as const,
+  stiffness: 320,
+  damping: 30,
+  mass: 0.8,
+};
+
+const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
+  <motion.button
+    onClick={onToggle}
+    className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
+      enabled ? 'bg-green-500' : 'bg-white/20'
+    }`}
+    whileTap={{ scale: 0.95 }}
+    transition={springConfig}
+  >
+    <motion.div
+      className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
+      animate={{ x: enabled ? 20 : 0 }}
+      transition={springConfig}
+    />
+  </motion.button>
+);
+
 export function NotificationSettings({ isDarkMode, onBack }: NotificationSettingsProps) {
   const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(true);
@@ -79,13 +103,6 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
     }
   };
 
-  const springConfig = {
-    type: "spring" as const,
-    stiffness: 320,
-    damping: 30,
-    mass: 0.8,
-  };
-
   const togglePreference = (category: keyof NotificationPreferences, key: string) => {
     setPreferences({
       ...preferences,
@@ -108,23 +125,6 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
       setSaving(false);
     }
   };
-
-  const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
-    <motion.button
-      onClick={onToggle}
-      className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
-        enabled ? 'bg-green-500' : 'bg-white/20'
-      }`}
-      whileTap={{ scale: 0.95 }}
-      transition={springConfig}
-    >
-      <motion.div
-        className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
-        animate={{ x: enabled ? 20 : 0 }}
-        transition={springConfig}
-      />
-    </motion.button>
-  );
 
   return (
     <div className="h-full overflow-y-auto pb-24">

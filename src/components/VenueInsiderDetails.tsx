@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, MapPin, Star, Navigation, Clock, Users, Music, 
-  TrendingUp, Instagram, Sparkles, Info, Eye, Camera,
+  TrendingUp, AtSign, Sparkles, Info, Eye, Camera,
   Zap, Coffee, Wine, Utensils, ThumbsUp, MessageCircle,
   Share2, Heart, Phone, DollarSign, Shield, CheckCircle,
   Activity, Flame, TrendingDown, AlertCircle, Play, Image as ImageIcon,
@@ -526,7 +526,7 @@ export function VenueInsiderDetails({ venue, isOpen, onClose, isDarkMode }: Venu
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="p-3 rounded-[14px] bg-gradient-to-br from-pink-500/15 to-purple-500/15 border border-pink-400/30">
-                    <Instagram className="w-5 h-5 text-pink-400 mb-2" strokeWidth={2.5} />
+                    <AtSign className="w-5 h-5 text-pink-400 mb-2" strokeWidth={2.5} />
                     <div className="text-[20px] text-white mb-1" style={{ fontWeight: 700 }}>
                       {venue.socialBuzz.instagramMentions}
                     </div>

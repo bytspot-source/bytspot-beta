@@ -207,6 +207,7 @@ struct ClipGroupEventJoinView: View {
             ? (liveGuestCount == 1 ? "1 guest" : "\(liveGuestCount) guests")
             : invite.guestSummary
     }
+    private var privacyLabel: String { invite.privacyStatus == "publicDiscovery" ? "Public" : "Private Invite" }
 
     var body: some View {
         ZStack {
@@ -216,6 +217,7 @@ struct ClipGroupEventJoinView: View {
                     topControls
                     eventHeader
                     eventDetails
+                    rsvpPanel
                     guestList
                     photoAlbum
                     activityFeed
@@ -269,46 +271,37 @@ struct ClipGroupEventJoinView: View {
     }
 
     private var eventHeader: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 9) {
-                Label(invite.locationLabel, systemImage: "mappin.circle.fill")
-                    .font(.system(size: max(bodyFontSize, 18), weight: .heavy, design: .rounded))
-                    .foregroundColor(ink.opacity(0.72))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.78)
-                Text(invite.title)
-                    .font(.system(size: titleFontSize, weight: .black, design: .rounded))
-                    .foregroundColor(ink)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(eventBlurb)
-                    .font(.system(size: bodyFontSize, weight: .semibold, design: .rounded))
-                    .foregroundColor(ink.opacity(0.82))
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 8)], alignment: .leading, spacing: 8) {
-                glassChip("\(invite.timing.eyebrow)", icon: "clock.fill")
-                glassChip(invite.tier.displayName, icon: "sparkles")
-                glassChip(invite.groupType, icon: "lock.fill")
-                glassChip(guestCountLabel, icon: "person.2.fill")
-            }
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(colors: [accent.opacity(0.76), secondary.opacity(0.46), ClipTheme.panelElevated.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image(systemName: "person.3.sequence.fill").font(.system(size: 94, weight: .black)).foregroundColor(Color.black.opacity(0.18)).offset(x: 178, y: -20)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    glassChip("APP CLIP", icon: "bolt.fill")
+                    glassChip(privacyLabel, icon: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
+                }
+                Text(invite.title).font(.system(size: titleFontSize, weight: .black, design: .rounded)).foregroundColor(ink).lineLimit(2)
+                Text("\(invite.groupType) · \(invite.audienceCircle)").font(.system(size: bodyFontSize, weight: .heavy, design: .rounded)).foregroundColor(ink.opacity(0.80))
+                Text(invite.inviteNote ?? eventBlurb).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(ink.opacity(0.72)).lineLimit(2)
+            }.padding(18)
         }
-        .padding(.top, 14)
+        .frame(height: 258)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1))
+        .padding(.top, 8)
     }
 
     private var eventDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Event Details")
+            Text("Essentials")
                 .font(.system(size: 18, weight: .black, design: .rounded))
                 .foregroundColor(ink)
 
             VStack(alignment: .leading, spacing: 12) {
-                detailRow(eyebrow: "When", title: invite.scheduledDate)
-                detailRow(eyebrow: "Hosted by", title: invite.hostName)
-                detailRow(eyebrow: "Where", title: invite.locationLabel)
-                detailRow(eyebrow: "Vibe", title: invite.theme)
+                detailCard(eyebrow: "Date & time", title: invite.scheduledDate, icon: "calendar.badge.clock")
+                detailCard(eyebrow: "Hosted by", title: invite.hostName, icon: "person.crop.circle.badge.checkmark")
+                detailCard(eyebrow: invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
+                detailCard(eyebrow: "Circle", title: invite.audienceCircle, icon: "person.2.fill")
             }
 
             if !invite.activityHighlights.isEmpty {
@@ -329,6 +322,38 @@ struct ClipGroupEventJoinView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
+    }
+
+    private var rsvpPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                sectionMiniTitle("RSVP Options")
+                Spacer()
+                Text(invite.rsvpCutoff ?? "Open now").font(.system(size: 12, weight: .black, design: .rounded)).foregroundColor(mutedInk)
+            }
+            HStack(spacing: 10) { rsvpChoice("👍", "Going"); rsvpChoice("🤔", "Maybe"); rsvpChoice("😢", "Can't Go") }
+            Text("Contacts stay private unless you choose to match.").font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(mutedInk)
+        }
+        .padding(14)
+        .background(glassPanel(cornerRadius: 24, tint: accent.opacity(0.08)))
+    }
+
+    private func rsvpChoice(_ emoji: String, _ title: String) -> some View {
+        VStack(spacing: 6) { Text(emoji).font(.system(size: 28)); Text(title).font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.74)) }
+            .frame(maxWidth: .infinity).frame(height: 78).background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.05)))
+    }
+
+    private func detailCard(eyebrow: String, title: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(accent).frame(width: 34, height: 34).background(glassCircle(tint: accent.opacity(0.10)))
+            detailRow(eyebrow: eyebrow, title: title)
+        }
+        .padding(13)
+        .background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.04)))
+    }
+
+    private func sectionMiniTitle(_ title: String) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .black, design: .rounded)).foregroundColor(mutedInk).tracking(1.0)
     }
 
     private func followHostButton(handle: String) -> some View {
@@ -632,7 +657,7 @@ struct ClipGroupEventJoinView: View {
         let highlights = invite.activityHighlights.prefix(2).joined(separator: " · ")
         let groupDescriptor = invite.groupType.lowercased() == "private" ? "invite-only" : "private \(invite.groupType.lowercased())"
         if highlights.isEmpty {
-            return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). Tap in instantly, keep the group private, and continue in Bytspot."
+            return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). RSVP from the App Clip and keep contacts private."
         }
         return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). \(highlights)."
     }
@@ -739,7 +764,7 @@ struct ClipGroupEventJoinView: View {
         case .joined: return "You're in"
         case .pending: return "Request sent"
         case .declined: return "Not approved"
-        default: return "Join guest list"
+        default: return invite.requiresApproval ? "Request Access" : "Join guest list"
         }
     }
 

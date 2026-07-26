@@ -82,6 +82,11 @@ struct ClipGroupEventInvite: Equatable {
     let theme: String
     let guestSummary: String
     let activityHighlights: [String]
+    let audienceCircle: String
+    let privacyStatus: String
+    let rsvpCutoff: String?
+    let requiresApproval: Bool
+    let inviteNote: String?
     let videoURL: URL?
     let heroImageURL: URL?
     let thumbnailURL: URL?
@@ -107,6 +112,11 @@ struct ClipGroupEventInvite: Equatable {
             URLQueryItem(name: "theme", value: theme),
             URLQueryItem(name: "guestSummary", value: guestSummary),
             URLQueryItem(name: "activities", value: activityHighlights.joined(separator: ",")),
+            URLQueryItem(name: "circle", value: audienceCircle),
+            URLQueryItem(name: "visibility", value: privacyStatus),
+            URLQueryItem(name: "rsvpCutoff", value: rsvpCutoff),
+            URLQueryItem(name: "approval", value: requiresApproval ? "1" : "0"),
+            URLQueryItem(name: "note", value: inviteNote),
             URLQueryItem(name: "hero", value: heroImageURL?.absoluteString),
             URLQueryItem(name: "thumbnail", value: thumbnailURL?.absoluteString),
             URLQueryItem(name: "photos", value: photoURLs.map { $0.absoluteString }.joined(separator: ",")),
@@ -145,6 +155,11 @@ struct ClipGroupEventInvite: Equatable {
             theme: queryValue(in: queryItems, names: ["theme", "eventTheme"]) ?? fallback.theme,
             guestSummary: queryValue(in: queryItems, names: ["guestSummary", "guests"]) ?? fallback.guests,
             activityHighlights: queryArray(in: queryItems, names: ["activities", "activityHighlights", "highlights"]) ?? fallback.highlights,
+            audienceCircle: queryValue(in: queryItems, names: ["circle", "audienceCircle", "audience"]) ?? (queryValue(in: queryItems, names: ["visibility"]) == "publicDiscovery" ? "Public" : "Close Friends"),
+            privacyStatus: queryValue(in: queryItems, names: ["visibility", "privacy"]) ?? "privateInvite",
+            rsvpCutoff: queryValue(in: queryItems, names: ["rsvpCutoff", "rsvpDeadline", "deadline"]),
+            requiresApproval: ["1", "true", "approval"].contains((queryValue(in: queryItems, names: ["approval", "approvalMode", "requiresApproval"]) ?? "").lowercased()),
+            inviteNote: queryValue(in: queryItems, names: ["note", "inviteNote", "description"]),
             videoURL: queryURL(in: queryItems, names: ["video", "videoUrl", "hls", "hlsUrl"]) ?? fallback.video,
             heroImageURL: heroImageURL,
             thumbnailURL: thumbnailURL,

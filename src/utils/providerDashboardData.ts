@@ -367,6 +367,9 @@ export function useProviderDashboardData(): ProviderDashboardData {
   }, []);
 
   useEffect(() => {
+    // refresh() synchronously updates the auth/loading flags before awaiting
+    // the network calls; running it once on mount is intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 

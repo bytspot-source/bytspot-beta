@@ -356,12 +356,29 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(plan.quickActions.first?.action, .reserveParking)
     }
 
+    func testServiceHereSelectedParkingIgnoresDifferentBestValueCopy() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .parking, selectedTitle: "Deck A", selectedSubtitle: "18 spots · $8/hr", bestValueTitle: "Midtown Smart Parking", bestValueSummary: "$6 · score 91"))
+
+        XCTAssertEqual(plan.bestMove.action, .reserveParking)
+        XCTAssertEqual(plan.bestMove.title, "Reserve this parking")
+        XCTAssertTrue(plan.bestMove.subtitle.contains("Deck A"))
+        XCTAssertFalse(plan.bestMove.subtitle.contains("Midtown Smart Parking"))
+    }
+
     func testServiceHerePartnerInVerifiedZonePrioritizesAccessScan() {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Verified Tap Zone", isWithinVerifiedZone: true))
 
         XCTAssertEqual(plan.bestMove.action, .accessScan)
         XCTAssertEqual(plan.bestMove.title, "Tap / Scan here")
         XCTAssertTrue(plan.bestMove.subtitle.contains("Verified zone ready"))
+    }
+
+    func testServiceHereRouteActionIsReachableForSelectedPins() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Verified Tap Zone"))
+
+        let route = plan.quickActions.first { $0.action == .route }
+        XCTAssertEqual(route?.title, "Route here")
+        XCTAssertTrue(route?.subtitle.contains("Colony Square") == true)
     }
 
     func testServiceHereQuickActionsAreUniqueAndUseful() {
@@ -375,6 +392,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(actions.contains(.concierge))
         XCTAssertTrue(actions.contains(.accessScan))
         XCTAssertTrue(actions.contains(.seeAllServices))
+        XCTAssertTrue(actions.contains(.route))
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {

@@ -13672,6 +13672,7 @@ private struct NativeMapExploreView: View {
     @State private var premiumUpsellFunction: BytspotPremiumMapFunction?
     @State private var showServiceHereSheet = false
     @State private var didAutoOpenServiceHere = false
+    @State private var pendingServiceHereAction: NativeServiceHereActionKind?
     @State private var showHeatmap = false
     @State private var entryFilter: String? = nil
     @State private var vibeFilter: Int? = nil
@@ -13963,7 +13964,7 @@ private struct NativeMapExploreView: View {
                 sheet
             }
         }
-        .sheet(isPresented: $showServiceHereSheet) {
+        .sheet(isPresented: $showServiceHereSheet, onDismiss: performPendingServiceHereActionIfNeeded) {
             let sheet = NativeServiceHereSheet(plan: serviceHerePlan, onSelect: handleServiceHereAction)
             if #available(iOS 16.0, *) {
                 sheet
@@ -14037,9 +14038,23 @@ private struct NativeMapExploreView: View {
 
     private func autoOpenServiceHereIfRequested() {
         guard !didAutoOpenServiceHere else { return }
-        guard ProcessInfo.processInfo.environment[Self.serviceHereEnvironmentKey] == "1" else { return }
+        guard Self.previewAutoOpensServiceHere else { return }
         didAutoOpenServiceHere = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { openServiceHere() }
+    }
+
+    static var previewAutoOpensServiceHere: Bool {
+        #if DEBUG
+        #if targetEnvironment(simulator)
+        guard NativeMigrationConfig.isNativeRootEnabled, NativeDebugAutoSheetPreviewGate.isEnabled else { return false }
+        let raw = ProcessInfo.processInfo.environment[serviceHereEnvironmentKey]?.lowercased()
+        return ["1", "true", "yes"].contains(raw ?? "")
+        #else
+        return false
+        #endif
+        #else
+        return false
+        #endif
     }
 
     private var shouldShowSpatialSheet: Bool {
@@ -14263,8 +14278,14 @@ private struct NativeMapExploreView: View {
     }
 
     private func handleServiceHereAction(_ action: NativeServiceHereActionKind) {
+        pendingServiceHereAction = action
         showServiceHereSheet = false
         nativeImpactLight()
+    }
+
+    private func performPendingServiceHereActionIfNeeded() {
+        guard let action = pendingServiceHereAction else { return }
+        pendingServiceHereAction = nil
         switch action {
         case .reserveParking:
             serviceHereParkingPin.map(openParkingService) ?? openNativeTab(.discover)
@@ -15527,6 +15548,7 @@ enum NativeServiceHerePlanner {
         append(bestMove, to: &actions)
         append(parkingOption(context: context), to: &actions)
         append(bookOption(context: context), to: &actions)
+        if routeTargetTitle(context: context) != nil { append(routeOption(context: context), to: &actions) }
         append(valetOption(context: context), to: &actions)
         append(accessOption(context: context), to: &actions)
         append(conciergeOption(context: context), to: &actions)
@@ -15558,7 +15580,16 @@ enum NativeServiceHerePlanner {
     private static func parkingOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
         let title = titleOverride ?? "Reserve parking nearby"
         let venue = context.selectedKind == .parking ? context.selectedTitle : context.parkingTitle
-        let detail = context.bestValueTitle.map { "\($0) · \(context.bestValueSummary ?? "ranked by live value")" } ?? [venue, context.parkingSubtitle].compactMap { $0 }.joined(separator: " · ")
+        let selectedParkingDetail = [context.selectedTitle, context.selectedSubtitle].compactMap { $0 }.joined(separator: " · ")
+        let nearbyParkingDetail = [venue, context.parkingSubtitle].compactMap { $0 }.joined(separator: " · ")
+        let detail: String
+        if context.selectedKind == .parking {
+            detail = selectedParkingDetail.isEmpty ? nearbyParkingDetail : selectedParkingDetail
+        } else if let bestValueTitle = context.bestValueTitle {
+            detail = "\(bestValueTitle) · \(context.bestValueSummary ?? "ranked by live value")"
+        } else {
+            detail = nearbyParkingDetail
+        }
         return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Find the closest reserve-ready parking." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
     }
 
@@ -15581,6 +15612,15 @@ enum NativeServiceHerePlanner {
         let title = titleOverride ?? "Access here"
         let subtitle = context.isWithinVerifiedZone ? "Verified zone ready · QR, NFC, and App Clip handoff." : "Move closer to a verified tap zone to unlock scan."
         return NativeServiceHereOption(action: .accessScan, title: title, subtitle: subtitle, systemImage: "qrcode.viewfinder", badge: context.isWithinVerifiedZone ? "READY" : "NEARBY")
+    }
+
+    private static func routeOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
+        let target = routeTargetTitle(context: context) ?? "this spot"
+        return NativeServiceHereOption(action: .route, title: "Route here", subtitle: "Start turn-by-turn guidance to \(target).", systemImage: "arrow.triangle.turn.up.right.diamond.fill", badge: "ROUTE")
+    }
+
+    private static func routeTargetTitle(context: NativeServiceHereContext) -> String? {
+        context.selectedTitle ?? context.parkingTitle ?? context.partnerTitle
     }
 
     private static func seeAllOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
@@ -17997,6 +18037,10 @@ enum NativeMapParitySelfTests {
         precondition(NativeMapExploreView.partnerLensEnvironmentKey == "BYT_NATIVE_MAP_PARTNER_LENS", "NativeMapParitySelfTests: BYT hex partner-lens env key drifted.")
         precondition(NativeMapExploreView.pairedPatchEnvironmentKey == "BYT_NATIVE_MAP_PATCH_PAIRED", "NativeMapParitySelfTests: paired-patch preview env key drifted.")
         precondition(NativeMapExploreView.selectedPinEnvironmentKey == "BYT_NATIVE_MAP_SELECT_PIN", "NativeMapParitySelfTests: selected-pin preview env key drifted.")
+        precondition(NativeMapExploreView.serviceHereEnvironmentKey == "BYT_NATIVE_MAP_SERVICE_HERE", "NativeMapParitySelfTests: Service Here preview env key drifted.")
+        if ProcessInfo.processInfo.environment[NativeMapExploreView.serviceHereEnvironmentKey] == nil {
+            precondition(NativeMapExploreView.previewAutoOpensServiceHere == false, "NativeMapParitySelfTests: Service Here must be request-based unless the debug simulator preview is explicitly enabled.")
+        }
         precondition(NativePatchPairingStore.freshnessMinutes == NativeMapExploreView.trafficIntelProximityFreshnessMinutes, "NativeMapParitySelfTests: patch-pairing freshness window must match Traffic Intel (30-minute parity).")
         precondition(NativePatchPairingStore.freshnessMinutes == 30, "NativeMapParitySelfTests: patch-pairing freshness window must remain 30 minutes.")
         precondition(NativeMapExploreView.nonPartnerCardVerdictLabels == ["Plenty of Space", "Filling Up", "Likely Busy", "Likely Full"], "NativeMapParitySelfTests: non-partner verdict labels drifted from the simplex verdict-pill contract.")

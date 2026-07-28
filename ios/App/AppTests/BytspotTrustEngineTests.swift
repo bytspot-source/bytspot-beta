@@ -337,6 +337,46 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.bestValueOptions.first?.valueScore, 88)
     }
 
+    func testServiceHereNoSelectionRecommendsBestValueParking() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(bestValueTitle: "Midtown Smart Parking", bestValueSummary: "$8 · score 88"))
+
+        XCTAssertEqual(plan.title, "Service Here")
+        XCTAssertEqual(plan.eyebrow, "BEST MOVE RIGHT NOW")
+        XCTAssertEqual(plan.bestMove.action, .reserveParking)
+        XCTAssertEqual(plan.bestMove.title, "Best value nearby")
+        XCTAssertTrue(plan.bestMove.subtitle.contains("Midtown Smart Parking"))
+    }
+
+    func testServiceHereParkingSelectionPrioritizesParkingReservation() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .parking, selectedTitle: "Deck A", selectedSubtitle: "18 spots · $8/hr"))
+
+        XCTAssertEqual(plan.bestMove.action, .reserveParking)
+        XCTAssertEqual(plan.bestMove.title, "Reserve this parking")
+        XCTAssertTrue(plan.bestMove.subtitle.contains("Deck A"))
+        XCTAssertEqual(plan.quickActions.first?.action, .reserveParking)
+    }
+
+    func testServiceHerePartnerInVerifiedZonePrioritizesAccessScan() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Verified Tap Zone", isWithinVerifiedZone: true))
+
+        XCTAssertEqual(plan.bestMove.action, .accessScan)
+        XCTAssertEqual(plan.bestMove.title, "Tap / Scan here")
+        XCTAssertTrue(plan.bestMove.subtitle.contains("Verified zone ready"))
+    }
+
+    func testServiceHereQuickActionsAreUniqueAndUseful() {
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext())
+        let actions = plan.quickActions.map(\.action)
+
+        XCTAssertEqual(actions.count, Set(actions).count)
+        XCTAssertTrue(actions.contains(.reserveParking))
+        XCTAssertTrue(actions.contains(.bookVenue))
+        XCTAssertTrue(actions.contains(.valet))
+        XCTAssertTrue(actions.contains(.concierge))
+        XCTAssertTrue(actions.contains(.accessScan))
+        XCTAssertTrue(actions.contains(.seeAllServices))
+    }
+
     func testBestValueUsesTRPCQueryTransport() throws {
         let path = try NativeTabContentStore.bestValueQueryPath()
         let request = try BytspotAPIClient().makeRequest(path: path)
@@ -423,6 +463,30 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     func testPremiumFunctionEnumCoversExactlyTheGatedTokens() {
         XCTAssertEqual(Set(BytspotPremiumMapFunction.allCases.map(\.rawValue)), Set(BytspotMapFunctionCatalog.premiumFunctionTokens))
+    }
+
+    private func serviceHereContext(
+        selectedKind: NativeServiceHerePinKind? = nil,
+        selectedTitle: String? = nil,
+        selectedSubtitle: String? = nil,
+        bestValueTitle: String? = nil,
+        bestValueSummary: String? = nil,
+        isWithinVerifiedZone: Bool = false
+    ) -> NativeServiceHereContext {
+        NativeServiceHereContext(
+            selectedKind: selectedKind,
+            selectedTitle: selectedTitle,
+            selectedSubtitle: selectedSubtitle,
+            parkingTitle: selectedKind == .parking ? selectedTitle : "Midtown Smart Parking",
+            parkingSubtitle: selectedKind == .parking ? selectedSubtitle : "22 spots · $8/hr",
+            partnerTitle: selectedKind == .partner || selectedKind == .access ? selectedTitle : "Colony Square",
+            partnerSubtitle: selectedKind == .partner || selectedKind == .access ? selectedSubtitle : "Verified Tap Zone · Active",
+            bestValueTitle: bestValueTitle,
+            bestValueSummary: bestValueSummary,
+            isWithinVerifiedZone: isWithinVerifiedZone,
+            isAuthenticated: false,
+            isPremium: false
+        )
     }
 
     // MARK: - Live membership decode (NativeMembershipStore tRPC parity)

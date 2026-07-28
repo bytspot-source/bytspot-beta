@@ -13670,6 +13670,8 @@ private struct NativeMapExploreView: View {
     @State private var showTrafficIntel = false
     @State private var trafficIntelVenue: NativeVenueSummary?
     @State private var premiumUpsellFunction: BytspotPremiumMapFunction?
+    @State private var showServiceHereSheet = false
+    @State private var didAutoOpenServiceHere = false
     @State private var showHeatmap = false
     @State private var entryFilter: String? = nil
     @State private var vibeFilter: Int? = nil
@@ -13886,6 +13888,7 @@ private struct NativeMapExploreView: View {
     static let partnerLensEnvironmentKey = "BYT_NATIVE_MAP_PARTNER_LENS"
     static let pairedPatchEnvironmentKey = "BYT_NATIVE_MAP_PATCH_PAIRED"
     static let selectedPinEnvironmentKey = "BYT_NATIVE_MAP_SELECT_PIN"
+    static let serviceHereEnvironmentKey = "BYT_NATIVE_MAP_SERVICE_HERE"
     static let suppressLocationPromptEnvironmentKey = "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT"
 
     // Non-partner peek card — simplex verdict-pill layout. Locked by NativeMapParitySelfTests.
@@ -13911,6 +13914,7 @@ private struct NativeMapExploreView: View {
             "BYT_NATIVE_CONCIERGE_PROMPT",
             "BYT_NATIVE_DISCOVER_FILTER",
             selectedPinEnvironmentKey,
+            serviceHereEnvironmentKey,
             pairedPatchEnvironmentKey,
             partnerLensEnvironmentKey,
             proximityOverrideEnvironmentKey
@@ -13951,6 +13955,16 @@ private struct NativeMapExploreView: View {
         }
         .sheet(item: $trafficIntelVenue) { venue in
             let sheet = NativeTrafficIntelSheet(venue: venue, reports: communityReports, onAddReport: submitCommunityReport)
+            if #available(iOS 16.0, *) {
+                sheet
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            } else {
+                sheet
+            }
+        }
+        .sheet(isPresented: $showServiceHereSheet) {
+            let sheet = NativeServiceHereSheet(plan: serviceHerePlan, onSelect: handleServiceHereAction)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
@@ -14018,6 +14032,14 @@ private struct NativeMapExploreView: View {
             applyNativeMapFocusHandoffIfRequested()
         }
         resetPlainMapLaunchIfNeeded()
+        autoOpenServiceHereIfRequested()
+    }
+
+    private func autoOpenServiceHereIfRequested() {
+        guard !didAutoOpenServiceHere else { return }
+        guard ProcessInfo.processInfo.environment[Self.serviceHereEnvironmentKey] == "1" else { return }
+        didAutoOpenServiceHere = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { openServiceHere() }
     }
 
     private var shouldShowSpatialSheet: Bool {
@@ -14202,6 +14224,93 @@ private struct NativeMapExploreView: View {
             .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 12)
         }
         .buttonStyle(.plain)
+    }
+
+    private func openServiceHere() {
+        didOpenMapContext = true
+        showFunctionSheet = false
+        showServiceHereSheet = true
+    }
+
+    private var serviceHerePlan: NativeServiceHerePlan {
+        NativeServiceHerePlanner.plan(context: serviceHereContext)
+    }
+
+    private var serviceHereContext: NativeServiceHereContext {
+        let parkingPin = selectedPin?.kind == .parking ? selectedPin : pins.first { $0.kind == .parking }
+        let partnerPin = selectedPin.map(isPartnerPin) == true ? selectedPin : pins.first { isPartnerPin($0) }
+        let selectedKind: NativeServiceHerePinKind? = selectedPin.map { pin in
+            switch pin.kind {
+            case .parking: return .parking
+            case .partner: return .partner
+            case .access: return .access
+            }
+        }
+        return NativeServiceHereContext(
+            selectedKind: selectedKind,
+            selectedTitle: selectedPin?.title,
+            selectedSubtitle: selectedPin?.subtitle,
+            parkingTitle: parkingPin?.title,
+            parkingSubtitle: parkingPin?.subtitle,
+            partnerTitle: partnerPin?.title,
+            partnerSubtitle: partnerPin?.subtitle,
+            bestValueTitle: bestValueOption?.title,
+            bestValueSummary: bestValueOption?.nativeValueSummary,
+            isWithinVerifiedZone: isWithinVerifiedZone,
+            isAuthenticated: sessionStore.isAuthenticated,
+            isPremium: membership.isPremium
+        )
+    }
+
+    private func handleServiceHereAction(_ action: NativeServiceHereActionKind) {
+        showServiceHereSheet = false
+        nativeImpactLight()
+        switch action {
+        case .reserveParking:
+            serviceHereParkingPin.map(openParkingService) ?? openNativeTab(.discover)
+        case .bookVenue:
+            openServiceVenue()
+        case .valet:
+            if sessionStore.isAuthenticated { openNativeTab(.concierge) }
+            else { presentGuestMapPrompt(title: "Sign in for valet here", subtitle: "Create an account to keep valet requests, routes, and pickup notes synced.", cta: "Sign in for valet") }
+        case .concierge:
+            openNativeTab(.concierge)
+        case .accessScan:
+            focusServiceHereAccess()
+        case .seeAllServices:
+            openNativeTab(.discover)
+        case .route:
+            if let pin = selectedPin ?? serviceHereParkingPin ?? serviceHerePartnerPin { activateRoute(to: pin); startTurnByTurn(to: pin) }
+        }
+    }
+
+    private var serviceHereParkingPin: NativeMapPin? {
+        selectedPin?.kind == .parking ? selectedPin : pins.first { $0.kind == .parking }
+    }
+
+    private var serviceHerePartnerPin: NativeMapPin? {
+        selectedPin.map(isPartnerPin) == true ? selectedPin : pins.first { isPartnerPin($0) }
+    }
+
+    private func openParkingService(_ pin: NativeMapPin) {
+        selectedMode = "Smart Parking"
+        showParking = true
+        selectedPin = pin
+        parkingBookingVenue = venueForDetail(pin)
+    }
+
+    private func openServiceVenue() {
+        guard let pin = serviceHerePartnerPin ?? selectedPin else { openNativeTab(.discover); return }
+        if sessionStore.isAuthenticated { detailVenue = venueForDetail(pin) }
+        else { presentGuestMapPrompt(title: "Sign in to book at \(pin.title)", subtitle: "We'll save the reservation, receipt, and arrival details to your account.", cta: "Sign in to book") }
+    }
+
+    private func focusServiceHereAccess() {
+        if can(.initiateDirectScan) { performDirectScan(); return }
+        selectedMode = "Tap Zones"
+        showVerifiedOnly = true
+        showTapZones = true
+        selectedPin = serviceHerePartnerPin
     }
 
     private var showFullRightActionStack: Bool {
@@ -14766,7 +14875,7 @@ private struct NativeMapExploreView: View {
 
     private var functionQuickGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: NativePolish.mapFunctionGridGap) {
-            mapFunctionButton(icon: "mappin.circle", title: "Service\nHere") { selectedMode = "Nearby"; showFunctionSheet = false }
+            mapFunctionButton(icon: "mappin.circle", title: "Service\nHere") { openServiceHere() }
             mapFunctionButton(icon: "magnifyingglass", title: "Search") { nativeImpactLight() }
             mapFunctionButton(icon: "square.3.layers.3d.top.filled", title: "Layers") { didOpenMapContext = true; showFunctionSheet = true }
             mapFunctionButton(icon: "bookmark", title: "Routes") { selectMode("Route") }
@@ -15358,6 +15467,259 @@ private struct NativeMapVisualMarker: Identifiable {
     let y: CGFloat
     let shape: Shape
     var opensTrafficIntel: Bool = false
+}
+
+enum NativeServiceHerePinKind: Equatable { case partner, parking, access }
+
+enum NativeServiceHereActionKind: String, CaseIterable, Equatable, Identifiable {
+    case reserveParking
+    case bookVenue
+    case valet
+    case concierge
+    case accessScan
+    case seeAllServices
+    case route
+
+    var id: String { rawValue }
+}
+
+struct NativeServiceHereOption: Identifiable, Equatable {
+    let action: NativeServiceHereActionKind
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let badge: String
+
+    var id: NativeServiceHereActionKind { action }
+}
+
+struct NativeServiceHereContext: Equatable {
+    var selectedKind: NativeServiceHerePinKind?
+    var selectedTitle: String?
+    var selectedSubtitle: String?
+    var parkingTitle: String?
+    var parkingSubtitle: String?
+    var partnerTitle: String?
+    var partnerSubtitle: String?
+    var bestValueTitle: String?
+    var bestValueSummary: String?
+    var isWithinVerifiedZone: Bool
+    var isAuthenticated: Bool
+    var isPremium: Bool
+}
+
+struct NativeServiceHerePlan: Equatable {
+    let eyebrow: String
+    let title: String
+    let subtitle: String
+    let bestMove: NativeServiceHereOption
+    let quickActions: [NativeServiceHereOption]
+}
+
+enum NativeServiceHerePlanner {
+    static let sheetTitle = "Service Here"
+    static let bestMoveEyebrow = "BEST MOVE RIGHT NOW"
+
+    static func plan(context: NativeServiceHereContext) -> NativeServiceHerePlan {
+        let locationTitle = context.selectedTitle ?? context.partnerTitle ?? context.parkingTitle ?? "your current area"
+        let bestMove = recommendedOption(context: context)
+        var actions: [NativeServiceHereOption] = []
+        append(bestMove, to: &actions)
+        append(parkingOption(context: context), to: &actions)
+        append(bookOption(context: context), to: &actions)
+        append(valetOption(context: context), to: &actions)
+        append(accessOption(context: context), to: &actions)
+        append(conciergeOption(context: context), to: &actions)
+        append(seeAllOption(context: context), to: &actions)
+        return NativeServiceHerePlan(
+            eyebrow: bestMoveEyebrow,
+            title: sheetTitle,
+            subtitle: "Turn \(locationTitle) into parking, booking, valet, access, or concierge help.",
+            bestMove: bestMove,
+            quickActions: actions
+        )
+    }
+
+    private static func recommendedOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
+        if context.selectedKind == .parking { return parkingOption(context: context, titleOverride: "Reserve this parking") }
+        if context.isWithinVerifiedZone && (context.selectedKind == .access || context.selectedKind == .partner) { return accessOption(context: context, titleOverride: "Tap / Scan here") }
+        if context.selectedKind == .partner || context.selectedKind == .access { return bookOption(context: context, titleOverride: "Book at this venue") }
+        if context.bestValueTitle != nil { return parkingOption(context: context, titleOverride: "Best value nearby") }
+        if context.parkingTitle != nil { return parkingOption(context: context) }
+        if context.partnerTitle != nil { return bookOption(context: context) }
+        return conciergeOption(context: context, titleOverride: "Ask Concierge here")
+    }
+
+    private static func append(_ option: NativeServiceHereOption, to actions: inout [NativeServiceHereOption]) {
+        guard !actions.contains(where: { $0.action == option.action }) else { return }
+        actions.append(option)
+    }
+
+    private static func parkingOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
+        let title = titleOverride ?? "Reserve parking nearby"
+        let venue = context.selectedKind == .parking ? context.selectedTitle : context.parkingTitle
+        let detail = context.bestValueTitle.map { "\($0) · \(context.bestValueSummary ?? "ranked by live value")" } ?? [venue, context.parkingSubtitle].compactMap { $0 }.joined(separator: " · ")
+        return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Find the closest reserve-ready parking." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
+    }
+
+    private static func bookOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
+        let title = titleOverride ?? "Book at a venue"
+        let venue = context.selectedKind == .partner || context.selectedKind == .access ? context.selectedTitle : context.partnerTitle
+        let subtitle = [venue, context.partnerSubtitle].compactMap { $0 }.joined(separator: " · ")
+        return NativeServiceHereOption(action: .bookVenue, title: title, subtitle: subtitle.isEmpty ? "Reserve, view passes, or open venue details." : subtitle, systemImage: "calendar.badge.plus", badge: "BOOK")
+    }
+
+    private static func valetOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
+        NativeServiceHereOption(action: .valet, title: "Request valet", subtitle: context.isAuthenticated ? "Route pickup/drop-off help through Concierge." : "Sign in to save valet route and pickup notes.", systemImage: "car.fill", badge: "VALET")
+    }
+
+    private static func conciergeOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
+        NativeServiceHereOption(action: .concierge, title: titleOverride ?? "Ask Concierge", subtitle: context.isPremium ? "Priority help with parking, food, tickets, and routes." : "Get assisted routing, service search, and local help.", systemImage: "sparkles", badge: context.isPremium ? "PRIORITY" : "HELP")
+    }
+
+    private static func accessOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
+        let title = titleOverride ?? "Access here"
+        let subtitle = context.isWithinVerifiedZone ? "Verified zone ready · QR, NFC, and App Clip handoff." : "Move closer to a verified tap zone to unlock scan."
+        return NativeServiceHereOption(action: .accessScan, title: title, subtitle: subtitle, systemImage: "qrcode.viewfinder", badge: context.isWithinVerifiedZone ? "READY" : "NEARBY")
+    }
+
+    private static func seeAllOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
+        NativeServiceHereOption(action: .seeAllServices, title: "See all services", subtitle: "Open Discover filtered around dining, passes, parking, and local help.", systemImage: "square.grid.2x2.fill", badge: "ALL")
+    }
+}
+
+private struct NativeServiceHereSheet: View {
+    let plan: NativeServiceHerePlan
+    let onSelect: (NativeServiceHereActionKind) -> Void
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                bestMoveCard
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Quick actions")
+                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .tracking(1.2)
+                        .foregroundColor(NativeTheme.textSecondary)
+                    ForEach(plan.quickActions) { option in
+                        NativeServiceHereOptionRow(option: option) { onSelect(option.action) }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 30)
+        }
+        .background(NativePolish.elevatedSurface.ignoresSafeArea())
+        .accessibilityIdentifier("native-map-service-here-sheet")
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                NativeIcon(symbol: "mappin.circle", color: NativeTheme.cyan)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(plan.title)
+                        .font(.system(size: 28, weight: .black))
+                        .foregroundColor(NativeTheme.textPrimary)
+                    Text(plan.subtitle)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(3)
+                }
+            }
+        }
+    }
+
+    private var bestMoveCard: some View {
+        Button(action: { onSelect(plan.bestMove.action) }) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(plan.eyebrow)
+                        .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                        .tracking(1.1)
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 9)
+                        .frame(height: 26)
+                        .background(NativeTheme.emerald)
+                        .clipShape(Capsule())
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(NativeTheme.textSecondary)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    NativeIcon(symbol: plan.bestMove.systemImage, color: NativeTheme.emerald)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(plan.bestMove.title)
+                            .font(.system(size: 21, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
+                        Text(plan.bestMove.subtitle)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(NativeTheme.textSecondary)
+                            .lineLimit(3)
+                    }
+                }
+            }
+            .padding(16)
+            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.14), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativeTheme.emerald.opacity(0.28), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-map-service-here-best-move")
+    }
+}
+
+private struct NativeServiceHereOptionRow: View {
+    let option: NativeServiceHereOption
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                NativeIcon(symbol: option.systemImage, color: accent)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 7) {
+                        Text(option.title)
+                            .font(.system(size: 15.5, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
+                        Text(option.badge)
+                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 7)
+                            .frame(height: 20)
+                            .background(accent)
+                            .clipShape(Capsule())
+                    }
+                    Text(option.subtitle)
+                        .font(.system(size: 12.5, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundColor(NativeTheme.textTertiary)
+            }
+            .padding(13)
+            .background(NativePolish.mapPanelSurface.opacity(0.86))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-map-service-here-action-\(option.action.rawValue)")
+    }
+
+    private var accent: Color {
+        switch option.action {
+        case .reserveParking, .route: return NativeTheme.emerald
+        case .bookVenue, .accessScan: return NativeTheme.cyan
+        case .valet, .seeAllServices: return NativeTheme.purple
+        case .concierge: return NativeTheme.orange
+        }
+    }
 }
 
 private struct NativeTrafficIntelSheet: View {

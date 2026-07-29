@@ -387,6 +387,24 @@ final class BytspotTrustEngineTests: XCTestCase {
         }
         XCTAssertTrue(cards.contains { $0.type == "dining" && $0.badgeText == "LIVE API" })
         XCTAssertTrue(cards.contains { $0.type == "shopping" && $0.badgeText == "CURATED" })
+        XCTAssertTrue(cards.allSatisfy { $0.type != "mobility" || $0.categoryLabel == "Mobility" })
+        XCTAssertTrue(cards.allSatisfy { $0.type != "boutique_apartment" || $0.categoryLabel == "Boutique Stay" })
+    }
+
+    @MainActor
+    func testDiscoverSourceReflectsMixedLiveAndCuratedCoverage() {
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [])
+
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: cards, hasLiveInputs: true), .mixed)
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [cards.first { $0.badgeText == "LIVE API" }!], hasLiveInputs: true), .live)
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [cards.first { $0.badgeText == "CURATED" }!], hasLiveInputs: false), .fallback)
+    }
+
+    @MainActor
+    func testLiveVenueRowsUseLiveApiBadge() {
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "South City Kitchen", category: "restaurant", address: "API dining row")], events: [])
+
+        XCTAssertEqual(cards.first { $0.title == "South City Kitchen" }?.badgeText, "LIVE API")
     }
 
     func testServiceHereNoSelectionRecommendsBestValueParking() {

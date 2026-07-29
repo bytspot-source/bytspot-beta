@@ -1455,7 +1455,8 @@ final class NativeTabContentStore: ObservableObject {
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
                 let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions)
-                snapshot = NativeTabContentSnapshot(venues: localized.venues, discoverCards: cards, events: events, source: valueOptions.isEmpty && services.isEmpty && places.isEmpty ? localized.source : .mixed, lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
+                let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
+                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : localized.venues, discoverCards: cards, events: events.isEmpty ? NativeTabContentSnapshot.fallback.events : events, source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
                 return
             }
 
@@ -1467,14 +1468,14 @@ final class NativeTabContentStore: ObservableObject {
             let liveVenues = Self.locationAwareVenues(try await venues, location: location)
             let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
-            let liveEvents = (try? await events) ?? NativeTabContentSnapshot.fallback.events
+            let liveEvents = (try? await events) ?? []
             let valueOptions = (try? await bestValue) ?? []
             let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions)
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
                 discoverCards: cards,
-                events: liveEvents,
-                source: liveVenues.isEmpty && liveServices.isEmpty && livePlaceCards.isEmpty && valueOptions.isEmpty ? .fallback : valueOptions.isEmpty ? .live : .mixed,
+                events: liveEvents.isEmpty ? NativeTabContentSnapshot.fallback.events : liveEvents,
+                source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
                 lastUpdated: Date(),
                 errorMessage: nil,
                 bestValueOptions: valueOptions
@@ -1501,11 +1502,11 @@ final class NativeTabContentStore: ObservableObject {
         guard !venues.isEmpty || !cards.isEmpty || !events.isEmpty else { return nil }
 
         let sourceRaw = Self.string(content, ["source"]) ?? Self.string(root?["freshness"] as? [String: Any], ["publicContentSource"])
-        let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty ? .fallback : .live)
+        let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty && cards.isEmpty && events.isEmpty ? .fallback : .live)
         return NativeTabContentSnapshot(
-            venues: venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues,
+            venues: venues,
             discoverCards: cards,
-            events: events.isEmpty ? NativeTabContentSnapshot.fallback.events : events,
+            events: events,
             source: source,
             lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
             errorMessage: nil
@@ -1588,6 +1589,23 @@ final class NativeTabContentStore: ObservableObject {
         return mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
     }
 
+    static func source(forVisibleDeck cards: [NativeDiscoverSummary], hasLiveInputs: Bool) -> NativeTabContentSnapshot.Source {
+        let curatedIDs = Set((NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).map(\.id))
+        let hasLiveCards = hasLiveInputs || cards.contains { card in
+            card.badgeText.localizedCaseInsensitiveContains("LIVE")
+                || card.badgeText.localizedCaseInsensitiveContains("GOOGLE")
+                || card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
+        }
+        let hasCuratedCards = cards.contains { card in
+            card.badgeText.localizedCaseInsensitiveContains("CURATED")
+                || card.id.hasPrefix("starter-")
+                || curatedIDs.contains(card.id)
+        }
+        if hasLiveCards && hasCuratedCards { return .mixed }
+        if hasLiveCards { return .live }
+        return hasCuratedCards || !cards.isEmpty ? .fallback : .fallback
+    }
+
     private static let minimumCategoryFeedCounts = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
 
     private static func ensureCategoryCoverage(_ cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
@@ -1665,7 +1683,7 @@ final class NativeTabContentStore: ObservableObject {
                 cta: venue.verifiedPatchId == nil ? "Open details" : "Tap verified",
                 imageUrl: venue.imageUrl,
                 categoryLabel: label(for: type),
-                badgeText: "FREE ENTRY",
+                badgeText: "LIVE API",
                 metadataLine: meta,
                 features: venueFeatureChips(venue),
                 vibeScore: vibe,
@@ -1812,7 +1830,7 @@ final class NativeTabContentStore: ObservableObject {
             cta: string(item, ["ctaText", "action"]) ?? "Request Service",
             imageUrl: url(item, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]) ?? url(vendor, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]),
             categoryLabel: "Services",
-            badgeText: "Service",
+            badgeText: "LIVE API",
             metadataLine: "\(price) • \(string(item, ["availability", "availabilityWindow"]) ?? "Available now")",
             features: Array((features.isEmpty ? [rawCategory.capitalized, "Trusted provider", "Member pricing"] : features).prefix(4)),
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
@@ -1836,7 +1854,7 @@ final class NativeTabContentStore: ObservableObject {
             cta: string(item, ["cta", "ctaText", "action"]) ?? "Open details",
             imageUrl: url(item, ["imageUrl", "image_url", "heroImage", "thumbnailUrl"]),
             categoryLabel: string(item, ["categoryLabel", "label"]) ?? label(for: type),
-            badgeText: string(item, ["badgeText", "badge"]) ?? (string(item, ["entryType"]) == "paid" ? "PAID ENTRY" : "FREE ENTRY"),
+            badgeText: "LIVE API",
             metadataLine: string(item, ["metadataLine", "meta", "priceLabel"]) ?? "Available now",
             features: arrayOfStrings(item["features"]) ?? arrayOfStrings(item["includedHighlights"]) ?? [label(for: type), "Bytspot verified"],
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
@@ -1944,6 +1962,8 @@ final class NativeTabContentStore: ObservableObject {
         case "entertainment": return "Events"
         case "fitness": return "Fitness"
         case "shopping": return "Shopping"
+        case "boutique_apartment": return "Boutique Stay"
+        case "mobility": return "Mobility"
         case "service": return "Services"
         default: return "Nearby"
         }

@@ -7151,16 +7151,20 @@ private struct NativeHomeDashboardView: View {
     static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate crowd", "time/day"]
     static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
+    private var regionalSnapshot: NativeTabContentSnapshot {
+        tabContentStore.snapshot(for: locationStore.coordinate)
+    }
+
     private var launchRecommendationPicks: [LaunchRecommendationPick] {
-        Self.rankedLaunchPicks(from: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        Self.rankedLaunchPicks(from: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
     }
 
     private var hasTrustedLocalRecommendations: Bool {
-        NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: tabContentStore.snapshot)
+        NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: regionalSnapshot)
     }
 
     private var shouldShowLocalEmptyState: Bool {
-        NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: tabContentStore.snapshot, launchPicksCompleted: launchPicksCompleted, launchPickCount: launchRecommendationPicks.count)
+        NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: regionalSnapshot, launchPicksCompleted: launchPicksCompleted, launchPickCount: launchRecommendationPicks.count)
     }
 
     var body: some View {
@@ -7209,7 +7213,7 @@ private struct NativeHomeDashboardView: View {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
         .sheet(isPresented: $showHomeSearchSheet) {
-            let sheet = NativeHomeSearchSheet(query: $searchText, snapshot: tabContentStore.snapshot, location: locationStore.coordinate, onSubmit: submitSearch, onSelect: handleHomeSearchSuggestion)
+            let sheet = NativeHomeSearchSheet(query: $searchText, snapshot: regionalSnapshot, location: locationStore.coordinate, onSubmit: submitSearch, onSelect: handleHomeSearchSuggestion)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
@@ -7245,7 +7249,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeHomeHeader: some View {
-        let snapshot = tabContentStore.snapshot
+        let snapshot = regionalSnapshot
         let spotsNearby = snapshot.venues.reduce(0) { $0 + $1.parking.totalAvailable }
         let forYou = snapshot.discoverCards.count
         let liveVenues = snapshot.venues.filter { $0.crowd != nil }.count
@@ -7534,7 +7538,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func openLaunchPicksOnMap() {
-        Self.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        Self.storeLaunchMapHandoff(snapshot: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         openNativeTab(.map)
     }
 
@@ -7669,7 +7673,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var personalizedAIPick: NativeDiscoverSummary? {
-        let cards = NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot)
+        let cards = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot)
         let localPlaceCards = cards.filter(NativeHomeRegionPresentation.isTrustedLocalPlaceCard)
         let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         return types.compactMap { type in localPlaceCards.first { $0.type == type } }.first
@@ -7746,7 +7750,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
-        let venues = NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
+        let venues = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
         return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
     }
@@ -7796,7 +7800,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var tonightEventsSection: some View {
-        if !tabContentStore.snapshot.events.isEmpty {
+        if !regionalSnapshot.events.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("What's Happening Tonight").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
@@ -7805,7 +7809,7 @@ private struct NativeHomeDashboardView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(tabContentStore.snapshot.events) { event in
+                    ForEach(regionalSnapshot.events) { event in
                         Button(action: { perform(.discoverFilter("entertainment")) }) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ZStack(alignment: .bottomTrailing) {
@@ -7841,7 +7845,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var rightNowSection: some View {
-        let venues = Array(tabContentStore.snapshot.venues.filter { $0.crowd != nil }.prefix(6))
+        let venues = Array(regionalSnapshot.venues.filter { $0.crowd != nil }.prefix(6))
         if !venues.isEmpty {
             NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
                 ForEach(venues) { venue in
@@ -7853,9 +7857,9 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var trendingNowSection: some View {
-        if !tabContentStore.snapshot.venues.isEmpty {
+        if !regionalSnapshot.venues.isEmpty {
             NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
-                ForEach(Array(tabContentStore.snapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
+                ForEach(Array(regionalSnapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
                     NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
                 }
             }
@@ -7886,9 +7890,9 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var nearbySection: some View {
-        if !tabContentStore.snapshot.venues.isEmpty {
+        if !regionalSnapshot.venues.isEmpty {
             NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
-                ForEach(Array(tabContentStore.snapshot.venues.prefix(6))) { venue in
+                ForEach(Array(regionalSnapshot.venues.prefix(6))) { venue in
                     NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
                 }
             }
@@ -7897,7 +7901,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeContentFreshnessLabel: String {
-        switch tabContentStore.snapshot.source {
+        switch regionalSnapshot.source {
         case .live: return "Live"
         case .mixed: return "Live + curated"
         case .fallback: return "Curated"
@@ -7905,7 +7909,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeCrowdFreshnessLabel: String {
-        switch tabContentStore.snapshot.source {
+        switch regionalSnapshot.source {
         case .live: return "Live crowd"
         case .mixed: return "Live + curated"
         case .fallback: return "Curated"
@@ -7950,11 +7954,11 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var availableTonightCard: NativeDiscoverSummary? {
-        NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot, matching: "boutique_apartment").first
+        NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: "boutique_apartment").first
     }
 
     @ViewBuilder private var recommendationsSection: some View {
-        let picks = Array(tabContentStore.snapshot.discoverCards.filter { $0.type == "service" }.prefix(6))
+        let picks = Array(regionalSnapshot.discoverCards.filter { $0.type == "service" }.prefix(6))
         if !picks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
@@ -8007,7 +8011,7 @@ private struct NativeHomeDashboardView: View {
 
     private func submitSearch() {
         nativeImpactLight()
-        if let first = NativeSearchRouter.suggestions(query: searchText, snapshot: tabContentStore.snapshot, location: locationStore.coordinate, limit: 1).first {
+        if let first = NativeSearchRouter.suggestions(query: searchText, snapshot: regionalSnapshot, location: locationStore.coordinate, limit: 1).first {
             handleHomeSearchSuggestion(first)
         } else if let intent = NativeSearchRouter.categoryIntent(for: searchText) {
             openDiscoverFilter(intent)
@@ -11463,6 +11467,10 @@ private struct NativeDiscoverView: View {
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var locationStore: NativeLocationStore
 
+    private var regionalSnapshot: NativeTabContentSnapshot {
+        tabContentStore.snapshot(for: locationStore.coordinate)
+    }
+
     struct DiscoverCardSpec: Identifiable, Equatable {
         let id: String
         let type: String
@@ -11561,7 +11569,7 @@ private struct NativeDiscoverView: View {
     }
 
     private var liveSourceStrip: some View {
-        let snapshot = tabContentStore.snapshot
+        let snapshot = regionalSnapshot
         let label = tabContentStore.isRefreshing ? "REFRESHING" : snapshot.statusLabel
         let color: Color = snapshot.source == .fallback ? NativeTheme.textSecondary : NativeTheme.emerald
         return HStack(spacing: 8) {
@@ -11665,7 +11673,7 @@ private struct NativeDiscoverView: View {
 
     private var discoverDeck: some View {
         VStack(spacing: 24) {
-            if showIntroCard && tabContentStore.snapshot.source == .fallback {
+            if showIntroCard && regionalSnapshot.source == .fallback {
                 NativeDiscoverIntroCard(
                     onDismiss: { withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { showIntroCard = false } },
                     openDiscover: { openNativeTab(.discover) }
@@ -11699,11 +11707,11 @@ private struct NativeDiscoverView: View {
         applyFilterHandoffIfRequested()
         applyShellFilterHandoffIfRequested()
         applyParkingBookingPreviewIfRequested()
-        if tabContentStore.snapshot.source != .fallback { showIntroCard = false }
+        if regionalSnapshot.source != .fallback { showIntroCard = false }
     }
 
     private var filteredCards: [DiscoverCardSpec] {
-        let sourceCards = NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot, matching: selectedFilter).map(Self.spec(from:))
+        let sourceCards = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter).map(Self.spec(from:))
         let matchesCurrentFilters: (DiscoverCardSpec) -> Bool = { card in
             Self.matchesEntryFilter(card, entryFilter: entryFilter)
                 && (!savedOnly || savedCardIDs.contains(card.id))
@@ -11801,7 +11809,7 @@ private struct NativeDiscoverView: View {
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
-        let candidates = NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
+        let candidates = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         return Self.venueForDetail(card, venues: candidates)
     }
 
@@ -16714,12 +16722,13 @@ enum NativeConciergeRegionPresentation {
     private static func explicitlyRequestsAtlanta(_ query: String) -> Bool {
         let words = query.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
         let normalized = words.joined(separator: " ")
-        let destinations = ["atlanta", "midtown"]
+        let destinations = ["atlanta", "atl"]
         guard destinations.contains(where: words.contains) else { return false }
         guard Set(words).isDisjoint(with: ["not", "no", "avoid", "exclude", "without", "outside", "except"]) else { return false }
         return destinations.contains { destination in
             normalized == destination || normalized.hasPrefix("\(destination) ") ||
-                ["in", "to", "near", "around", "visit"].contains { normalized.contains("\($0) \(destination)") }
+                ["in", "to", "near", "around", "visit"].contains { normalized.contains("\($0) \(destination)") } ||
+                (destination == "atlanta" && normalized.contains("midtown atlanta"))
         }
     }
 }

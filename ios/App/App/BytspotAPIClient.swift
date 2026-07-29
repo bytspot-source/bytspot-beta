@@ -1256,9 +1256,10 @@ struct NativeLocationCoordinate: Equatable, Sendable {
     let isFallback: Bool
 
     static let midtown = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: true)
+    static let verifiedMidtown = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
 
-    var displayName: String { isFallback ? "Midtown Atlanta" : "your location" }
-    var shortLabel: String { isFallback ? "Midtown" : "Near you" }
+    var displayName: String { isFallback ? "your area" : "your location" }
+    var shortLabel: String { "Near you" }
 
     func apiPoint() -> [String: Any] { ["lat": latitude, "lng": longitude] }
 
@@ -1530,13 +1531,19 @@ struct NativeTabContentSnapshot: Equatable {
 
 @MainActor
 final class NativeTabContentStore: ObservableObject {
-    @Published private(set) var snapshot = NativeTabContentSnapshot.fallback
+    @Published private(set) var snapshot = NativeTabContentSnapshot.unresolved
     @Published private(set) var isRefreshing = false
     private var refreshGeneration = 0
     private var bestValueOrigin: NativeLocationCoordinate?
 
+    func snapshot(for location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
+        Self.canPresentLocationScopedContent(origin: bestValueOrigin, current: location)
+            ? snapshot
+            : Self.removingLocationScopedContent(from: snapshot)
+    }
+
     func bestValueOptions(for location: NativeLocationCoordinate) -> [NativeLiveValueOption] {
-        Self.canPresentLocationScopedContent(origin: bestValueOrigin, current: location) ? snapshot.bestValueOptions : []
+        snapshot(for: location).bestValueOptions
     }
 
     func invalidateLocationScopedContent() {
@@ -1551,6 +1558,10 @@ final class NativeTabContentStore: ObservableObject {
         invalidateLocationScopedContent()
         isRefreshing = true
         defer { if generation == refreshGeneration { isRefreshing = false } }
+        guard !location.isFallback else {
+            snapshot = .unresolved
+            return
+        }
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
@@ -1689,7 +1700,8 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     nonisolated static func canUseCurrentEventFeed(at location: NativeLocationCoordinate) -> Bool {
-        location.distanceMiles(toLatitude: NativeLocationCoordinate.midtown.latitude, longitude: NativeLocationCoordinate.midtown.longitude).map { $0 <= nightlifeRadiusMiles } ?? false
+        guard !location.isFallback else { return false }
+        return location.distanceMiles(toLatitude: NativeLocationCoordinate.midtown.latitude, longitude: NativeLocationCoordinate.midtown.longitude).map { $0 <= nightlifeRadiusMiles } ?? false
     }
 
     private func fetchPlaceDiscoveryCards(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
@@ -1740,6 +1752,9 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
+        guard !location.isFallback else {
+            return locationAwareCards(NativeTabContentSnapshot.unresolved.discoverCards, sourceVenues: [], location: location)
+        }
         var merged: [NativeDiscoverSummary] = []
         appendUnique(placeCards, to: &merged)
         appendUnique(apiCards, to: &merged)
@@ -1750,7 +1765,7 @@ final class NativeTabContentStore: ObservableObject {
         appendUnique(services, to: &merged)
         if canUseCurrentEventFeed(at: location) { appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged) }
         let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
-        let complete = mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
+        let complete = mergeBestValueCards(location.isFallback ? [] : valueOptions, into: ensureCategoryCoverage(base))
         return locationAwareCards(complete, sourceVenues: venues, location: location)
     }
 
@@ -1924,7 +1939,7 @@ final class NativeTabContentStore: ObservableObject {
     private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
         let venues = snapshot.source == .fallback ? fallbackVenues(for: location) : locationAwareVenues(snapshot.venues, location: location)
         let cards = locationAwareCards(snapshot.discoverCards, sourceVenues: snapshot.venues, location: location)
-        return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions)
+        return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: visibleEvents(snapshot.events, location: location), source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: location.isFallback ? [] : snapshot.bestValueOptions)
     }
 
     static func fallbackVenues(for location: NativeLocationCoordinate) -> [NativeVenueSummary] {
@@ -1952,6 +1967,12 @@ final class NativeTabContentStore: ObservableObject {
             let hasPlaceProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
             let isLocalPlaceCard = hasPlaceProviderBadge && hasMeasuredLocalDistance(card.distance)
             let isLocationQueriedValueCard = card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
+            if location.isFallback {
+                guard canonicalID != nil,
+                      !specialCards.contains(where: { card.id == $0.id || card.id.contains($0.id) }),
+                      !card.id.contains("midtown-boutique-suite") else { return nil }
+                return genericCuratedCard(card)
+            }
             if !isAtlantaRegion,
                (specialCards.contains { card.id == $0.id || card.id.contains($0.id) } || card.id.contains("midtown-boutique-suite")) { return nil }
             let venue = venueCandidates.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
@@ -1989,8 +2010,9 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func visibleEvents(_ events: [NativeEventSummary], location: NativeLocationCoordinate) -> [NativeEventSummary] {
+        guard !location.isFallback else { return [] }
         if !events.isEmpty { return events }
-        return location.isFallback ? NativeTabContentSnapshot.fallback.events : []
+        return canUseCurrentEventFeed(at: location) ? NativeTabContentSnapshot.fallback.events : []
     }
 
     private static func discoverCard(fromPlace pair: EnumeratedSequence<[NativePlaceSearchResult]>.Element, location: NativeLocationCoordinate, eta: NativeNavigationEstimate?) -> NativeDiscoverSummary? {
@@ -2340,4 +2362,5 @@ extension NativeTabContentSnapshot {
     ]
 
     static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards + specialDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
+    static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" }, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
 }

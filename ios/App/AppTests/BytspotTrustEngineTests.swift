@@ -377,6 +377,25 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testUnresolvedLocationPublishesNeutralContentAndRejectsDerivedBestValueCards() {
+        let option = NativeLiveValueOption(id: "fallback-parking", productType: "parking", title: "Midtown Smart Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
+        let unresolvedCards = NativeTabContentStore.liveDiscoverCards(apiCards: NativeTabContentSnapshot.fallback.discoverCards, venues: NativeTabContentSnapshot.fallback.venues, events: NativeTabContentSnapshot.fallback.events, services: NativeTabContentSnapshot.specialDiscoverCards, valueOptions: [option], location: .midtown)
+        let verifiedAtlantaCards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], valueOptions: [option], location: .verifiedMidtown)
+        let store = NativeTabContentStore()
+        let unresolvedCopy = (unresolvedCards.flatMap { [$0.title, $0.subtitle, $0.metadataLine] } + [NativeLocationCoordinate.midtown.displayName, NativeLocationCoordinate.midtown.shortLabel]).joined(separator: " ")
+
+        XCTAssertTrue(store.snapshot.venues.isEmpty)
+        XCTAssertTrue(store.snapshot.events.isEmpty)
+        XCTAssertTrue(store.snapshot.bestValueOptions.isEmpty)
+        XCTAssertTrue(NativeTabContentStore.fallbackVenues(for: .midtown).isEmpty)
+        XCTAssertFalse(unresolvedCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
+        XCTAssertTrue(Set(unresolvedCards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+        XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Atlanta"))
+        XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertTrue(verifiedAtlantaCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
+    }
+
+    @MainActor
     func testLiveDiscoverCardsExpandBootstrapWithVenueAndEventRows() {
         let apiCard = NativeDiscoverSummary(id: "api-fado", type: "nightlife", title: "Fado Irish Pub", subtitle: "Live API bootstrap", distance: "0.4 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "LIVE API", metadataLine: "Busy tonight", features: ["Nightlife"], vibeScore: 8, availability: "Busy", membershipRequired: false)
         let venues = [
@@ -385,7 +404,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         ]
         let events = [NativeEventSummary(id: "midtown-tonight", title: "Midtown Tonight", venue: "Atlanta", time: "Tonight", price: "Free", emoji: "🎟️", imageUrl: nil, category: "community")]
 
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [apiCard], venues: venues, events: events)
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [apiCard], venues: venues, events: events, location: .verifiedMidtown)
 
         XCTAssertEqual(cards.filter { $0.title == "Fado Irish Pub" }.count, 1)
         XCTAssertTrue(cards.contains { $0.title == "Tongue & Groove" && $0.type == "nightlife" })
@@ -397,7 +416,7 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testLiveDiscoverCardsAddsNightlifeCompanionsForMusicEvents() {
         let events = [NativeEventSummary(id: "steven-g", title: "Steven G", venue: "The Masquerade - Purgatory", time: "Tonight", price: "Paid", emoji: "🎶", imageUrl: nil, category: "concert")]
 
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], events: events)
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], events: events, location: .verifiedMidtown)
 
         XCTAssertTrue(cards.contains { $0.id == "event-steven-g" && $0.type == "entertainment" })
         XCTAssertTrue(cards.contains { $0.id == "nightlife-event-steven-g" && $0.type == "nightlife" && $0.title.contains("Night out") })
@@ -409,7 +428,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let shopping = venue(name: "Ponce City Market", category: "market", address: "API shopping row")
         let parking = NativeVenueSummary(id: "generic-deck", name: "Generic API Deck", category: "venue", address: "API parking row", distance: "0.5 mi", rating: 4.3, latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)
 
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [dining, shopping, parking])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [dining, shopping, parking], location: .verifiedMidtown)
 
         XCTAssertTrue(cards.contains { $0.title == "Dinner plan: South City Kitchen" && $0.type == "dining" })
         XCTAssertTrue(cards.contains { $0.title == "Shop stop: Ponce City Market" && $0.type == "shopping" })
@@ -418,7 +437,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     @MainActor
     func testLiveDiscoverCardsGuaranteeUsableCategoryFeedsWhenApiIsSparse() {
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [], location: .verifiedMidtown)
         let minimums = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
 
         for (type, count) in minimums {
@@ -432,7 +451,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     @MainActor
     func testDiscoverSourceReflectsMixedLiveAndCuratedCoverage() {
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [], location: .verifiedMidtown)
 
         XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: cards, hasLiveInputs: true), .mixed)
         XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [cards.first { $0.badgeText == "LIVE API" }!], hasLiveInputs: true), .live)
@@ -441,7 +460,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     @MainActor
     func testLiveVenueRowsUseLiveApiBadge() {
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "South City Kitchen", category: "restaurant", address: "API dining row")], events: [])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "South City Kitchen", category: "restaurant", address: "API dining row")], events: [], location: .verifiedMidtown)
 
         XCTAssertEqual(cards.first { $0.title == "South City Kitchen" }?.badgeText, "LIVE API")
     }
@@ -519,7 +538,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(point["radiusMiles"] as? Double, NativeTabContentStore.nightlifeRadiusMiles)
         XCTAssertNil(input["city"])
         XCTAssertFalse(NativeTabContentStore.canUseCurrentEventFeed(at: location))
-        XCTAssertTrue(NativeTabContentStore.canUseCurrentEventFeed(at: .midtown))
+        XCTAssertFalse(NativeTabContentStore.canUseCurrentEventFeed(at: .midtown))
+        XCTAssertTrue(NativeTabContentStore.canUseCurrentEventFeed(at: .verifiedMidtown))
     }
 
     @MainActor
@@ -556,8 +576,9 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "HERE")
         XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "ATL")
-        XCTAssertTrue(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "HERE")
+        XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown), "ATL")
     }
 
     @MainActor
@@ -690,8 +711,8 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testAtlantaMapPresentationRetainsRegionalBackdropSamples() {
-        XCTAssertEqual(NativeMapRegionPresentation.backdropLabels(for: .midtown), NativeMapRegionPresentation.atlantaBackdropLabels)
-        XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown))
+        XCTAssertEqual(NativeMapRegionPresentation.backdropLabels(for: .verifiedMidtown), NativeMapRegionPresentation.atlantaBackdropLabels)
+        XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .verifiedMidtown))
     }
 
     func testUnresolvedMapLocationFailsClosedInsteadOfPresentingAtlantaFallback() {
@@ -702,9 +723,9 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown, hasResolvedLocation: false))
         XCTAssertEqual(
             NativeMapRegionPresentation.backdropLabels(for: .midtown, hasResolvedLocation: true),
-            NativeMapRegionPresentation.atlantaBackdropLabels
+            NativeMapRegionPresentation.localBackdropLabels
         )
-        XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown, hasResolvedLocation: true))
+        XCTAssertFalse(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown, hasResolvedLocation: true))
     }
 
     func testMapZoomClampsAndUpdatesRegionSpanMonotonically() {
@@ -764,6 +785,9 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: .midtown))
         XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Show Seattle options, no Atlanta", location: seattle))
         XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Anything outside Midtown", location: seattle))
+        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Restaurants near Midtown", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Restaurants near Midtown Atlanta", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "ATL parking for my trip", location: seattle))
         XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["1197 Peachtree St NE", "Mercedes-Benz Stadium", "ATL Airport transfer", "Downtown"], query: "Find parking nearby", location: seattle))
     }
 
@@ -972,7 +996,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         XCTAssertEqual(here.displayName, "your location")
         XCTAssertEqual(here.distanceLabel(toLatitude: 33.7878, longitude: -84.3832), "Here")
-        XCTAssertEqual(NativeLocationCoordinate.midtown.displayName, "Midtown Atlanta")
+        XCTAssertEqual(NativeLocationCoordinate.midtown.displayName, "your area")
         XCTAssertTrue(here.distanceLabel(toLatitude: 33.7900, longitude: -84.3890)?.hasSuffix("mi") == true)
     }
 

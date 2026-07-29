@@ -1627,6 +1627,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     nonisolated static let nightlifeRadiusMiles = 30.0
+    nonisolated static let localVenueRadiusMiles = 30.0
 
     nonisolated static func eventQueryInput(location: NativeLocationCoordinate) -> [String: Any] {
         [
@@ -1880,8 +1881,8 @@ final class NativeTabContentStore: ObservableObject {
 
     static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
         venues.compactMap { venue in
-            let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude)
-            if venue.discoverType == "nightlife", let miles, miles > nightlifeRadiusMiles { return nil }
+            guard let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
+                  miles <= localVenueRadiusMiles else { return nil }
             let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
             return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl)
         }
@@ -1896,9 +1897,14 @@ final class NativeTabContentStore: ObservableObject {
         return cards.compactMap { card in
             let canonicalID = curatedIDs.first { card.id == $0 || card.id.contains($0) }
             let isLocalPlaceCard = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
+            let isLocationQueriedValueCard = card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
             if !isAtlantaRegion,
                (specialCards.contains { card.id == $0.id || card.id.contains($0.id) } || card.id.contains("midtown-boutique-suite")) { return nil }
             let venue = venueCandidates.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
+            if let venue {
+                guard let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
+                      miles <= localVenueRadiusMiles else { return nil }
+            }
             if card.type == "nightlife", !curatedIDs.contains(card.id), !isLocalPlaceCard {
                 guard let venue,
                       let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
@@ -1908,6 +1914,7 @@ final class NativeTabContentStore: ObservableObject {
                canonicalID != nil || card.id.hasPrefix("starter-") || card.badgeText.localizedCaseInsensitiveContains("CURATED") {
                 return genericCuratedCard(card)
             }
+            if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
             return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
         }

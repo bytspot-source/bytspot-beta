@@ -484,7 +484,7 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testFarNightlifeVenuesDoNotEnterTheLocalFeed() {
+    func testFarVenuesDoNotEnterTheLocalFeed() {
         let location = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
         let nearby = NativeVenueSummary(id: "near-night", name: "Nearby Lounge", category: "nightlife", address: "Atlanta", distance: "—", rating: 4.7, latitude: 33.79, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
         let far = NativeVenueSummary(id: "far-night", name: "Far Lounge", category: "nightlife", address: "Far away", distance: "—", rating: 4.7, latitude: 32.08, longitude: -81.09, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
@@ -494,7 +494,29 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         XCTAssertTrue(venues.contains { $0.id == nearby.id })
         XCTAssertFalse(venues.contains { $0.id == far.id })
-        XCTAssertTrue(venues.contains { $0.id == farDining.id })
+        XCTAssertFalse(venues.contains { $0.id == farDining.id })
+    }
+
+    @MainActor
+    func testNonAtlantaHomePresentationAndVenueDeckStayLocal() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let atlanta = NativeVenueSummary(id: "atlanta", name: "Atlanta Venue", category: "restaurant", address: "Atlanta", distance: "—", rating: nil, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 20, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)
+        let local = NativeVenueSummary(id: "seattle", name: "Seattle Venue", category: "restaurant", address: "Seattle", distance: "—", rating: nil, latitude: 47.61, longitude: -122.33, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let atlantaCard = NativeDiscoverSummary(id: "venue-atlanta", type: "dining", title: "Atlanta Venue", subtitle: "Atlanta", distance: "—", rating: "Live", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 0, availability: "Live", membershipRequired: false)
+        let unknownLiveCard = NativeDiscoverSummary(id: "unknown-live", type: "dining", title: "Unknown Venue", subtitle: "Unknown", distance: "—", rating: "Live", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 0, availability: "Live", membershipRequired: false)
+        let localPlaceCard = NativeDiscoverSummary(id: "local-place", type: "dining", title: "Local Place", subtitle: "Seattle", distance: "0.4 mi", rating: "Nearby", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: [], vibeScore: 0, availability: "Nearby", membershipRequired: false)
+
+        let venues = NativeTabContentStore.locationAwareVenues([atlanta, local], location: seattle)
+        let cards = NativeTabContentStore.locationAwareCards([atlantaCard, unknownLiveCard, localPlaceCard], sourceVenues: [atlanta, local], location: seattle)
+        let eyebrow = NativeHomeRegionPresentation.contextualEyebrow(hour: 13, location: seattle)
+
+        XCTAssertEqual(venues.map(\.id), [local.id])
+        XCTAssertEqual(cards.map(\.id), [localPlaceCard.id])
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "HERE")
+        XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "ATL")
+        XCTAssertTrue(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
     }
 
     @MainActor

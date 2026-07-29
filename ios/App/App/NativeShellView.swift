@@ -6955,6 +6955,60 @@ enum NativeSearchRouter {
     }
 }
 
+enum NativeHomeRegionPresentation {
+    static func isAtlanta(_ location: NativeLocationCoordinate) -> Bool {
+        NativeTabContentStore.canUseCurrentEventFeed(at: location)
+    }
+
+    static func cityBadge(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "ATL" : "HERE" }
+    static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
+
+    static func contextualEyebrow(hour: Int, location: NativeLocationCoordinate) -> (String, String) {
+        let place = isAtlanta(location) ? "in Midtown" : "near you"
+        switch hour {
+        case 5..<11: return ("Morning \(place)", isAtlanta(location) ? "Fresh starts in Midtown ☀️" : "Fresh starts around your area ☀️")
+        case 11..<17: return ("Afternoon \(place)", "Coffee, parking, and local plans ☕️")
+        case 17..<22: return ("Evening \(place)", "Dinner, access, and routes nearby 🌆")
+        default: return ("Late night \(place)", "Open spots and safer routes nearby 🌙")
+        }
+    }
+
+    static func launchTitle(intent: String, location: NativeLocationCoordinate) -> String {
+        if ["parking", "covered_parking"].contains(intent) { return isAtlanta(location) ? "Easy arrivals near Midtown" : "Easy arrivals near you" }
+        switch intent {
+        case "sleep", "stay": return "A softer landing nearby"
+        case "ride": return "A smoother way home"
+        case "indoor": return "Comfort-first plans nearby"
+        case "drinks": return "A night worth stepping into"
+        case "events": return "Plans that fit the crowd"
+        case "coffee": return "A good stop before you go"
+        default: return "Shaped around your night"
+        }
+    }
+
+    static func launchSubtitle(intent: String, location: NativeLocationCoordinate) -> String {
+        switch intent {
+        case "sleep", "stay": return "Comfort-first stays stay visible while you browse."
+        case "parking", "covered_parking": return isAtlanta(location) ? "Easy arrivals, short walks, and Midtown timing are ready for you." : "Easy arrivals and short local walks are ready for you."
+        case "ride": return "Routes, pickup points, and smoother exits are ready when you are."
+        default: return "Chosen around your mood, the hour, and what feels close enough."
+        }
+    }
+
+    static func launchWhy(intent: String, location: NativeLocationCoordinate) -> String {
+        switch intent {
+        case "sleep", "stay": return isAtlanta(location) ? "Late-night comfort · Midtown timing · safer arrival" : "Late-night comfort · nearby timing · safer arrival"
+        case "parking", "covered_parking": return isAtlanta(location) ? "Easy arrival · short walk · Midtown timing" : "Easy arrival · short walk · local timing"
+        case "ride": return "Better pickup points · cleaner route · less waiting"
+        case "indoor": return "Dry, comfortable, and close enough"
+        case "drinks": return "Evening energy · good rooms · easy arrival"
+        case "events": return "Show timing · crowd flow · easier exits"
+        case "coffee": return "Daytime rhythm · close stops · low-friction arrival"
+        default: return "Your mood · the hour · what feels close enough"
+        }
+    }
+}
+
 private struct NativeHomeDashboardView: View {
     enum ActionTarget: Equatable {
         case nativeTab(BytspotNativeTab)
@@ -7061,7 +7115,7 @@ private struct NativeHomeDashboardView: View {
     static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
     static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate crowd", "time/day"]
-    static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now in Midtown", "Trending Now", "What are you feeling?", "Nearby"]
+    static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     private var launchRecommendationPicks: [LaunchRecommendationPick] {
         Self.rankedLaunchPicks(from: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
@@ -7072,7 +7126,9 @@ private struct NativeHomeDashboardView: View {
             nativeHomeHeader
             nativeSearchBar
             if let liveGroupEvent { NativeHomeLiveGroupBanner(event: liveGroupEvent, action: { openGroupInvite(liveGroupEvent) }) }
-            if launchPicksCompleted { launchPicksReadySection }
+            if launchPicksCompleted {
+                if launchRecommendationPicks.isEmpty { noLocalLaunchPicksSection } else { launchPicksReadySection }
+            }
             tonightPickCard
             quickActionsSection
             availableTonightSection
@@ -7149,8 +7205,8 @@ private struct NativeHomeDashboardView: View {
         let snapshot = tabContentStore.snapshot
         let spotsNearby = snapshot.venues.reduce(0) { $0 + $1.parking.totalAvailable }
         let forYou = snapshot.discoverCards.count
-        let users = max(44, snapshot.venues.compactMap { $0.crowd?.level }.reduce(0, +) * 18)
-        let city = "ATL"
+        let liveVenues = snapshot.venues.filter { $0.crowd != nil }.count
+        let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
@@ -7185,7 +7241,7 @@ private struct NativeHomeDashboardView: View {
                     HStack(spacing: 5) {
                         Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
                         Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                        Text("\(users)")
+                        Text(liveVenues > 0 ? "\(liveVenues) live" : "Local")
                             .font(.system(size: 12, weight: .black, design: .rounded))
                             .monospacedDigit()
                             .foregroundColor(NativeTheme.textPrimary)
@@ -7283,17 +7339,7 @@ private struct NativeHomeDashboardView: View {
 
     private var contextualEyebrow: (String, String) {
         let hour = Calendar.current.component(.hour, from: Date())
-        let city = "Midtown"
-        switch hour {
-        case 5..<11:
-            return ("Morning in \(city)", "Fresh starts in \(city) ☀️")
-        case 11..<17:
-            return ("Afternoon in \(city)", "Coffee, parking, and local plans ☕️")
-        case 17..<22:
-            return ("Evening in \(city)", "Dinner, access, and routes nearby 🌆")
-        default:
-            return ("Late night in \(city)", "Open spots and safer routes nearby 🌙")
-        }
+        return NativeHomeRegionPresentation.contextualEyebrow(hour: hour, location: locationStore.coordinate)
     }
 
     private var nativeSearchBar: some View {
@@ -7389,6 +7435,21 @@ private struct NativeHomeDashboardView: View {
         .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
     }
 
+    private var noLocalLaunchPicksSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("LOOKING NEAR YOU").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
+            Text("Local picks are updating").nativeTitle(20)
+            Text("We won't show far-away places. Search or open Discover to check trusted options around your current location.").nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+            HStack(spacing: 8) {
+                Button("Open Discover") { openNativeTab(.discover) }.buttonStyle(.borderedProminent)
+                Button("Map near me") { openNativeTab(.map) }.buttonStyle(.bordered)
+            }
+        }
+        .padding(14)
+        .nativePanel()
+        .accessibilityIdentifier("native-home-local-picks-empty")
+    }
+
     private func exploreLaunchPicksTapped() {
         nativeImpactLight()
         guard sessionStore.isAuthenticated else {
@@ -7435,38 +7496,15 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var launchPicksTitle: String {
-        switch launchIntent {
-        case "sleep", "stay": return "A softer landing nearby"
-        case "parking", "covered_parking": return "Easy arrivals near Midtown"
-        case "ride": return "A smoother way home"
-        case "indoor": return "Comfort-first plans nearby"
-        case "drinks": return "A night worth stepping into"
-        case "events": return "Plans that fit the crowd"
-        case "coffee": return "A good stop before you go"
-        default: return "Shaped around your night"
-        }
+        NativeHomeRegionPresentation.launchTitle(intent: launchIntent, location: locationStore.coordinate)
     }
 
     private var launchPicksSubtitle: String {
-        switch launchIntent {
-        case "sleep", "stay": return "Comfort-first stays stay visible while you browse."
-        case "parking", "covered_parking": return "Easy arrivals, short walks, and Midtown timing are ready for you."
-        case "ride": return "Routes, pickup points, and smoother exits are ready when you are."
-        default: return "Chosen around your mood, the hour, and what feels close enough."
-        }
+        NativeHomeRegionPresentation.launchSubtitle(intent: launchIntent, location: locationStore.coordinate)
     }
 
     private var launchPicksWhy: String {
-        switch launchIntent {
-        case "sleep", "stay": return "Late-night comfort · Midtown timing · safer arrival"
-        case "parking", "covered_parking": return "Easy arrival · short walk · Midtown timing"
-        case "ride": return "Better pickup points · cleaner route · less waiting"
-        case "indoor": return "Dry, comfortable, and close enough"
-        case "drinks": return "Evening energy · good rooms · easy arrival"
-        case "events": return "Show timing · crowd flow · easier exits"
-        case "coffee": return "Daytime rhythm · close stops · low-friction arrival"
-        default: return "Your mood · the hour · what feels close enough"
-        }
+        NativeHomeRegionPresentation.launchWhy(intent: launchIntent, location: locationStore.coordinate)
     }
 
     static let defaultLaunchMapDestination = NativeLocationCoordinate.midtown.displayName
@@ -7617,7 +7655,7 @@ private struct NativeHomeDashboardView: View {
     private var personalizedAIReason: String {
         let signals = [Self.vibeLabel(launchIntent), Self.walkLabel(launchWalkPreference), Self.crewLabel(launchCrewPreference)]
             .filter { !$0.isEmpty && $0 != "personalized" && $0 != "for you" }
-        guard !signals.isEmpty && signals != ["near Midtown"] else { return "Matched to your timing and nearby intent." }
+        guard !signals.isEmpty && signals != ["nearby"] else { return "Matched to your timing and nearby intent." }
         return "Matched to " + signals.joined(separator: " + ") + "."
     }
 
@@ -7640,7 +7678,7 @@ private struct NativeHomeDashboardView: View {
         case "close", "closest": return "short walk"
         case "medium": return "10 min OK"
         case "far": return "explore farther"
-        default: return "near Midtown"
+        default: return "nearby"
         }
     }
 
@@ -7711,7 +7749,7 @@ private struct NativeHomeDashboardView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("What's Happening Tonight").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                 Spacer()
-                Text("Midtown").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
+                Text(NativeHomeRegionPresentation.areaLabel(for: locationStore.coordinate)).font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
@@ -7750,7 +7788,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var rightNowSection: some View {
-        NativeHorizontalSection(title: "Right Now in Midtown", subtitle: nativeContentFreshnessLabel) {
+        NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
             ForEach(Array(tabContentStore.snapshot.venues.filter { $0.crowd != nil }.prefix(6))) { venue in
                 NativeMiniCard(eyebrow: crowdBadge(venue.crowd), title: venue.name, subtitle: venue.crowd?.waitMins.map { "~\($0)m wait" } ?? venue.address, iconText: categoryEmoji(venue.discoverType), accent: crowdColor(venue.crowd)) { openNativeTab(.map) }
             }

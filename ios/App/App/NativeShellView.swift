@@ -16619,11 +16619,18 @@ enum NativeConciergeRegionPresentation {
 
     static func permitsRemoteContent(_ content: [String], query: String, location: NativeLocationCoordinate) -> Bool {
         guard !NativeHomeRegionPresentation.isAtlanta(location) else { return true }
-        let explicitlyRequestedAtlanta = ["Atlanta", "Midtown"].contains { query.localizedCaseInsensitiveContains($0) }
-        guard !explicitlyRequestedAtlanta else { return true }
+        guard !explicitlyRequestsAtlanta(query) else { return true }
         return atlantaContentTokens.allSatisfy { token in
             content.allSatisfy { !$0.localizedCaseInsensitiveContains(token) }
         }
+    }
+
+    static func permitsLiveConcierge(query: String, location: NativeLocationCoordinate) -> Bool {
+        NativeHomeRegionPresentation.isAtlanta(location) || explicitlyRequestsAtlanta(query)
+    }
+
+    private static func explicitlyRequestsAtlanta(_ query: String) -> Bool {
+        ["Atlanta", "Midtown"].contains { query.localizedCaseInsensitiveContains($0) }
     }
 }
 
@@ -16898,7 +16905,7 @@ private struct NativeConciergeView: View {
         isTyping = true
         connectionState = "thinking"
         let history = messages.suffix(10).map { ["role": $0.isUser ? "user" : "assistant", "content": $0.text] }
-        let canUseLiveConcierge = sessionStore.canAttachBearerToken
+        let canUseLiveConcierge = sessionStore.canAttachBearerToken && NativeConciergeRegionPresentation.permitsLiveConcierge(query: text, location: locationStore.coordinate)
         let token = sessionStore.token
         Task {
             var liveResponse: ServerResponse?

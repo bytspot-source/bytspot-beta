@@ -675,6 +675,9 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Open details", "Ponce City Market"], query: "What's open?", location: seattle))
         XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Plan a trip to Atlanta", location: seattle))
         XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Find parking nearby", location: .midtown))
+        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Plan a trip to Atlanta", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: .midtown))
     }
 
     func testSmartParkingHandoffKeepsNamedVenueAndRejectsUnknownNames() {

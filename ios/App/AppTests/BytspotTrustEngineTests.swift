@@ -363,6 +363,20 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testLocationChangeInvalidationRemovesBestValueRowsAndDerivedCards() {
+        let option = NativeLiveValueOption(id: "atlanta-parking", productType: "parking", title: "Midtown Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
+        let valueCard = NativeDiscoverSummary(id: "best-value-atlanta-parking", type: "parking", title: "Midtown Parking", subtitle: "Ranked value", distance: "0.2 mi", rating: "Value 90", icon: "parkingsign", verified: true, entryType: "paid", cta: "View", imageUrl: nil, categoryLabel: "Parking", badgeText: "BEST VALUE", metadataLine: "$8", features: [], vibeScore: 9, availability: "Available", membershipRequired: true)
+        let localCard = NativeDiscoverSummary(id: "local-place", type: "coffee", title: "Local Place", subtitle: "Live provider", distance: "0.4 mi", rating: "Nearby", icon: "cup.and.saucer", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "APPLE MAPS", metadataLine: "Live place", features: [], vibeScore: 6, availability: "Open", membershipRequired: false)
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [valueCard, localCard], events: [], source: .mixed, lastUpdated: Date(), errorMessage: nil, bestValueOptions: [option])
+
+        let invalidated = NativeTabContentStore.removingLocationScopedContent(from: snapshot)
+
+        XCTAssertEqual(invalidated.discoverCards.map(\.id), [localCard.id])
+        XCTAssertTrue(invalidated.bestValueOptions.isEmpty)
+        XCTAssertEqual(invalidated.source, .live)
+    }
+
+    @MainActor
     func testLiveDiscoverCardsExpandBootstrapWithVenueAndEventRows() {
         let apiCard = NativeDiscoverSummary(id: "api-fado", type: "nightlife", title: "Fado Irish Pub", subtitle: "Live API bootstrap", distance: "0.4 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "LIVE API", metadataLine: "Busy tonight", features: ["Nightlife"], vibeScore: 8, availability: "Busy", membershipRequired: false)
         let venues = [

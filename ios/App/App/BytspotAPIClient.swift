@@ -1539,11 +1539,16 @@ final class NativeTabContentStore: ObservableObject {
         Self.canPresentLocationScopedContent(origin: bestValueOrigin, current: location) ? snapshot.bestValueOptions : []
     }
 
+    func invalidateLocationScopedContent() {
+        bestValueOrigin = nil
+        snapshot = Self.removingLocationScopedContent(from: snapshot)
+    }
+
     func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         refreshGeneration += 1
         let generation = refreshGeneration
-        bestValueOrigin = nil
+        invalidateLocationScopedContent()
         isRefreshing = true
         defer { if generation == refreshGeneration { isRefreshing = false } }
 
@@ -1659,6 +1664,14 @@ final class NativeTabContentStore: ObservableObject {
             .map { $0 <= locationScopedContentOriginToleranceMiles } ?? false
     }
 
+    static func removingLocationScopedContent(from snapshot: NativeTabContentSnapshot) -> NativeTabContentSnapshot {
+        let cards = snapshot.discoverCards.filter {
+            !$0.id.hasPrefix("best-value-") && !$0.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
+        }
+        guard cards.count != snapshot.discoverCards.count || !snapshot.bestValueOptions.isEmpty else { return snapshot }
+        return NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: cards, events: snapshot.events, source: source(forVisibleDeck: cards, hasLiveInputs: false), lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage)
+    }
+
     nonisolated static func localValueOptions(_ options: [NativeLiveValueOption]) -> [NativeLiveValueOption] {
         let radiusMeters = localVenueRadiusMiles * 1_609.344
         return options.filter { option in
@@ -1745,6 +1758,7 @@ final class NativeTabContentStore: ObservableObject {
         let curatedIDs = Set((NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).map(\.id))
         let hasLiveCards = hasLiveInputs || cards.contains { card in
             card.badgeText.localizedCaseInsensitiveContains("LIVE")
+                || card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS")
                 || card.badgeText.localizedCaseInsensitiveContains("GOOGLE")
                 || card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
         }

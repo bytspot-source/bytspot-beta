@@ -188,6 +188,7 @@ struct BytspotNativeAppRoot: View {
                 }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in
+                tabContentStore.invalidateLocationScopedContent()
                 Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
             }
             .onChange(of: launchAtmosphere) { _ in

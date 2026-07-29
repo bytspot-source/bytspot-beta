@@ -578,8 +578,27 @@ final class BytspotTrustEngineTests: XCTestCase {
         let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
 
         XCTAssertTrue(snapshot.venues.isEmpty)
+        XCTAssertFalse(NativeVenueSummary.hasValidMapCoordinate(latitude: 0, longitude: 0))
+        XCTAssertFalse(NativeVenueSummary.hasValidMapCoordinate(latitude: .infinity, longitude: -122.3321))
+        XCTAssertFalse(NativeVenueSummary.hasValidMapCoordinate(latitude: 91, longitude: -122.3321))
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Remote Deck", mode: "Smart Parking", venues: snapshot.venues))
         XCTAssertEqual(NativeLocationAwareUIContent.mapFallback(for: location).mode, "Nearby")
+    }
+
+    func testMapFocusHandoffRejectsUnresolvedParkingCoordinates() {
+        let suiteName = "NativeMapFocusHandoffTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let parking = NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby")
+        let valid = NativeVenueSummary(id: "valid-deck", name: "Valid Deck", category: "parking", address: "1 First St", distance: "Nearby", rating: nil, latitude: 47.61, longitude: -122.33, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let unresolved = NativeVenueSummary(id: "unresolved-deck", name: "Unresolved Deck", category: "parking", address: "Check nearby", distance: "Nearby", rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+
+        NativeMapFocusHandoff.store(venue: valid, defaults: defaults)
+        XCTAssertTrue(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+        NativeMapFocusHandoff.store(venue: unresolved, defaults: defaults)
+        XCTAssertFalse(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+        XCTAssertNil(defaults.object(forKey: NativeMapFocusHandoff.latitudeKey))
+        XCTAssertNil(defaults.object(forKey: NativeMapFocusHandoff.longitudeKey))
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {

@@ -9374,7 +9374,7 @@ private enum NativeParkingQRCodeRenderer {
     }
 }
 
-private enum NativeMapFocusHandoff {
+enum NativeMapFocusHandoff {
     static let idKey = "bytspot_native_map_focus_id"
     static let titleKey = "bytspot_native_map_focus_title"
     static let subtitleKey = "bytspot_native_map_focus_subtitle"
@@ -9383,25 +9383,30 @@ private enum NativeMapFocusHandoff {
     static let kindKey = "bytspot_native_map_focus_kind"
     static let modeKey = "bytspot_native_map_focus_mode"
 
-    static func store(venue: NativeVenueSummary, modeOverride: String? = nil) {
+    static func store(venue: NativeVenueSummary, modeOverride: String? = nil, defaults: UserDefaults = .standard) {
+        guard venue.hasKnownCoordinates else { clear(defaults: defaults); return }
         let isParking = venue.discoverType == "parking" || venue.parking.totalAvailable > 0
-        UserDefaults.standard.set(venue.id, forKey: idKey)
-        UserDefaults.standard.set(venue.name, forKey: titleKey)
-        UserDefaults.standard.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
-        UserDefaults.standard.set(venue.latitude, forKey: latitudeKey)
-        UserDefaults.standard.set(venue.longitude, forKey: longitudeKey)
-        UserDefaults.standard.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "access", forKey: kindKey)
-        UserDefaults.standard.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
+        defaults.set(venue.id, forKey: idKey)
+        defaults.set(venue.name, forKey: titleKey)
+        defaults.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
+        defaults.set(venue.latitude, forKey: latitudeKey)
+        defaults.set(venue.longitude, forKey: longitudeKey)
+        defaults.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "access", forKey: kindKey)
+        defaults.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
     }
 
     static var hasPendingFocus: Bool {
-        let id = (UserDefaults.standard.string(forKey: idKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (UserDefaults.standard.string(forKey: titleKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        hasPendingFocus(in: .standard)
+    }
+
+    static func hasPendingFocus(in defaults: UserDefaults) -> Bool {
+        let id = (defaults.string(forKey: idKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (defaults.string(forKey: titleKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return !id.isEmpty || !title.isEmpty
     }
 
-    static func clear() {
-        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey].forEach { UserDefaults.standard.removeObject(forKey: $0) }
+    static func clear(defaults: UserDefaults = .standard) {
+        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey].forEach { defaults.removeObject(forKey: $0) }
     }
 }
 
@@ -9589,7 +9594,9 @@ private struct NativeParkingBookingSheet: View {
 
     private var secondaryActions: some View {
         HStack(spacing: 10) {
-            Button(action: openVenueOnNativeMap) { NativeCTA(title: "Navigate", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+            if venue.hasKnownCoordinates {
+                Button(action: openVenueOnNativeMap) { NativeCTA(title: "Navigate", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
+            }
             Button(action: { onOpenAccess?() }) { NativeCTA(title: "My Access", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
             Button(action: { dismiss() }) { NativeCTA(title: confirmed == nil ? "Cancel" : "Done", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }.buttonStyle(.plain)
         }
@@ -9663,6 +9670,7 @@ private struct NativeParkingBookingSheet: View {
     }
 
     private func openVenueOnNativeMap() {
+        guard venue.hasKnownCoordinates else { NativeMapFocusHandoff.clear(); return }
         nativeImpactLight()
         NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
         dismiss()
@@ -14249,6 +14257,17 @@ private struct NativeMapExploreView: View {
         let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty || !title.isEmpty else { return }
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: mapFocusLatitude, longitude: mapFocusLongitude) else {
+            NativeMapFocusHandoff.clear()
+            focusedHandoffPin = nil
+            selectedPin = nil
+            selectedMode = "Nearby"
+            routeFocusedPinID = nil
+            activeRoutePinID = nil
+            if let currentLocation = headingProvider.userLocation ?? locationStore.lastLocation { region.center = currentLocation.coordinate }
+            showFunctionSheet = false
+            return
+        }
         didConsumeExplicitMapLaunch = true
         didOpenMapContext = true
         let coordinate = CLLocationCoordinate2D(latitude: mapFocusLatitude, longitude: mapFocusLongitude)

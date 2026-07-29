@@ -337,6 +337,58 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.bestValueOptions.first?.valueScore, 88)
     }
 
+    @MainActor
+    func testLiveDiscoverCardsExpandBootstrapWithVenueAndEventRows() {
+        let apiCard = NativeDiscoverSummary(id: "api-fado", type: "nightlife", title: "Fado Irish Pub", subtitle: "Live API bootstrap", distance: "0.4 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "LIVE API", metadataLine: "Busy tonight", features: ["Nightlife"], vibeScore: 8, availability: "Busy", membershipRequired: false)
+        let venues = [
+            venue(name: "Fado Irish Pub", category: "bar", address: "Bootstrap duplicate"),
+            venue(name: "Tongue & Groove", category: "club", address: "Venue-only API row")
+        ]
+        let events = [NativeEventSummary(id: "midtown-tonight", title: "Midtown Tonight", venue: "Atlanta", time: "Tonight", price: "Free", emoji: "🎟️", imageUrl: nil, category: "community")]
+
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [apiCard], venues: venues, events: events)
+
+        XCTAssertEqual(cards.filter { $0.title == "Fado Irish Pub" }.count, 1)
+        XCTAssertTrue(cards.contains { $0.title == "Tongue & Groove" && $0.type == "nightlife" })
+        XCTAssertTrue(cards.contains { $0.title == "Midtown Tonight" && $0.type == "entertainment" })
+        XCTAssertEqual(cards.first?.title, "Fado Irish Pub")
+    }
+
+    @MainActor
+    func testLiveDiscoverCardsAddsNightlifeCompanionsForMusicEvents() {
+        let events = [NativeEventSummary(id: "steven-g", title: "Steven G", venue: "The Masquerade - Purgatory", time: "Tonight", price: "Paid", emoji: "🎶", imageUrl: nil, category: "concert")]
+
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], events: events)
+
+        XCTAssertTrue(cards.contains { $0.id == "event-steven-g" && $0.type == "entertainment" })
+        XCTAssertTrue(cards.contains { $0.id == "nightlife-event-steven-g" && $0.type == "nightlife" && $0.title.contains("Night out") })
+    }
+
+    @MainActor
+    func testLiveDiscoverCardsAddsCategoryCompanionsForApiVenues() {
+        let dining = venue(name: "South City Kitchen", category: "restaurant", address: "API dining row")
+        let shopping = venue(name: "Ponce City Market", category: "market", address: "API shopping row")
+        let parking = NativeVenueSummary(id: "generic-deck", name: "Generic API Deck", category: "venue", address: "API parking row", distance: "0.5 mi", rating: 4.3, latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: nil)
+
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [dining, shopping, parking])
+
+        XCTAssertTrue(cards.contains { $0.title == "Dinner plan: South City Kitchen" && $0.type == "dining" })
+        XCTAssertTrue(cards.contains { $0.title == "Shop stop: Ponce City Market" && $0.type == "shopping" })
+        XCTAssertTrue(cards.contains { $0.title == "Parking nearby: Generic API Deck" && $0.type == "parking" })
+    }
+
+    @MainActor
+    func testLiveDiscoverCardsGuaranteeUsableCategoryFeedsWhenApiIsSparse() {
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [])
+        let minimums = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
+
+        for (type, count) in minimums {
+            XCTAssertGreaterThanOrEqual(cards.filter { $0.type == type }.count, count, "\(type) should not open as an empty or thin Discover feed.")
+        }
+        XCTAssertTrue(cards.contains { $0.type == "dining" && $0.badgeText == "LIVE API" })
+        XCTAssertTrue(cards.contains { $0.type == "shopping" && $0.badgeText == "CURATED" })
+    }
+
     func testServiceHereNoSelectionRecommendsBestValueParking() {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(bestValueTitle: "Midtown Smart Parking", bestValueSummary: "$8 · score 88"))
 

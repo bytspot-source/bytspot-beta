@@ -1411,6 +1411,7 @@ struct NativeEventSummary: Identifiable, Equatable {
     let price: String
     let emoji: String
     let imageUrl: URL?
+    var category: String = "event"
 }
 
 struct NativeTabContentSnapshot: Equatable {
@@ -1445,8 +1446,16 @@ final class NativeTabContentStore: ObservableObject {
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
             if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
+                async let liveEvents = fetchEvents(client: client)
+                async let vendorServices = fetchVendorServices(client: client)
+                async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
                 let valueOptions = (try? await fetchBestValue(client: client, location: location)) ?? []
-                snapshot = Self.enrichedSnapshot(Self.locationAwareSnapshot(bootstrapSnapshot, location: location), valueOptions: valueOptions)
+                let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
+                let events = Self.mergeEvents((try? await liveEvents) ?? [], with: localized.events)
+                let services = (try? await vendorServices) ?? []
+                let places = (try? await placeDiscoveryCards) ?? []
+                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions)
+                snapshot = NativeTabContentSnapshot(venues: localized.venues, discoverCards: cards, events: events, source: valueOptions.isEmpty && services.isEmpty && places.isEmpty ? localized.source : .mixed, lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
                 return
             }
 
@@ -1460,8 +1469,7 @@ final class NativeTabContentStore: ObservableObject {
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? NativeTabContentSnapshot.fallback.events
             let valueOptions = (try? await bestValue) ?? []
-            let baseCards = Self.mergePlaceCards(livePlaceCards, into: Self.discoverCards(from: liveVenues, services: liveServices))
-            let cards = Self.mergeBestValueCards(valueOptions, into: baseCards)
+            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions)
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
                 discoverCards: cards,
@@ -1496,7 +1504,7 @@ final class NativeTabContentStore: ObservableObject {
         let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty ? .fallback : .live)
         return NativeTabContentSnapshot(
             venues: venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues,
-            discoverCards: cards.isEmpty ? Self.discoverCards(from: venues) : Self.mergeCanonicalDiscoverCards(into: cards),
+            discoverCards: cards,
             events: events.isEmpty ? NativeTabContentSnapshot.fallback.events : events,
             source: source,
             lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
@@ -1523,7 +1531,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.eventsListRoute, method: "POST", input: ["city": "Atlanta", "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": 8])
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.eventsListRoute, input: ["city": "Atlanta", "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": 20])
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
         return rows.enumerated().compactMap(Self.event(from:))
     }
@@ -1560,7 +1568,86 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
-        let venueCards = venues.prefix(8).map { venue in
+        let venueCards = venueDiscoverCards(from: venues)
+        let serviceCards = mergeCanonicalDiscoverCards(into: services)
+        let combined = Array(serviceCards + venueCards)
+        return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
+    }
+
+    static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = []) -> [NativeDiscoverSummary] {
+        var merged: [NativeDiscoverSummary] = []
+        appendUnique(apiCards, to: &merged)
+        appendUnique(venueDiscoverCards(from: venues), to: &merged)
+        appendUnique(categoryCompanionCards(from: venues), to: &merged)
+        appendUnique(eventDiscoverCards(from: events), to: &merged)
+        appendUnique(nightlifeEventDiscoverCards(from: events), to: &merged)
+        appendUnique(services, to: &merged)
+        appendUnique(placeCards, to: &merged)
+        appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged)
+        let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
+        return mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
+    }
+
+    private static let minimumCategoryFeedCounts = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
+
+    private static func ensureCategoryCoverage(_ cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
+        var covered = cards
+        for type in ["dining", "nightlife", "entertainment", "shopping", "parking", "coffee", "fitness", "boutique_apartment", "mobility"] {
+            let target = minimumCategoryFeedCounts[type] ?? 2
+            var categoryCards = covered.filter { $0.type == type }
+            if categoryCards.isEmpty, let starter = categoryStarterCard(type: type, index: 1) {
+                appendUnique([starter], to: &covered)
+                categoryCards = [starter]
+            }
+            while categoryCards.count < target, let template = categoryCards.first {
+                let next = categoryCoverageCard(from: template, type: type, index: categoryCards.count + 1)
+                appendUnique([next], to: &covered)
+                categoryCards.append(next)
+            }
+        }
+        return covered
+    }
+
+    private static func categoryCoverageCard(from template: NativeDiscoverSummary, type: String, index: Int) -> NativeDiscoverSummary {
+        let label = label(for: type)
+        let prefixes = ["Best", "Nearby", "For you", "Tonight", "Popular", "Local", "Worth it", "Quick pick"]
+        let prefix = prefixes[(index - 1) % prefixes.count]
+        let live = template.badgeText.localizedCaseInsensitiveContains("LIVE") || template.metadataLine.localizedCaseInsensitiveContains("API")
+        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired)
+    }
+
+    private static func categoryStarterCard(type: String, index: Int) -> NativeDiscoverSummary? {
+        if let existing = (NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).first(where: { $0.type == type }) {
+            return existing
+        }
+        let label = label(for: type)
+        let copy: (title: String, subtitle: String, cta: String) = {
+            switch type {
+            case "shopping": return ("Shopping Around You", "Markets, gifts, fashion, boutiques, and local retail picks.", "Explore Shops")
+            case "mobility": return ("Mobility Options Nearby", "Transfers, rides, charters, rentals, and group movement options.", "Request")
+            case "boutique_apartment": return ("Boutique Stay Nearby", "Short stays, retreats, resorts, and unique lodging options.", "View Stay")
+            default: return ("\(label) Nearby", "Starter picks while live inventory grows around you.", "Explore")
+            }
+        }()
+        return NativeDiscoverSummary(id: "starter-\(type)-\(index)", type: type, title: copy.title, subtitle: copy.subtitle, distance: "Nearby", rating: "Starter", icon: icon(for: type), verified: false, entryType: "free", cta: copy.cta, imageUrl: nil, categoryLabel: label, badgeText: "CURATED", metadataLine: "Starter feed", features: [label, "Starter pick", "More coming"], vibeScore: 6, availability: "Available", membershipRequired: false)
+    }
+
+    private static func appendUnique(_ cards: [NativeDiscoverSummary], to merged: inout [NativeDiscoverSummary]) {
+        for card in cards where !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) {
+            merged.append(card)
+        }
+    }
+
+    private static func mergeEvents(_ primary: [NativeEventSummary], with fallback: [NativeEventSummary]) -> [NativeEventSummary] {
+        var merged = primary
+        for event in fallback where !merged.contains(where: { $0.id == event.id || $0.title.caseInsensitiveCompare(event.title) == .orderedSame }) {
+            merged.append(event)
+        }
+        return merged
+    }
+
+    private static func venueDiscoverCards(from venues: [NativeVenueSummary]) -> [NativeDiscoverSummary] {
+        venues.prefix(24).map { venue in
             let type = venue.discoverType
             let spots = venue.parking.totalAvailable
             let meta = spots > 0 ? "\(venue.parking.priceLabel) • \(spots) spots" : venue.parking.priceLabel
@@ -1586,9 +1673,48 @@ final class NativeTabContentStore: ObservableObject {
                 membershipRequired: false
             )
         }
-        let serviceCards = mergeCanonicalDiscoverCards(into: services)
-        let combined = Array(serviceCards + venueCards)
-        return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
+    }
+
+    private static func categoryCompanionCards(from venues: [NativeVenueSummary]) -> [NativeDiscoverSummary] {
+        venues.prefix(24).compactMap { venue in
+            let type = venue.discoverType
+            let prefix: String
+            let cta: String
+            switch type {
+            case "dining": prefix = "Dinner plan"; cta = "Plan Dining"
+            case "nightlife": prefix = "Night out"; cta = "Plan Night"
+            case "shopping": prefix = "Shop stop"; cta = "Explore Shops"
+            case "parking": prefix = "Parking option"; cta = "Route"
+            case "coffee": prefix = "Coffee stop"; cta = "Open details"
+            case "fitness": prefix = "Fitness stop"; cta = "Open details"
+            case "boutique_apartment": prefix = "Stay option"; cta = "View Stay"
+            case "mobility": prefix = "Mobility option"; cta = "Request"
+            case "entertainment": prefix = "Event-side pick"; cta = "View Event"
+            default:
+                guard venue.parking.totalAvailable > 0 else { return nil }
+                prefix = "Parking nearby"; cta = "Route"
+            }
+            let cardType = type == "venue" ? "parking" : type
+            let meta = venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) parking spots nearby" : (venue.crowd?.label ?? "Live API venue")
+            return NativeDiscoverSummary(id: "companion-\(cardType)-\(venue.id)", type: cardType, title: "\(prefix): \(venue.name)", subtitle: venue.address.isEmpty ? "Live API venue" : venue.address, distance: venue.distance, rating: venue.rating.map { String(format: "%.1f", $0) } ?? "Live", icon: icon(for: cardType), verified: venue.verifiedPatchId != nil, entryType: cardType == "parking" ? "paid" : "free", cta: cta, imageUrl: venue.imageUrl, categoryLabel: label(for: cardType), badgeText: "LIVE API", metadataLine: meta, features: [label(for: cardType), meta, "API powered"], vibeScore: max(5, min(10, (venue.crowd?.level ?? 2) * 2 + 2)), availability: venue.crowd?.label ?? "Open", membershipRequired: false)
+        }
+    }
+
+    private static func eventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
+        events.prefix(20).map { event in
+            NativeDiscoverSummary(id: "event-\(event.id)", type: "entertainment", title: event.title, subtitle: event.venue, distance: event.time, rating: "Live", icon: "ticket.fill", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Events", event.category.capitalized, event.venue, event.emoji], vibeScore: 8, availability: event.time, membershipRequired: false)
+        }
+    }
+
+    private static func nightlifeEventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
+        events.prefix(20).filter(isNightlifeAdjacentEvent).map { event in
+            NativeDiscoverSummary(id: "nightlife-event-\(event.id)", type: "nightlife", title: "Night out: \(event.title)", subtitle: event.venue, distance: event.time, rating: "Live", icon: "music.note", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Nightlife", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Live music", event.category.capitalized, event.venue], vibeScore: 9, availability: event.time, membershipRequired: false)
+        }
+    }
+
+    private static func isNightlifeAdjacentEvent(_ event: NativeEventSummary) -> Bool {
+        let text = [event.title, event.venue, event.category].joined(separator: " ").lowercased()
+        return ["concert", "music", "live", "club", "lounge", "bar", "night", "dj", "comedy", "karaoke", "masquerade", "vinyl", "theatre", "theater", "purgatory", "hell", "buckhead theatre"].contains { text.contains($0) }
     }
 
     private static func enrichedSnapshot(_ snapshot: NativeTabContentSnapshot, valueOptions: [NativeLiveValueOption]) -> NativeTabContentSnapshot {
@@ -1729,7 +1855,8 @@ final class NativeTabContentStore: ObservableObject {
             time: string(item, ["time", "startsAt"]) ?? "Tonight",
             price: string(item, ["price", "priceLabel"]) ?? "Free",
             emoji: string(item, ["emoji"]) ?? "🎭",
-            imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"])
+            imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
+            category: string(item, ["category", "type", "classification", "genre"]) ?? "event"
         )
     }
 

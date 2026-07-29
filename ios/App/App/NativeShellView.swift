@@ -11337,7 +11337,7 @@ private struct NativeDiscoverView: View {
         }
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
-        .task { applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .task { await refreshDiscoverFeedOnOpen() }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
@@ -11371,6 +11371,7 @@ private struct NativeDiscoverView: View {
     private var filterSystem: some View {
         VStack(alignment: .leading, spacing: 8) {
             discoverHeader
+            liveSourceStrip
             if let discoverStatusMessage { discoverStatusBanner(discoverStatusMessage) }
             categoryRail
             accessTierRail
@@ -11378,6 +11379,30 @@ private struct NativeDiscoverView: View {
         }
         .padding(.top, 4)
         .accessibilityIdentifier("native-discover-filter-system")
+    }
+
+    private var liveSourceStrip: some View {
+        let snapshot = tabContentStore.snapshot
+        let label = tabContentStore.isRefreshing ? "REFRESHING" : snapshot.statusLabel
+        let color: Color = snapshot.source == .fallback ? NativeTheme.textSecondary : NativeTheme.emerald
+        return HStack(spacing: 8) {
+            Image(systemName: snapshot.source == .fallback ? "sparkles" : "antenna.radiowaves.left.and.right")
+                .font(.system(size: 11, weight: .black))
+            Text(label)
+                .font(.system(size: 10, weight: .black))
+                .tracking(0.8)
+            Text("\(snapshot.discoverCards.count) cards · \(snapshot.venues.count) venues")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(NativeTheme.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(color.opacity(0.10))
+        .overlay(Capsule().stroke(color.opacity(0.22), lineWidth: 1))
+        .clipShape(Capsule())
+        .accessibilityIdentifier("native-discover-live-source")
     }
 
     private var discoverHeader: some View {
@@ -11461,7 +11486,7 @@ private struct NativeDiscoverView: View {
 
     private var discoverDeck: some View {
         VStack(spacing: 24) {
-            if showIntroCard {
+            if showIntroCard && tabContentStore.snapshot.source == .fallback {
                 NativeDiscoverIntroCard(
                     onDismiss: { withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { showIntroCard = false } },
                     openDiscover: { openNativeTab(.discover) }
@@ -11485,6 +11510,17 @@ private struct NativeDiscoverView: View {
             }
         }
         .accessibilityIdentifier("native-discover-card-deck")
+    }
+
+    private func refreshDiscoverFeedOnOpen() async {
+        applyFilterHandoffIfRequested()
+        applyShellFilterHandoffIfRequested()
+        applyParkingBookingPreviewIfRequested()
+        await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
+        applyFilterHandoffIfRequested()
+        applyShellFilterHandoffIfRequested()
+        applyParkingBookingPreviewIfRequested()
+        if tabContentStore.snapshot.source != .fallback { showIntroCard = false }
     }
 
     private var filteredCards: [DiscoverCardSpec] {

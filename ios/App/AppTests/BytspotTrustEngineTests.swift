@@ -552,6 +552,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         let mapFallback = NativeLocationAwareUIContent.mapFallback(for: location)
         XCTAssertEqual(mapFallback.mode, "Nearby")
         XCTAssertFalse(mapFallback.destination.localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: mapFallback.destination, mode: mapFallback.mode, venues: snapshot.venues))
+        XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: unresolved.name, mode: "Smart Parking", venues: snapshot.venues))
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {

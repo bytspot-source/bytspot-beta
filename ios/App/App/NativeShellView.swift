@@ -6779,6 +6779,17 @@ enum NativeLocationAwareUIContent {
     static func mapFallback(for location: NativeLocationCoordinate) -> (destination: String, mode: String) {
         location.isFallback ? (NativeLocationCoordinate.midtown.displayName, "Route") : (location.displayName, "Nearby")
     }
+
+    static func mapHandoffVenue(destination: String, mode: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        let lower = destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return nil }
+        let matched = venues.first { venue in
+            let name = venue.name.lowercased()
+            return name.contains(lower) || lower.contains(name)
+        }
+        guard mode == "Smart Parking" else { return matched }
+        return venues.first(where: { $0.discoverType == "parking" }) ?? matched
+    }
 }
 
 enum NativeSearchRouter {
@@ -14213,15 +14224,16 @@ private struct NativeMapExploreView: View {
         didOpenMapContext = true
         let mode = onboardingMapMode.isEmpty ? "Route" : onboardingMapMode
         NativeOnboardingMapHandoff.clear()
-        let lower = destination.lowercased()
-        let resolved = pins.first { pin in
-            let title = pin.title.lowercased()
-            return title.contains(lower) || lower.contains(title)
-        } ?? NativeMapPin.onboardingFallback(title: destination)
+        let resolvedVenue = NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues)
+        let resolved = resolvedVenue.flatMap { venue in pins.first(where: { $0.id == venue.id }) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             selectedMode = mode
-            selectedPin = mode == "Smart Parking" ? pins.first(where: { $0.kind == .parking }) ?? resolved : resolved
-            if let coordinate = selectedPin?.coordinate { region.center = coordinate }
+            selectedPin = resolved
+            if let coordinate = resolved?.coordinate {
+                region.center = coordinate
+            } else if let currentLocation = headingProvider.userLocation ?? locationStore.lastLocation {
+                region.center = currentLocation.coordinate
+            }
             showFunctionSheet = false
         }
     }
@@ -17925,10 +17937,6 @@ private struct NativeMapPin: Identifiable {
         NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking, crowdLevel: 1),
         NativeMapPin(id: "access-arts", title: "Arts Center Access", subtitle: "Patch-ready entry and concierge help", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: NativeTheme.pink, kind: .access, crowdLevel: 3)
     ]
-
-    static func onboardingFallback(title: String) -> NativeMapPin {
-        NativeMapPin(id: "launch-" + title.lowercased().replacingOccurrences(of: " ", with: "-"), title: title, subtitle: "Recommended from your quiz", distance: "Nearby", coordinate: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), color: NativeTheme.cyan, kind: .partner, crowdLevel: 1)
-    }
 
     init(id: String, title: String, subtitle: String, distance: String, coordinate: CLLocationCoordinate2D, color: Color, kind: NativeMapPinKind, crowdLevel: Int?) {
         self.id = id; self.title = title; self.subtitle = subtitle; self.distance = distance; self.coordinate = coordinate; self.color = color; self.kind = kind; self.crowdLevel = crowdLevel

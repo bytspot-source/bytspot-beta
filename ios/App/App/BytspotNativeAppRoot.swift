@@ -230,7 +230,7 @@ struct BytspotNativeAppRoot: View {
 
 enum NativeAuthLaunchContract {
     static let reactSources = ["SplashScreen.tsx", "LandingPage.tsx", "AuthenticationFlow.tsx", "AppleSignInButton.tsx", "GoogleSignInButton.tsx", "PasswordRecoveryScreen.tsx", "App.tsx onboarding quiz"]
-    static let appFlow = ["splash", "landing", "vibe", "walk", "crew", "atlanta", "main"]
+    static let appFlow = ["splash", "landing", "vibe", "walk", "crew", "recommendations", "main"]
     static let splashDurationSeconds = 1.8
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
@@ -243,19 +243,19 @@ enum NativeAuthLaunchContract {
     static let walkOptions = ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"]
     static let crewQuestion = "Who's coming with you?"
     static let crewOptions = ["🙋 Just me", "💕 Date-night ready", "👥 A group", "💼 Work or client"]
-    static let atlantaHeadline = "Recommended for you"
-    static let atlantaSubtitle = "Based on your vibe, location, and local conditions"
+    static let atlantaHeadline = "Your Bytspot picks"
+    static let atlantaSubtitle = "Based on your vibe, location, and what is live now"
     static let atlantaPicks = ["Midtown Smart Parking", "Colony Square", "Arts Center Access"]
     static let legacyAtlantaPickNames = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
     static let legacyAtlantaPickNameTokens = legacyAtlantaPickNames.map(normalizedAtlantaPickName)
     static let authRoutes = NativeAuthRouteContract.routes
     static let authModes = ["signup", "login"]
-    static let signupPasswordMinimum = 8
+    static let signupPasswordMinimum = 6
     static let reactSignupPasswordMinimum = 6
     static let emailValidationMessage = "Enter a valid email address."
-    static let signupPasswordValidationMessage = "Use at least 8 characters."
-    static let nameValidationMessage = "Enter the name reviewers will see on the new account."
-    static let signupSubmitValidationMessage = "Please enter your name, a valid email address, and a password with at least 8 characters."
+    static let signupPasswordValidationMessage = "Use at least 6 characters."
+    static let nameValidationMessage = "Enter your full name."
+    static let signupSubmitValidationMessage = "Enter your name, a valid email address, and a password with at least 6 characters."
     static let loginSubmitValidationMessage = "Please enter a valid email address and password."
 
     static var requestedLaunchStage: NativeLaunchStage? {
@@ -1087,7 +1087,7 @@ struct NativeAuthenticationScreen: View {
                     NativeLaunchSecureField(title: "Password", text: $password, focus: $focusedField, field: .password, submitLabel: .go, onSubmit: submitEmailAuth)
                     if shouldShowPasswordValidation { validationCopy(NativeAuthLaunchContract.signupPasswordValidationMessage) }
                     if currentMode == .login { Button("Forgot password?") { showRecovery = true }.font(.system(size: 13, weight: .bold)).foregroundColor(theme.primary).frame(maxWidth: .infinity, alignment: .trailing).accessibilityHint("Opens password recovery.") }
-                    if !error.isEmpty { Text(error).font(.system(size: 13, weight: .bold)).foregroundColor(.red.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.red.opacity(0.16)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)).accessibilityLabel("Authentication error. \(error)") }
+                    if !error.isEmpty { Text(error).font(.system(size: 13, weight: .bold)).foregroundColor(.red.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.red.opacity(0.16)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)).accessibilityLabel("Account error. \(error)") }
                     Button(action: submitEmailAuth) { NativeLaunchCTA(title: loading ? "Connecting…" : currentMode == .signup ? "Create Account" : "Log In", color: theme.ctaGradient, foreground: .white, height: sizing.ctaHeight) }.buttonStyle(.plain).disabled(!canSubmit || loading).opacity(canSubmit ? 1 : 0.45).accessibilityHint(canSubmit ? "Submits the email authentication form." : "Complete the required fields to continue.")
                 }
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted).multilineTextAlignment(.center)
@@ -1110,7 +1110,7 @@ struct NativeAuthenticationScreen: View {
         .onChange(of: authCoordinator.status) { status in
             if case .signedIn = status { completeAuthIfReady() }
             else if case .failed(let message) = status { error = message }
-            else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) is not configured for native production on this build. Use email sign-in or try again after provider setup." }
+            else if case .requiresLegacyFallback(let provider) = status { error = "\(provider.title) isn't available right now. Use email or try again later." }
         }
     }
 
@@ -1130,7 +1130,24 @@ struct NativeAuthenticationScreen: View {
         guard canSubmit else { touchedFields.formUnion([.name, .email, .password]); error = NativeAuthInputValidator.submitValidationMessage(mode: currentMode); focusedField = firstInvalidField; nativeAuthImpactLight(); return }
         error = ""; focusedField = nil; nativeAuthImpactLight()
         loading = true; let selectedMode = currentMode
-        Task { do { let response = selectedMode == .signup ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode) : try await api.login(email: email, password: password); await MainActor.run { if let token = response.token, !token.isEmpty { sessionStore.updateToken(token); completeAuthIfReady() } else { error = "Something went wrong. Please try again." }; loading = false } } catch { let message = error.localizedDescription.isEmpty ? "Connection error. Please try again." : error.localizedDescription; await MainActor.run { self.error = message; loading = false } } }
+        Task {
+            do {
+                let response = selectedMode == .signup
+                    ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode)
+                    : try await api.login(email: email, password: password)
+                await MainActor.run {
+                    if let token = response.token, !token.isEmpty, sessionStore.updateToken(token) {
+                        completeAuthIfReady()
+                    } else {
+                        error = "We couldn't save your sign-in. Please try again."
+                    }
+                    loading = false
+                }
+            } catch {
+                let message = NativeAuthDataAPI.userMessage(for: error, mode: selectedMode)
+                await MainActor.run { self.error = message; loading = false }
+            }
+        }
     }
     private var firstInvalidField: NativeAuthField { currentMode == .signup && !NativeAuthInputValidator.nameIsValid(name, mode: currentMode) ? .name : !emailValid ? .email : .password }
 }
@@ -1147,7 +1164,7 @@ private struct NativeLaunchSecureField: View {
 
 private struct NativeSocialAuthButton: View {
     let title: String; let icon: String; let loading: Bool; let action: () -> Void
-    var body: some View { Button(action: action) { HStack(spacing: 10) { Image(systemName: icon).font(.system(size: 18, weight: .black)).accessibilityHidden(true); Text(loading ? "Connecting…" : title).font(.system(size: 17, weight: .black)) }.foregroundColor(.black).frame(maxWidth: .infinity).frame(minHeight: 48).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)).shadow(color: Color.black.opacity(0.24), radius: 12, x: 0, y: 8) }.buttonStyle(.plain).disabled(loading).accessibilityLabel(title).accessibilityValue(loading ? "Connecting" : "Ready").accessibilityHint("Uses the native authentication adapter when provider setup is available. Email sign in remains available.") }
+    var body: some View { Button(action: action) { HStack(spacing: 10) { Image(systemName: icon).font(.system(size: 18, weight: .black)).accessibilityHidden(true); Text(loading ? "Connecting…" : title).font(.system(size: 17, weight: .black)) }.foregroundColor(.black).frame(maxWidth: .infinity).frame(minHeight: 48).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)).shadow(color: Color.black.opacity(0.24), radius: 12, x: 0, y: 8) }.buttonStyle(.plain).disabled(loading).accessibilityLabel(title).accessibilityValue(loading ? "Connecting" : "Ready").accessibilityHint("Sign in with this account. Email sign in is also available.") }
 }
 
 private extension View {

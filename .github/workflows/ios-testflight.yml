@@ -134,6 +134,7 @@ jobs:
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "Installed profile UUID: $UUID"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "PROVISIONING_PROFILE_PATH=$PP_PATH" >> $GITHUB_ENV
 
       - name: Install App Clip provisioning profile
         env:
@@ -164,6 +165,14 @@ jobs:
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "Installed App Clip profile UUID: $UUID"
           echo "APP_CLIP_PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "APP_CLIP_PROVISIONING_PROFILE_PATH=$PP_PATH" >> $GITHUB_ENV
+
+      - name: Validate production signing assets
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROVISIONING_PROFILE_PATH: ${{ env.PROVISIONING_PROFILE_PATH }}
+          APP_CLIP_PROVISIONING_PROFILE_PATH: ${{ env.APP_CLIP_PROVISIONING_PROFILE_PATH }}
+        run: python3 scripts/ci/validate_ios_signing_assets.py
 
       # ── 7. Build + Upload to TestFlight ─────────────────────────
       - name: Fastlane → TestFlight

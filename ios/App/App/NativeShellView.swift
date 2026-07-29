@@ -7,7 +7,7 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
-    case home, discover, map, concierge
+    case home, discover, map, concierge, profile
 
     var id: String { rawValue }
     var title: String {
@@ -16,6 +16,7 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
         case .discover: return "Discover"
         case .map: return "Map"
         case .concierge: return "Concierge"
+        case .profile: return "Profile"
         }
     }
     var icon: String {
@@ -24,6 +25,7 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
         case .discover: return "safari.fill"
         case .map: return "map.fill"
         case .concierge: return "sparkles"
+        case .profile: return "person.crop.circle.fill"
         }
     }
 }
@@ -297,6 +299,8 @@ struct BytspotNativeShellView: View {
                             .environmentObject(pairingStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
+                    case .profile:
+                        NativeProfileTabView(initialPanel: pendingProfilePanel, consumeInitialPanel: { pendingProfilePanel = nil }, activeTier: activeTier)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -570,6 +574,11 @@ struct BytspotNativeShellView: View {
 
     private func openNativeProfile(panel: NativeProfilePanel?) {
         nativeImpactLight()
+        guard let panel else {
+            pendingProfilePanel = nil
+            selectNativeTab(.profile)
+            return
+        }
         pendingProfilePanel = panel
         if contextualDestination == .profile { contextualDestination = nil }
         DispatchQueue.main.async {
@@ -663,6 +672,23 @@ private struct BytspotNativeBottomTabBar: View {
     }
 }
 
+private struct NativeProfileTabView: View {
+    let initialPanel: NativeProfilePanel?
+    let consumeInitialPanel: () -> Void
+    let activeTier: BytspotTier
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            NativeProfileAccountView(initialPanel: initialPanel, consumeInitialPanel: consumeInitialPanel, activeTier: activeTier)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 112)
+        }
+        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .accessibilityIdentifier("native-profile-tab")
+    }
+}
+
 private struct NativeContextualDestinationView: View {
     let destination: NativeContextualDestination
     let initialProfilePanel: NativeProfilePanel?
@@ -723,7 +749,7 @@ private struct NativeContextualDestinationView: View {
                         NativeRow(title: "Open Account Center", subtitle: "Manage access, reservations, rewards, and settings in Bytspot.", icon: "person.crop.circle.fill") {
                             openNativeProfilePanel(destination == .accessWallet ? .access : nil)
                         }
-                        NativeRow(title: "Back to four-tab shell", subtitle: "Home · Discover · Map · Concierge", icon: "rectangle.grid.2x2.fill") {
+                        NativeRow(title: "Back to app tabs", subtitle: "Home · Discover · Map · Concierge · Profile", icon: "rectangle.grid.2x2.fill") {
                             dismiss()
                         }
                     }
@@ -11338,6 +11364,10 @@ private struct NativeDiscoverView: View {
         .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in
+            guard !locationStore.isUsingFallback else { return }
+            Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
+        }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = Group {
@@ -14323,6 +14353,8 @@ private struct NativeMapExploreView: View {
         guard let action = pendingServiceHereAction else { return }
         pendingServiceHereAction = nil
         switch action {
+        case .choosePlace:
+            break
         case .reserveParking:
             serviceHereParkingPin.map(openParkingService) ?? openNativeTab(.discover)
         case .bookVenue:
@@ -15529,6 +15561,7 @@ private struct NativeMapVisualMarker: Identifiable {
 enum NativeServiceHerePinKind: Equatable { case partner, parking, access }
 
 enum NativeServiceHereActionKind: String, CaseIterable, Equatable, Identifiable {
+    case choosePlace
     case reserveParking
     case bookVenue
     case valet
@@ -15575,24 +15608,26 @@ struct NativeServiceHerePlan: Equatable {
 
 enum NativeServiceHerePlanner {
     static let sheetTitle = "Service Here"
-    static let bestMoveEyebrow = "BEST MOVE RIGHT NOW"
+    static let bestMoveEyebrow = "RECOMMENDED"
 
     static func plan(context: NativeServiceHereContext) -> NativeServiceHerePlan {
-        let locationTitle = context.selectedTitle ?? context.partnerTitle ?? context.parkingTitle ?? "your current area"
+        guard let locationTitle = context.selectedTitle, context.selectedKind != nil else {
+            let choose = NativeServiceHereOption(action: .choosePlace, title: "Choose a place", subtitle: "Tap a place on the map to see directions, parking, booking, and check-in options.", systemImage: "mappin.and.ellipse", badge: "MAP")
+            return NativeServiceHerePlan(eyebrow: bestMoveEyebrow, title: sheetTitle, subtitle: "Select a place on the map first.", bestMove: choose, quickActions: [])
+        }
         let bestMove = recommendedOption(context: context)
         var actions: [NativeServiceHereOption] = []
-        append(bestMove, to: &actions)
-        append(parkingOption(context: context), to: &actions)
-        append(bookOption(context: context), to: &actions)
-        if routeTargetTitle(context: context) != nil { append(routeOption(context: context), to: &actions) }
-        append(valetOption(context: context), to: &actions)
-        append(accessOption(context: context), to: &actions)
+        append(routeOption(context: context), unless: bestMove, to: &actions)
+        if context.selectedKind != .parking { append(parkingOption(context: context), unless: bestMove, to: &actions) }
+        if context.selectedKind == .partner || context.selectedKind == .access {
+            append(bookOption(context: context), unless: bestMove, to: &actions)
+            append(accessOption(context: context), unless: bestMove, to: &actions)
+        }
         append(conciergeOption(context: context), to: &actions)
-        append(seeAllOption(context: context), to: &actions)
         return NativeServiceHerePlan(
             eyebrow: bestMoveEyebrow,
             title: sheetTitle,
-            subtitle: "Turn \(locationTitle) into parking, booking, valet, access, or concierge help.",
+            subtitle: "What would you like to do at \(locationTitle)?",
             bestMove: bestMove,
             quickActions: actions
         )
@@ -15600,17 +15635,18 @@ enum NativeServiceHerePlanner {
 
     private static func recommendedOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
         if context.selectedKind == .parking { return parkingOption(context: context, titleOverride: "Reserve this parking") }
-        if context.isWithinVerifiedZone && (context.selectedKind == .access || context.selectedKind == .partner) { return accessOption(context: context, titleOverride: "Tap / Scan here") }
-        if context.selectedKind == .partner || context.selectedKind == .access { return bookOption(context: context, titleOverride: "Book at this venue") }
-        if context.bestValueTitle != nil { return parkingOption(context: context, titleOverride: "Best value nearby") }
-        if context.parkingTitle != nil { return parkingOption(context: context) }
-        if context.partnerTitle != nil { return bookOption(context: context) }
-        return conciergeOption(context: context, titleOverride: "Ask Concierge here")
+        if context.isWithinVerifiedZone && (context.selectedKind == .access || context.selectedKind == .partner) { return accessOption(context: context, titleOverride: "Check in here") }
+        return routeOption(context: context)
     }
 
     private static func append(_ option: NativeServiceHereOption, to actions: inout [NativeServiceHereOption]) {
         guard !actions.contains(where: { $0.action == option.action }) else { return }
         actions.append(option)
+    }
+
+    private static func append(_ option: NativeServiceHereOption, unless bestMove: NativeServiceHereOption, to actions: inout [NativeServiceHereOption]) {
+        guard option.action != bestMove.action else { return }
+        append(option, to: &actions)
     }
 
     private static func parkingOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
@@ -15622,18 +15658,18 @@ enum NativeServiceHerePlanner {
         if context.selectedKind == .parking {
             detail = selectedParkingDetail.isEmpty ? nearbyParkingDetail : selectedParkingDetail
         } else if let bestValueTitle = context.bestValueTitle {
-            detail = "\(bestValueTitle) · \(context.bestValueSummary ?? "ranked by live value")"
+            detail = "Best parking nearby: \(bestValueTitle)"
         } else {
             detail = nearbyParkingDetail
         }
-        return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Find the closest reserve-ready parking." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
+        return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Find nearby parking you can reserve." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
     }
 
     private static func bookOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
-        let title = titleOverride ?? "Book at a venue"
+        let title = titleOverride ?? "View and book"
         let venue = context.selectedKind == .partner || context.selectedKind == .access ? context.selectedTitle : context.partnerTitle
-        let subtitle = [venue, context.partnerSubtitle].compactMap { $0 }.joined(separator: " · ")
-        return NativeServiceHereOption(action: .bookVenue, title: title, subtitle: subtitle.isEmpty ? "Reserve, view passes, or open venue details." : subtitle, systemImage: "calendar.badge.plus", badge: "BOOK")
+        let subtitle = venue.map { "View details and booking options for \($0)." } ?? "View details and booking options."
+        return NativeServiceHereOption(action: .bookVenue, title: title, subtitle: subtitle, systemImage: "calendar.badge.plus", badge: "BOOK")
     }
 
     private static func valetOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
@@ -15641,18 +15677,18 @@ enum NativeServiceHerePlanner {
     }
 
     private static func conciergeOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
-        NativeServiceHereOption(action: .concierge, title: titleOverride ?? "Ask Concierge", subtitle: context.isPremium ? "Priority help with parking, food, tickets, and routes." : "Get assisted routing, service search, and local help.", systemImage: "sparkles", badge: context.isPremium ? "PRIORITY" : "HELP")
+        NativeServiceHereOption(action: .concierge, title: titleOverride ?? "Get help", subtitle: "Ask about this place, parking, or your arrival.", systemImage: "sparkles", badge: "HELP")
     }
 
     private static func accessOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
-        let title = titleOverride ?? "Access here"
-        let subtitle = context.isWithinVerifiedZone ? "Verified zone ready · QR, NFC, and App Clip handoff." : "Move closer to a verified tap zone to unlock scan."
-        return NativeServiceHereOption(action: .accessScan, title: title, subtitle: subtitle, systemImage: "qrcode.viewfinder", badge: context.isWithinVerifiedZone ? "READY" : "NEARBY")
+        let title = titleOverride ?? "Check in"
+        let subtitle = context.isWithinVerifiedZone ? "You're close enough to check in." : "Get closer to this place to check in."
+        return NativeServiceHereOption(action: .accessScan, title: title, subtitle: subtitle, systemImage: "checkmark.circle.fill", badge: context.isWithinVerifiedZone ? "HERE" : "NEARBY")
     }
 
     private static func routeOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
         let target = routeTargetTitle(context: context) ?? "this spot"
-        return NativeServiceHereOption(action: .route, title: "Route here", subtitle: "Start turn-by-turn guidance to \(target).", systemImage: "arrow.triangle.turn.up.right.diamond.fill", badge: "ROUTE")
+        return NativeServiceHereOption(action: .route, title: "Get directions", subtitle: "Open directions to \(target).", systemImage: "arrow.triangle.turn.up.right.diamond.fill", badge: "ROUTE")
     }
 
     private static func routeTargetTitle(context: NativeServiceHereContext) -> String? {
@@ -15673,13 +15709,15 @@ private struct NativeServiceHereSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 bestMoveCard
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Quick actions")
-                        .font(.system(size: 11, weight: .black, design: .monospaced))
-                        .tracking(1.2)
-                        .foregroundColor(NativeTheme.textSecondary)
-                    ForEach(plan.quickActions) { option in
-                        NativeServiceHereOptionRow(option: option) { onSelect(option.action) }
+                if !plan.quickActions.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("More options")
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .tracking(1.2)
+                            .foregroundColor(NativeTheme.textSecondary)
+                        ForEach(plan.quickActions) { option in
+                            NativeServiceHereOptionRow(option: option) { onSelect(option.action) }
+                        }
                     }
                 }
             }
@@ -15790,7 +15828,7 @@ private struct NativeServiceHereOptionRow: View {
 
     private var accent: Color {
         switch option.action {
-        case .reserveParking, .route: return NativeTheme.emerald
+        case .choosePlace, .reserveParking, .route: return NativeTheme.emerald
         case .bookVenue, .accessScan: return NativeTheme.cyan
         case .valet, .seeAllServices: return NativeTheme.purple
         case .concierge: return NativeTheme.orange
@@ -17912,8 +17950,8 @@ enum NativeShellThemeSelfTests {
 
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
-        precondition(tabs.map(\.title) == ["Home", "Discover", "Map", "Concierge"], "NativeShellThemeSelfTests: tab titles drifted from React entry navigation.")
-        precondition(tabs.map(\.icon) == ["house.fill", "safari.fill", "map.fill", "sparkles"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
+        precondition(tabs.map(\.title) == ["Home", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from React entry navigation.")
+        precondition(tabs.map(\.icon) == ["house.fill", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
     }
 
     private static func assertDefaultTierFallback() {
@@ -18377,7 +18415,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.categoryLabels == ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"], "NativeDiscoverParitySelfTests: native category labels drifted.")
         precondition(NativeDiscoverView.categoryLabels.joined(separator: " → ") == NativeDiscoverView.categoryRailRegressionOrderDescription, "NativeDiscoverParitySelfTests: native category rail order drifted.")
         precondition(NativeDiscoverView.debugCategoryRailFilterOrder() == NativeDiscoverView.categoryRailRegressionFilterOrder, "NativeDiscoverParitySelfTests: native category rail filter mapping drifted.")
-        precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Momentum", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from React App.tsx.")
+        precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Near You", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from the approved native deck.")
         precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "boutique_apartment", "dining", "nightlife", "parking", "entertainment", "fitness", "mobility", "mobility", "service", "service"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")
         let valetRideCard = NativeTabContentSnapshot.canonicalMobilityCards.first { $0.id == "service-valet-ride" }!
         precondition(valetRideCard.cta == "Request Transfer" && valetRideCard.availability == "Estimate + review", "NativeDiscoverParitySelfTests: airport transfer must show estimate/review before request booking.")

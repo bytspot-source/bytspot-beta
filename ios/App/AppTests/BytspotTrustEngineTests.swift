@@ -407,14 +407,14 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(cards.first { $0.title == "South City Kitchen" }?.badgeText, "LIVE API")
     }
 
-    func testServiceHereNoSelectionRecommendsBestValueParking() {
+    func testServiceHereNoSelectionAsksForAMapPlace() {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(bestValueTitle: "Midtown Smart Parking", bestValueSummary: "$8 · score 88"))
 
         XCTAssertEqual(plan.title, "Service Here")
-        XCTAssertEqual(plan.eyebrow, "BEST MOVE RIGHT NOW")
-        XCTAssertEqual(plan.bestMove.action, .reserveParking)
-        XCTAssertEqual(plan.bestMove.title, "Best value nearby")
-        XCTAssertTrue(plan.bestMove.subtitle.contains("Midtown Smart Parking"))
+        XCTAssertEqual(plan.eyebrow, "RECOMMENDED")
+        XCTAssertEqual(plan.bestMove.action, .choosePlace)
+        XCTAssertEqual(plan.bestMove.title, "Choose a place")
+        XCTAssertTrue(plan.quickActions.isEmpty)
     }
 
     func testServiceHereParkingSelectionPrioritizesParkingReservation() {
@@ -423,7 +423,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(plan.bestMove.action, .reserveParking)
         XCTAssertEqual(plan.bestMove.title, "Reserve this parking")
         XCTAssertTrue(plan.bestMove.subtitle.contains("Deck A"))
-        XCTAssertEqual(plan.quickActions.first?.action, .reserveParking)
+        XCTAssertEqual(plan.quickActions.first?.action, .route)
+        XCTAssertFalse(plan.quickActions.contains { $0.action == .reserveParking })
     }
 
     func testServiceHereSelectedParkingIgnoresDifferentBestValueCopy() {
@@ -439,30 +440,74 @@ final class BytspotTrustEngineTests: XCTestCase {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Verified Tap Zone", isWithinVerifiedZone: true))
 
         XCTAssertEqual(plan.bestMove.action, .accessScan)
-        XCTAssertEqual(plan.bestMove.title, "Tap / Scan here")
-        XCTAssertTrue(plan.bestMove.subtitle.contains("Verified zone ready"))
+        XCTAssertEqual(plan.bestMove.title, "Check in here")
+        XCTAssertEqual(plan.bestMove.subtitle, "You're close enough to check in.")
+        XCTAssertFalse(plan.bestMove.subtitle.contains("QR"))
     }
 
     func testServiceHereRouteActionIsReachableForSelectedPins() {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Verified Tap Zone"))
 
         let route = plan.quickActions.first { $0.action == .route }
-        XCTAssertEqual(route?.title, "Route here")
-        XCTAssertTrue(route?.subtitle.contains("Colony Square") == true)
+        XCTAssertNil(route, "Directions are already the recommended action and should not be repeated.")
+        XCTAssertEqual(plan.bestMove.title, "Get directions")
+        XCTAssertTrue(plan.bestMove.subtitle.contains("Colony Square"))
     }
 
     func testServiceHereQuickActionsAreUniqueAndUseful() {
-        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext())
+        let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .partner, selectedTitle: "Colony Square", selectedSubtitle: "Nearby"))
         let actions = plan.quickActions.map(\.action)
 
         XCTAssertEqual(actions.count, Set(actions).count)
         XCTAssertTrue(actions.contains(.reserveParking))
         XCTAssertTrue(actions.contains(.bookVenue))
-        XCTAssertTrue(actions.contains(.valet))
         XCTAssertTrue(actions.contains(.concierge))
         XCTAssertTrue(actions.contains(.accessScan))
-        XCTAssertTrue(actions.contains(.seeAllServices))
-        XCTAssertTrue(actions.contains(.route))
+        XCTAssertFalse(actions.contains(.valet))
+        XCTAssertFalse(actions.contains(.seeAllServices))
+        XCTAssertFalse(actions.contains(plan.bestMove.action))
+    }
+
+    @MainActor
+    func testNightlifeRequestsFollowTheUsersLocation() throws {
+        let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let input = NativeTabContentStore.eventQueryInput(location: location)
+        let point = try XCTUnwrap(input["location"] as? [String: Any])
+
+        XCTAssertEqual(point["lat"] as? Double, 47.6062)
+        XCTAssertEqual(point["lng"] as? Double, -122.3321)
+        XCTAssertEqual(point["radiusMiles"] as? Double, NativeTabContentStore.nightlifeRadiusMiles)
+        XCTAssertNil(input["city"])
+        XCTAssertFalse(NativeTabContentStore.canUseCurrentEventFeed(at: location))
+        XCTAssertTrue(NativeTabContentStore.canUseCurrentEventFeed(at: .midtown))
+    }
+
+    @MainActor
+    func testFarNightlifeVenuesDoNotEnterTheLocalFeed() {
+        let location = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
+        let nearby = NativeVenueSummary(id: "near-night", name: "Nearby Lounge", category: "nightlife", address: "Atlanta", distance: "—", rating: 4.7, latitude: 33.79, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let far = NativeVenueSummary(id: "far-night", name: "Far Lounge", category: "nightlife", address: "Far away", distance: "—", rating: 4.7, latitude: 32.08, longitude: -81.09, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let farDining = NativeVenueSummary(id: "far-food", name: "Far Restaurant", category: "restaurant", address: "Far away", distance: "—", rating: 4.7, latitude: 32.08, longitude: -81.09, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+
+        let venues = NativeTabContentStore.locationAwareVenues([far, nearby, farDining], location: location)
+
+        XCTAssertTrue(venues.contains { $0.id == nearby.id })
+        XCTAssertFalse(venues.contains { $0.id == far.id })
+        XCTAssertTrue(venues.contains { $0.id == farDining.id })
+    }
+
+    @MainActor
+    func testNearbyPlacesLeadTheVisibleDeck() {
+        let curated = NativeTabContentSnapshot.fallback.discoverCards
+        let local = NativeDiscoverSummary(id: "local-nightlife", type: "nightlife", title: "Nearby Nightlife", subtitle: "Near you", distance: "0.4 mi", rating: "Nearby", icon: "music.note", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: ["Nightlife"], vibeScore: 7, availability: "Nearby", membershipRequired: false)
+
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: curated, venues: [], placeCards: [local])
+
+        XCTAssertEqual(cards.first?.id, local.id)
+        let fallback = cards.first { $0.id == "nightlife-momentum" }
+        XCTAssertEqual(fallback?.title, "Nightlife Near You")
+        XCTAssertEqual(fallback?.distance, "Nearby")
+        XCTAssertEqual(fallback?.badgeText, "CURATED")
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {
@@ -851,11 +896,11 @@ final class NativeProfileDataAPITests: XCTestCase {
 }
 
 final class NativeAuthLaunchInputTests: XCTestCase {
-    func testSignupValidationUsesBackendSafeEightCharacterMinimum() {
-        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "1234567"))
-        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345678"))
-        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 8 characters.")
-        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"))
+    func testSignupValidationMatchesTheSixCharacterAccountRule() {
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345"))
+        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "123456"))
+        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 6 characters.")
+        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 6 characters"))
     }
 
     func testLoginValidationRequiresEmailAndNonEmptyPasswordOnly() {
@@ -876,10 +921,30 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(login["password"] as? String, "pw")
     }
 
+    func testMutationBodyMatchesTheWorkingWebClient() throws {
+        let body = try BytspotAPIClient.trpcMutationBody(["email": "member@example.com", "name": "Avery"])
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(Set(root.keys), ["email", "name"])
+        XCTAssertNil(root["json"])
+    }
+
+    func testAccountErrorsGiveClearNextSteps() {
+        let existing = BytspotAPIClient.APIError.server(status: 409, body: #"{"error":{"json":{"message":"Email already registered"}}}"#)
+        let incorrect = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"Invalid credentials"}}}"#)
+        let busy = BytspotAPIClient.APIError.server(status: 429, body: "")
+
+        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: existing, mode: .signup), "An account already exists for this email. Log in instead.")
+        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: incorrect, mode: .login), "The email or password is incorrect.")
+        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
+    }
+
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
+        XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "vibe", "walk", "crew", "recommendations", "main"])
+        XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "discover", "map", "concierge", "profile"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")

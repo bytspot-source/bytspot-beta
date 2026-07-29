@@ -536,13 +536,16 @@ final class BytspotSessionStore: ObservableObject {
         token = readToken()
     }
 
-    func updateToken(_ newToken: String?) {
+    @discardableResult
+    func updateToken(_ newToken: String?) -> Bool {
         if let newToken, !newToken.isEmpty {
-            saveToken(newToken)
+            guard saveToken(newToken) else { return false }
             token = newToken
+            return true
         } else {
             clearToken()
             token = nil
+            return true
         }
     }
 
@@ -560,15 +563,16 @@ final class BytspotSessionStore: ObservableObject {
         return String(data: data, encoding: .utf8)
     }
 
-    private func saveToken(_ token: String) {
+    private func saveToken(_ token: String) -> Bool {
         clearToken()
         let item: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: Data(token.utf8)
         ]
-        SecItemAdd(item as CFDictionary, nil)
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     private func clearToken() {

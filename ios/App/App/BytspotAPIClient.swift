@@ -1,4 +1,5 @@
 import Foundation
+import MapKit
 
 struct BytspotAPIClient {
     enum APIError: Error {
@@ -42,8 +43,12 @@ struct BytspotAPIClient {
     }
 
     func trpcPayload(path: String, method: String = "GET", input: [String: Any]? = nil) async throws -> Any {
-        let body = try input.map { try JSONSerialization.data(withJSONObject: ["json": $0]) }
+        let body = try input.map(Self.trpcMutationBody)
         return Self.unwrapTRPCData(try await json(path: path, method: method, body: body))
+    }
+
+    static func trpcMutationBody(_ input: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: input)
     }
 
     func trpcQueryPayload(path: String, input: [String: Any]) async throws -> Any {
@@ -786,6 +791,41 @@ struct NativeAuthDataAPI {
     static func loginInput(email: String, password: String) -> [String: Any] {
         ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password]
     }
+
+    static func userMessage(for error: Error, mode: NativeAuthMode) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn't connect. Check your internet and try again."
+        }
+        if case let BytspotAPIClient.APIError.server(status, body) = error {
+            let message = serverMessage(in: body).lowercased()
+            if status == 429 { return "Too many attempts. Wait a moment and try again." }
+            if message.contains("already") || message.contains("conflict") {
+                return "An account already exists for this email. Log in instead."
+            }
+            if message.contains("invite") { return "That invite code isn't valid. Check it or leave it blank." }
+            if mode == .login && (status == 401 || message.contains("credential") || message.contains("password") || message.contains("not found")) {
+                return "The email or password is incorrect."
+            }
+        }
+        return mode == .signup ? "We couldn't create your account. Please try again." : "We couldn't log you in. Please try again."
+    }
+
+    private static func serverMessage(in body: String) -> String {
+        guard let data = body.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) else { return "" }
+        return findMessage(in: root) ?? ""
+    }
+
+    private static func findMessage(in value: Any) -> String? {
+        if let dictionary = value as? [String: Any] {
+            if let message = dictionary["message"] as? String { return message }
+            for child in dictionary.values { if let message = findMessage(in: child) { return message } }
+        } else if let array = value as? [Any] {
+            for child in array { if let message = findMessage(in: child) { return message } }
+        }
+        return nil
+    }
 }
 
 struct NativeProfileDataAPI {
@@ -1356,6 +1396,34 @@ struct NativeLiveDiscoveryAPI {
         return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
     }
 
+    func localNightlifeSearch(location: NativeLocationCoordinate, maxResults: Int = 12) async throws -> [NativePlaceSearchResult] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = "bars nightclubs live music"
+        request.resultTypes = .pointOfInterest
+        request.region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude),
+            span: MKCoordinateSpan(latitudeDelta: 0.65, longitudeDelta: 0.65)
+        )
+        let response = try await MKLocalSearch(request: request).start()
+        return response.mapItems.compactMap { item in
+            let coordinate = item.placemark.coordinate
+            guard location.distanceMiles(toLatitude: coordinate.latitude, longitude: coordinate.longitude).map({ $0 <= NativeTabContentStore.nightlifeRadiusMiles }) == true else { return nil }
+            let name = item.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty else { return nil }
+            return NativePlaceSearchResult(
+                id: "apple-\(name.lowercased())-\(coordinate.latitude)-\(coordinate.longitude)",
+                name: name,
+                address: item.placemark.title ?? "Nearby",
+                category: "nightlife",
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+                rating: nil,
+                photoUrl: nil,
+                provider: "apple_maps"
+            )
+        }.prefix(maxResults).map { $0 }
+    }
+
     func localTravelEstimate(origin: NativeLocationCoordinate, destinationLat: Double?, destinationLng: Double?) -> NativeNavigationEstimate? {
         guard let distance = origin.distanceMiles(toLatitude: destinationLat, longitude: destinationLng) else { return nil }
         let minutes = max(2, Int((distance / 18.0 * 60.0).rounded()))
@@ -1437,31 +1505,36 @@ struct NativeTabContentSnapshot: Equatable {
 final class NativeTabContentStore: ObservableObject {
     @Published private(set) var snapshot = NativeTabContentSnapshot.fallback
     @Published private(set) var isRefreshing = false
+    private var refreshGeneration = 0
 
     func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        refreshGeneration += 1
+        let generation = refreshGeneration
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer { if generation == refreshGeneration { isRefreshing = false } }
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
             if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
-                async let liveEvents = fetchEvents(client: client)
+                async let liveEvents = fetchEvents(client: client, location: location)
                 async let vendorServices = fetchVendorServices(client: client)
                 async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
                 let valueOptions = (try? await fetchBestValue(client: client, location: location)) ?? []
                 let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
-                let events = Self.mergeEvents((try? await liveEvents) ?? [], with: localized.events)
+                let nearbyEvents = (try? await liveEvents) ?? []
+                let events = nearbyEvents.isEmpty && location.isFallback ? localized.events : nearbyEvents
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
                 let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions)
                 let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
-                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : localized.venues, discoverCards: cards, events: events.isEmpty ? NativeTabContentSnapshot.fallback.events : events, source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
+                guard generation == refreshGeneration else { return }
+                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
                 return
             }
 
             async let venues = fetchVenues(client: client)
-            async let events = fetchEvents(client: client)
+            async let events = fetchEvents(client: client, location: location)
             async let vendorServices = fetchVendorServices(client: client)
             async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
             async let bestValue = fetchBestValue(client: client, location: location)
@@ -1471,18 +1544,20 @@ final class NativeTabContentStore: ObservableObject {
             let liveEvents = (try? await events) ?? []
             let valueOptions = (try? await bestValue) ?? []
             let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions)
+            guard generation == refreshGeneration else { return }
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
                 discoverCards: cards,
-                events: liveEvents.isEmpty ? NativeTabContentSnapshot.fallback.events : liveEvents,
+                events: Self.visibleEvents(liveEvents, location: location),
                 source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
                 lastUpdated: Date(),
                 errorMessage: nil,
                 bestValueOptions: valueOptions
             )
         } catch {
+            guard generation == refreshGeneration else { return }
             let fallback = Self.locationAwareSnapshot(.fallback, location: location)
-            snapshot = NativeTabContentSnapshot(venues: fallback.venues, discoverCards: fallback.discoverCards, events: fallback.events, source: .fallback, lastUpdated: Date(), errorMessage: "Live tab data unavailable; using curated picks.")
+            snapshot = NativeTabContentSnapshot(venues: fallback.venues, discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Fresh picks aren't available right now. Showing saved suggestions.")
         }
     }
 
@@ -1531,15 +1606,38 @@ final class NativeTabContentStore: ObservableObject {
         return rows.compactMap(Self.venue(from:))
     }
 
-    private func fetchEvents(client: BytspotAPIClient) async throws -> [NativeEventSummary] {
-        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.eventsListRoute, input: ["city": "Atlanta", "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"], "limit": 20])
+    private func fetchEvents(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeEventSummary] {
+        guard Self.canUseCurrentEventFeed(at: location) else { return [] }
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.eventsListRoute, input: Self.eventQueryInput(location: location))
         guard let rows = Self.findArray(named: "events", in: payload) else { return [] }
         return rows.enumerated().compactMap(Self.event(from:))
     }
 
+    nonisolated static let nightlifeRadiusMiles = 30.0
+
+    nonisolated static func eventQueryInput(location: NativeLocationCoordinate) -> [String: Any] {
+        [
+            "location": ["lat": location.latitude, "lng": location.longitude, "radiusMiles": nightlifeRadiusMiles],
+            "providers": [NativeLiveContentV2Contract.ticketmasterProvider, "bytspot_curated"],
+            "limit": 30
+        ]
+    }
+
+    nonisolated static func canUseCurrentEventFeed(at location: NativeLocationCoordinate) -> Bool {
+        location.distanceMiles(toLatitude: NativeLocationCoordinate.midtown.latitude, longitude: NativeLocationCoordinate.midtown.longitude).map { $0 <= nightlifeRadiusMiles } ?? false
+    }
+
     private func fetchPlaceDiscoveryCards(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
         let api = NativeLiveDiscoveryAPI(client: client)
-        let places = try await api.placesNearbySearch(type: nil, lat: location.latitude, lng: location.longitude, maxResults: 8)
+        async let generalRequest = try? api.placesNearbySearch(type: nil, lat: location.latitude, lng: location.longitude, maxResults: 8)
+        async let clubsRequest = try? api.placesNearbySearch(type: "night_club", lat: location.latitude, lng: location.longitude, maxResults: 8)
+        async let barsRequest = try? api.placesNearbySearch(type: "bar", lat: location.latitude, lng: location.longitude, maxResults: 8)
+        async let localNightlifeRequest = try? api.localNightlifeSearch(location: location)
+        let (general, clubs, bars, localNightlife) = await (generalRequest, clubsRequest, barsRequest, localNightlifeRequest)
+        var places: [NativePlaceSearchResult] = []
+        for place in (general ?? []) + (clubs ?? []) + (bars ?? []) + (localNightlife ?? []) where !places.contains(where: { $0.id == place.id }) {
+            places.append(place)
+        }
         var cards: [NativeDiscoverSummary] = []
         for pair in places.enumerated() {
             let place = pair.element
@@ -1577,13 +1675,13 @@ final class NativeTabContentStore: ObservableObject {
 
     static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = []) -> [NativeDiscoverSummary] {
         var merged: [NativeDiscoverSummary] = []
+        appendUnique(placeCards, to: &merged)
         appendUnique(apiCards, to: &merged)
         appendUnique(venueDiscoverCards(from: venues), to: &merged)
         appendUnique(categoryCompanionCards(from: venues), to: &merged)
         appendUnique(eventDiscoverCards(from: events), to: &merged)
         appendUnique(nightlifeEventDiscoverCards(from: events), to: &merged)
         appendUnique(services, to: &merged)
-        appendUnique(placeCards, to: &merged)
         appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged)
         let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
         return mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
@@ -1756,21 +1854,38 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
-        NativeTabContentSnapshot(venues: locationAwareVenues(snapshot.venues, location: location), discoverCards: locationAwareCards(snapshot.discoverCards, location: location), events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions)
+        let venues = locationAwareVenues(snapshot.venues, location: location)
+        let cards = locationAwareCards(snapshot.discoverCards, sourceVenues: snapshot.venues, location: location)
+        return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions)
     }
 
-    private static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
-        venues.map { venue in
+    static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
+        venues.compactMap { venue in
+            let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude)
+            if venue.discoverType == "nightlife", let miles, miles > nightlifeRadiusMiles { return nil }
             let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
             return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl)
         }
     }
 
-    private static func locationAwareCards(_ cards: [NativeDiscoverSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
-        cards.map { card in
-            guard let venue = NativeTabContentSnapshot.fallbackVenues.first(where: { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }), let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
+    private static func locationAwareCards(_ cards: [NativeDiscoverSummary], sourceVenues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
+        let curatedIDs = Set((NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).map(\.id))
+        let venueCandidates = sourceVenues + NativeTabContentSnapshot.fallbackVenues
+        return cards.compactMap { card in
+            let venue = venueCandidates.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
+            if card.type == "nightlife", !curatedIDs.contains(card.id) {
+                guard let venue,
+                      let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
+                      miles <= nightlifeRadiusMiles else { return nil }
+            }
+            guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
             return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
         }
+    }
+
+    private static func visibleEvents(_ events: [NativeEventSummary], location: NativeLocationCoordinate) -> [NativeEventSummary] {
+        if !events.isEmpty { return events }
+        return location.isFallback ? NativeTabContentSnapshot.fallback.events : []
     }
 
     private static func discoverCard(fromPlace pair: EnumeratedSequence<[NativePlaceSearchResult]>.Element, location: NativeLocationCoordinate, eta: NativeNavigationEstimate?) -> NativeDiscoverSummary {
@@ -1784,14 +1899,14 @@ final class NativeTabContentStore: ObservableObject {
             title: place.name,
             subtitle: place.address,
             distance: distance,
-            rating: place.rating.map { String(format: "%.1f", $0) } ?? "4.6",
+            rating: place.rating.map { String(format: "%.1f", $0) } ?? "Nearby",
             icon: icon(for: type),
             verified: false,
             entryType: "free",
             cta: type == "parking" ? "Route" : "Open details",
             imageUrl: place.photoUrl,
             categoryLabel: label(for: type),
-            badgeText: "GOOGLE PLACES",
+            badgeText: place.provider == "apple_maps" ? "APPLE MAPS" : "GOOGLE PLACES",
             metadataLine: "Live place · \(place.provider.replacingOccurrences(of: "_", with: " ").capitalized)\(etaLine)",
             features: Array([label(for: type), distance, index < 3 ? "Nearby" : "Explore"].prefix(3)),
             vibeScore: max(4, min(8, Int((place.rating ?? 4.3).rounded() + 2))),
@@ -2102,7 +2217,7 @@ extension NativeTabContentSnapshot {
         NativeDiscoverSummary(id: "coffee-walk", type: "coffee", title: "Morning Coffee Walk", subtitle: "Low-key cafés and brunch spots within a quick walk.", distance: "0.4 mi", rating: "4.8", icon: "cup.and.saucer.fill", verified: true, entryType: "free", cta: "Open details", imageUrl: URL(string: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Coffee", badgeText: "FREE ENTRY", metadataLine: "Free", features: ["Coffee", "Brunch", "Quick walk"], vibeScore: 6, availability: "Open now", membershipRequired: false),
         NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay suite with secure entry, host support, and easy arrival.", distance: "Midtown", rating: "4.9", icon: "house.fill", verified: true, entryType: "paid", cta: "View Stay", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Stay", badgeText: "BOUTIQUE STAY", metadataLine: "From $189/night · Available tonight", features: ["Sleeps 2", "Kitchen", "Secure entry", "Host support"], vibeScore: 8, availability: "Available tonight", membershipRequired: true),
         NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "Personalized restaurants for food, dates, and group plans.", distance: "0.9 mi", rating: "4.7", icon: "fork.knife", verified: true, entryType: "paid", cta: "Book", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Dining", badgeText: "PAID ENTRY", metadataLine: "Varies • Tables nearby", features: ["Dining", "Date night", "Personalized"], vibeScore: 7, availability: "Tables nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "nightlife-momentum", type: "nightlife", title: "Nightlife Momentum", subtitle: "Bars, lounges, and cocktail rooms with the right crowd energy.", distance: "1.1 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Nightlife", badgeText: "PAID ENTRY", metadataLine: "Varies • Busy tonight", features: ["Cocktails", "Group energy", "Nightlife"], vibeScore: 8, availability: "Busy tonight", membershipRequired: false),
+        NativeDiscoverSummary(id: "nightlife-momentum", type: "nightlife", title: "Nightlife Near You", subtitle: "Bars, lounges, and live music to explore around your area.", distance: "Nearby", rating: "Explore", icon: "music.note", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Nightlife", badgeText: "CURATED", metadataLine: "Around your area", features: ["Bars", "Live music", "Nightlife"], vibeScore: 8, availability: "Explore nearby", membershipRequired: false),
         NativeDiscoverSummary(id: "smart-parking", type: "parking", title: "Smart Parking Before You Arrive", subtitle: "Reserve-ready parking options around your next destination.", distance: "0.3 mi", rating: "4.5", icon: "parkingsign.circle.fill", verified: true, entryType: "paid", cta: "Route", imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Parking", badgeText: "PAID ENTRY", metadataLine: "$4.71/hr • 158 spots", features: ["Parking", "Reserve ahead", "Quick walk"], vibeScore: 3, availability: "158 spots", membershipRequired: false),
         NativeDiscoverSummary(id: "events-worth", type: "entertainment", title: "Events Worth Leaving For", subtitle: "Shows, music, and experiences aligned with your saved interests.", distance: "1.5 mi", rating: "4.7", icon: "ticket.fill", verified: true, entryType: "paid", cta: "Tickets", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Events", badgeText: "PAID ENTRY", metadataLine: "Tickets • Tonight", features: ["Events", "Music", "Entertainment"], vibeScore: 7, availability: "Tonight", membershipRequired: false),
         NativeDiscoverSummary(id: "wellness-reset", type: "fitness", title: "Wellness Reset Nearby", subtitle: "Gyms, recovery, and movement options when your vibe is wellness.", distance: "0.7 mi", rating: "4.9", icon: "figure.mind.and.body", verified: true, entryType: "free", cta: "Open", imageUrl: URL(string: "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Fitness", badgeText: "FREE ENTRY", metadataLine: "Free • Recovery nearby", features: ["Fitness", "Wellness", "Recovery"], vibeScore: 5, availability: "Recovery nearby", membershipRequired: false)

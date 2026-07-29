@@ -132,7 +132,7 @@ enum NativeAuthSplashSelfTests {
     }
 
     private static func assertReactLaunchCopyIsMirrored() {
-        precondition(NativeAuthLaunchContract.appFlow == ["splash", "landing", "vibe", "walk", "crew", "atlanta", "main"], "NativeAuthSplashSelfTests: App flow drifted from launch personalization source-of-truth.")
+        precondition(NativeAuthLaunchContract.appFlow == ["splash", "landing", "vibe", "walk", "crew", "recommendations", "main"], "NativeAuthSplashSelfTests: App flow drifted from launch personalization source-of-truth.")
         precondition(NativeAuthLaunchContract.reactSources.contains("SplashScreen.tsx"), "NativeAuthSplashSelfTests: missing SplashScreen source guard.")
         precondition(NativeAuthLaunchContract.reactSources.contains("App.tsx onboarding quiz"), "NativeAuthSplashSelfTests: missing App.tsx onboarding quiz source guard.")
         precondition(NativeAuthLaunchContract.reactSources.contains("AuthenticationFlow.tsx"), "NativeAuthSplashSelfTests: missing auth source guard.")
@@ -140,7 +140,7 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
         precondition(NativeAuthLaunchContract.vibeQuestion == "What kind of night are we shaping?", "NativeAuthSplashSelfTests: vibe question drifted.")
         precondition(NativeAuthLaunchContract.walkOptions == ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"], "NativeAuthSplashSelfTests: walk options drifted.")
-        precondition(NativeAuthLaunchContract.atlantaHeadline == "Recommended for you", "NativeAuthSplashSelfTests: picks preview headline drifted.")
+        precondition(NativeAuthLaunchContract.atlantaHeadline == "Your Bytspot picks", "NativeAuthSplashSelfTests: picks preview headline drifted.")
         precondition(NativeAuthLaunchContract.atlantaPicks.contains("Midtown Smart Parking") && !NativeAuthLaunchContract.atlantaPicks.contains("Ladybird Grove & Mess Hall"), "NativeAuthSplashSelfTests: Atlanta pick fixture must stay venue-backed, not legacy hardcoded restaurants.")
         let legacyVariants = [" ladybird grove and mess hall ", "LIVINGSTON", "Lyla   Lila"]
         precondition(legacyVariants.allSatisfy(NativeAuthLaunchContract.isLegacyAtlantaPickName), "NativeAuthSplashSelfTests: legacy Atlanta pick filtering must normalize case, whitespace, and '&'/'and' variants.")
@@ -155,11 +155,11 @@ enum NativeAuthSplashSelfTests {
     private static func assertAuthRouteContractsAreNativeOnly() {
         precondition(NativeAuthLaunchContract.authRoutes == ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"], "NativeAuthSplashSelfTests: auth route list drifted.")
         precondition(NativeAuthLaunchContract.authModes == ["signup", "login"], "NativeAuthSplashSelfTests: auth modes drifted.")
-        precondition(NativeAuthLaunchContract.signupPasswordMinimum == 8, "NativeAuthSplashSelfTests: native signup password minimum must stay strict at 8.")
-        precondition(NativeAuthLaunchContract.reactSignupPasswordMinimum == 6, "NativeAuthSplashSelfTests: React mismatch marker drifted; re-audit AuthenticationFlow.tsx.")
+        precondition(NativeAuthLaunchContract.signupPasswordMinimum == 6, "NativeAuthSplashSelfTests: signup password rule drifted.")
+        precondition(NativeAuthLaunchContract.reactSignupPasswordMinimum == 6, "NativeAuthSplashSelfTests: signup rules must stay aligned.")
         precondition(NativeAuthInputValidator.emailIsValid("member@example.com"), "NativeAuthSplashSelfTests: email validation contract drifted.")
-        precondition(!NativeAuthInputValidator.canSubmit(mode: .signup, name: "A", email: "bad", password: "1234567"), "NativeAuthSplashSelfTests: invalid signup should stay blocked.")
-        precondition(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"), "NativeAuthSplashSelfTests: signup validation copy drifted.")
+        precondition(!NativeAuthInputValidator.canSubmit(mode: .signup, name: "A", email: "bad", password: "12345"), "NativeAuthSplashSelfTests: invalid signup should stay blocked.")
+        precondition(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 6 characters"), "NativeAuthSplashSelfTests: signup validation copy drifted.")
         precondition(NativeAuthRouteContract.storageKeys.contains("bytspot_auth_token"), "NativeAuthSplashSelfTests: React auth token storage key guard missing.")
         precondition(NativeAuthRouteContract.passwordRecoveryRoutes.contains("/#/forgot-password"), "NativeAuthSplashSelfTests: password recovery route guard missing.")
         precondition(NativeAuthDataAPI.signupInput(email: "  USER@Example.com ", password: "12345678", name: " Ada ", ref: " ab12 ")["ref"] as? String == "AB12", "NativeAuthSplashSelfTests: signup invite ref normalization drifted.")

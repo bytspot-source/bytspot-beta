@@ -99,7 +99,7 @@ Swift must use typed request/response DTOs for each migrated route instead of `a
 
 Approved sequence as of 2026-07-15:
 
-1. Keep the existing SwiftUI native root and four-tab consumer shell.
+1. Keep the existing SwiftUI native root and five-tab consumer shell: Home, Discover, Map, Concierge, and Profile.
 2. Refresh this source-of-truth document so migration instructions no longer describe a Capacitor fallback.
 3. Add only low-risk consumer-native parity slices that fit the existing design system.
 4. Keep Home function-first: greeting, search, functional quick actions, picks, categories, and nearby content should appear without non-functional snapshot/placeholder cards.

@@ -4,6 +4,12 @@ require "spaceship"
 APP_IDENTIFIER = "com.bytspot.app"
 DEFAULT_IOS_RELEASE_NOTES = "Adds native Google Sign-In for iOS and improves account access in the native app."
 
+def required_env!(name)
+  value = ENV[name].to_s.strip
+  UI.user_error!("#{name} is required for iOS production signing") if value.empty?
+  value
+end
+
 def ensure_ios_release_notes(api_key:, app_identifier:, app_version:, release_notes:)
   Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
   app = Spaceship::ConnectAPI::App.find(app_identifier)
@@ -30,6 +36,10 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload a new beta to TestFlight"
   lane :beta do
+    apple_team_id = required_env!("APPLE_TEAM_ID")
+    app_profile_uuid = required_env!("PROVISIONING_PROFILE_UUID")
+    clip_profile_uuid = required_env!("APP_CLIP_PROVISIONING_PROFILE_UUID")
+
     # Authenticate with App Store Connect API (no 2FA issues in CI)
     api_key = app_store_connect_api_key(
       key_id:        ENV["APP_STORE_CONNECT_KEY_ID"],
@@ -78,20 +88,22 @@ platform :ios do
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "App.xcodeproj",
-      team_id:               ENV["APPLE_TEAM_ID"],
+      team_id:               apple_team_id,
       targets:               ["App"],
+      build_configurations:  ["Release"],
       bundle_identifier:     "com.bytspot.app",
-      profile_uuid:          ENV["PROVISIONING_PROFILE_UUID"],
+      profile_uuid:          app_profile_uuid,
       code_sign_identity:    "Apple Distribution"
     )
 
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "App.xcodeproj",
-      team_id:               ENV["APPLE_TEAM_ID"],
+      team_id:               apple_team_id,
       targets:               ["Clip"],
+      build_configurations:  ["Release"],
       bundle_identifier:     "com.bytspot.app.Clip",
-      profile_uuid:          ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"],
+      profile_uuid:          clip_profile_uuid,
       code_sign_identity:    "Apple Distribution"
     )
 
@@ -107,14 +119,16 @@ platform :ios do
       scheme:        "App",
       configuration: "Release",
       export_method: "app-store",
+      export_team_id: apple_team_id,
       export_options: {
         signingStyle:          "manual",
-        teamID:                ENV["APPLE_TEAM_ID"],
+        teamID:                apple_team_id,
         provisioningProfiles:  {
-          "com.bytspot.app"      => ENV["PROVISIONING_PROFILE_UUID"],
-          "com.bytspot.app.Clip" => ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"]
+          "com.bytspot.app"      => app_profile_uuid,
+          "com.bytspot.app.Clip" => clip_profile_uuid
         }
       },
+      skip_profile_detection: true,
       output_directory: "./build",
       output_name:      "Bytspot.ipa",
       xcargs:           [

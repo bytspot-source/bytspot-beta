@@ -69,12 +69,12 @@ enum NativeAuthStatus: Equatable {
 
     var message: String {
         switch self {
-        case .ready: return "Native session is ready."
-        case .authenticating(let provider): return "Preparing \(provider.title) through the native adapter seam."
-        case .requiresLegacyFallback(let provider): return "\(provider.title) is not configured for native production on this build."
-        case .signedIn(let provider, let displayName): return "DEBUG \(provider.title) mock signed in\(displayName.map { " as \($0)" } ?? "")."
-        case .guest: return "Guest session enabled for native migration preview."
-        case .signedOut: return "Signed out locally."
+        case .ready: return "Ready to sign in."
+        case .authenticating(let provider): return "Opening \(provider.title)."
+        case .requiresLegacyFallback(let provider): return "\(provider.title) isn't available right now. Use email or try again later."
+        case .signedIn(let provider, let displayName): return "Signed in with \(provider.title)\(displayName.map { " as \($0)" } ?? "")."
+        case .guest: return "Browsing as guest."
+        case .signedOut: return "Signed out."
         case .failed(let message): return message
         }
     }
@@ -130,12 +130,15 @@ final class NativeAuthCoordinator: ObservableObject {
             case .apple: result = try await appleAdapter.signIn()
             case .google: result = try await googleAdapter.signIn()
             }
-            sessionStore.updateToken(result.token)
-            status = .signedIn(provider: provider, displayName: result.displayName)
+            if sessionStore.updateToken(result.token) {
+                status = .signedIn(provider: provider, displayName: result.displayName)
+            } else {
+                status = .failed(message: "We couldn't save your sign-in. Please try again.")
+            }
         } catch let error as NativeAuthAdapterError {
             status = error.status
         } catch {
-            status = .failed(message: "Native auth adapter failed. Use email sign-in or try again later.")
+            status = .failed(message: "We couldn't sign you in with \(provider.title). Use email or try again later.")
         }
     }
 }

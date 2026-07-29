@@ -560,11 +560,26 @@ final class BytspotTrustEngineTests: XCTestCase {
         let parking = NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr")
         let deckA = NativeVenueSummary(id: "deck-a", name: "Deck A", category: "parking", address: "1 First St", distance: "0.2 mi", rating: 4.5, latitude: 47.61, longitude: -122.33, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
         let deckB = NativeVenueSummary(id: "deck-b", name: "Deck B", category: "parking", address: "2 Second St", distance: "0.4 mi", rating: 4.6, latitude: 47.62, longitude: -122.34, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
-        let venues = [deckA, deckB]
+        let restaurantB = NativeVenueSummary(id: "restaurant-b", name: "Deck B", category: "restaurant", address: "3 Third St", distance: "0.3 mi", rating: 4.4, latitude: 47.615, longitude: -122.335, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let collidingDeckA = NativeVenueSummary(id: "deck-a-collision", name: "Deck-A", category: "parking", address: "4 Fourth St", distance: "0.5 mi", rating: 4.3, latitude: 47.625, longitude: -122.345, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let venues = [restaurantB, deckA, deckB, collidingDeckA]
 
         XCTAssertEqual(NativeLocationAwareUIContent.mapHandoffVenue(destination: "  DECK B  ", mode: "Smart Parking", venues: venues)?.id, deckB.id)
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Unknown Deck", mode: "Smart Parking", venues: venues))
         XCTAssertEqual(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Parking near me", mode: "Smart Parking", venues: venues)?.id, deckA.id)
+        XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Deck A", mode: "Smart Parking", venues: venues))
+    }
+
+    @MainActor
+    func testMalformedLiveParkingRowsCannotBecomeMapCandidates() {
+        let row: [String: Any] = ["id": "remote-deck", "name": "Remote Deck", "category": "parking", "address": "Seattle"]
+        let venues = [row].compactMap(NativeTabContentStore.venue(from:))
+        let snapshot = NativeTabContentSnapshot(venues: venues, discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+        let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+
+        XCTAssertTrue(snapshot.venues.isEmpty)
+        XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Remote Deck", mode: "Smart Parking", venues: snapshot.venues))
+        XCTAssertEqual(NativeLocationAwareUIContent.mapFallback(for: location).mode, "Nearby")
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {

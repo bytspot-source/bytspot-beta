@@ -1216,6 +1216,17 @@ struct NativeVenueSummary: Identifiable, Equatable {
     var discoverType: String {
         NativeDiscoverCategoryNormalizer.type(for: category)
     }
+
+    var hasKnownCoordinates: Bool {
+        Self.hasValidMapCoordinate(latitude: latitude, longitude: longitude)
+    }
+
+    static func hasValidMapCoordinate(latitude: Double, longitude: Double) -> Bool {
+        latitude.isFinite && longitude.isFinite
+            && (-90...90).contains(latitude)
+            && (-180...180).contains(longitude)
+            && (latitude != 0 || longitude != 0)
+    }
 }
 
 struct NativeDiscoverSummary: Identifiable, Equatable {
@@ -2107,8 +2118,12 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
-    private static func venue(from value: Any) -> NativeVenueSummary? {
+    static func venue(from value: Any) -> NativeVenueSummary? {
         guard let item = value as? [String: Any] else { return nil }
+        let location = item["location"] as? [String: Any]
+        guard let latitude = double(item, ["lat", "latitude"]) ?? double(location, ["lat", "latitude"]),
+              let longitude = double(item, ["lng", "longitude"]) ?? double(location, ["lng", "longitude"]),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
         let id = string(item, ["id", "slug", "name"]) ?? UUID().uuidString
         let parkingDict = item["parking"] as? [String: Any]
         let spots = int(parkingDict, ["totalAvailable"]) ?? int(item, ["spots"]) ?? 0
@@ -2121,11 +2136,11 @@ final class NativeTabContentStore: ObservableObject {
             id: id,
             name: string(item, ["name"]) ?? "Bytspot Venue",
             category: string(item, ["category"]) ?? "venue",
-            address: string(item, ["address", "location"]) ?? "Atlanta, GA",
+            address: string(item, ["address", "location"]) ?? "Address unavailable",
             distance: "—",
             rating: double(item, ["rating"]),
-            latitude: double(item, ["lat", "latitude"]) ?? 33.7866,
-            longitude: double(item, ["lng", "longitude"]) ?? -84.3833,
+            latitude: latitude,
+            longitude: longitude,
             crowd: crowd,
             parking: NativeParkingSummary(totalAvailable: spots, priceLabel: price),
             verifiedPatchId: patch,

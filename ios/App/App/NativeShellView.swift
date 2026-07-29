@@ -6773,7 +6773,7 @@ enum NativeLocationAwareUIContent {
     }
 
     static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
-        venue.latitude != 0 || venue.longitude != 0
+        venue.hasKnownCoordinates
     }
 
     static func mapFallback(for location: NativeLocationCoordinate) -> (destination: String, mode: String) {
@@ -6783,13 +6783,15 @@ enum NativeLocationAwareUIContent {
     static func mapHandoffVenue(destination: String, mode: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
         let normalizedDestination = NativeSearchRouter.normalized(destination)
         guard !normalizedDestination.isEmpty else { return nil }
-        let exact = venues.first { NativeSearchRouter.normalized($0.name) == normalizedDestination }
+        let mapCandidates = venues.filter(\.hasKnownCoordinates)
         if mode == "Smart Parking" {
-            if let exact { return exact.discoverType == "parking" ? exact : nil }
-            guard normalizedDestination == "parking near me" else { return nil }
-            return venues.first(where: { $0.discoverType == "parking" })
+            let parkingVenues = mapCandidates.filter { $0.discoverType == "parking" }
+            if normalizedDestination == "parking near me" { return parkingVenues.first }
+            let exactMatches = parkingVenues.filter { NativeSearchRouter.normalized($0.name) == normalizedDestination }
+            return exactMatches.count == 1 ? exactMatches[0] : nil
         }
-        return exact ?? venues.first { venue in
+        let exact = mapCandidates.first { NativeSearchRouter.normalized($0.name) == normalizedDestination }
+        return exact ?? mapCandidates.first { venue in
             let name = NativeSearchRouter.normalized(venue.name)
             return name.contains(normalizedDestination) || normalizedDestination.contains(name)
         }

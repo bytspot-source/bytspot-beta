@@ -6781,14 +6781,18 @@ enum NativeLocationAwareUIContent {
     }
 
     static func mapHandoffVenue(destination: String, mode: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
-        let lower = destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !lower.isEmpty else { return nil }
-        let matched = venues.first { venue in
-            let name = venue.name.lowercased()
-            return name.contains(lower) || lower.contains(name)
+        let normalizedDestination = NativeSearchRouter.normalized(destination)
+        guard !normalizedDestination.isEmpty else { return nil }
+        let exact = venues.first { NativeSearchRouter.normalized($0.name) == normalizedDestination }
+        if mode == "Smart Parking" {
+            if let exact { return exact.discoverType == "parking" ? exact : nil }
+            guard normalizedDestination == "parking near me" else { return nil }
+            return venues.first(where: { $0.discoverType == "parking" })
         }
-        guard mode == "Smart Parking" else { return matched }
-        return venues.first(where: { $0.discoverType == "parking" }) ?? matched
+        return exact ?? venues.first { venue in
+            let name = NativeSearchRouter.normalized(venue.name)
+            return name.contains(normalizedDestination) || normalizedDestination.contains(name)
+        }
     }
 }
 

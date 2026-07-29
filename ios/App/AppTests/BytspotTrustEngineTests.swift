@@ -556,6 +556,17 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: unresolved.name, mode: "Smart Parking", venues: snapshot.venues))
     }
 
+    func testSmartParkingHandoffKeepsNamedVenueAndRejectsUnknownNames() {
+        let parking = NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr")
+        let deckA = NativeVenueSummary(id: "deck-a", name: "Deck A", category: "parking", address: "1 First St", distance: "0.2 mi", rating: 4.5, latitude: 47.61, longitude: -122.33, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let deckB = NativeVenueSummary(id: "deck-b", name: "Deck B", category: "parking", address: "2 Second St", distance: "0.4 mi", rating: 4.6, latitude: 47.62, longitude: -122.34, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let venues = [deckA, deckB]
+
+        XCTAssertEqual(NativeLocationAwareUIContent.mapHandoffVenue(destination: "  DECK B  ", mode: "Smart Parking", venues: venues)?.id, deckB.id)
+        XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Unknown Deck", mode: "Smart Parking", venues: venues))
+        XCTAssertEqual(NativeLocationAwareUIContent.mapHandoffVenue(destination: "Parking near me", mode: "Smart Parking", venues: venues)?.id, deckA.id)
+    }
+
     func testBestValueUsesTRPCQueryTransport() throws {
         let path = try NativeTabContentStore.bestValueQueryPath()
         let request = try BytspotAPIClient().makeRequest(path: path)

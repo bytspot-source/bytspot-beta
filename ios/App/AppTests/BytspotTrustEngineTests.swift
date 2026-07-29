@@ -527,6 +527,33 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(cards.contains { $0.metadataLine.rangeOfCharacter(from: .decimalDigits) != nil || $0.metadataLine.contains("$") })
     }
 
+    @MainActor
+    func testNonAtlantaUIConsumersKeepEmptyRegionalContentEmpty() {
+        let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let cards = NativeTabContentStore.locationAwareCards(NativeTabContentSnapshot.fallback.discoverCards, sourceVenues: NativeTabContentSnapshot.fallback.venues, location: location)
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: cards, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
+        let forbiddenTitles = ["Midtown Boutique Suite", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"]
+
+        XCTAssertTrue(NativeLocationAwareUIContent.venues(in: snapshot).isEmpty)
+        XCTAssertTrue(NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues).isEmpty)
+        XCTAssertTrue(NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "boutique_apartment").isEmpty)
+        XCTAssertTrue(NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "mobility").isEmpty)
+        XCTAssertTrue(NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service").isEmpty)
+        XCTAssertTrue(Set(NativeSearchRouter.suggestions(query: "food", snapshot: snapshot, location: location).map(\.title)).isDisjoint(with: Set(forbiddenTitles)))
+
+        let unresolved = NativeLocationAwareUIContent.unresolvedVenue(id: "local-idea", name: "Local idea", category: "parking", address: "Check nearby", distance: "Nearby", imageURL: nil)
+        XCTAssertEqual(unresolved.id, "suggestion-local-idea")
+        XCTAssertFalse(NativeLocationAwareUIContent.hasKnownCoordinates(unresolved))
+        XCTAssertNil(unresolved.rating)
+        XCTAssertNil(unresolved.crowd)
+        XCTAssertEqual(unresolved.parking, NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"))
+        XCTAssertFalse(NativeVenueDetailPresentation.supportsManualCheckIn(unresolved))
+
+        let mapFallback = NativeLocationAwareUIContent.mapFallback(for: location)
+        XCTAssertEqual(mapFallback.mode, "Nearby")
+        XCTAssertFalse(mapFallback.destination.localizedCaseInsensitiveContains("Midtown"))
+    }
+
     func testBestValueUsesTRPCQueryTransport() throws {
         let path = try NativeTabContentStore.bestValueQueryPath()
         let request = try BytspotAPIClient().makeRequest(path: path)

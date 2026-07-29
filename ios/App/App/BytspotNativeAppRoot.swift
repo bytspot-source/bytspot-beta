@@ -289,9 +289,7 @@ enum NativeAuthLaunchContract {
     }
 
     static func launchVenueCandidates(from venues: [NativeVenueSummary]) -> [NativeVenueSummary] {
-        let source = venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : venues
-        let filtered = source.filter { !isLegacyAtlantaPickName($0.name) }
-        return filtered.isEmpty ? NativeTabContentSnapshot.fallback.venues : filtered
+        venues.filter { !isLegacyAtlantaPickName($0.name) }
     }
 
     static func normalizedAtlantaPickName(_ name: String) -> String {

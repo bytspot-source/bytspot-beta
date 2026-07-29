@@ -6742,13 +6742,13 @@ private enum NativePostAuthIntent: String, Equatable, CaseIterable {
     var authMode: NativeAuthMode { .login }
 }
 
-private enum NativeSearchRoute: Equatable {
+enum NativeSearchRoute: Equatable {
     case discoverFilter(String)
     case map(destination: String, mode: String)
     case rideHandoff
 }
 
-private struct NativeSearchSuggestion: Identifiable, Equatable {
+struct NativeSearchSuggestion: Identifiable, Equatable {
     let id: String
     let title: String
     let subtitle: String
@@ -6760,7 +6760,28 @@ private struct NativeSearchSuggestion: Identifiable, Equatable {
     let route: NativeSearchRoute
 }
 
-private enum NativeSearchRouter {
+enum NativeLocationAwareUIContent {
+    static func venues(in snapshot: NativeTabContentSnapshot) -> [NativeVenueSummary] { snapshot.venues }
+
+    static func discoverCards(in snapshot: NativeTabContentSnapshot, matching type: String? = nil) -> [NativeDiscoverSummary] {
+        guard let type else { return snapshot.discoverCards }
+        return snapshot.discoverCards.filter { $0.type == type }
+    }
+
+    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?) -> NativeVenueSummary {
+        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"), verifiedPatchId: nil, imageUrl: imageURL)
+    }
+
+    static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
+        venue.latitude != 0 || venue.longitude != 0
+    }
+
+    static func mapFallback(for location: NativeLocationCoordinate) -> (destination: String, mode: String) {
+        location.isFallback ? (NativeLocationCoordinate.midtown.displayName, "Route") : (location.displayName, "Nearby")
+    }
+}
+
+enum NativeSearchRouter {
     struct CategorySpec {
         let filter: String
         let title: String
@@ -6782,8 +6803,8 @@ private enum NativeSearchRouter {
 
     static func suggestions(query rawQuery: String, snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate = .midtown, limit: Int = 8) -> [NativeSearchSuggestion] {
         let query = normalized(rawQuery)
-        let cards = snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : snapshot.discoverCards
-        let venues = snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : snapshot.venues
+        let cards = NativeLocationAwareUIContent.discoverCards(in: snapshot)
+        let venues = NativeLocationAwareUIContent.venues(in: snapshot)
         var results: [NativeSearchSuggestion] = []
 
         if isRouteIntent(query) {
@@ -7436,7 +7457,8 @@ private struct NativeHomeDashboardView: View {
     static func storeLaunchMapHandoff(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) {
         NativeOnboardingMapHandoff.clear()
         guard let venue = topLaunchRecommendationVenue(snapshot: snapshot, location: location, intent: intent, walk: walk, crew: crew) else {
-            NativeOnboardingMapHandoff.write(destination: defaultLaunchMapDestination, mode: "Route")
+            let fallback = NativeLocationAwareUIContent.mapFallback(for: location)
+            NativeOnboardingMapHandoff.write(destination: fallback.destination, mode: fallback.mode)
             return
         }
         NativeMapFocusHandoff.store(venue: venue, modeOverride: launchMapMode(for: venue, intent: intent))
@@ -7526,37 +7548,33 @@ private struct NativeHomeDashboardView: View {
         return pool[bucket]
     }
 
-    private var tonightPickCard: some View {
-        let card = personalizedAIPick
-        let v = venueForAIPick(card)
-        return NativeHomeHeroCard(
-            venue: v,
-            eyebrow: Self.aiPickEyebrow,
-            eyebrowIcon: "sparkles",
-            eyebrowColor: NativeTheme.purple,
-            reason: personalizedAIReason,
-            crowdEmoji: crowdEmoji(v.crowd),
-            crowdLabel: v.crowd?.label ?? "Chill",
-            categoryEmoji: categoryEmoji(v.discoverType),
-            primaryCTATitle: Self.primaryCTATitle(for: card),
-            primaryCTAIcon: Self.primaryCTAIcon(for: card),
-            secondaryCTATitle: Self.aiPickSecondaryCTA,
-            primaryAction: { triggerPrimaryAIPick(card: card, venue: v) },
-            secondaryAction: { openAIPickDetails(card: card, venue: v) }
-        )
-        .accessibilityIdentifier("native-home-ai-pick")
+    @ViewBuilder private var tonightPickCard: some View {
+        if let card = personalizedAIPick {
+            let venue = venueForAIPick(card)
+            NativeHomeHeroCard(
+                venue: venue,
+                eyebrow: Self.aiPickEyebrow,
+                eyebrowIcon: "sparkles",
+                eyebrowColor: NativeTheme.purple,
+                reason: personalizedAIReason,
+                crowdEmoji: crowdEmoji(venue.crowd),
+                crowdLabel: venue.crowd?.label ?? "Explore",
+                categoryEmoji: categoryEmoji(venue.discoverType),
+                primaryCTATitle: Self.primaryCTATitle(for: card),
+                primaryCTAIcon: Self.primaryCTAIcon(for: card),
+                secondaryCTATitle: Self.aiPickSecondaryCTA,
+                primaryAction: { triggerPrimaryAIPick(card: card, venue: venue) },
+                secondaryAction: { openAIPickDetails(card: card, venue: venue) }
+            )
+            .accessibilityIdentifier("native-home-ai-pick")
+        }
     }
 
-    private var tonightsPick: NativeVenueSummary {
-        tabContentStore.snapshot.venues.first(where: { $0.verifiedPatchId != nil }) ?? tabContentStore.snapshot.venues.first ?? NativeTabContentSnapshot.fallback.venues[0]
-    }
-
-    private var personalizedAIPick: NativeDiscoverSummary {
-        let cards = tabContentStore.snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : tabContentStore.snapshot.discoverCards
+    private var personalizedAIPick: NativeDiscoverSummary? {
+        let cards = NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot)
         let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         return types.compactMap { type in cards.first { $0.type == type } }.first
             ?? cards.first(where: { !$0.membershipRequired })
-            ?? NativeTabContentSnapshot.fallback.discoverCards[0]
     }
 
     static func personalizedAIPickTypes(vibe: String, walk: String, crew: String) -> [String] {
@@ -7622,12 +7640,9 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
-        let venues = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
+        let venues = NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        let parsedRating = Double(card.rating)
-        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
-        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
-        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
@@ -7820,9 +7835,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var availableTonightCard: NativeDiscoverSummary? {
-        let cards = tabContentStore.snapshot.discoverCards.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : tabContentStore.snapshot.discoverCards
-        return cards.first { $0.type == "boutique_apartment" }
-            ?? NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }
+        NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot, matching: "boutique_apartment").first
     }
 
     private var recommendationsSection: some View {
@@ -11359,7 +11372,9 @@ private struct NativeDiscoverView: View {
     static let filterDefaultsKey = "bytspot_native_discover_filter"
     static let entryFilterEnvironmentKey = "BYT_NATIVE_DISCOVER_ENTRY_FILTER"
 
+#if DEBUG
     static let curatedCards: [DiscoverCardSpec] = NativeTabContentSnapshot.fallback.discoverCards.map(Self.spec(from:))
+#endif
 
     var body: some View {
         ScrollView {
@@ -11563,18 +11578,13 @@ private struct NativeDiscoverView: View {
     }
 
     private var filteredCards: [DiscoverCardSpec] {
-        let sourceCards = tabContentStore.snapshot.discoverCards.map(Self.spec(from:))
+        let sourceCards = NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot, matching: selectedFilter).map(Self.spec(from:))
         let matchesCurrentFilters: (DiscoverCardSpec) -> Bool = { card in
-            (selectedFilter == nil || card.type == selectedFilter)
-                && Self.matchesEntryFilter(card, entryFilter: entryFilter)
+            Self.matchesEntryFilter(card, entryFilter: entryFilter)
                 && (!savedOnly || savedCardIDs.contains(card.id))
                 && !skippedCardIDs.contains(card.id)
         }
-        let candidates = (sourceCards.isEmpty ? Self.curatedCards : sourceCards).filter(matchesCurrentFilters)
-        if candidates.isEmpty, selectedFilter != nil, !sourceCards.isEmpty {
-            return Self.curatedCards.filter(matchesCurrentFilters)
-        }
-        return candidates
+        return sourceCards.filter(matchesCurrentFilters)
     }
 
     private var rankedCards: [DiscoverCardSpec] {
@@ -11613,7 +11623,7 @@ private struct NativeDiscoverView: View {
     private func applyParkingBookingPreviewIfRequested() {
         guard parkingBookingVenue == nil, let token = Self.previewParkingBookingToken else { return }
         let lower = token.lowercased()
-        let lookup = rankedCards + Self.curatedCards
+        let lookup = rankedCards
         let card = lookup.first { card in
             card.type == "parking" && (card.id.lowercased() == lower || card.title.lowercased().contains(lower) || lower.contains(card.title.lowercased()) || lower == "parking")
         } ?? lookup.first(where: { $0.type == "parking" })
@@ -11666,7 +11676,7 @@ private struct NativeDiscoverView: View {
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
-        let candidates = tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
+        let candidates = NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
         return Self.venueForDetail(card, venues: candidates)
     }
 
@@ -11755,10 +11765,7 @@ private struct NativeDiscoverView: View {
 
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
         if let direct = candidates.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        let parsedRating = Double(card.rating)
-        let crowdLevel = max(1, min(4, Int(round(Double(card.vibeScore) / 2.5))))
-        let parking = card.type == "parking" ? NativeParkingSummary(totalAvailable: 158, priceLabel: card.metadataLine.components(separatedBy: " • ").first ?? "—") : NativeParkingSummary(totalAvailable: 0, priceLabel: card.entryType == "paid" ? card.metadataLine.components(separatedBy: " • ").first ?? "Paid entry" : "Free")
-        return NativeVenueSummary(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, rating: parsedRating, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: crowdLevel, label: card.availability.isEmpty ? "Open" : card.availability, waitMins: nil), parking: parking, verifiedPatchId: card.verified && card.membershipRequired ? "DISCOVER-VERIFIED" : nil, imageUrl: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
     }
 
     private static func filterValue(for label: String) -> String? {
@@ -12656,7 +12663,11 @@ private struct NativeVenueDetailView: View {
             } else if venue.discoverType == "parking" {
                 metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
                 metric("parkingsign.circle.fill", entryText, "parking", NativeTheme.emerald)
-                metric("car.2.fill", "\(venue.parking.totalAvailable)", "spots", NativeTheme.cyan)
+                if NativeLocationAwareUIContent.hasKnownCoordinates(venue) {
+                    metric("car.2.fill", "\(venue.parking.totalAvailable)", "spots", NativeTheme.cyan)
+                } else {
+                    metric("mappin.and.ellipse", "Check", "nearby", NativeTheme.cyan)
+                }
             } else {
                 metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
                 metric("location.fill", venue.distance, "away", NativeTheme.cyan)
@@ -12694,7 +12705,9 @@ private struct NativeVenueDetailView: View {
         } else {
             priorityIDs = NativeVenueDetailPresentation.supportsManualCheckIn(venue) ? ["checkIn", "navigate", "save", "share", "concierge"] : ["navigate", "save", "share", "concierge"]
         }
-        return priorityIDs.compactMap { id in NativeVenueDetailContract.actions.first(where: { $0.id == id }) }
+        return priorityIDs
+            .filter { $0 != "navigate" || NativeLocationAwareUIContent.hasKnownCoordinates(venue) }
+            .compactMap { id in NativeVenueDetailContract.actions.first(where: { $0.id == id }) }
     }
 
     private var infoSection: some View {
@@ -12703,7 +12716,7 @@ private struct NativeVenueDetailView: View {
                 infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? Color(hex: 0x9CA3AF) : NativeTheme.cyan)
             }
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) && venue.distance != "Pass" && venue.distance != "Service" {
-                infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Atlanta Midtown" : "\(venue.distance) away", NativeTheme.orange)
+                infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Check nearby" : "\(venue.distance) away", NativeTheme.orange)
             }
             infoRow(categoryDetailIcon, categoryDetailTitle, categoryPrimaryDetail, categorySecondaryDetail, NativeTheme.emerald)
         }
@@ -13778,12 +13791,12 @@ private struct NativeMapExploreView: View {
     @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
     @State private var focusedHandoffPin: NativeMapPin?
     private var venues: [NativeVenueSummary] {
-        tabContentStore.snapshot.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : tabContentStore.snapshot.venues
+        NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
     }
 
     private var pins: [NativeMapPin] {
         let livePins = venues.map(NativeMapPin.init(venue:))
-        var resolved = livePins.isEmpty ? NativeMapPin.samples : livePins
+        var resolved = livePins
         if let focusedHandoffPin, !resolved.contains(where: { $0.id == focusedHandoffPin.id }) { resolved.append(focusedHandoffPin) }
         return resolved
     }

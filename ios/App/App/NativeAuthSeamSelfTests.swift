@@ -145,7 +145,7 @@ enum NativeAuthSplashSelfTests {
         let legacyVariants = [" ladybird grove and mess hall ", "LIVINGSTON", "Lyla   Lila"]
         precondition(legacyVariants.allSatisfy(NativeAuthLaunchContract.isLegacyAtlantaPickName), "NativeAuthSplashSelfTests: legacy Atlanta pick filtering must normalize case, whitespace, and '&'/'and' variants.")
         let filtered = NativeAuthLaunchContract.launchVenueCandidates(from: legacyVariants.enumerated().map { NativeVenueSummary(id: "legacy-\($0.offset)", name: $0.element, category: "parking", address: "Legacy", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil) })
-        precondition(filtered.map(\.name).prefix(3) == ["Colony Square", "Midtown Smart Parking", "Arts Center Access"], "NativeAuthSplashSelfTests: launch candidates must fall back to venue-backed native rows when stale legacy live rows are filtered out.")
+        precondition(filtered.isEmpty, "NativeAuthSplashSelfTests: stale legacy rows must stay empty instead of being replaced with Atlanta fallback venues.")
         precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Keep the night going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🚶 A short walk") == "close", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")

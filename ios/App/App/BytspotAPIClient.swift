@@ -1547,7 +1547,7 @@ final class NativeTabContentStore: ObservableObject {
                 async let liveEvents = fetchEvents(client: client, location: location)
                 async let vendorServices = fetchVendorServices(client: client)
                 async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
-                let valueOptions = (try? await fetchBestValue(client: client, location: location)) ?? []
+                let valueOptions = Self.localValueOptions((try? await fetchBestValue(client: client, location: location)) ?? [])
                 let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
                 let nearbyEvents = (try? await liveEvents) ?? []
                 let events = nearbyEvents.isEmpty && location.isFallback ? localized.events : nearbyEvents
@@ -1569,7 +1569,7 @@ final class NativeTabContentStore: ObservableObject {
             let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? []
-            let valueOptions = (try? await bestValue) ?? []
+            let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
             let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions, location: location)
             guard generation == refreshGeneration else { return }
             snapshot = NativeTabContentSnapshot(
@@ -1642,6 +1642,14 @@ final class NativeTabContentStore: ObservableObject {
 
     nonisolated static let nightlifeRadiusMiles = 30.0
     nonisolated static let localVenueRadiusMiles = 30.0
+
+    nonisolated static func localValueOptions(_ options: [NativeLiveValueOption]) -> [NativeLiveValueOption] {
+        let radiusMeters = localVenueRadiusMiles * 1_609.344
+        return options.filter { option in
+            guard let distance = option.distanceMeters else { return false }
+            return distance.isFinite && distance >= 0 && distance <= radiusMeters
+        }
+    }
 
     nonisolated static func eventQueryInput(location: NativeLocationCoordinate) -> [String: Any] {
         [

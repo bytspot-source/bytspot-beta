@@ -337,6 +337,20 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.bestValueOptions.first?.valueScore, 88)
     }
 
+    func testBestValueOptionsRequireMeasuredDistanceWithinLocalRadius() {
+        func option(id: String, distanceMeters: Double?) -> NativeLiveValueOption {
+            NativeLiveValueOption(id: id, productType: "parking", title: id, providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: distanceMeters, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
+        }
+        let radiusMeters = NativeTabContentStore.localVenueRadiusMiles * 1_609.344
+        let local = option(id: "local", distanceMeters: 320)
+        let boundary = option(id: "boundary", distanceMeters: radiusMeters)
+        let far = option(id: "far", distanceMeters: radiusMeters + 1)
+        let missing = option(id: "missing", distanceMeters: nil)
+        let invalid = option(id: "invalid", distanceMeters: .infinity)
+
+        XCTAssertEqual(NativeTabContentStore.localValueOptions([far, missing, local, invalid, boundary]).map(\.id), [local.id, boundary.id])
+    }
+
     @MainActor
     func testLiveDiscoverCardsExpandBootstrapWithVenueAndEventRows() {
         let apiCard = NativeDiscoverSummary(id: "api-fado", type: "nightlife", title: "Fado Irish Pub", subtitle: "Live API bootstrap", distance: "0.4 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "LIVE API", metadataLine: "Busy tonight", features: ["Nightlife"], vibeScore: 8, availability: "Busy", membershipRequired: false)
@@ -611,6 +625,23 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(mapFallback.destination.localizedCaseInsensitiveContains("Midtown"))
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: mapFallback.destination, mode: mapFallback.mode, venues: snapshot.venues))
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: unresolved.name, mode: "Smart Parking", venues: snapshot.venues))
+    }
+
+    func testNonAtlantaMapPresentationCentersLocallyAndSuppressesAtlantaSamples() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let region = NativeMapRegionPresentation.region(for: seattle)
+        let labels = NativeMapRegionPresentation.backdropLabels(for: seattle)
+
+        XCTAssertEqual(region.center.latitude, seattle.latitude, accuracy: 0.000_001)
+        XCTAssertEqual(region.center.longitude, seattle.longitude, accuracy: 0.000_001)
+        XCTAssertEqual(labels, NativeMapRegionPresentation.localBackdropLabels)
+        XCTAssertFalse(NativeMapRegionPresentation.showsAtlantaSamples(for: seattle))
+        XCTAssertTrue(Set(labels).isDisjoint(with: Set(NativeMapRegionPresentation.atlantaBackdropLabels)))
+    }
+
+    func testAtlantaMapPresentationRetainsRegionalBackdropSamples() {
+        XCTAssertEqual(NativeMapRegionPresentation.backdropLabels(for: .midtown), NativeMapRegionPresentation.atlantaBackdropLabels)
+        XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown))
     }
 
     func testSmartParkingHandoffKeepsNamedVenueAndRejectsUnknownNames() {

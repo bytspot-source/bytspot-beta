@@ -13839,6 +13839,26 @@ enum NativeMenuParitySelfTests {
 // XCTest target instead reaches the pure, load-bearing L2 gate through the
 // internal `NativeProximityGate` façade below, which forwards to this view's
 // static gate surface via same-file access.
+enum NativeMapRegionPresentation {
+    static let localBackdropLabels = ["Nearby", "Current Area", "Local Routes", "Around You"]
+    static let atlantaBackdropLabels = ["Northeast Express", "Downtown", "Lake Clara Meer", "Ponce de Leon Ave"]
+
+    static func region(for location: NativeLocationCoordinate) -> MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude),
+            span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045)
+        )
+    }
+
+    static func backdropLabels(for location: NativeLocationCoordinate) -> [String] {
+        NativeHomeRegionPresentation.isAtlanta(location) ? atlantaBackdropLabels : localBackdropLabels
+    }
+
+    static func showsAtlantaSamples(for location: NativeLocationCoordinate) -> Bool {
+        NativeHomeRegionPresentation.isAtlanta(location)
+    }
+}
+
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -13850,7 +13870,7 @@ private struct NativeMapExploreView: View {
     /// Map Functions sheet's premium rows unlock or show the upgrade nudge.
     var membership: BytspotMembership = .free
     var plainOpenGeneration: Int = 0
-    @State private var region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833), span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045))
+    @State private var region = NativeMapRegionPresentation.region(for: .midtown)
     @State private var selectedMode = modeTitles[0]
     @State private var selectedPin: NativeMapPin?
     @State private var routeFocusedPinID: String?
@@ -13902,7 +13922,24 @@ private struct NativeMapExploreView: View {
     @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
     @State private var focusedHandoffPin: NativeMapPin?
     private var venues: [NativeVenueSummary] {
-        NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot)
+        NativeTabContentStore.locationAwareVenues(
+            NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot),
+            location: locationStore.coordinate
+        )
+    }
+
+    private var regionLocation: NativeLocationCoordinate {
+        NativeLocationCoordinate(latitude: region.center.latitude, longitude: region.center.longitude, isFallback: false)
+    }
+
+    private var showsAtlantaSamples: Bool {
+        NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation)
+    }
+
+    private var visibleCommunityReports: [NativeCommunityReport] {
+        guard !showsAtlantaSamples else { return communityReports }
+        let sampleIDs = Set(NativeCommunityReport.samples.map(\.id))
+        return communityReports.filter { !sampleIDs.contains($0.id) }
     }
 
     private var pins: [NativeMapPin] {
@@ -14134,7 +14171,7 @@ private struct NativeMapExploreView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
-                NativeDarkMapBackdrop()
+                NativeDarkMapBackdrop(labels: NativeMapRegionPresentation.backdropLabels(for: regionLocation))
                     .ignoresSafeArea(edges: .top)
                     .contentShape(Rectangle())
                     .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in dropRecenterModeForUserPan() })
@@ -14157,7 +14194,7 @@ private struct NativeMapExploreView: View {
             .background(NativePolish.mapBaseSurface.ignoresSafeArea())
         }
         .sheet(item: $trafficIntelVenue) { venue in
-            let sheet = NativeTrafficIntelSheet(venue: venue, reports: communityReports, onAddReport: submitCommunityReport)
+            let sheet = NativeTrafficIntelSheet(venue: venue, reports: visibleCommunityReports, onAddReport: submitCommunityReport)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
@@ -14212,8 +14249,8 @@ private struct NativeMapExploreView: View {
         .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
-        .onChange(of: headingProvider.userLocation?.timestamp) { _ in refreshProximityLatch() }
-        .onChange(of: locationStore.lastLocation?.timestamp) { _ in refreshProximityLatch() }
+        .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onDisappear { headingProvider.stopLocating() }
     }
 
@@ -14227,6 +14264,7 @@ private struct NativeMapExploreView: View {
         requestMapLocationPermissionIfNeeded()
         startLocationGateIfNeeded()
         refreshProximityLatch()
+        centerOnCurrentLocationIfAppropriate()
         let consumedPlainOpen = consumePlainMapOpenIfNeeded()
         autoOpenTrafficIntelIfRequested()
         applySelectedPinPreviewIfRequested()
@@ -14419,6 +14457,28 @@ private struct NativeMapExploreView: View {
         activeRoutePinID = nil
         didOpenMapContext = false
         showFunctionSheet = false
+        region.center = currentMapCoordinate
+    }
+
+    private var currentMapCoordinate: CLLocationCoordinate2D {
+        (headingProvider.userLocation ?? locationStore.lastLocation)?.coordinate
+            ?? CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
+    }
+
+    private func centerOnCurrentLocationIfAppropriate() {
+        guard isPlainMapOpen || recenterMode != .off else { return }
+        region.center = currentMapCoordinate
+    }
+
+    private func handleHeadingLocationChange() {
+        refreshProximityLatch()
+        guard recenterMode != .off else { return }
+        region.center = currentMapCoordinate
+    }
+
+    private func handleMapLocationChange() {
+        refreshProximityLatch()
+        centerOnCurrentLocationIfAppropriate()
     }
 
     private func autoOpenTrafficIntelIfRequested() {
@@ -14563,7 +14623,7 @@ private struct NativeMapExploreView: View {
     static let trafficIntelProximityFreshnessMinutes: Int = 30
 
     private var hasProximityAlert: Bool {
-        communityReports.contains { report in
+        visibleCommunityReports.contains { report in
             report.distanceMiles <= Self.trafficIntelProximityMiles &&
                 report.minutesAgo <= Self.trafficIntelProximityFreshnessMinutes
         }
@@ -14618,7 +14678,7 @@ private struct NativeMapExploreView: View {
                 .buttonStyle(.plain)
                 .position(x: size.width * marker.x, y: size.height * marker.y)
             }
-            ForEach(communityReports) { report in
+            ForEach(visibleCommunityReports) { report in
                 Button(action: { openTrafficIntel() }) {
                     NativeCommunityReportMarker(report: report)
                 }
@@ -15554,7 +15614,7 @@ private struct NativeMapExploreView: View {
                 opensTrafficIntel: trafficPriority
             )
         }
-        let decorative = Self.decorativeMarkers.filter { marker in
+        let decorative = (showsAtlantaSamples ? Self.decorativeMarkers : []).filter { marker in
             if selectedMode == "Smart Parking" { return marker.shape == .circle }
             if selectedMode == "Tap Zones" || showVerifiedOnly { return marker.shape == .hex || marker.glyph == "P" }
             if !showVenues && marker.shape == .roundedSquare { return false }
@@ -15644,7 +15704,7 @@ private struct NativeMapExploreView: View {
         switch recenterMode {
         case .off:
             recenterMode = .follow
-            region.center = CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833)
+            region.center = currentMapCoordinate
             didOpenMapContext = false
             selectedPin = nil
             showFunctionSheet = false
@@ -16270,6 +16330,7 @@ private struct NativeTrafficIntelMetricCard: View {
 }
 
 private struct NativeDarkMapBackdrop: View {
+    let labels: [String]
     private let roads: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
         (0.05, 0.20, 0.95, 0.15), (0.02, 0.36, 0.88, 0.32), (0.08, 0.57, 0.92, 0.52), (0.00, 0.76, 0.98, 0.72),
         (0.22, 0.00, 0.28, 1.00), (0.38, 0.05, 0.42, 0.92), (0.70, 0.14, 0.64, 0.96), (0.88, 0.22, 0.76, 0.86)
@@ -16297,10 +16358,10 @@ private struct NativeDarkMapBackdrop: View {
                         context.stroke(path, with: .color(NativePolish.mapRoadLine), lineWidth: 1.4)
                     }
                 }
-                mapLabel("Northeast Express", x: 0.47, y: 0.22, angle: -38, in: proxy.size)
-                mapLabel("Downtown", x: 0.30, y: 0.52, angle: -90, in: proxy.size)
-                mapLabel("Lake Clara Meer", x: 0.78, y: 0.48, angle: 0, in: proxy.size)
-                mapLabel("Ponce de Leon Ave", x: 0.72, y: 0.72, angle: -21, in: proxy.size)
+                mapLabel(labels[0], x: 0.47, y: 0.22, angle: -38, in: proxy.size)
+                mapLabel(labels[1], x: 0.30, y: 0.52, angle: -90, in: proxy.size)
+                mapLabel(labels[2], x: 0.78, y: 0.48, angle: 0, in: proxy.size)
+                mapLabel(labels[3], x: 0.72, y: 0.72, angle: -21, in: proxy.size)
                 LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0xCBD7E1, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
             }
         }

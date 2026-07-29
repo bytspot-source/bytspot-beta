@@ -1466,7 +1466,7 @@ struct NativeLiveDiscoveryAPI {
         return []
     }
 
-    private static func placeResult(_ pair: EnumeratedSequence<[Any]>.Element) -> NativePlaceSearchResult? {
+    static func placeResult(_ pair: EnumeratedSequence<[Any]>.Element) -> NativePlaceSearchResult? {
         let (index, value) = pair
         guard let item = value as? [String: Any] else { return nil }
         let location = item["location"] as? [String: Any]
@@ -1475,7 +1475,7 @@ struct NativeLiveDiscoveryAPI {
         return NativePlaceSearchResult(
             id: string(item["id"]) ?? string(item["placeId"]) ?? string(item["place_id"]) ?? "place-\(index)",
             name: string(item["name"]) ?? string(item["title"]) ?? "Nearby place",
-            address: string(item["address"]) ?? string(item["formattedAddress"]) ?? string(item["formatted_address"]) ?? "Atlanta area",
+            address: string(item["address"]) ?? string(item["formattedAddress"]) ?? string(item["formatted_address"]) ?? "Address unavailable",
             category: string(item["category"]) ?? string(item["type"]) ?? "venue",
             latitude: double(item["lat"]) ?? double(item["latitude"]) ?? double(location?["lat"]) ?? double(geoLocation?["lat"]),
             longitude: double(item["lng"]) ?? double(item["longitude"]) ?? double(location?["lng"]) ?? double(geoLocation?["lng"]),

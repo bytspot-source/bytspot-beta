@@ -574,6 +574,31 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(places.map(\.id), [localGoogle.id, localApple.id])
     }
 
+    func testLocalPlaceWithMissingAddressUsesRegionNeutralFallback() throws {
+        let row: [String: Any] = ["id": "seattle-local", "name": "Seattle Local", "lat": 47.61, "lng": -122.33, "provider": "apple_maps"]
+        let pair: EnumeratedSequence<[Any]>.Element = (offset: 0, element: row)
+
+        let place = try XCTUnwrap(NativeLiveDiscoveryAPI.placeResult(pair))
+
+        XCTAssertEqual(place.address, "Address unavailable")
+        XCTAssertFalse(place.address.localizedCaseInsensitiveContains("Atlanta"))
+        XCTAssertFalse(place.address.localizedCaseInsensitiveContains("Midtown"))
+    }
+
+    func testRegionalProfileContactAndBlankRouteCopyStayNeutral() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let venue = NativeVenueSummary(id: "seattle-cafe", name: "Seattle Cafe", category: "cafe", address: "1 Pike St, Seattle, WA", distance: "0.4 mi", rating: 4.7, latitude: 47.61, longitude: -122.33, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"), verifiedPatchId: nil, imageUrl: nil)
+        let blankRouteSuggestions = NativeSearchRouter.suggestions(query: "route to", snapshot: .fallback, location: seattle)
+        let namedRouteSuggestions = NativeSearchRouter.suggestions(query: "route to Pike Place", snapshot: .fallback, location: seattle)
+        let copy = [NativeProfileRegionalPresentation.cityPlaceholder, NativeVenueDetailRegionalPresentation.contactSearchQuery(for: venue)].joined(separator: " ")
+
+        XCTAssertFalse(copy.localizedCaseInsensitiveContains("Atlanta"))
+        XCTAssertFalse(copy.localizedCaseInsensitiveContains("Midtown"))
+        XCTAssertTrue(NativeVenueDetailRegionalPresentation.contactSearchQuery(for: venue).contains("Seattle"))
+        XCTAssertFalse(blankRouteSuggestions.contains { $0.title.hasPrefix("Route to ") })
+        XCTAssertTrue(namedRouteSuggestions.contains { $0.title == "Route to Pike Place" && $0.address == "Pike Place" })
+    }
+
     @MainActor
     func testHomeEmptyStateDoesNotDependOnLaunchCompletion() {
         let emptySnapshot = NativeTabContentSnapshot(venues: [], discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)

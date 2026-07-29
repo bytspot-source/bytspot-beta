@@ -1613,6 +1613,10 @@ private enum NativeProfileInteractionContract {
     static let paymentBoundaryCopy = "No card numbers, CVC, or bank details are collected in Profile fields."
 }
 
+enum NativeProfileRegionalPresentation {
+    static let cityPlaceholder = "City or address"
+}
+
 private enum NativePaymentMethodsLedgerContract {
     static let summary = "Payment methods are used only when you authorize a parking, stay, ride, or access transaction."
     static let title = "Payment status"
@@ -1643,7 +1647,7 @@ private struct NativePersonalInformationPanel: View {
             NativeProfileFormField(title: "Display name", placeholder: "Bytspot Member", text: $displayName, capitalization: .words)
             NativeProfileFormField(title: "Email", placeholder: "name@example.com", text: $email, keyboard: .emailAddress, capitalization: .never, isDisabled: sessionStore.isAuthenticated)
             NativeProfileFormField(title: "Phone", placeholder: "Optional", text: $phone, keyboard: .phonePad, capitalization: .never)
-            NativeProfileFormField(title: "Address / city", placeholder: "Atlanta", text: $city, capitalization: .words)
+            NativeProfileFormField(title: "Address / city", placeholder: NativeProfileRegionalPresentation.cityPlaceholder, text: $city, capitalization: .words)
             NativeProfileFormField(title: "Birthday", placeholder: "YYYY-MM-DD", text: $birthday, capitalization: .never)
             Button(action: saveProfile) { NativeCTA(title: isSaving ? "Saving…" : sessionStore.isAuthenticated ? "Save Profile" : "Save on This iPhone", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
@@ -6798,6 +6802,14 @@ enum NativeLocationAwareUIContent {
     }
 }
 
+enum NativeVenueDetailRegionalPresentation {
+    static func contactSearchQuery(for venue: NativeVenueSummary) -> String {
+        let address = venue.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = address.isEmpty || address.caseInsensitiveCompare("Address unavailable") == .orderedSame ? "" : " \(address)"
+        return "\(venue.name)\(context) phone number"
+    }
+}
+
 enum NativeSearchRouter {
     struct CategorySpec {
         let filter: String
@@ -6826,7 +6838,9 @@ enum NativeSearchRouter {
 
         if isRouteIntent(query) {
             let destination = strippedRouteDestination(rawQuery)
-            results.append(NativeSearchSuggestion(id: "route-\(normalized(destination))", title: "Route to \(destination)", subtitle: "Open Map with destination", address: destination, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 220, route: .map(destination: destination, mode: "Route")))
+            if !destination.isEmpty {
+                results.append(NativeSearchSuggestion(id: "route-\(normalized(destination))", title: "Route to \(destination)", subtitle: "Open Map with destination", address: destination, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 220, route: .map(destination: destination, mode: "Route")))
+            }
         }
 
         for spec in categories {
@@ -6951,7 +6965,7 @@ enum NativeSearchRouter {
                 break
             }
         }
-        return value.isEmpty ? "Midtown Atlanta" : value
+        return value
     }
 }
 
@@ -13006,7 +13020,7 @@ private struct NativeVenueDetailView: View {
     private func handleDevice(_ id: String) {
         switch id {
         case "navigate": openVenueOnNativeMap()
-        case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded("\(venue.name) Atlanta phone number"))"))
+        case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded(NativeVenueDetailRegionalPresentation.contactSearchQuery(for: venue)))"))
         case "share": presentShare(text: "\(venue.name) — \(venue.address) · \(venue.distance) on Bytspot")
         default: break
         }

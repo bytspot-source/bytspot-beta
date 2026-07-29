@@ -644,6 +644,18 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown))
     }
 
+    func testMapZoomClampsAndUpdatesRegionSpanMonotonically() {
+        XCTAssertEqual(NativeMapRegionPresentation.clampedZoomScale(0.1), NativeMapRegionPresentation.minimumZoomScale)
+        XCTAssertEqual(NativeMapRegionPresentation.clampedZoomScale(10), NativeMapRegionPresentation.maximumZoomScale)
+
+        let zoomedOut = NativeMapRegionPresentation.span(forZoomScale: NativeMapRegionPresentation.minimumZoomScale)
+        let normal = NativeMapRegionPresentation.span(forZoomScale: 1)
+        let zoomedIn = NativeMapRegionPresentation.span(forZoomScale: NativeMapRegionPresentation.maximumZoomScale)
+        XCTAssertGreaterThan(zoomedOut.latitudeDelta, normal.latitudeDelta)
+        XCTAssertLessThan(zoomedIn.latitudeDelta, normal.latitudeDelta)
+        XCTAssertEqual(zoomedIn.latitudeDelta, zoomedIn.longitudeDelta, accuracy: 0.000_001)
+    }
+
     func testNonAtlantaConciergeCopyFailsClosedToTheCurrentArea() {
         let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
         let copy = [

@@ -13842,12 +13842,24 @@ enum NativeMenuParitySelfTests {
 enum NativeMapRegionPresentation {
     static let localBackdropLabels = ["Nearby", "Current Area", "Local Routes", "Around You"]
     static let atlantaBackdropLabels = ["Northeast Express", "Downtown", "Lake Clara Meer", "Ponce de Leon Ave"]
+    static let minimumZoomScale: CGFloat = 0.65
+    static let maximumZoomScale: CGFloat = 3.0
+    static let defaultSpanDelta = 0.045
 
     static func region(for location: NativeLocationCoordinate) -> MKCoordinateRegion {
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude),
-            span: MKCoordinateSpan(latitudeDelta: 0.045, longitudeDelta: 0.045)
+            span: span(forZoomScale: 1)
         )
+    }
+
+    static func clampedZoomScale(_ scale: CGFloat) -> CGFloat {
+        min(max(scale, minimumZoomScale), maximumZoomScale)
+    }
+
+    static func span(forZoomScale scale: CGFloat) -> MKCoordinateSpan {
+        let zoom = Double(clampedZoomScale(scale))
+        return MKCoordinateSpan(latitudeDelta: defaultSpanDelta / zoom, longitudeDelta: defaultSpanDelta / zoom)
     }
 
     static func backdropLabels(for location: NativeLocationCoordinate) -> [String] {
@@ -13900,6 +13912,8 @@ private struct NativeMapExploreView: View {
     @State private var vibeFilter: Int? = nil
     @State private var communityReports: [NativeCommunityReport] = NativeCommunityReport.samples
     @State private var recenterMode: NativeMapRecenterMode = .off
+    @State private var mapZoomScale: CGFloat = 1
+    @State private var pinchStartZoomScale: CGFloat = 1
     @State private var pairedPatchVenueID: String? = Self.previewPairedPatchVenueID
     @State private var guestMapPromptTitle: String?
     @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
@@ -14173,8 +14187,10 @@ private struct NativeMapExploreView: View {
             ZStack(alignment: .bottom) {
                 NativeDarkMapBackdrop(labels: NativeMapRegionPresentation.backdropLabels(for: regionLocation))
                     .ignoresSafeArea(edges: .top)
+                    .scaleEffect(mapZoomScale)
                     .contentShape(Rectangle())
                     .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in dropRecenterModeForUserPan() })
+                    .simultaneousGesture(mapMagnificationGesture)
                 mapChromeWash.allowsHitTesting(false)
                 mapMarkers(in: proxy.size)
                 topSearchOverlay
@@ -14661,8 +14677,10 @@ private struct NativeMapExploreView: View {
             Button(action: { if !showFunctionSheet { didOpenMapContext = true }; showFunctionSheet.toggle(); nativeImpactLight() }) { NativeRoundButton(symbol: "square.3.layers.3d.top.filled", tint: NativeTheme.textPrimary, size: Self.rightActionControlSize, isActive: showFunctionSheet) }
             Button(action: { cycleRecenterMode() }) { NativeMapRecenterButton(mode: recenterMode, size: Self.rightActionControlSize, heading: headingProvider.heading) }
             if showFullRightActionStack {
-                Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "plus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
-                Button(action: { nativeImpactLight() }) { NativeRoundButton(symbol: "minus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
+                Button(action: zoomIn) { NativeRoundButton(symbol: "plus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
+                    .accessibilityLabel("Zoom in")
+                Button(action: zoomOut) { NativeRoundButton(symbol: "minus", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
+                    .accessibilityLabel("Zoom out")
                 Button(action: { openTrafficIntel() }) { NativeTrafficIntelFAB(state: trafficIntelFABState, size: Self.rightSecondaryActionControlSize) }
                 Button(action: { handlePartnerFocus() }) { NativeHexActionButton(active: showVerifiedOnly) }
             }
@@ -14676,14 +14694,14 @@ private struct NativeMapExploreView: View {
                     NativeMapVisualMarkerView(marker: marker, selected: selectedPin?.id == marker.pinID)
                 }
                 .buttonStyle(.plain)
-                .position(x: size.width * marker.x, y: size.height * marker.y)
+                .position(zoomedMapPoint(x: marker.x, y: marker.y, in: size))
             }
             ForEach(visibleCommunityReports) { report in
                 Button(action: { openTrafficIntel() }) {
                     NativeCommunityReportMarker(report: report)
                 }
                 .buttonStyle(.plain)
-                .position(x: size.width * report.x, y: size.height * report.y)
+                .position(zoomedMapPoint(x: report.x, y: report.y, in: size))
                 .accessibilityIdentifier("native-map-community-report-marker-\(report.category.rawValue)")
             }
         }
@@ -15722,6 +15740,37 @@ private struct NativeMapExploreView: View {
         guard recenterMode != .off else { return }
         recenterMode = .off
         headingProvider.stop()
+    }
+
+    private var mapMagnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { magnitude in applyMapZoom(pinchStartZoomScale * magnitude) }
+            .onEnded { magnitude in
+                applyMapZoom(pinchStartZoomScale * magnitude)
+                pinchStartZoomScale = mapZoomScale
+            }
+    }
+
+    private func zoomIn() { setMapZoom(mapZoomScale * 1.25) }
+    private func zoomOut() { setMapZoom(mapZoomScale / 1.25) }
+
+    private func setMapZoom(_ proposedScale: CGFloat) {
+        applyMapZoom(proposedScale)
+        pinchStartZoomScale = mapZoomScale
+        nativeImpactLight()
+    }
+
+    private func applyMapZoom(_ proposedScale: CGFloat) {
+        mapZoomScale = NativeMapRegionPresentation.clampedZoomScale(proposedScale)
+        region.span = NativeMapRegionPresentation.span(forZoomScale: mapZoomScale)
+        dropRecenterModeForUserPan()
+    }
+
+    private func zoomedMapPoint(x: CGFloat, y: CGFloat, in size: CGSize) -> CGPoint {
+        CGPoint(
+            x: size.width * (0.5 + (x - 0.5) * mapZoomScale),
+            y: size.height * (0.5 + (y - 0.5) * mapZoomScale)
+        )
     }
 
     private func handlePartnerFocus() {

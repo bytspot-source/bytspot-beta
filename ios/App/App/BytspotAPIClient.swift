@@ -1100,6 +1100,63 @@ struct NativeParkingSummary: Equatable {
     let priceLabel: String
 }
 
+enum NativeDiscoverCategoryNormalizer {
+    static func type(for rawType: String) -> String {
+        let text = rawType.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
+        let tokens = Set(text.split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        let coffeeTokens: Set<String> = ["coffee", "cafe", "cafes", "café", "cafés", "espresso"]
+        if !tokens.isDisjoint(with: coffeeTokens) { return "coffee" }
+
+        let diningPhrases = ["fine dining", "casual dining", "family style", "fast casual", "fast food", "quick service", "food court", "pop up restaurant", "ghost kitchen", "virtual kitchen", "cloud kitchen", "food truck", "street food", "coffee shop", "tea house", "ice cream", "juice bar", "smoothie bar", "wine bar", "gastropub", "brewpub", "taproom", "soul food", "cajun creole", "latin american", "middle eastern", "sri lankan", "farm to table", "gluten free", "plant based", "raw food", "hot dog", "hot dogs", "sandwich shop", "rooftop dining", "waterfront dining", "garden dining", "outdoor patio", "chef table", "chef's table", "private dining", "communal dining", "interactive dining", "dinner theater", "dinner theatre", "live music dining", "dinner cruise", "scenic dining", "themed restaurant", "pop culture restaurant", "historic restaurant", "table service", "counter service", "self service", "buffet service", "banquet service", "drive thru", "curbside pickup", "afternoon tea", "late night dining", "coffee house", "espresso bar", "tea lounge", "bubble tea", "mocktail bar", "brewery restaurant", "distillery restaurant", "dinner show", "live music restaurant", "comedy dinner club", "sports restaurant", "karaoke restaurant", "cooking experience", "tasting menu", "wine pairing", "chef tasting", "chef's tasting", "airport restaurant", "hotel restaurant", "resort restaurant", "casino restaurant", "mall restaurant", "beach restaurant", "mountain restaurant", "floating restaurant", "train dining", "cruise ship dining"]
+        if diningPhrases.contains(where: { text.contains($0) }) { return "dining" }
+
+        let eventFirstPhrases = ["art exhibition", "museum event", "gallery opening", "craft fair", "fashion show", "photography exhibition", "antique show", "holiday market", "artisan market", "vendor fair", "boxing event", "mma event", "wrestling event", "golf tournament", "fitness challenge", "adventure race", "hiking trip", "camping event", "fishing tournament", "nature walk", "bird watching", "eco tour", "meditation session", "spa event", "coding bootcamp"]
+        if eventFirstPhrases.contains(where: { text.contains($0) }) { return "entertainment" }
+
+        let parkingPhrases = ["public parking", "street parking", "parking lot", "parking garage", "municipal parking", "downtown parking", "event parking", "private parking", "residential parking", "apartment parking", "office parking", "hotel parking", "restaurant parking", "retail parking", "shopping mall parking", "airport parking", "train station parking", "bus station parking", "ferry terminal parking", "park and ride", "transit parking", "self parking", "valet parking", "covered parking", "uncovered parking", "underground parking", "multi level garage", "surface lot", "reserved parking", "assigned parking", "overflow parking", "motorcycle parking", "bicycle parking", "rv parking", "camper parking", "bus parking", "truck parking", "trailer parking", "electric vehicle parking", "ev parking", "accessible parking", "ada parking", "family parking", "senior parking", "pregnancy parking", "vip parking", "staff parking", "visitor parking", "carpool parking", "ev charging", "charging station", "charging stations", "tesla supercharger", "fast charging", "solar powered parking", "green vehicle parking", "gated parking", "secured parking", "guarded parking", "cctv monitored", "well lit parking", "24/7 parking", "free parking", "paid parking", "hourly parking", "daily parking", "monthly parking", "subscription parking", "metered parking", "mobile payment parking", "festival parking", "stadium parking", "concert parking", "convention center parking", "wedding parking", "shuttle parking", "long term parking", "short term parking", "economy parking", "hotel valet", "vehicle storage", "car wash while parked", "parking with shuttle", "automated parking"]
+        if parkingPhrases.contains(where: { text.contains($0) }) || tokens.contains("parking") || tokens.contains("garage") || tokens.contains("garages") || text.contains("park and ride") { return "parking" }
+
+        let boutiqueStayPhrases = ["boutique apartment", "boutique stay", "private suite", "yoga retreat", "meditation retreat", "wellness retreat", "spiritual retreat", "detox retreat", "bed & breakfast", "bed breakfast", "b&b", "country inn", "boutique inn", "camping", "glamping", "rv park", "caravan park", "tiny house", "treehouse", "farm stay", "ranch stay", "safari lodge", "yurt", "dome stay", "castle hotel", "palace hotel", "floating hotel", "houseboat", "overwater bungalow", "ice hotel", "cave hotel", "lighthouse stay", "luxury tent", "beach resort", "mountain resort", "ski resort", "golf resort", "spa resort", "eco resort", "wellness resort", "family resort", "all inclusive resort", "island resort", "vacation rental", "holiday home", "apartment rental", "condo rental", "serviced apartment", "townhouse rental"]
+        let boutiqueStayTokens: Set<String> = ["villa", "cabin", "cottage", "chalet", "yurt", "treehouse", "houseboat", "glamping"]
+        if boutiqueStayPhrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: boutiqueStayTokens) { return "boutique_apartment" }
+
+        if text.contains("mobility training") { return "fitness" }
+
+        let mobilityPhrases = ["atv rental", "utv rental", "snowmobile rental", "jet ski rental", "luxury car rental", "exotic car rental", "off road vehicle tour", "off road vehicle tours", "horseback riding", "marine transportation", "cruise ship", "yacht charter", "boat rental", "water shuttle", "sailboat charter", "kayak rental", "canoe rental", "commercial flight", "commercial flights", "charter flight", "charter flights", "private jet", "helicopter charter", "air taxi", "seaplane", "hot air balloon", "chauffeur service", "limousine service"]
+        let mobilityTokens: Set<String> = ["mobility", "transportation", "transfer", "transfers", "shuttle", "chauffeur", "limousine", "seaplane"]
+        if mobilityPhrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: mobilityTokens) { return "mobility" }
+
+        let fitnessPhrases = ["commercial gym", "boutique fitness studio", "personal training", "functional training", "strength training", "olympic weightlifting", "circuit training", "group fitness", "walking clubs", "spin class", "spin classes", "indoor cycling", "stair climbing", "elliptical training", "triathlon training", "tai chi", "mobility training", "flexibility class", "flexibility classes", "dance fitness", "dance cardio", "hip hop fitness", "salsa fitness", "ballet fitness", "belly dance fitness", "martial arts", "muay thai", "brazilian jiu jitsu", "krav maga", "mixed martial arts", "basketball training", "soccer training", "tennis training", "golf fitness", "baseball training", "volleyball training", "football training", "track field training", "cricket training", "trail running", "rock climbing", "mountain biking", "outdoor bootcamp", "outdoor bootcamps", "adventure racing", "aqua aerobics", "lap swimming", "water polo", "synchronized swimming", "surfing lesson", "surfing lessons", "recovery center", "recovery centers", "physical therapy", "sports massage", "infrared sauna", "cold plunge", "compression therapy", "stretch therapy", "recovery lounge", "senior fitness", "women's fitness", "kids fitness", "adaptive fitness", "prenatal fitness", "postnatal fitness", "corporate wellness", "medical fitness", "nutrition coaching", "health coaching", "health club", "recreation center", "community fitness center", "university gym", "hotel gym", "apartment gym", "outdoor fitness park", "climbing gym", "trampoline park", "ninja warrior gym"]
+        let fitnessTokens: Set<String> = ["gym", "gyms", "fitness", "training", "weightlifting", "powerlifting", "crossfit", "hiit", "bootcamp", "cardio", "running", "jogging", "cycling", "rowing", "swimming", "yoga", "pilates", "barre", "qigong", "meditation", "breathwork", "stretching", "zumba", "jazzercise", "boxing", "kickboxing", "judo", "karate", "taekwondo", "mma", "wrestling", "hiking", "bouldering", "kayaking", "paddleboarding", "diving", "cryotherapy", "sauna", "wellness"]
+        if fitnessPhrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: fitnessTokens) { return "fitness" }
+
+        let shoppingPhrases = ["party supplies", "gift wrap", "wedding supplies", "personalized gift", "personalized gifts", "gift basket", "gift baskets", "greeting card", "greeting cards", "seasonal gift", "seasonal gifts", "designer fashion", "luxury watch", "luxury watches", "fine jewelry", "luxury beauty", "premium home decor", "collectible art", "eco friendly", "handmade goods", "fair trade", "vintage item", "vintage items", "antique item", "antique items", "refurbished product", "refurbished products", "local product", "local products", "department store", "department stores", "discount store", "discount stores", "outlet store", "outlet stores", "warehouse club", "warehouse clubs", "convenience store", "convenience stores", "specialty store", "specialty stores", "shopping mall", "shopping malls", "boutique shop", "boutique shops", "online marketplace", "online marketplaces", "pop up shop", "pop up shops"]
+        let shoppingTokens: Set<String> = ["shopping", "shop", "shops", "store", "stores", "mall", "malls", "marketplace", "marketplaces", "retail", "supplies", "balloons", "decorations", "costumes", "invitations", "gifts", "flowers", "souvenirs", "fashion", "watches", "jewelry", "beauty", "decor", "luxury", "handmade", "vintage", "antique", "refurbished", "outlet", "boutique", "department", "discount", "warehouse", "convenience", "supermarket", "supermarkets", "hypermarket", "hypermarkets"]
+        if shoppingPhrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: shoppingTokens) { return "shopping" }
+
+        let eventPhrases = ["music festival", "comedy show", "theater play", "theatre play", "movie screening", "outdoor cinema", "talent show", "open mic", "karaoke event", "club night", "dj set", "pool party", "beach party", "rooftop party", "yacht party", "house party", "silent disco", "after party", "cocktail event", "happy hour", "bar crawl", "singles mixer", "professional sports", "amateur sports", "golf tournament", "boxing event", "mma event", "yoga class", "fitness bootcamp", "adventure race", "trade show", "networking event", "business summit", "product launch", "investor meeting", "career fair", "job fair", "startup pitch", "industry forum", "award ceremony", "training session", "certification program", "panel discussion", "book talk", "science fair", "educational camp", "language exchange", "coding bootcamp", "art exhibition", "museum event", "gallery opening", "cultural festival", "heritage celebration", "craft fair", "poetry reading", "literary festival", "book signing", "film festival", "fashion show", "photography exhibition", "food festival", "wine tasting", "beer festival", "whiskey tasting", "cocktail tasting", "cooking class", "food truck festival", "farmers market", "brunch event", "bbq competition", "dessert festival", "community festival", "neighborhood gathering", "charity event", "volunteer activity", "family reunion", "community market", "town hall", "children festival", "kids workshop", "story time", "family fun day", "petting zoo", "science activity", "holiday celebration", "character meet", "carnival event", "christmas event", "halloween event", "thanksgiving celebration", "new year", "independence day", "valentine", "st patrick", "lunar new year", "diwali", "hanukkah", "ramadan", "eid", "pride celebration", "health fair", "meditation session", "wellness retreat", "spa event", "mental health workshop", "nutrition seminar", "fitness challenge", "blood drive", "worship service", "prayer meeting", "religious festival", "tech conference", "lan party", "gaming tournament", "esports competition", "vr experience", "robotics competition", "product demo", "car show", "motorcycle rally", "racing event", "auto expo", "classic car meet", "off road event", "hiking trip", "camping event", "fishing tournament", "nature walk", "rock climbing", "bird watching", "eco tour", "flea market", "artisan market", "craft market", "antique show", "holiday market", "vendor fair", "engagement party", "bridal shower", "baby shower", "gender reveal", "birthday party", "anniversary celebration", "graduation party", "retirement party", "campaign event", "public hearing", "civic meeting", "voter registration", "virtual conference", "online workshop", "live stream", "virtual meetup", "online class", "virtual networking", "hybrid conference", "anime convention", "comic convention", "fan meetup", "collector show", "hobby club", "pet show", "home garden show", "boat show", "rv show", "maker faire", "cosplay event"]
+        let eventTokens: Set<String> = ["event", "events", "concert", "concerts", "festival", "festivals", "show", "shows", "play", "plays", "musical", "musicals", "opera", "ballet", "circus", "screening", "screenings", "performance", "performances", "tournament", "tournaments", "marathon", "marathons", "triathlon", "triathlons", "conference", "conferences", "seminar", "seminars", "workshop", "workshops", "summit", "summits", "expo", "expos", "webinar", "webinars", "lecture", "lectures", "class", "classes", "training", "panel", "fair", "fairs", "exhibition", "exhibitions", "opening", "openings", "celebration", "celebrations", "fundraiser", "fundraisers", "meetup", "meetups", "retreat", "retreats", "hackathon", "hackathons", "rally", "rallies", "race", "races", "tour", "tours", "wedding", "weddings", "quinceanera", "quinceañera", "mitzvah", "debate", "debates", "convention", "conventions", "cosplay", "ticketed", "recurring", "virtual", "hybrid"]
+        if eventPhrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: eventTokens) { return "entertainment" }
+
+        let diningTokens: Set<String> = ["restaurant", "restaurants", "food", "dining", "diner", "bistro", "brasserie", "buffet", "cafeteria", "qsr", "kitchen", "vendor", "bakery", "patisserie", "dessert", "creamery", "juice", "smoothie", "american", "southern", "cajun", "creole", "bbq", "mexican", "tex", "mex", "caribbean", "italian", "french", "spanish", "portuguese", "greek", "mediterranean", "turkish", "lebanese", "israeli", "indian", "pakistani", "bangladeshi", "nepalese", "chinese", "japanese", "korean", "thai", "vietnamese", "filipino", "malaysian", "indonesian", "singaporean", "taiwanese", "mongolian", "african", "ethiopian", "moroccan", "nigerian", "brazilian", "peruvian", "argentine", "hawaiian", "fusion", "international", "seafood", "steakhouse", "sushi", "ramen", "noodle", "pizza", "burger", "sandwich", "deli", "chicken", "wings", "taco", "tacos", "burrito", "burritos", "hotdog", "hotdogs", "breakfast", "brunch", "pancake", "creperie", "salad", "soup", "vegan", "vegetarian", "organic", "halal", "kosher", "takeout", "delivery", "catering", "lunch", "dinner", "snacks"]
+        if !tokens.isDisjoint(with: diningTokens) { return "dining" }
+
+        let phrases = ["after hours", "after dark", "open late", "live entertainment", "open mic", "night market", "beach party", "house party", "yacht party", "private club", "thermal bath", "holiday light", "ice rink", "outdoor concert", "street festival", "music festival", "mini golf", "entertainment complex", "entertainment center"]
+        let nightlifeTokens: Set<String> = ["nightlife", "night", "nightclub", "nightclubs", "pub", "pubs", "club", "clubs", "lounge", "lounges", "cocktail", "cocktails", "strip", "adult", "gentlemen", "speakeasy", "tavern", "brewery", "wine", "whiskey", "beer", "rooftop", "edm", "hip", "hop", "latin", "lgbtq", "dance", "salsa", "bachata", "swing", "ballroom", "music", "concert", "concerts", "jazz", "blues", "rock", "comedy", "improv", "karaoke", "casino", "casinos", "gaming", "poker", "cabaret", "burlesque", "theater", "theaters", "theatre", "theatres", "musical", "musicals", "museum", "museums", "gallery", "galleries", "festival", "festivals", "arcade", "arcades", "vr", "esports", "bowling", "billiards", "trivia", "escape", "axe", "hookah", "shisha", "cigar"]
+        if phrases.contains(where: { text.contains($0) }) || !tokens.isDisjoint(with: nightlifeTokens) { return "nightlife" }
+        if tokens.contains("bar") || tokens.contains("bars") { return "nightlife" }
+        if tokens.contains("parking") || tokens.contains("garage") { return "parking" }
+        if tokens.contains("shopping") || tokens.contains("shop") || tokens.contains("shops") || tokens.contains("store") || tokens.contains("mall") || tokens.contains("market") { return "shopping" }
+        if tokens.contains("event") || tokens.contains("events") || tokens.contains("stadium") { return "entertainment" }
+        if tokens.contains("gym") || tokens.contains("fitness") || tokens.contains("wellness") { return "fitness" }
+        if tokens.contains("park") || tokens.contains("parks") { return "venue" }
+        if tokens.contains("mobility") || tokens.contains("transfer") || tokens.contains("ride") || tokens.contains("transport") { return "mobility" }
+        if tokens.contains("service") || tokens.contains("services") { return "service" }
+        if text.contains("boutique apartment") || text.contains("boutique stay") || text.contains("private suite") { return "boutique_apartment" }
+        return rawType.isEmpty ? "venue" : rawType
+    }
+}
+
 struct NativeVenueSummary: Identifiable, Equatable {
     let id: String
     let name: String
@@ -1115,15 +1172,7 @@ struct NativeVenueSummary: Identifiable, Equatable {
     let imageUrl: URL?
 
     var discoverType: String {
-        let normalized = category.lowercased()
-        if normalized.contains("restaurant") || normalized.contains("food") { return "dining" }
-        if normalized.contains("bar") || normalized.contains("club") || normalized.contains("nightlife") { return "nightlife" }
-        if normalized.contains("coffee") || normalized.contains("cafe") { return "coffee" }
-        if normalized.contains("parking") || normalized.contains("garage") { return "parking" }
-        if normalized.contains("fitness") || normalized.contains("gym") { return "fitness" }
-        if normalized.contains("shop") || normalized.contains("market") { return "shopping" }
-        if normalized.contains("event") || normalized.contains("entertainment") { return "entertainment" }
-        return "venue"
+        NativeDiscoverCategoryNormalizer.type(for: category)
     }
 }
 
@@ -1647,7 +1696,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func discoverCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
-        let type = string(item, ["type", "category", "serviceCategory"]) ?? "service"
+        let type = NativeDiscoverCategoryNormalizer.type(for: string(item, ["type", "category", "serviceCategory"]) ?? "service")
         return NativeDiscoverSummary(
             id: string(item, ["id", "vendorServiceId"]) ?? "bootstrap-card-\(index)",
             type: type,
@@ -1734,15 +1783,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func discoverType(forPlaceCategory category: String) -> String {
-        let normalized = category.lowercased()
-        if normalized.contains("restaurant") || normalized.contains("food") || normalized.contains("dining") { return "dining" }
-        if normalized.contains("coffee") || normalized.contains("cafe") { return "coffee" }
-        if normalized.contains("bar") || normalized.contains("club") || normalized.contains("night") { return "nightlife" }
-        if normalized.contains("parking") || normalized.contains("garage") { return "parking" }
-        if normalized.contains("shopping") || normalized.contains("store") || normalized.contains("mall") { return "shopping" }
-        if normalized.contains("event") || normalized.contains("stadium") || normalized.contains("theater") { return "entertainment" }
-        if normalized.contains("gym") || normalized.contains("fitness") { return "fitness" }
-        return "venue"
+        NativeDiscoverCategoryNormalizer.type(for: category)
     }
 
     private static func cta(forProductType productType: String) -> String {
@@ -1768,7 +1809,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func label(for type: String) -> String {
-        switch type {
+        switch NativeDiscoverCategoryNormalizer.type(for: type) {
         case "dining": return "Dining"
         case "nightlife": return "Nightlife"
         case "coffee": return "Coffee"
@@ -1875,7 +1916,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     nonisolated static func icon(for type: String) -> String {
-        switch type {
+        switch NativeDiscoverCategoryNormalizer.type(for: type) {
         case "dining": return "fork.knife"
         case "nightlife": return "music.note"
         case "coffee": return "cup.and.saucer.fill"

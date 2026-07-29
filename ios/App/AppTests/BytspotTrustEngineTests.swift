@@ -430,6 +430,96 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(path.hasPrefix("/trpc/places.textSearch?input="))
     }
 
+    func testDiscoverCategoryNormalizerMapsNightlifeAliases() {
+        let nightlifeAliases = ["bar", "bars", "club", "night_club", "cocktail lounge", "strip club", "adult entertainment", "pub", "rooftop bar", "speakeasy", "wine lounge", "karaoke"]
+
+        for alias in nightlifeAliases {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: alias), "nightlife", "\(alias) should appear under Nightlife in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedNightlifeUniverse() {
+        let categories = ["EDM club", "hip-hop club", "Latin club", "LGBTQ club", "sports bar", "cigar lounge", "hookah lounge", "jazz club", "blues club", "comedy club", "improv theater", "salsa club", "casino", "poker room", "cabaret", "burlesque", "gentlemen club", "VR gaming center", "esports lounge", "bowling alley", "billiards hall", "escape room", "axe throwing", "trivia night", "after-hours venue", "night spa", "thermal baths"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "nightlife", "\(category) should be discoverable from Nightlife.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedEventUniverse() {
+        let categories = ["concert", "music festival", "comedy show", "theater play", "musical", "opera", "ballet", "dance performance", "magic show", "circus", "movie screening", "outdoor cinema", "talent show", "open mic night", "karaoke event", "club night", "DJ set", "pool party", "beach party", "rooftop party", "yacht party", "house party", "silent disco", "after party", "cocktail event", "happy hour", "bar crawl", "singles mixer", "professional sports", "tournament", "marathon", "golf tournament", "boxing event", "MMA event", "conference", "trade show", "expo", "networking event", "seminar", "workshop", "product launch", "career fair", "startup pitch", "award ceremony", "lecture", "webinar", "panel discussion", "book talk", "science fair", "coding bootcamp", "art exhibition", "museum event", "gallery opening", "cultural festival", "poetry reading", "book signing", "film festival", "fashion show", "food festival", "wine tasting", "beer festival", "cooking class", "farmers market", "community festival", "charity event", "volunteer activity", "town hall", "kids workshop", "holiday celebration", "New Year's Eve party", "Pride celebration", "health fair", "meditation session", "spa event", "worship service", "prayer meeting", "hackathon", "LAN party", "gaming tournament", "VR experience", "car show", "racing event", "hiking trip", "fishing tournament", "flea market", "wedding", "birthday party", "graduation party", "campaign event", "debate", "virtual conference", "live stream", "hybrid conference", "anime convention", "comic convention", "pet show", "boat show", "maker faire", "cosplay event"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "entertainment", "\(category) should appear under Events in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedDiningUniverse() {
+        let categories = ["fine dining", "family style", "fast casual", "QSR", "buffet", "food court", "ghost kitchen", "food truck", "diner", "bistro", "brasserie", "bakery", "patisserie", "ice cream shop", "juice bar", "wine bar", "gastropub", "brewpub", "taproom", "Southern", "soul food", "Cajun Creole", "BBQ", "Mexican", "Tex-Mex", "Latin American", "Caribbean", "Italian", "Greek", "Middle Eastern", "Lebanese", "Indian", "Chinese", "Japanese", "Korean", "Thai", "Vietnamese", "African", "Ethiopian", "Nigerian", "Brazilian", "Fusion", "seafood", "steakhouse", "sushi", "ramen", "pizza", "burger", "sandwich shop", "deli", "wings", "tacos", "hot dogs", "breakfast", "brunch", "salad bar", "vegan", "plant-based", "gluten-free", "halal", "kosher", "rooftop dining", "chef's table", "private dining", "dinner theater", "live music dining", "table service", "drive-thru", "curbside pickup", "late-night dining", "mocktail bar", "brewery restaurant", "distillery restaurant", "dinner show", "live music restaurant", "comedy dinner club", "sports restaurant", "karaoke restaurant", "tasting menu restaurant", "wine pairing experience", "airport restaurant", "hotel restaurant", "casino restaurant", "cruise ship dining"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "dining", "\(category) should appear under Dining in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedShoppingUniverse() {
+        let categories = ["party supplies", "balloons", "decorations", "costumes", "invitations", "gift wrap", "wedding supplies", "gifts", "personalized gifts", "gift baskets", "flowers", "greeting cards", "souvenirs", "seasonal gifts", "designer fashion", "luxury watches", "fine jewelry", "luxury beauty", "premium home decor", "collectible art", "eco-friendly products", "handmade goods", "fair trade products", "vintage items", "antique items", "refurbished products", "local products", "department store", "discount store", "outlet store", "warehouse club", "convenience store", "specialty store", "supermarket", "hypermarket", "shopping mall", "boutique shop", "online marketplace", "pop-up shop"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "shopping", "\(category) should appear under Shopping in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedBoutiqueStayUniverse() {
+        let categories = ["yoga retreat", "meditation retreat", "wellness retreat", "spiritual retreat", "detox retreat", "bed & breakfast", "B&B", "country inn", "boutique inn", "camping", "glamping", "RV park", "caravan park", "tiny house", "treehouse", "farm stay", "ranch stay", "safari lodge", "yurt", "dome stay", "castle hotel", "palace hotel", "floating hotel", "houseboat", "overwater bungalow", "ice hotel", "cave hotel", "lighthouse stay", "luxury tent", "beach resort", "mountain resort", "ski resort", "golf resort", "spa resort", "eco resort", "wellness resort", "family resort", "all-inclusive resort", "island resort", "vacation rental", "holiday home", "villa", "apartment rental", "condo rental", "serviced apartment", "townhouse rental", "cabin", "cottage", "chalet"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "boutique_apartment", "\(category) should appear under Boutique Stay in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedMobilityUniverse() {
+        let categories = ["ATV rental", "UTV rental", "snowmobile rental", "jet ski rental", "luxury car rental", "exotic car rental", "off-road vehicle tours", "horseback riding", "marine transportation", "cruise ship", "yacht charter", "boat rental", "water shuttle", "sailboat charter", "kayak rental", "canoe rental", "commercial flights", "charter flights", "private jet", "helicopter charter", "air taxi", "seaplane", "hot air balloon", "chauffeur service", "limousine service"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "mobility", "\(category) should appear under Mobility in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedFitnessUniverse() {
+        let categories = ["commercial gym", "boutique fitness studio", "personal training", "functional training", "strength training", "weightlifting", "powerlifting", "Olympic weightlifting", "CrossFit", "HIIT", "circuit training", "bootcamp", "group fitness classes", "running", "jogging", "walking clubs", "cycling", "spin classes", "indoor cycling", "rowing", "stair climbing", "swimming", "triathlon training", "yoga", "pilates", "barre", "tai chi", "qigong", "meditation", "breathwork", "stretching", "mobility training", "dance fitness", "Zumba", "hip-hop fitness", "salsa fitness", "boxing", "kickboxing", "Muay Thai", "Brazilian Jiu-Jitsu", "judo", "karate", "taekwondo", "Krav Maga", "MMA", "wrestling", "basketball training", "soccer training", "golf fitness", "trail running", "rock climbing", "bouldering", "mountain biking", "kayaking", "paddleboarding", "aqua aerobics", "lap swimming", "physical therapy", "sports massage", "cryotherapy", "infrared sauna", "cold plunge", "compression therapy", "recovery lounge", "senior fitness", "women's fitness", "kids fitness", "prenatal fitness", "corporate wellness", "nutrition coaching", "health club", "recreation center", "hotel gym", "outdoor fitness park", "climbing gym", "trampoline park", "ninja warrior gym"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "fitness", "\(category) should appear under Fitness in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerMapsExpandedParkingUniverse() {
+        let categories = ["public parking", "street parking", "public parking lot", "public parking garage", "municipal parking", "downtown parking", "event parking", "private parking lot", "residential parking", "apartment parking", "office parking", "hotel parking", "restaurant parking", "retail parking", "shopping mall parking", "airport parking", "train station parking", "bus station parking", "ferry terminal parking", "park-and-ride", "transit parking", "self-parking", "valet parking", "covered parking", "underground parking", "multi-level garage", "surface lot", "reserved parking", "assigned parking", "motorcycle parking", "bicycle parking", "RV parking", "bus parking", "truck parking", "EV parking", "accessible ADA parking", "family parking", "senior parking", "VIP parking", "visitor parking", "carpool parking", "EV charging stations", "Tesla Supercharger parking", "solar-powered parking", "gated parking", "secured parking", "CCTV-monitored parking", "24/7 parking", "free parking", "paid parking", "hourly parking", "monthly parking", "metered parking", "festival parking", "stadium parking", "concert parking", "convention center parking", "wedding parking", "shuttle parking", "airport long-term parking", "airport short-term parking", "hotel valet", "vehicle storage", "car wash while parked", "automated parking garage"]
+
+        for category in categories {
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), "parking", "\(category) should appear under Parking in native Discover.")
+        }
+    }
+
+    func testDiscoverCategoryNormalizerAvoidsNightlifeFalsePositives() {
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "coffee bar"), "coffee")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "barber shop"), "shopping")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "restaurant bar"), "dining")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "dog park"), "venue")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "cruise ship dining"), "dining")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "kayak rental"), "mobility")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "kayaking"), "fitness")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "yacht party"), "entertainment")
+    }
+
+    func testNativeVenueDiscoverTypeUsesSharedNightlifeMapping() {
+        let venue = venue(name: "Tongue & Groove", category: "club", address: "Atlanta nightlife")
+
+        XCTAssertEqual(venue.discoverType, "nightlife")
+        XCTAssertEqual(NativeTabContentStore.icon(for: venue.discoverType), "music.note")
+    }
+
     func testBestValueQueryPathCarriesRawInputJSON() throws {
         let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
         let components = URLComponents(string: path)

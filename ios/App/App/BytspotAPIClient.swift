@@ -1533,11 +1533,17 @@ final class NativeTabContentStore: ObservableObject {
     @Published private(set) var snapshot = NativeTabContentSnapshot.fallback
     @Published private(set) var isRefreshing = false
     private var refreshGeneration = 0
+    private var bestValueOrigin: NativeLocationCoordinate?
+
+    func bestValueOptions(for location: NativeLocationCoordinate) -> [NativeLiveValueOption] {
+        Self.canPresentLocationScopedContent(origin: bestValueOrigin, current: location) ? snapshot.bestValueOptions : []
+    }
 
     func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         refreshGeneration += 1
         let generation = refreshGeneration
+        bestValueOrigin = nil
         isRefreshing = true
         defer { if generation == refreshGeneration { isRefreshing = false } }
 
@@ -1556,6 +1562,7 @@ final class NativeTabContentStore: ObservableObject {
                 let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions, location: location)
                 let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
                 guard generation == refreshGeneration else { return }
+                bestValueOrigin = location
                 snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? Self.fallbackVenues(for: location) : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
                 return
             }
@@ -1572,6 +1579,7 @@ final class NativeTabContentStore: ObservableObject {
             let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
             let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions, location: location)
             guard generation == refreshGeneration else { return }
+            bestValueOrigin = location
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues.isEmpty ? Self.fallbackVenues(for: location) : liveVenues,
                 discoverCards: cards,
@@ -1583,6 +1591,7 @@ final class NativeTabContentStore: ObservableObject {
             )
         } catch {
             guard generation == refreshGeneration else { return }
+            bestValueOrigin = nil
             let fallback = Self.locationAwareSnapshot(.fallback, location: location)
             snapshot = NativeTabContentSnapshot(venues: fallback.venues, discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Fresh picks aren't available right now. Showing saved suggestions.")
         }
@@ -1642,6 +1651,13 @@ final class NativeTabContentStore: ObservableObject {
 
     nonisolated static let nightlifeRadiusMiles = 30.0
     nonisolated static let localVenueRadiusMiles = 30.0
+    nonisolated static let locationScopedContentOriginToleranceMiles = 1.0
+
+    nonisolated static func canPresentLocationScopedContent(origin: NativeLocationCoordinate?, current: NativeLocationCoordinate) -> Bool {
+        guard let origin, !origin.isFallback, !current.isFallback else { return false }
+        return current.distanceMiles(toLatitude: origin.latitude, longitude: origin.longitude)
+            .map { $0 <= locationScopedContentOriginToleranceMiles } ?? false
+    }
 
     nonisolated static func localValueOptions(_ options: [NativeLiveValueOption]) -> [NativeLiveValueOption] {
         let radiusMeters = localVenueRadiusMiles * 1_609.344

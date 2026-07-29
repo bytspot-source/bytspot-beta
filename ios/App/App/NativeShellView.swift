@@ -14792,7 +14792,7 @@ private struct NativeMapExploreView: View {
 
     private var bestValueOption: NativeLiveValueOption? {
         guard hasResolvedDeviceLocation else { return nil }
-        let options = tabContentStore.snapshot.bestValueOptions
+        let options = tabContentStore.bestValueOptions(for: locationStore.coordinate)
         if selectedMode == "Smart Parking" { return options.first { $0.productType == "parking" } ?? options.first }
         return options.first
     }
@@ -16656,20 +16656,23 @@ enum NativeConciergeRegionPresentation {
     enum Topic { case parking, stay, open, general }
 
     static let genericWelcomeMessage = "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around your area."
-    static let atlantaContentTokens = ["Atlanta", "Midtown", "Colony Square", "Arts Center", "Ponce", "Broni", "Akwaaba", "Lake Clara Meer"]
+
+    static func isVerifiedAtlanta(_ location: NativeLocationCoordinate) -> Bool {
+        !location.isFallback && NativeHomeRegionPresentation.isAtlanta(location)
+    }
 
     static func cityName(for location: NativeLocationCoordinate) -> String {
-        NativeHomeRegionPresentation.isAtlanta(location) ? "Midtown" : "Near you"
+        isVerifiedAtlanta(location) ? "Midtown" : "Near you"
     }
 
     static func welcomeMessage(for location: NativeLocationCoordinate) -> String {
-        NativeHomeRegionPresentation.isAtlanta(location)
+        isVerifiedAtlanta(location)
             ? "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown."
             : genericWelcomeMessage
     }
 
     static func fallbackResponse(for topic: Topic, location: NativeLocationCoordinate) -> String {
-        if NativeHomeRegionPresentation.isAtlanta(location) {
+        if isVerifiedAtlanta(location) {
             switch topic {
             case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail."
             case .stay: return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet."
@@ -16686,19 +16689,24 @@ enum NativeConciergeRegionPresentation {
     }
 
     static func permitsRemoteContent(_ content: [String], query: String, location: NativeLocationCoordinate) -> Bool {
-        guard !NativeHomeRegionPresentation.isAtlanta(location) else { return true }
-        guard !explicitlyRequestsAtlanta(query) else { return true }
-        return atlantaContentTokens.allSatisfy { token in
-            content.allSatisfy { !$0.localizedCaseInsensitiveContains(token) }
-        }
+        _ = content
+        return isVerifiedAtlanta(location) || explicitlyRequestsAtlanta(query)
     }
 
     static func permitsLiveConcierge(query: String, location: NativeLocationCoordinate) -> Bool {
-        NativeHomeRegionPresentation.isAtlanta(location) || explicitlyRequestsAtlanta(query)
+        isVerifiedAtlanta(location) || explicitlyRequestsAtlanta(query)
     }
 
     private static func explicitlyRequestsAtlanta(_ query: String) -> Bool {
-        ["Atlanta", "Midtown"].contains { query.localizedCaseInsensitiveContains($0) }
+        let words = query.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        let normalized = words.joined(separator: " ")
+        let destinations = ["atlanta", "midtown"]
+        guard destinations.contains(where: words.contains) else { return false }
+        guard Set(words).isDisjoint(with: ["not", "no", "avoid", "exclude", "without", "outside", "except"]) else { return false }
+        return destinations.contains { destination in
+            normalized == destination || normalized.hasPrefix("\(destination) ") ||
+                ["in", "to", "near", "around", "visit"].contains { normalized.contains("\($0) \(destination)") }
+        }
     }
 }
 
@@ -16858,7 +16866,7 @@ private struct NativeConciergeView: View {
     }
 
     private var suggestionChips: [String] {
-        tabContentStore.snapshot.bestValueOptions.isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
+        tabContentStore.bestValueOptions(for: locationStore.coordinate).isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
     }
 
     private var historyPanel: some View {
@@ -17090,7 +17098,7 @@ private struct NativeConciergeView: View {
 
     private func localFallbackResponse(for query: String) -> String {
         let q = query.lowercased()
-        if q.contains("best value"), let option = tabContentStore.snapshot.bestValueOptions.first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
+        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
         if q.contains("parking") { return NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: locationStore.coordinate) }
         if isStayQuery(q) { return NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: locationStore.coordinate) }
         if q.contains("open") { return NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: locationStore.coordinate) }
@@ -17130,10 +17138,12 @@ private struct NativeConciergeView: View {
     }
 
     private func resolvedStayVenue(for query: String) -> NativeVenueSummary? {
-        let localStays = tabContentStore.snapshot.venues.filter { $0.discoverType == "boutique_apartment" }
+        let location = locationStore.coordinate
+        guard !location.isFallback else { return nil }
+        let localStays = NativeTabContentStore.locationAwareVenues(tabContentStore.snapshot.venues, location: location).filter { $0.discoverType == "boutique_apartment" }
         if let requested = stayVenueName(in: query), let venue = localStays.first(where: { $0.name.localizedCaseInsensitiveContains(requested) || requested.localizedCaseInsensitiveContains($0.name) }) { return venue }
         if let local = localStays.first { return local }
-        guard NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) else { return nil }
+        guard NativeHomeRegionPresentation.isAtlanta(location) else { return nil }
         let name = stayVenueName(in: query) ?? "Midtown Boutique Suite"
         return NativeVenueSummary(id: "stay-\(name.lowercased().replacingOccurrences(of: " ", with: "-"))", name: name, category: "boutique_apartment", address: "Midtown Atlanta", distance: "Stay", rating: 4.9, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)
     }

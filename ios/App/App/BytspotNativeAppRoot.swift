@@ -188,7 +188,7 @@ struct BytspotNativeAppRoot: View {
                 }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in
-                tabContentStore.invalidateLocationScopedContent()
+                tabContentStore.invalidateLocationScopedContent(for: locationStore.coordinate)
                 Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
             }
             .onChange(of: launchAtmosphere) { _ in
@@ -524,7 +524,7 @@ private struct NativeLaunchFlowView: View {
             case .crew:
                 NativePersonalizationScreen(step: .crew, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
             case .atlanta:
-                NativeAtlantaPicksScreen(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
+                NativeAtlantaPicksScreen(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
             case .auth:
                 NativeAuthenticationScreen(mode: NativeAuthLaunchContract.requestedAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: onComplete, onBack: { advance(to: .landing) })
             }

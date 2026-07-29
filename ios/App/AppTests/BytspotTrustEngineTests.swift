@@ -377,6 +377,29 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testRegionalSnapshotOriginRejectsAllStaleAtlantaContentForSeattleAndProfileConsumers() {
+        let atlanta = NativeLocationCoordinate.verifiedMidtown
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let option = NativeLiveValueOption(id: "atlanta-parking", productType: "parking", title: "Midtown Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
+        let atlantaSnapshot = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .mixed, lastUpdated: Date(), errorMessage: nil, bestValueOptions: [option])
+
+        let current = NativeTabContentStore.locationSafeSnapshot(atlantaSnapshot, origin: atlanta, bestValueOrigin: atlanta, current: atlanta)
+        let stale = NativeTabContentStore.locationSafeSnapshot(atlantaSnapshot, origin: atlanta, bestValueOrigin: atlanta, current: seattle)
+        let unresolved = NativeTabContentStore.locationSafeSnapshot(atlantaSnapshot, origin: atlanta, bestValueOrigin: atlanta, current: .midtown)
+
+        XCTAssertFalse(current.venues.isEmpty)
+        for snapshot in [stale, unresolved] {
+            XCTAssertTrue(snapshot.venues.isEmpty)
+            XCTAssertTrue(snapshot.events.isEmpty)
+            XCTAssertTrue(snapshot.bestValueOptions.isEmpty)
+            XCTAssertTrue(Set(snapshot.discoverCards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+            let copy = snapshot.discoverCards.flatMap { [$0.title, $0.subtitle, $0.metadataLine] }.joined(separator: " ")
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("Atlanta"))
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("Midtown"))
+        }
+    }
+
+    @MainActor
     func testUnresolvedLocationPublishesNeutralContentAndRejectsDerivedBestValueCards() {
         let option = NativeLiveValueOption(id: "fallback-parking", productType: "parking", title: "Midtown Smart Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
         let unresolvedCards = NativeTabContentStore.liveDiscoverCards(apiCards: NativeTabContentSnapshot.fallback.discoverCards, venues: NativeTabContentSnapshot.fallback.venues, events: NativeTabContentSnapshot.fallback.events, services: NativeTabContentSnapshot.specialDiscoverCards, valueOptions: [option], location: .midtown)

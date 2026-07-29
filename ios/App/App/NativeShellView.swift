@@ -544,7 +544,7 @@ struct BytspotNativeShellView: View {
         case .explorePicks:
             selectedTab = .discover
         case .mapPicks:
-            NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+            NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
             selectedTab = .map
         case .savePicks:
             forceHomeAfterSavePicksAuth()
@@ -1205,6 +1205,7 @@ private struct NativeProfilePanelSheet: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
 
@@ -1254,9 +1255,9 @@ private struct NativeProfilePanelSheet: View {
                 .environmentObject(contactSyncStore)
                 .environmentObject(sessionStore)
         case .savedSpots:
-            NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot)
+            NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
         case .placesVisited:
-            NativeProfilePlacesVisitedPanel(snapshot: tabContentStore.snapshot)
+            NativeProfilePlacesVisitedPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
         case .appearance:
             NativeAppearancePanel(selection: appearanceSelection)
         case .vibePreferences:
@@ -13968,7 +13969,7 @@ private struct NativeMapExploreView: View {
     private var venues: [NativeVenueSummary] {
         guard hasResolvedDeviceLocation else { return [] }
         return NativeTabContentStore.locationAwareVenues(
-            NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot),
+            NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot(for: locationStore.coordinate)),
             location: locationStore.coordinate
         )
     }
@@ -17163,7 +17164,7 @@ private struct NativeConciergeView: View {
     private func resolvedStayVenue(for query: String) -> NativeVenueSummary? {
         let location = locationStore.coordinate
         guard !location.isFallback else { return nil }
-        let localStays = NativeTabContentStore.locationAwareVenues(tabContentStore.snapshot.venues, location: location).filter { $0.discoverType == "boutique_apartment" }
+        let localStays = NativeTabContentStore.locationAwareVenues(tabContentStore.snapshot(for: location).venues, location: location).filter { $0.discoverType == "boutique_apartment" }
         if let requested = stayVenueName(in: query), let venue = localStays.first(where: { $0.name.localizedCaseInsensitiveContains(requested) || requested.localizedCaseInsensitiveContains($0.name) }) { return venue }
         if let local = localStays.first { return local }
         guard NativeHomeRegionPresentation.isAtlanta(location) else { return nil }

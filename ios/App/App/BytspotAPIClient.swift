@@ -1399,14 +1399,16 @@ struct NativeLiveDiscoveryAPI {
 
     func placesTextSearch(query: String, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
         let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": lat, "lng": lng, "maxResults": maxResults])
-        return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+        let places = Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+        return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
     }
 
     func placesNearbySearch(type: String?, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
         var input: [String: Any] = ["lat": lat, "lng": lng, "maxResults": maxResults]
         if let type, !type.isEmpty { input["type"] = type }
         let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, input: input)
-        return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+        let places = Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
+        return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
     }
 
     func localNightlifeSearch(location: NativeLocationCoordinate, maxResults: Int = 12) async throws -> [NativePlaceSearchResult] {
@@ -1442,6 +1444,18 @@ struct NativeLiveDiscoveryAPI {
         let minutes = max(2, Int((distance / 18.0 * 60.0).rounded()))
         let distanceText = distance < 10 ? String(format: "%.1f mi", distance) : String(format: "%.0f mi", distance)
         return NativeNavigationEstimate(distanceText: distanceText, durationText: "~\(minutes) min", provider: "local_distance")
+    }
+
+    static func validatedLocalPlaces(_ places: [NativePlaceSearchResult], origin: NativeLocationCoordinate) -> [NativePlaceSearchResult] {
+        places.filter { place in
+            guard let latitude = place.latitude, let longitude = place.longitude,
+                  latitude.isFinite, longitude.isFinite,
+                  (-90...90).contains(latitude), (-180...180).contains(longitude),
+                  !(latitude == 0 && longitude == 0),
+                  let miles = origin.distanceMiles(toLatitude: latitude, longitude: longitude),
+                  miles.isFinite, miles <= NativeTabContentStore.localVenueRadiusMiles else { return false }
+            return true
+        }
     }
 
     private static func placeRows(from value: Any) -> [Any] {
@@ -1652,11 +1666,12 @@ final class NativeTabContentStore: ObservableObject {
         for place in (general ?? []) + (clubs ?? []) + (bars ?? []) + (localNightlife ?? []) where !places.contains(where: { $0.id == place.id }) {
             places.append(place)
         }
+        let localPlaces = NativeLiveDiscoveryAPI.validatedLocalPlaces(places, origin: location)
         var cards: [NativeDiscoverSummary] = []
-        for pair in places.enumerated() {
+        for pair in localPlaces.enumerated() {
             let place = pair.element
             let eta = pair.offset < 3 ? api.localTravelEstimate(origin: location, destinationLat: place.latitude, destinationLng: place.longitude) : nil
-            cards.append(Self.discoverCard(fromPlace: pair, location: location, eta: eta))
+            if let card = Self.discoverCard(fromPlace: pair, location: location, eta: eta) { cards.append(card) }
         }
         return cards
     }
@@ -1699,7 +1714,7 @@ final class NativeTabContentStore: ObservableObject {
         if canUseCurrentEventFeed(at: location) { appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged) }
         let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
         let complete = mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
-        return canUseCurrentEventFeed(at: location) ? complete : locationAwareCards(complete, sourceVenues: venues, location: location)
+        return locationAwareCards(complete, sourceVenues: venues, location: location)
     }
 
     static func source(forVisibleDeck cards: [NativeDiscoverSummary], hasLiveInputs: Bool) -> NativeTabContentSnapshot.Source {
@@ -1896,7 +1911,8 @@ final class NativeTabContentStore: ObservableObject {
         let venueCandidates = sourceVenues + (isAtlantaRegion ? NativeTabContentSnapshot.fallbackVenues : [])
         return cards.compactMap { card in
             let canonicalID = curatedIDs.first { card.id == $0 || card.id.contains($0) }
-            let isLocalPlaceCard = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
+            let hasPlaceProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
+            let isLocalPlaceCard = hasPlaceProviderBadge && hasMeasuredLocalDistance(card.distance)
             let isLocationQueriedValueCard = card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
             if !isAtlantaRegion,
                (specialCards.contains { card.id == $0.id || card.id.contains($0.id) } || card.id.contains("midtown-boutique-suite")) { return nil }
@@ -1905,7 +1921,9 @@ final class NativeTabContentStore: ObservableObject {
                 guard let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                       miles <= localVenueRadiusMiles else { return nil }
             }
-            if card.type == "nightlife", !curatedIDs.contains(card.id), !isLocalPlaceCard {
+            let isTrustedAtlantaNightlifeSuggestion = isAtlantaRegion
+                && (card.id.hasPrefix("nightlife-event-") || card.id.hasPrefix("starter-") || card.badgeText.localizedCaseInsensitiveContains("CURATED"))
+            if card.type == "nightlife", !curatedIDs.contains(card.id), !isLocalPlaceCard, !isTrustedAtlantaNightlifeSuggestion {
                 guard let venue,
                       let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                       miles <= nightlifeRadiusMiles else { return nil }
@@ -1924,15 +1942,25 @@ final class NativeTabContentStore: ObservableObject {
         NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: "Nearby", rating: "Explore", icon: card.icon, verified: false, entryType: "free", cta: "Explore", imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: "CURATED", metadataLine: "Suggestions for your area", features: [card.categoryLabel, "Local ideas", "Check nearby"], vibeScore: card.vibeScore, availability: "Check nearby", membershipRequired: false)
     }
 
+    private static func hasMeasuredLocalDistance(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.caseInsensitiveCompare("Here") == .orderedSame { return true }
+        guard normalized.lowercased().hasSuffix(" mi"),
+              let miles = Double(normalized.dropLast(3).trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return miles.isFinite && miles >= 0 && miles <= localVenueRadiusMiles
+    }
+
     private static func visibleEvents(_ events: [NativeEventSummary], location: NativeLocationCoordinate) -> [NativeEventSummary] {
         if !events.isEmpty { return events }
         return location.isFallback ? NativeTabContentSnapshot.fallback.events : []
     }
 
-    private static func discoverCard(fromPlace pair: EnumeratedSequence<[NativePlaceSearchResult]>.Element, location: NativeLocationCoordinate, eta: NativeNavigationEstimate?) -> NativeDiscoverSummary {
+    private static func discoverCard(fromPlace pair: EnumeratedSequence<[NativePlaceSearchResult]>.Element, location: NativeLocationCoordinate, eta: NativeNavigationEstimate?) -> NativeDiscoverSummary? {
         let (index, place) = pair
         let type = discoverType(forPlaceCategory: place.category)
-        let distance = location.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
+        guard let miles = location.distanceMiles(toLatitude: place.latitude, longitude: place.longitude),
+              miles.isFinite, miles <= localVenueRadiusMiles,
+              let distance = location.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) else { return nil }
         let etaLine = eta.map { " · \($0.durationText) approx" } ?? ""
         return NativeDiscoverSummary(
             id: "place-\(place.id)",

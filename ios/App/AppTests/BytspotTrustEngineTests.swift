@@ -505,9 +505,11 @@ final class BytspotTrustEngineTests: XCTestCase {
         let atlantaCard = NativeDiscoverSummary(id: "venue-atlanta", type: "dining", title: "Atlanta Venue", subtitle: "Atlanta", distance: "—", rating: "Live", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 0, availability: "Live", membershipRequired: false)
         let unknownLiveCard = NativeDiscoverSummary(id: "unknown-live", type: "dining", title: "Unknown Venue", subtitle: "Unknown", distance: "—", rating: "Live", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 0, availability: "Live", membershipRequired: false)
         let localPlaceCard = NativeDiscoverSummary(id: "local-place", type: "dining", title: "Local Place", subtitle: "Seattle", distance: "0.4 mi", rating: "Nearby", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: [], vibeScore: 0, availability: "Nearby", membershipRequired: false)
+        let unmeasuredPlaceCard = NativeDiscoverSummary(id: "unmeasured-place", type: "dining", title: "Unmeasured Place", subtitle: "Unknown", distance: "Nearby", rating: "Nearby", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "GOOGLE PLACES", metadataLine: "Nearby", features: [], vibeScore: 0, availability: "Nearby", membershipRequired: false)
+        let farPlaceCard = NativeDiscoverSummary(id: "far-place", type: "dining", title: "Far Place", subtitle: "Far", distance: "100 mi", rating: "Nearby", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "GOOGLE PLACES", metadataLine: "Nearby", features: [], vibeScore: 0, availability: "Nearby", membershipRequired: false)
 
         let venues = NativeTabContentStore.locationAwareVenues([atlanta, local], location: seattle)
-        let cards = NativeTabContentStore.locationAwareCards([atlantaCard, unknownLiveCard, localPlaceCard], sourceVenues: [atlanta, local], location: seattle)
+        let cards = NativeTabContentStore.locationAwareCards([atlantaCard, unknownLiveCard, localPlaceCard, unmeasuredPlaceCard, farPlaceCard], sourceVenues: [atlanta, local], location: seattle)
         let eyebrow = NativeHomeRegionPresentation.contextualEyebrow(hour: 13, location: seattle)
 
         XCTAssertEqual(venues.map(\.id), [local.id])
@@ -517,6 +519,39 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "ATL")
         XCTAssertTrue(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
+    }
+
+    @MainActor
+    func testProviderPlacesRequireValidCoordinatesWithinTheLocalRadius() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let localGoogle = NativePlaceSearchResult(id: "local-google", name: "Local Google", address: "Seattle", category: "restaurant", latitude: 47.61, longitude: -122.33, rating: 4.7, photoUrl: nil, provider: "google_places")
+        let localApple = NativePlaceSearchResult(id: "local-apple", name: "Local Apple", address: "Seattle", category: "cafe", latitude: 47.608, longitude: -122.335, rating: nil, photoUrl: nil, provider: "apple_maps")
+        let farGoogle = NativePlaceSearchResult(id: "far-google", name: "Far Google", address: "Atlanta", category: "restaurant", latitude: 33.7866, longitude: -84.3833, rating: 4.7, photoUrl: nil, provider: "google_places")
+        let missingGoogle = NativePlaceSearchResult(id: "missing-google", name: "Missing Google", address: "Unknown", category: "restaurant", latitude: nil, longitude: nil, rating: nil, photoUrl: nil, provider: "google_places")
+        let zeroGoogle = NativePlaceSearchResult(id: "zero-google", name: "Zero Google", address: "Unknown", category: "restaurant", latitude: 0, longitude: 0, rating: nil, photoUrl: nil, provider: "google_places")
+
+        let places = NativeLiveDiscoveryAPI.validatedLocalPlaces([farGoogle, missingGoogle, zeroGoogle, localGoogle, localApple], origin: seattle)
+
+        XCTAssertEqual(places.map(\.id), [localGoogle.id, localApple.id])
+    }
+
+    @MainActor
+    func testHomeEmptyStateDoesNotDependOnLaunchCompletion() {
+        let emptySnapshot = NativeTabContentSnapshot(venues: [], discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
+        let eventOnlySnapshot = NativeTabContentSnapshot(venues: [], discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .fallback, lastUpdated: nil, errorMessage: nil)
+        let valueOnlyCard = NativeDiscoverSummary(id: "best-value", type: "parking", title: "Best Value", subtitle: "Local query", distance: "Nearby", rating: "Value 88", icon: "parkingsign", verified: true, entryType: "paid", cta: "View", imageUrl: nil, categoryLabel: "Parking", badgeText: "BEST VALUE", metadataLine: "$8", features: [], vibeScore: 8, availability: "Available", membershipRequired: true)
+        let valueOnlySnapshot = NativeTabContentSnapshot(venues: [], discoverCards: [valueOnlyCard], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+        let localPlace = NativeDiscoverSummary(id: "local-place", type: "coffee", title: "Local Place", subtitle: "Seattle", distance: "0.4 mi", rating: "Nearby", icon: "cup.and.saucer", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "APPLE MAPS", metadataLine: "Live place", features: [], vibeScore: 6, availability: "Live place", membershipRequired: false)
+        let unmeasuredPlace = NativeDiscoverSummary(id: "unmeasured-place", type: "coffee", title: "Unmeasured Place", subtitle: "Unknown", distance: "Nearby", rating: "Nearby", icon: "cup.and.saucer", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "GOOGLE PLACES", metadataLine: "Live place", features: [], vibeScore: 6, availability: "Live place", membershipRequired: false)
+        let localSnapshot = NativeTabContentSnapshot(venues: [], discoverCards: [localPlace], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+        let unmeasuredSnapshot = NativeTabContentSnapshot(venues: [], discoverCards: [unmeasuredPlace], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: emptySnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: emptySnapshot, launchPicksCompleted: true, launchPickCount: 0))
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: eventOnlySnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: valueOnlySnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: unmeasuredSnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertFalse(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: localSnapshot, launchPicksCompleted: false, launchPickCount: 0))
     }
 
     @MainActor

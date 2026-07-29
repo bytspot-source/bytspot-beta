@@ -6963,6 +6963,26 @@ enum NativeHomeRegionPresentation {
     static func cityBadge(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "ATL" : "HERE" }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
+    static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
+        if !snapshot.venues.isEmpty { return true }
+        return snapshot.discoverCards.contains(where: isTrustedLocalPlaceCard)
+    }
+
+    static func isTrustedLocalPlaceCard(_ card: NativeDiscoverSummary) -> Bool {
+        let hasProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS")
+            || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
+        guard hasProviderBadge else { return false }
+        let distance = card.distance.trimmingCharacters(in: .whitespacesAndNewlines)
+        if distance.caseInsensitiveCompare("Here") == .orderedSame { return true }
+        guard distance.lowercased().hasSuffix(" mi"),
+              let miles = Double(distance.dropLast(3).trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return miles.isFinite && miles >= 0 && miles <= NativeTabContentStore.localVenueRadiusMiles
+    }
+
+    static func shouldShowLocalEmptyState(in snapshot: NativeTabContentSnapshot, launchPicksCompleted: Bool, launchPickCount: Int) -> Bool {
+        !hasTrustedLocalRecommendations(in: snapshot) && (!launchPicksCompleted || launchPickCount == 0)
+    }
+
     static func contextualEyebrow(hour: Int, location: NativeLocationCoordinate) -> (String, String) {
         let place = isAtlanta(location) ? "in Midtown" : "near you"
         switch hour {
@@ -7121,24 +7141,33 @@ private struct NativeHomeDashboardView: View {
         Self.rankedLaunchPicks(from: tabContentStore.snapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
     }
 
+    private var hasTrustedLocalRecommendations: Bool {
+        NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: tabContentStore.snapshot)
+    }
+
+    private var shouldShowLocalEmptyState: Bool {
+        NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: tabContentStore.snapshot, launchPicksCompleted: launchPicksCompleted, launchPickCount: launchRecommendationPicks.count)
+    }
+
     var body: some View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
             if let liveGroupEvent { NativeHomeLiveGroupBanner(event: liveGroupEvent, action: { openGroupInvite(liveGroupEvent) }) }
-            if launchPicksCompleted {
-                if launchRecommendationPicks.isEmpty { noLocalLaunchPicksSection } else { launchPicksReadySection }
-            }
-            tonightPickCard
+            if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
+            if shouldShowLocalEmptyState { noLocalRecommendationsSection }
+            if hasTrustedLocalRecommendations { tonightPickCard }
             quickActionsSection
-            availableTonightSection
             weatherSmartCard
-            recommendationsSection
-            tonightEventsSection
-            rightNowSection
-            trendingNowSection
             categoryQuickSearchSection
-            nearbySection
+            if hasTrustedLocalRecommendations {
+                availableTonightSection
+                recommendationsSection
+                tonightEventsSection
+                rightNowSection
+                trendingNowSection
+                nearbySection
+            }
         }
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }
@@ -7435,7 +7464,7 @@ private struct NativeHomeDashboardView: View {
         .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
     }
 
-    private var noLocalLaunchPicksSection: some View {
+    private var noLocalRecommendationsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("LOOKING NEAR YOU").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
             Text("Local picks are updating").nativeTitle(20)
@@ -7627,8 +7656,11 @@ private struct NativeHomeDashboardView: View {
 
     private var personalizedAIPick: NativeDiscoverSummary? {
         let cards = NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot)
+        let localPlaceCards = cards.filter(NativeHomeRegionPresentation.isTrustedLocalPlaceCard)
         let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
-        return types.compactMap { type in cards.first { $0.type == type } }.first
+        return types.compactMap { type in localPlaceCards.first { $0.type == type } }.first
+            ?? localPlaceCards.first(where: { !$0.membershipRequired })
+            ?? types.compactMap { type in cards.first { $0.type == type } }.first
             ?? cards.first(where: { !$0.membershipRequired })
     }
 
@@ -7653,6 +7685,11 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var personalizedAIReason: String {
+        if let card = personalizedAIPick,
+           NativeHomeRegionPresentation.isTrustedLocalPlaceCard(card),
+           !Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference).contains(card.type) {
+            return "A nearby result matched to your current area."
+        }
         let signals = [Self.vibeLabel(launchIntent), Self.walkLabel(launchWalkPreference), Self.crewLabel(launchCrewPreference)]
             .filter { !$0.isEmpty && $0 != "personalized" && $0 != "for you" }
         guard !signals.isEmpty && signals != ["nearby"] else { return "Matched to your timing and nearby intent." }
@@ -7744,8 +7781,9 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private var tonightEventsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    @ViewBuilder private var tonightEventsSection: some View {
+        if !tabContentStore.snapshot.events.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("What's Happening Tonight").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                 Spacer()
@@ -7783,26 +7821,32 @@ private struct NativeHomeDashboardView: View {
                     }
                 }
             }
+            }
+            .accessibilityIdentifier("native-home-tonight-events")
         }
-        .accessibilityIdentifier("native-home-tonight-events")
     }
 
-    private var rightNowSection: some View {
-        NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
-            ForEach(Array(tabContentStore.snapshot.venues.filter { $0.crowd != nil }.prefix(6))) { venue in
+    @ViewBuilder private var rightNowSection: some View {
+        let venues = Array(tabContentStore.snapshot.venues.filter { $0.crowd != nil }.prefix(6))
+        if !venues.isEmpty {
+            NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
+                ForEach(venues) { venue in
                 NativeMiniCard(eyebrow: crowdBadge(venue.crowd), title: venue.name, subtitle: venue.crowd?.waitMins.map { "~\($0)m wait" } ?? venue.address, iconText: categoryEmoji(venue.discoverType), accent: crowdColor(venue.crowd)) { openNativeTab(.map) }
+                }
             }
+            .accessibilityIdentifier("native-home-right-now")
         }
-        .accessibilityIdentifier("native-home-right-now")
     }
 
-    private var trendingNowSection: some View {
-        NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
-            ForEach(Array(tabContentStore.snapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
-                NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
+    @ViewBuilder private var trendingNowSection: some View {
+        if !tabContentStore.snapshot.venues.isEmpty {
+            NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
+                ForEach(Array(tabContentStore.snapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
+                    NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
+                }
             }
+            .accessibilityIdentifier("native-home-trending-now")
         }
-        .accessibilityIdentifier("native-home-trending-now")
     }
 
     private var categoryQuickSearchSection: some View {
@@ -7827,13 +7871,15 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-category-search")
     }
 
-    private var nearbySection: some View {
-        NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
-            ForEach(Array(tabContentStore.snapshot.venues.prefix(6))) { venue in
-                NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
+    @ViewBuilder private var nearbySection: some View {
+        if !tabContentStore.snapshot.venues.isEmpty {
+            NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
+                ForEach(Array(tabContentStore.snapshot.venues.prefix(6))) { venue in
+                    NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
+                }
             }
+            .accessibilityIdentifier("native-home-nearby")
         }
-        .accessibilityIdentifier("native-home-nearby")
     }
 
     private var nativeContentFreshnessLabel: String {
@@ -7893,9 +7939,10 @@ private struct NativeHomeDashboardView: View {
         NativeLocationAwareUIContent.discoverCards(in: tabContentStore.snapshot, matching: "boutique_apartment").first
     }
 
-    private var recommendationsSection: some View {
+    @ViewBuilder private var recommendationsSection: some View {
         let picks = Array(tabContentStore.snapshot.discoverCards.filter { $0.type == "service" }.prefix(6))
-        return VStack(alignment: .leading, spacing: 12) {
+        if !picks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Recommended for you").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
@@ -7915,8 +7962,9 @@ private struct NativeHomeDashboardView: View {
                     }
                 }
             }
+            }
+            .accessibilityIdentifier("native-home-recommendations")
         }
-        .accessibilityIdentifier("native-home-recommendations")
     }
 
     private func perform(_ target: ActionTarget) {

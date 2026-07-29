@@ -9480,6 +9480,9 @@ private enum NativeParkingQRCodeRenderer {
 }
 
 enum NativeMapFocusHandoff {
+    static let currentSchemaVersion = 2
+    static let explicitSource = "userSelected"
+    static let regionalSource = "regionalRecommendation"
     static let idKey = "bytspot_native_map_focus_id"
     static let titleKey = "bytspot_native_map_focus_title"
     static let subtitleKey = "bytspot_native_map_focus_subtitle"
@@ -9490,6 +9493,9 @@ enum NativeMapFocusHandoff {
     static let locationScopedKey = "bytspot_native_map_focus_location_scoped"
     static let originLatitudeKey = "bytspot_native_map_focus_origin_latitude"
     static let originLongitudeKey = "bytspot_native_map_focus_origin_longitude"
+    static let schemaVersionKey = "bytspot_native_map_focus_schema_version"
+    static let sourceKey = "bytspot_native_map_focus_source"
+    static let requestIDKey = "bytspot_native_map_focus_request_id"
 
     static func store(venue: NativeVenueSummary, modeOverride: String? = nil, locationScopeOrigin: NativeLocationCoordinate? = nil, defaults: UserDefaults = .standard) {
         guard venue.hasKnownCoordinates else { clear(defaults: defaults); return }
@@ -9512,7 +9518,10 @@ enum NativeMapFocusHandoff {
             defaults.removeObject(forKey: originLatitudeKey)
             defaults.removeObject(forKey: originLongitudeKey)
         }
+        defaults.set(currentSchemaVersion, forKey: schemaVersionKey)
+        defaults.set(locationScopeOrigin == nil ? explicitSource : regionalSource, forKey: sourceKey)
         defaults.set(venue.id, forKey: idKey)
+        defaults.set(UUID().uuidString, forKey: requestIDKey)
     }
 
     static var hasPendingFocus: Bool {
@@ -9526,7 +9535,7 @@ enum NativeMapFocusHandoff {
     }
 
     static func isLocationScoped(in defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: locationScopedKey)
+        defaults.string(forKey: sourceKey) == regionalSource && defaults.bool(forKey: locationScopedKey)
     }
 
     static func locationScopeOrigin(in defaults: UserDefaults = .standard) -> NativeLocationCoordinate? {
@@ -9537,12 +9546,24 @@ enum NativeMapFocusHandoff {
     }
 
     static func canConsume(at location: NativeLocationCoordinate, defaults: UserDefaults = .standard) -> Bool {
-        guard isLocationScoped(in: defaults) else { return true }
-        return NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin(in: defaults), current: location)
+        guard defaults.integer(forKey: schemaVersionKey) == currentSchemaVersion else { return false }
+        switch defaults.string(forKey: sourceKey) {
+        case explicitSource:
+            return !defaults.bool(forKey: locationScopedKey)
+        case regionalSource:
+            guard isLocationScoped(in: defaults) else { return false }
+            return NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin(in: defaults), current: location)
+        default:
+            return false
+        }
+    }
+
+    static func requestID(in defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: requestIDKey) ?? ""
     }
 
     static func clear(defaults: UserDefaults = .standard) {
-        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey, locationScopedKey, originLatitudeKey, originLongitudeKey].forEach { defaults.removeObject(forKey: $0) }
+        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey, locationScopedKey, originLatitudeKey, originLongitudeKey, schemaVersionKey, sourceKey, requestIDKey].forEach { defaults.removeObject(forKey: $0) }
     }
 }
 
@@ -13996,6 +14017,7 @@ private struct NativeMapExploreView: View {
     @AppStorage(NativeMapFocusHandoff.longitudeKey) private var mapFocusLongitude = 0.0
     @AppStorage(NativeMapFocusHandoff.kindKey) private var mapFocusKind = ""
     @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
+    @AppStorage(NativeMapFocusHandoff.requestIDKey) private var mapFocusRequestID = ""
     @State private var focusedHandoffPin: NativeMapPin?
     @State private var focusedHandoffOrigin: NativeLocationCoordinate?
     @State private var focusedHandoffIsLocationScoped = false
@@ -14339,7 +14361,7 @@ private struct NativeMapExploreView: View {
         .onAppear { handleMapAppear() }
         .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
-        .onChange(of: mapFocusID) { _ in applyNativeMapFocusHandoffIfRequested() }
+        .onChange(of: mapFocusRequestID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onDisappear { headingProvider.stopLocating() }
@@ -14472,6 +14494,7 @@ private struct NativeMapExploreView: View {
         let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty || !title.isEmpty else { return }
+        let requestID = mapFocusRequestID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard NativeMapFocusHandoff.canConsume(at: locationStore.coordinate) else {
             rejectPendingNativeMapFocusHandoff()
             return
@@ -14501,14 +14524,15 @@ private struct NativeMapExploreView: View {
             kind: kind,
             crowdLevel: kind == .parking ? 1 : nil
         )
-        focusedHandoffPin = focused
-        focusedHandoffOrigin = locationScopeOrigin
-        focusedHandoffIsLocationScoped = isLocationScoped
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            guard !requestID.isEmpty, NativeMapFocusHandoff.requestID() == requestID else { return }
             guard !isLocationScoped || NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin, current: locationStore.coordinate) else {
-                clearLocationScopedMapFocus()
+                NativeMapFocusHandoff.clear()
                 return
             }
+            focusedHandoffPin = focused
+            focusedHandoffOrigin = locationScopeOrigin
+            focusedHandoffIsLocationScoped = isLocationScoped
             let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
             selectedMode = resolvedMode
             routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil

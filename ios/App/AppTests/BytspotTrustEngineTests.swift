@@ -870,15 +870,32 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: atlanta, defaults: defaults)
         XCTAssertTrue(NativeMapFocusHandoff.isLocationScoped(in: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.requestID(in: defaults).isEmpty)
         XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: atlanta, defaults: defaults))
         XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
         XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: .midtown, defaults: defaults))
 
         NativeMapFocusHandoff.store(venue: venue, defaults: defaults)
         XCTAssertFalse(NativeMapFocusHandoff.isLocationScoped(in: defaults))
+        XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.sourceKey), NativeMapFocusHandoff.explicitSource)
         XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
         NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: .midtown, defaults: defaults)
         XCTAssertFalse(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+    }
+
+    func testLegacyMapFocusHandoffWithoutPositiveProvenanceFailsClosed() {
+        let suiteName = "NativeLegacyMapFocusHandoffTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("legacy-midtown", forKey: NativeMapFocusHandoff.idKey)
+        defaults.set("Legacy Midtown Recommendation", forKey: NativeMapFocusHandoff.titleKey)
+        defaults.set(33.7866, forKey: NativeMapFocusHandoff.latitudeKey)
+        defaults.set(-84.3833, forKey: NativeMapFocusHandoff.longitudeKey)
+
+        XCTAssertTrue(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: .verifiedMidtown, defaults: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false), defaults: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: .midtown, defaults: defaults))
     }
 
     func testOnboardingCopyRequiresVerifiedAtlantaLocationForAtlantaAndMidtownLabels() {

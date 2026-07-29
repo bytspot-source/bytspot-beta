@@ -414,6 +414,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(plan.eyebrow, "RECOMMENDED")
         XCTAssertEqual(plan.bestMove.action, .choosePlace)
         XCTAssertEqual(plan.bestMove.title, "Choose a place")
+        XCTAssertEqual(NativeServiceHerePlanner.mapModeAfterSelection(plan.bestMove.action), "Nearby")
         XCTAssertTrue(plan.quickActions.isEmpty)
     }
 
@@ -500,14 +501,30 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testNearbyPlacesLeadTheVisibleDeck() {
         let curated = NativeTabContentSnapshot.fallback.discoverCards
         let local = NativeDiscoverSummary(id: "local-nightlife", type: "nightlife", title: "Nearby Nightlife", subtitle: "Near you", distance: "0.4 mi", rating: "Nearby", icon: "music.note", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: ["Nightlife"], vibeScore: 7, availability: "Nearby", membershipRequired: false)
+        let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
 
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: curated, venues: [], placeCards: [local])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: curated, venues: [], placeCards: [local], location: location)
 
         XCTAssertEqual(cards.first?.id, local.id)
+        XCTAssertGreaterThan(NativeDiscoverRanking.nearbySourcePriority(local.badgeText), NativeDiscoverRanking.nearbySourcePriority("CURATED"))
+        XCTAssertTrue(Set(cards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
         let fallback = cards.first { $0.id == "nightlife-momentum" }
         XCTAssertEqual(fallback?.title, "Nightlife Near You")
         XCTAssertEqual(fallback?.distance, "Nearby")
         XCTAssertEqual(fallback?.badgeText, "CURATED")
+    }
+
+    @MainActor
+    func testNonAtlantaFallbackIsGenericAndRegionSafe() {
+        let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let cards = NativeTabContentStore.locationAwareCards(NativeTabContentSnapshot.fallback.discoverCards, sourceVenues: NativeTabContentSnapshot.fallback.venues, location: location)
+        let specialIDs = NativeTabContentSnapshot.specialDiscoverCards.map(\.id)
+
+        XCTAssertTrue(NativeTabContentStore.fallbackVenues(for: location).isEmpty)
+        XCTAssertFalse(cards.contains { card in specialIDs.contains { card.id.contains($0) } })
+        XCTAssertFalse(cards.contains { $0.id.contains("midtown-boutique-suite") })
+        XCTAssertTrue(cards.allSatisfy { $0.distance == "Nearby" && $0.metadataLine == "Suggestions for your area" && $0.availability == "Check nearby" })
+        XCTAssertFalse(cards.contains { $0.metadataLine.rangeOfCharacter(from: .decimalDigits) != nil || $0.metadataLine.contains("$") })
     }
 
     func testBestValueUsesTRPCQueryTransport() throws {
@@ -537,12 +554,18 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testPlacesTextSearchUsesTRPCQueryTransport() throws {
-        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": "coffee", "lat": 33.7866, "lng": -84.3833, "maxResults": 5])
+        let query = "bars & clubs = late"
+        let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": 33.7866, "lng": -84.3833, "maxResults": 5])
         let request = try BytspotAPIClient().makeRequest(path: path)
+        let components = URLComponents(string: path)
+        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
+        let data = try XCTUnwrap(rawInput.data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertNil(request.httpBody)
         XCTAssertTrue(path.hasPrefix("/trpc/places.textSearch?input="))
+        XCTAssertEqual(decoded["query"] as? String, query)
     }
 
     func testDiscoverCategoryNormalizerMapsNightlifeAliases() {

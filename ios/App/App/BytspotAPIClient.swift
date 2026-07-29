@@ -73,8 +73,10 @@ struct BytspotAPIClient {
 
     static func trpcQueryPath(_ path: String, input: [String: Any]) throws -> String {
         let inputData = try JSONSerialization.data(withJSONObject: input)
-        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return "\(path)?input=\(encoded)"
+        var components = URLComponents()
+        components.path = path
+        components.queryItems = [URLQueryItem(name: "input", value: String(data: inputData, encoding: .utf8) ?? "")]
+        return components.string ?? path
     }
 }
 
@@ -1526,10 +1528,10 @@ final class NativeTabContentStore: ObservableObject {
                 let events = nearbyEvents.isEmpty && location.isFallback ? localized.events : nearbyEvents
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
-                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions)
+                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions, location: location)
                 let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
                 guard generation == refreshGeneration else { return }
-                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? NativeTabContentSnapshot.fallback.venues : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
+                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? Self.fallbackVenues(for: location) : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
                 return
             }
 
@@ -1543,10 +1545,10 @@ final class NativeTabContentStore: ObservableObject {
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? []
             let valueOptions = (try? await bestValue) ?? []
-            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions)
+            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions, location: location)
             guard generation == refreshGeneration else { return }
             snapshot = NativeTabContentSnapshot(
-                venues: liveVenues.isEmpty ? NativeTabContentSnapshot.fallback.venues : liveVenues,
+                venues: liveVenues.isEmpty ? Self.fallbackVenues(for: location) : liveVenues,
                 discoverCards: cards,
                 events: Self.visibleEvents(liveEvents, location: location),
                 source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
@@ -1673,7 +1675,7 @@ final class NativeTabContentStore: ObservableObject {
         return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
     }
 
-    static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = []) -> [NativeDiscoverSummary] {
+    static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
         var merged: [NativeDiscoverSummary] = []
         appendUnique(placeCards, to: &merged)
         appendUnique(apiCards, to: &merged)
@@ -1682,9 +1684,10 @@ final class NativeTabContentStore: ObservableObject {
         appendUnique(eventDiscoverCards(from: events), to: &merged)
         appendUnique(nightlifeEventDiscoverCards(from: events), to: &merged)
         appendUnique(services, to: &merged)
-        appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged)
+        if canUseCurrentEventFeed(at: location) { appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged) }
         let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
-        return mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
+        let complete = mergeBestValueCards(valueOptions, into: ensureCategoryCoverage(base))
+        return canUseCurrentEventFeed(at: location) ? complete : locationAwareCards(complete, sourceVenues: venues, location: location)
     }
 
     static func source(forVisibleDeck cards: [NativeDiscoverSummary], hasLiveInputs: Bool) -> NativeTabContentSnapshot.Source {
@@ -1854,9 +1857,14 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
-        let venues = locationAwareVenues(snapshot.venues, location: location)
+        let venues = snapshot.source == .fallback ? fallbackVenues(for: location) : locationAwareVenues(snapshot.venues, location: location)
         let cards = locationAwareCards(snapshot.discoverCards, sourceVenues: snapshot.venues, location: location)
         return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions)
+    }
+
+    static func fallbackVenues(for location: NativeLocationCoordinate) -> [NativeVenueSummary] {
+        guard canUseCurrentEventFeed(at: location) else { return [] }
+        return locationAwareVenues(NativeTabContentSnapshot.fallbackVenues, location: location)
     }
 
     static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
@@ -1868,19 +1876,34 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
-    private static func locationAwareCards(_ cards: [NativeDiscoverSummary], sourceVenues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
-        let curatedIDs = Set((NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).map(\.id))
-        let venueCandidates = sourceVenues + NativeTabContentSnapshot.fallbackVenues
+    static func locationAwareCards(_ cards: [NativeDiscoverSummary], sourceVenues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
+        let fallbackCards = NativeTabContentSnapshot.fallbackDiscoverCards
+        let specialCards = NativeTabContentSnapshot.specialDiscoverCards
+        let curatedIDs = Set((fallbackCards + specialCards).map(\.id))
+        let isAtlantaRegion = canUseCurrentEventFeed(at: location)
+        let venueCandidates = sourceVenues + (isAtlantaRegion ? NativeTabContentSnapshot.fallbackVenues : [])
         return cards.compactMap { card in
+            let canonicalID = curatedIDs.first { card.id == $0 || card.id.contains($0) }
+            let isLocalPlaceCard = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
+            if !isAtlantaRegion,
+               (specialCards.contains { card.id == $0.id || card.id.contains($0.id) } || card.id.contains("midtown-boutique-suite")) { return nil }
             let venue = venueCandidates.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
-            if card.type == "nightlife", !curatedIDs.contains(card.id) {
+            if card.type == "nightlife", !curatedIDs.contains(card.id), !isLocalPlaceCard {
                 guard let venue,
                       let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                       miles <= nightlifeRadiusMiles else { return nil }
             }
+            if !isAtlantaRegion,
+               canonicalID != nil || card.id.hasPrefix("starter-") || card.badgeText.localizedCaseInsensitiveContains("CURATED") {
+                return genericCuratedCard(card)
+            }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
             return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
         }
+    }
+
+    private static func genericCuratedCard(_ card: NativeDiscoverSummary) -> NativeDiscoverSummary {
+        NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: "Nearby", rating: "Explore", icon: card.icon, verified: false, entryType: "free", cta: "Explore", imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: "CURATED", metadataLine: "Suggestions for your area", features: [card.categoryLabel, "Local ideas", "Check nearby"], vibeScore: card.vibeScore, availability: "Check nearby", membershipRequired: false)
     }
 
     private static func visibleEvents(_ events: [NativeEventSummary], location: NativeLocationCoordinate) -> [NativeEventSummary] {
@@ -2214,13 +2237,13 @@ extension NativeTabContentSnapshot {
     static let specialDiscoverCards = canonicalMobilityCards + canonicalServiceCards
 
     static let fallbackDiscoverCards = [
-        NativeDiscoverSummary(id: "coffee-walk", type: "coffee", title: "Morning Coffee Walk", subtitle: "Low-key cafés and brunch spots within a quick walk.", distance: "0.4 mi", rating: "4.8", icon: "cup.and.saucer.fill", verified: true, entryType: "free", cta: "Open details", imageUrl: URL(string: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Coffee", badgeText: "FREE ENTRY", metadataLine: "Free", features: ["Coffee", "Brunch", "Quick walk"], vibeScore: 6, availability: "Open now", membershipRequired: false),
-        NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay suite with secure entry, host support, and easy arrival.", distance: "Midtown", rating: "4.9", icon: "house.fill", verified: true, entryType: "paid", cta: "View Stay", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Stay", badgeText: "BOUTIQUE STAY", metadataLine: "From $189/night · Available tonight", features: ["Sleeps 2", "Kitchen", "Secure entry", "Host support"], vibeScore: 8, availability: "Available tonight", membershipRequired: true),
-        NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "Personalized restaurants for food, dates, and group plans.", distance: "0.9 mi", rating: "4.7", icon: "fork.knife", verified: true, entryType: "paid", cta: "Book", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Dining", badgeText: "PAID ENTRY", metadataLine: "Varies • Tables nearby", features: ["Dining", "Date night", "Personalized"], vibeScore: 7, availability: "Tables nearby", membershipRequired: false),
+        NativeDiscoverSummary(id: "coffee-walk", type: "coffee", title: "Morning Coffee Walk", subtitle: "Low-key cafés and brunch spots to explore around your area.", distance: "Nearby", rating: "Explore", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: URL(string: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Coffee", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Coffee", "Brunch", "Local ideas"], vibeScore: 6, availability: "Check nearby", membershipRequired: false),
+        NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay ideas with secure entry and host support.", distance: "Midtown", rating: "Explore", icon: "house.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Stay", badgeText: "CURATED", metadataLine: "Explore Midtown stays", features: ["Short stays", "Secure entry", "Host support"], vibeScore: 8, availability: "Check availability", membershipRequired: false),
+        NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "Restaurant ideas for food, dates, and group plans.", distance: "Nearby", rating: "Explore", icon: "fork.knife", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Dining", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Dining", "Date night", "Local ideas"], vibeScore: 7, availability: "Check nearby", membershipRequired: false),
         NativeDiscoverSummary(id: "nightlife-momentum", type: "nightlife", title: "Nightlife Near You", subtitle: "Bars, lounges, and live music to explore around your area.", distance: "Nearby", rating: "Explore", icon: "music.note", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Nightlife", badgeText: "CURATED", metadataLine: "Around your area", features: ["Bars", "Live music", "Nightlife"], vibeScore: 8, availability: "Explore nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "smart-parking", type: "parking", title: "Smart Parking Before You Arrive", subtitle: "Reserve-ready parking options around your next destination.", distance: "0.3 mi", rating: "4.5", icon: "parkingsign.circle.fill", verified: true, entryType: "paid", cta: "Route", imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Parking", badgeText: "PAID ENTRY", metadataLine: "$4.71/hr • 158 spots", features: ["Parking", "Reserve ahead", "Quick walk"], vibeScore: 3, availability: "158 spots", membershipRequired: false),
-        NativeDiscoverSummary(id: "events-worth", type: "entertainment", title: "Events Worth Leaving For", subtitle: "Shows, music, and experiences aligned with your saved interests.", distance: "1.5 mi", rating: "4.7", icon: "ticket.fill", verified: true, entryType: "paid", cta: "Tickets", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Events", badgeText: "PAID ENTRY", metadataLine: "Tickets • Tonight", features: ["Events", "Music", "Entertainment"], vibeScore: 7, availability: "Tonight", membershipRequired: false),
-        NativeDiscoverSummary(id: "wellness-reset", type: "fitness", title: "Wellness Reset Nearby", subtitle: "Gyms, recovery, and movement options when your vibe is wellness.", distance: "0.7 mi", rating: "4.9", icon: "figure.mind.and.body", verified: true, entryType: "free", cta: "Open", imageUrl: URL(string: "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Fitness", badgeText: "FREE ENTRY", metadataLine: "Free • Recovery nearby", features: ["Fitness", "Wellness", "Recovery"], vibeScore: 5, availability: "Recovery nearby", membershipRequired: false)
+        NativeDiscoverSummary(id: "smart-parking", type: "parking", title: "Smart Parking Before You Arrive", subtitle: "Parking ideas around your next destination.", distance: "Nearby", rating: "Explore", icon: "parkingsign.circle.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Parking", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Parking", "Plan ahead", "Local ideas"], vibeScore: 3, availability: "Check nearby", membershipRequired: false),
+        NativeDiscoverSummary(id: "events-worth", type: "entertainment", title: "Events Worth Leaving For", subtitle: "Shows, music, and experiences aligned with your interests.", distance: "Nearby", rating: "Explore", icon: "ticket.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Events", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Events", "Music", "Local ideas"], vibeScore: 7, availability: "Check nearby", membershipRequired: false),
+        NativeDiscoverSummary(id: "wellness-reset", type: "fitness", title: "Wellness Reset Nearby", subtitle: "Gyms, recovery, and movement ideas for a wellness day.", distance: "Nearby", rating: "Explore", icon: "figure.mind.and.body", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Fitness", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Fitness", "Wellness", "Local ideas"], vibeScore: 5, availability: "Check nearby", membershipRequired: false)
     ]
 
     static let fallbackEvents = [

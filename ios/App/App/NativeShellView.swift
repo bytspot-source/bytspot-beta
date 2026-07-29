@@ -11291,6 +11291,15 @@ private struct NativeStatusPill: View {
     }
 }
 
+enum NativeDiscoverRanking {
+    static func nearbySourcePriority(_ badgeText: String) -> Int {
+        let source = badgeText.uppercased()
+        if source.contains("APPLE MAPS") || source.contains("GOOGLE PLACES") { return 2 }
+        if source.contains("LIVE API") || source.contains("BEST VALUE") { return 1 }
+        return 0
+    }
+}
+
 private struct NativeDiscoverView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -11570,6 +11579,9 @@ private struct NativeDiscoverView: View {
 
     private var rankedCards: [DiscoverCardSpec] {
         filteredCards.sorted { first, second in
+            let firstSourcePriority = NativeDiscoverRanking.nearbySourcePriority(first.badgeText)
+            let secondSourcePriority = NativeDiscoverRanking.nearbySourcePriority(second.badgeText)
+            if firstSourcePriority != secondSourcePriority { return firstSourcePriority > secondSourcePriority }
             if selectedFilter != nil {
                 let firstScore = searchScore(for: first, query: selectedFilter ?? "")
                 let secondScore = searchScore(for: second, query: selectedFilter ?? "")
@@ -14354,7 +14366,12 @@ private struct NativeMapExploreView: View {
         pendingServiceHereAction = nil
         switch action {
         case .choosePlace:
-            break
+            didOpenMapContext = true
+            selectedMode = NativeServiceHerePlanner.mapModeAfterSelection(action) ?? "Nearby"
+            selectedPin = nil
+            routeFocusedPinID = nil
+            activeRoutePinID = nil
+            showFunctionSheet = true
         case .reserveParking:
             serviceHereParkingPin.map(openParkingService) ?? openNativeTab(.discover)
         case .bookVenue:
@@ -15609,6 +15626,10 @@ struct NativeServiceHerePlan: Equatable {
 enum NativeServiceHerePlanner {
     static let sheetTitle = "Service Here"
     static let bestMoveEyebrow = "RECOMMENDED"
+
+    static func mapModeAfterSelection(_ action: NativeServiceHereActionKind) -> String? {
+        action == .choosePlace ? "Nearby" : nil
+    }
 
     static func plan(context: NativeServiceHereContext) -> NativeServiceHerePlan {
         guard let locationTitle = context.selectedTitle, context.selectedKind != nil else {

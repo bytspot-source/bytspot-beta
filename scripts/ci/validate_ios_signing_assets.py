@@ -52,10 +52,6 @@ def load_plist(path: Path) -> dict:
     return plistlib.loads(path.read_bytes())
 
 
-def suffix(value: str, bundle_id: str) -> bool:
-    return value == bundle_id or value.endswith("." + bundle_id)
-
-
 def require(condition: bool, message: str) -> None:
     if not condition:
         fail(message)
@@ -75,7 +71,8 @@ def check_profile(spec: dict, team_id: str) -> None:
     require(profile_entitlements.get("get-task-allow") is False, f"{label} profile allows debugging; expected distribution get-task-allow=false")
 
     application_id = profile_entitlements.get("application-identifier", "")
-    require(suffix(application_id, bundle_id), f"{label} profile application identifier does not match {bundle_id}")
+    expected_application_id = f"{team_id}.{bundle_id}"
+    require(application_id == expected_application_id, f"{label} profile application identifier does not match {expected_application_id}")
 
     required_domains = set(app_entitlements.get("com.apple.developer.associated-domains", []))
     profile_domains = set(profile_entitlements.get("com.apple.developer.associated-domains", []))
@@ -88,7 +85,8 @@ def check_profile(spec: dict, team_id: str) -> None:
     if spec["app_clip"]:
         require(profile_entitlements.get("com.apple.developer.on-demand-install-capable") is True, "App Clip profile is missing on-demand-install-capable")
         parents = profile_entitlements.get("com.apple.developer.parent-application-identifiers", [])
-        require(any(suffix(parent, "com.bytspot.app") for parent in parents), "App Clip profile parent app identifier does not match com.bytspot.app")
+        expected_parent_id = f"{team_id}.com.bytspot.app"
+        require(expected_parent_id in parents, f"App Clip profile parent app identifier does not match {expected_parent_id}")
 
     print(f"{label} signing profile preflight passed for {bundle_id}")
 

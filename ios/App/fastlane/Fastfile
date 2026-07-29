@@ -81,7 +81,8 @@ platform :ios do
     )
 
     # Wire the App Clip target into the Xcode project (idempotent).
-    sh "bundle exec ruby ../scripts/add_app_clip_target.rb"
+    app_clip_helper = File.expand_path("../scripts/add_app_clip_target.rb", __dir__)
+    sh "bundle exec ruby #{app_clip_helper.shellescape}"
 
     # Switch Release config to manual signing for CI for both targets
     # (local dev uses Automatic via Xcode, CI uses manual with provisioning profile)

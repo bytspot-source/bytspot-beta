@@ -644,6 +644,39 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown))
     }
 
+    func testNonAtlantaConciergeCopyFailsClosedToTheCurrentArea() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let copy = [
+            NativeConciergeRegionPresentation.welcomeMessage(for: seattle),
+            NativeConciergeRegionPresentation.cityName(for: seattle),
+            NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: seattle),
+            NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: seattle),
+            NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: seattle),
+            NativeConciergeRegionPresentation.fallbackResponse(for: .general, location: seattle)
+        ].joined(separator: " ")
+
+        for forbidden in ["Midtown", "Atlanta", "Colony Square", "Arts Center", "Broni", "Akwaaba"] {
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains(forbidden), "Non-Atlanta Concierge copy leaked \(forbidden).")
+        }
+        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: seattle), "Near you")
+    }
+
+    func testAtlantaConciergeCopyRetainsMidtownContext() {
+        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: .midtown), "Midtown")
+        XCTAssertTrue(NativeConciergeRegionPresentation.welcomeMessage(for: .midtown).contains("Midtown"))
+        XCTAssertTrue(NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: .midtown).contains("Midtown Smart Parking"))
+    }
+
+    func testNonAtlantaConciergeRejectsRemoteAtlantaDefaultsUnlessExplicitlyRequested() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Two verified parking options are nearby."], query: "Find parking nearby", location: seattle))
+        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Find parking nearby", location: seattle))
+        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Open details", "Ponce City Market"], query: "What's open?", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Plan a trip to Atlanta", location: seattle))
+        XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Find parking nearby", location: .midtown))
+    }
+
     func testSmartParkingHandoffKeepsNamedVenueAndRejectsUnknownNames() {
         let parking = NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr")
         let deckA = NativeVenueSummary(id: "deck-a", name: "Deck A", category: "parking", address: "1 First St", distance: "0.2 mi", rating: 4.5, latitude: 47.61, longitude: -122.33, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)

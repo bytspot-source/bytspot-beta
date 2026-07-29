@@ -16084,7 +16084,7 @@ private struct NativeTrafficIntelSheet: View {
                     icon: "car.fill",
                     title: "Travel Estimates",
                     value: travelEstimate,
-                    subtitle: "Based on \(venue.distance) from current Midtown context",
+                    subtitle: "Based on \(venue.distance) from the current map context",
                     accent: NativeTheme.cyan,
                     progress: min(max(Double(travelMinutes) / 24.0, 0.10), 1.0)
                 )
@@ -16584,6 +16584,49 @@ private struct NativeLayerToggle: View {
     }
 }
 
+enum NativeConciergeRegionPresentation {
+    enum Topic { case parking, stay, open, general }
+
+    static let genericWelcomeMessage = "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around your area."
+    static let atlantaContentTokens = ["Atlanta", "Midtown", "Colony Square", "Arts Center", "Ponce", "Broni", "Akwaaba", "Lake Clara Meer"]
+
+    static func cityName(for location: NativeLocationCoordinate) -> String {
+        NativeHomeRegionPresentation.isAtlanta(location) ? "Midtown" : "Near you"
+    }
+
+    static func welcomeMessage(for location: NativeLocationCoordinate) -> String {
+        NativeHomeRegionPresentation.isAtlanta(location)
+            ? "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown."
+            : genericWelcomeMessage
+    }
+
+    static func fallbackResponse(for topic: Topic, location: NativeLocationCoordinate) -> String {
+        if NativeHomeRegionPresentation.isAtlanta(location) {
+            switch topic {
+            case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail."
+            case .stay: return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet."
+            case .open: return "Open around Midtown:\n\n• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards."
+            case .general: return "Good nearby options:\n\n• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
+            }
+        }
+        switch topic {
+        case .parking: return "Parking nearby:\n\nI don't have a verified local parking match yet.\n\nTap Show on Map to check current local results."
+        case .stay: return "Stay booking:\n\nI don't have a verified local stay match yet.\n\nTap Open Discover to check current local results."
+        case .open: return "Open around your area:\n\nI don't have a verified local venue match yet.\n\nTap Open Discover to check current local results."
+        case .general: return "Good nearby options are still updating.\n\nUse Open Discover or Show on Map to check current local results."
+        }
+    }
+
+    static func permitsRemoteContent(_ content: [String], query: String, location: NativeLocationCoordinate) -> Bool {
+        guard !NativeHomeRegionPresentation.isAtlanta(location) else { return true }
+        let explicitlyRequestedAtlanta = ["Atlanta", "Midtown"].contains { query.localizedCaseInsensitiveContains($0) }
+        guard !explicitlyRequestedAtlanta else { return true }
+        return atlantaContentTokens.allSatisfy { token in
+            content.allSatisfy { !$0.localizedCaseInsensitiveContains(token) }
+        }
+    }
+}
+
 private struct NativeConciergeView: View {
     enum HandoffAction: String, CaseIterable, Equatable { case discover, map, booking }
     struct ActionCard: Identifiable, Equatable {
@@ -16624,13 +16667,14 @@ private struct NativeConciergeView: View {
     @State private var didRunPreviewPrompt = false
     @State private var consumedNativeHandoffPrompt = ""
     @State private var nextMessageID = 2
-    @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown.", isUser: false)]
+    @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.genericWelcomeMessage, isUser: false)]
     @State private var stayBookingVenue: NativeVenueSummary?
     @State private var historyTitles: [String] = []
     @State private var connectionState = "ready"
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
     @Environment(\.colorScheme) private var colorScheme
 
     static let transcriptBaseHex = 0x050507
@@ -16655,8 +16699,9 @@ private struct NativeConciergeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(conciergeRadialBackground.ignoresSafeArea())
-        .onAppear { runPreviewPromptIfNeeded(); consumeNativeHandoffIfNeeded() }
+        .onAppear { syncWelcomeMessage(); runPreviewPromptIfNeeded(); consumeNativeHandoffIfNeeded() }
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in syncWelcomeMessage() }
         .sheet(item: $stayBookingVenue) { venue in NativeBoutiqueStayBookingSheet(venue: venue, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth) }
         .accessibilityIdentifier("native-concierge-preview")
     }
@@ -16863,12 +16908,19 @@ private struct NativeConciergeView: View {
                 if liveResponse == nil { plannedActions = await Self.fetchActionPlan(query: text, token: token) }
             }
             await MainActor.run {
+                let safeLiveResponse = liveResponse.flatMap { response in
+                    let content = [response.reply] + response.actions.flatMap { [$0.title, $0.subtitle] }
+                    return NativeConciergeRegionPresentation.permitsRemoteContent(content, query: text, location: locationStore.coordinate) ? response : nil
+                }
+                let safePlannedActions = plannedActions.filter { action in
+                    NativeConciergeRegionPresentation.permitsRemoteContent([action.title, action.subtitle], query: text, location: locationStore.coordinate)
+                }
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    if let liveResponse {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: liveResponse.reply, isUser: false, handoffs: liveResponse.actions.isEmpty ? handoffs : [], actionCards: liveResponse.actions, escalated: liveResponse.escalationRequired || complex, sourceQuery: text))
+                    if let safeLiveResponse {
+                        messages.append(ConciergeMessage(id: createMessageID(), text: safeLiveResponse.reply, isUser: false, handoffs: safeLiveResponse.actions.isEmpty ? handoffs : [], actionCards: safeLiveResponse.actions, escalated: safeLiveResponse.escalationRequired || complex, sourceQuery: text))
                         connectionState = "ready"
                     } else {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: plannedActions.isEmpty ? handoffs : [], actionCards: plannedActions, escalated: complex, sourceQuery: text))
+                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: safePlannedActions.isEmpty ? handoffs : [], actionCards: safePlannedActions, escalated: complex, sourceQuery: text))
                         connectionState = "fallback"
                     }
                     isTyping = false
@@ -16924,12 +16976,17 @@ private struct NativeConciergeView: View {
         nativeImpactLight()
         withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
             nextMessageID = 2
-            messages = [ConciergeMessage(id: 1, text: "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown.", isUser: false)]
+            messages = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.welcomeMessage(for: locationStore.coordinate), isUser: false)]
             connectionState = "ready"
             showHistory = false
             isTyping = false
             draft = ""
         }
+    }
+
+    private func syncWelcomeMessage() {
+        guard messages.count == 1, messages[0].id == 1, !messages[0].isUser else { return }
+        messages = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.welcomeMessage(for: locationStore.coordinate), isUser: false)]
     }
 
     private func toggleVoice() {
@@ -16959,16 +17016,11 @@ private struct NativeConciergeView: View {
     private func localFallbackResponse(for query: String) -> String {
         let q = query.lowercased()
         if q.contains("best value"), let option = tabContentStore.snapshot.bestValueOptions.first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
-        if q.contains("parking") { return "Parking nearby:\n\n\(bestValueBullet(prefix: "• "))• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail." }
-        if isStayQuery(q) { return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet." }
-        if q.contains("open") { return "Open around \(cityName):\n\n\(bestValueBullet(prefix: "• "))• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards." }
+        if q.contains("parking") { return NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: locationStore.coordinate) }
+        if isStayQuery(q) { return NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: locationStore.coordinate) }
+        if q.contains("open") { return NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: locationStore.coordinate) }
         if q.contains("access") || q.contains("booking") { return "My Access groups your passes, saved service requests, and booking details. Tap Open My Access to review them." }
-        return "Good nearby options:\n\n\(bestValueBullet(prefix: "• "))• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
-    }
-
-    private func bestValueBullet(prefix: String) -> String {
-        guard let option = tabContentStore.snapshot.bestValueOptions.first else { return "" }
-        return "\(prefix)\(option.title) — best value, \(option.nativeValueSummary)\n"
+        return NativeConciergeRegionPresentation.fallbackResponse(for: .general, location: locationStore.coordinate)
     }
 
     private func handleHandoff(_ action: HandoffAction, _ query: String?) {
@@ -16977,7 +17029,10 @@ private struct NativeConciergeView: View {
         case .discover: openNativeTab(.discover)
         case .map: openNativeTab(.map)
         case .booking:
-            if isStayQuery(query ?? "") { stayBookingVenue = resolvedStayVenue(for: query ?? "") }
+            if isStayQuery(query ?? "") {
+                if let venue = resolvedStayVenue(for: query ?? "") { stayBookingVenue = venue }
+                else { openNativeTab(.discover) }
+            }
             else { openNativeAccess() }
         }
     }
@@ -16987,7 +17042,9 @@ private struct NativeConciergeView: View {
         switch action.handoff.lowercased() {
         case "map": openNativeTab(.map)
         case "access": openNativeAccess()
-        case "stay": stayBookingVenue = resolvedStayVenue(for: query ?? action.subtitle)
+        case "stay":
+            if let venue = resolvedStayVenue(for: query ?? action.subtitle) { stayBookingVenue = venue }
+            else { openNativeTab(.discover) }
         default: openNativeTab(.discover)
         }
     }
@@ -16997,7 +17054,11 @@ private struct NativeConciergeView: View {
         return q.contains("stay") || q.contains("suite") || q.contains("host") || q.contains("check dates") || q.contains("availability") || q.contains("boutique")
     }
 
-    private func resolvedStayVenue(for query: String) -> NativeVenueSummary {
+    private func resolvedStayVenue(for query: String) -> NativeVenueSummary? {
+        let localStays = tabContentStore.snapshot.venues.filter { $0.discoverType == "boutique_apartment" }
+        if let requested = stayVenueName(in: query), let venue = localStays.first(where: { $0.name.localizedCaseInsensitiveContains(requested) || requested.localizedCaseInsensitiveContains($0.name) }) { return venue }
+        if let local = localStays.first { return local }
+        guard NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) else { return nil }
         let name = stayVenueName(in: query) ?? "Midtown Boutique Suite"
         return NativeVenueSummary(id: "stay-\(name.lowercased().replacingOccurrences(of: " ", with: "-"))", name: name, category: "boutique_apartment", address: "Midtown Atlanta", distance: "Stay", rating: 4.9, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)
     }
@@ -17022,7 +17083,7 @@ private struct NativeConciergeView: View {
         if connectionState == "thinking" { return NativeTheme.cyan }
         return sessionStore.canAttachBearerToken ? NativeTheme.emerald : NativeTheme.cyan
     }
-    private var cityName: String { "Midtown" }
+    private var cityName: String { NativeConciergeRegionPresentation.cityName(for: locationStore.coordinate) }
 
     private var conciergeRadialBackground: some View {
         ZStack {

@@ -13866,8 +13866,16 @@ enum NativeMapRegionPresentation {
         NativeHomeRegionPresentation.isAtlanta(location) ? atlantaBackdropLabels : localBackdropLabels
     }
 
+    static func backdropLabels(for location: NativeLocationCoordinate, hasResolvedLocation: Bool) -> [String] {
+        hasResolvedLocation ? backdropLabels(for: location) : localBackdropLabels
+    }
+
     static func showsAtlantaSamples(for location: NativeLocationCoordinate) -> Bool {
         NativeHomeRegionPresentation.isAtlanta(location)
+    }
+
+    static func showsAtlantaSamples(for location: NativeLocationCoordinate, hasResolvedLocation: Bool) -> Bool {
+        hasResolvedLocation && showsAtlantaSamples(for: location)
     }
 }
 
@@ -13936,7 +13944,8 @@ private struct NativeMapExploreView: View {
     @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
     @State private var focusedHandoffPin: NativeMapPin?
     private var venues: [NativeVenueSummary] {
-        NativeTabContentStore.locationAwareVenues(
+        guard hasResolvedDeviceLocation else { return [] }
+        return NativeTabContentStore.locationAwareVenues(
             NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot),
             location: locationStore.coordinate
         )
@@ -13946,8 +13955,17 @@ private struct NativeMapExploreView: View {
         NativeLocationCoordinate(latitude: region.center.latitude, longitude: region.center.longitude, isFallback: false)
     }
 
+    private var hasResolvedDeviceLocation: Bool {
+        guard let location = headingProvider.userLocation ?? locationStore.lastLocation else { return false }
+        return location.horizontalAccuracy >= 0
+    }
+
+    private var hasResolvedRegionContext: Bool {
+        hasResolvedDeviceLocation || focusedHandoffPin != nil
+    }
+
     private var showsAtlantaSamples: Bool {
-        NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation)
+        NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext)
     }
 
     private var visibleCommunityReports: [NativeCommunityReport] {
@@ -14185,7 +14203,7 @@ private struct NativeMapExploreView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
-                NativeDarkMapBackdrop(labels: NativeMapRegionPresentation.backdropLabels(for: regionLocation))
+                NativeDarkMapBackdrop(labels: NativeMapRegionPresentation.backdropLabels(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext))
                     .ignoresSafeArea(edges: .top)
                     .scaleEffect(mapZoomScale)
                     .contentShape(Rectangle())
@@ -14773,6 +14791,7 @@ private struct NativeMapExploreView: View {
     private var isFunctionSheetDefault: Bool { showFunctionSheet && selectedPin == nil }
 
     private var bestValueOption: NativeLiveValueOption? {
+        guard hasResolvedDeviceLocation else { return nil }
         let options = tabContentStore.snapshot.bestValueOptions
         if selectedMode == "Smart Parking" { return options.first { $0.productType == "parking" } ?? options.first }
         return options.first

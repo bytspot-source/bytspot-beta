@@ -644,6 +644,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown))
     }
 
+    func testUnresolvedMapLocationFailsClosedInsteadOfPresentingAtlantaFallback() {
+        XCTAssertEqual(
+            NativeMapRegionPresentation.backdropLabels(for: .midtown, hasResolvedLocation: false),
+            NativeMapRegionPresentation.localBackdropLabels
+        )
+        XCTAssertFalse(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown, hasResolvedLocation: false))
+        XCTAssertEqual(
+            NativeMapRegionPresentation.backdropLabels(for: .midtown, hasResolvedLocation: true),
+            NativeMapRegionPresentation.atlantaBackdropLabels
+        )
+        XCTAssertTrue(NativeMapRegionPresentation.showsAtlantaSamples(for: .midtown, hasResolvedLocation: true))
+    }
+
     func testMapZoomClampsAndUpdatesRegionSpanMonotonically() {
         XCTAssertEqual(NativeMapRegionPresentation.clampedZoomScale(0.1), NativeMapRegionPresentation.minimumZoomScale)
         XCTAssertEqual(NativeMapRegionPresentation.clampedZoomScale(10), NativeMapRegionPresentation.maximumZoomScale)

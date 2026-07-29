@@ -1546,6 +1546,8 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     func invalidateLocationScopedContent(for location: NativeLocationCoordinate) {
+        refreshGeneration += 1
+        isRefreshing = false
         guard Self.canPresentLocationScopedContent(origin: snapshotOrigin, current: location) else {
             snapshotOrigin = nil
             bestValueOrigin = nil
@@ -1561,9 +1563,8 @@ final class NativeTabContentStore: ObservableObject {
 
     func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
-        refreshGeneration += 1
-        let generation = refreshGeneration
         invalidateLocationScopedContent(for: location)
+        let generation = refreshGeneration
         isRefreshing = true
         defer { if generation == refreshGeneration { isRefreshing = false } }
         guard !location.isFallback else {

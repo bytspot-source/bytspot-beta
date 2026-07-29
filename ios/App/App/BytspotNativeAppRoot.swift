@@ -236,8 +236,10 @@ enum NativeAuthLaunchContract {
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
-    static let landingSubtitle = "Live crowds, easy arrivals, and ride timing for Atlanta Midtown — all in one place."
-    static let landingFeatures = ["Live crowd levels at Midtown venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
+    static let landingSubtitle = "Live crowds, easy arrivals, and ride timing near you — all in one place."
+    static let landingFeatures = ["Live crowd levels at nearby venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
+    static let atlantaLandingSubtitle = "Live crowds, easy arrivals, and ride timing for Atlanta Midtown — all in one place."
+    static let atlantaLandingFeatures = ["Live crowd levels at Midtown venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
     static let vibeQuestion = "What kind of night are we shaping?"
     static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
     static let walkQuestion = "How far are you comfortable going?"
@@ -283,6 +285,14 @@ enum NativeAuthLaunchContract {
     static var bypassesLaunchFlowForPreview: Bool {
         let env = ProcessInfo.processInfo.environment
         return env["BYT_NATIVE_PREVIEW_PROFILE"] != nil || env["BYT_NATIVE_PREVIEW_TAB"] != nil || env["BYT_NATIVE_PROFILE_PANEL_SMOKE"] != nil
+    }
+
+    static func landingSubtitle(for location: NativeLocationCoordinate) -> String {
+        NativeHomeRegionPresentation.isAtlanta(location) ? atlantaLandingSubtitle : landingSubtitle
+    }
+
+    static func landingFeatures(for location: NativeLocationCoordinate) -> [String] {
+        NativeHomeRegionPresentation.isAtlanta(location) ? atlantaLandingFeatures : landingFeatures
     }
 
     static func isLegacyAtlantaPickName(_ name: String) -> Bool {
@@ -516,13 +526,13 @@ private struct NativeLaunchFlowView: View {
             case .splash:
                 NativeSplashScreen(freeze: NativeAuthLaunchContract.freezesSplash) { advance(to: .landing) }
             case .landing:
-                NativeLandingScreen(onGetStarted: { advance(to: .vibe) }, onContinueGuest: completeAsGuest)
+                NativeLandingScreen(location: locationStore.coordinate, onGetStarted: { advance(to: .vibe) }, onContinueGuest: completeAsGuest)
             case .vibe:
-                NativePersonalizationScreen(step: .vibe, onSelect: { selectedVibe = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .walk) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .vibe, location: locationStore.coordinate, onSelect: { selectedVibe = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .walk) }, onSkip: completeAsGuest)
             case .walk:
-                NativePersonalizationScreen(step: .walk, selectedIntent: selectedVibe, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .walk, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: completeAsGuest)
             case .crew:
-                NativePersonalizationScreen(step: .crew, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .crew, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
             case .atlanta:
                 NativeAtlantaPicksScreen(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
             case .auth:
@@ -659,6 +669,7 @@ private struct NativeSplashScreen: View {
 }
 
 private struct NativeLandingScreen: View {
+    let location: NativeLocationCoordinate
     let onGetStarted: () -> Void
     let onContinueGuest: () -> Void
 
@@ -682,11 +693,11 @@ private struct NativeLandingScreen: View {
                     .position(x: centerX, y: proxy.size.height * 0.286)
                 VStack(spacing: 8) {
                     NativeLaunchHeadline(size: 32)
-                    Text("Live crowd levels, parking & ride ETAs\nfor Atlanta Midtown — all in one place.").font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
+                    Text(NativeAuthLaunchContract.landingSubtitle(for: location)).font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
                 }
                 .frame(width: contentWidth)
                 .position(x: centerX, y: proxy.size.height * 0.426)
-                VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures.enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
+                VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures(for: location).enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
                     .frame(width: contentWidth)
                     .position(x: centerX, y: featureY)
                 Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
@@ -796,7 +807,7 @@ private struct NativeLaunchFeaturePill: View {
     private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.red400 }
 }
 
-private enum NativeLaunchQuizContext {
+enum NativeLaunchQuizContext {
     case day, evening, lateNight
 
     static var current: NativeLaunchQuizContext {
@@ -806,11 +817,12 @@ private enum NativeLaunchQuizContext {
         return .day
     }
 
-    var line: String {
+    func line(for location: NativeLocationCoordinate) -> String {
+        let area = NativeHomeRegionPresentation.isAtlanta(location) ? "near Midtown" : "near you"
         switch self {
-        case .day: return "Daytime near Midtown · coffee, food, quiet corners, and easy arrivals"
-        case .evening: return "Evening near Midtown · dinner, drinks, events, and easy arrivals"
-        case .lateNight: return "Late night near Midtown · keep going, get home, or land softly"
+        case .day: return "Daytime \(area) · coffee, food, quiet corners, and easy arrivals"
+        case .evening: return "Evening \(area) · dinner, drinks, events, and easy arrivals"
+        case .lateNight: return "Late night \(area) · keep going, get home, or land softly"
         }
     }
 }
@@ -836,7 +848,7 @@ private enum NativePersonalizationStep: Equatable {
         }
     }
 
-    func contextLine(context: NativeLaunchQuizContext) -> String? { self == .vibe ? context.line : nil }
+    func contextLine(context: NativeLaunchQuizContext, location: NativeLocationCoordinate) -> String? { self == .vibe ? context.line(for: location) : nil }
 
     func options(context: NativeLaunchQuizContext, selectedIntent: String) -> [String] {
         switch self {
@@ -858,6 +870,7 @@ private enum NativePersonalizationStep: Equatable {
 
 private struct NativePersonalizationScreen: View {
     let step: NativePersonalizationStep
+    let location: NativeLocationCoordinate
     var selectedIntent: String = ""
     let onSelect: (String) -> Void
     let onSkip: () -> Void
@@ -882,7 +895,7 @@ private struct NativePersonalizationScreen: View {
                     Button(action: { nativeAuthImpactLight(); onSkip() }) { Text("Skip").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.36)).padding(.horizontal, 15).frame(height: 40).overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)) }.buttonStyle(.plain).accessibilityLabel("Skip personalization").accessibilityHint("Opens Bytspot in guest mode.")
                 }
                 Text(emoji).font(.system(size: sizing.compactHeight ? 24 : 28)).accessibilityHidden(true)
-                if let contextLine = step.contextLine(context: context) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(theme.primary.opacity(0.88)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(theme.primary.opacity(0.10)).overlay(Capsule().stroke(theme.primary.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
+                if let contextLine = step.contextLine(context: context, location: location) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(theme.primary.opacity(0.88)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(theme.primary.opacity(0.10)).overlay(Capsule().stroke(theme.primary.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
                 Text(question).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
                 LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     ForEach(options, id: \.self) { option in

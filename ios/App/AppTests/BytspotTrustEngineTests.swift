@@ -859,6 +859,48 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: NativeMapFocusHandoff.longitudeKey))
     }
 
+    func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
+        let suiteName = "NativeRegionalMapFocusHandoffTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let atlanta = NativeLocationCoordinate.verifiedMidtown
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        let parking = NativeParkingSummary(totalAvailable: 18, priceLabel: "$8/hr")
+        let venue = NativeVenueSummary(id: "midtown-deck", name: "Midtown Deck", category: "parking", address: "Atlanta", distance: "0.2 mi", rating: 4.8, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+
+        NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: atlanta, defaults: defaults)
+        XCTAssertTrue(NativeMapFocusHandoff.isLocationScoped(in: defaults))
+        XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: atlanta, defaults: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
+        XCTAssertFalse(NativeMapFocusHandoff.canConsume(at: .midtown, defaults: defaults))
+
+        NativeMapFocusHandoff.store(venue: venue, defaults: defaults)
+        XCTAssertFalse(NativeMapFocusHandoff.isLocationScoped(in: defaults))
+        XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
+        NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: .midtown, defaults: defaults)
+        XCTAssertFalse(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+    }
+
+    func testOnboardingCopyRequiresVerifiedAtlantaLocationForAtlantaAndMidtownLabels() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        for location in [NativeLocationCoordinate.midtown, seattle] {
+            let copy = ([NativeAuthLaunchContract.landingSubtitle(for: location)]
+                + NativeAuthLaunchContract.landingFeatures(for: location)
+                + [NativeLaunchQuizContext.day.line(for: location), NativeLaunchQuizContext.evening.line(for: location), NativeLaunchQuizContext.lateNight.line(for: location)])
+                .joined(separator: " ")
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("Atlanta"))
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("Midtown"))
+            XCTAssertTrue(copy.localizedCaseInsensitiveContains("near you") || copy.localizedCaseInsensitiveContains("nearby"))
+        }
+
+        let atlantaCopy = ([NativeAuthLaunchContract.landingSubtitle(for: .verifiedMidtown)]
+            + NativeAuthLaunchContract.landingFeatures(for: .verifiedMidtown)
+            + [NativeLaunchQuizContext.evening.line(for: .verifiedMidtown)])
+            .joined(separator: " ")
+        XCTAssertTrue(atlantaCopy.localizedCaseInsensitiveContains("Atlanta"))
+        XCTAssertTrue(atlantaCopy.localizedCaseInsensitiveContains("Midtown"))
+    }
+
     func testBestValueUsesTRPCQueryTransport() throws {
         let path = try NativeTabContentStore.bestValueQueryPath()
         let request = try BytspotAPIClient().makeRequest(path: path)

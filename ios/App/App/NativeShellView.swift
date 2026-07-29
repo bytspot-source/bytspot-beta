@@ -7564,7 +7564,7 @@ private struct NativeHomeDashboardView: View {
             NativeOnboardingMapHandoff.write(destination: fallback.destination, mode: fallback.mode)
             return
         }
-        NativeMapFocusHandoff.store(venue: venue, modeOverride: launchMapMode(for: venue, intent: intent))
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: launchMapMode(for: venue, intent: intent), locationScopeOrigin: location)
     }
 
     static func topLaunchRecommendationVenue(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) -> NativeVenueSummary? {
@@ -9487,17 +9487,32 @@ enum NativeMapFocusHandoff {
     static let longitudeKey = "bytspot_native_map_focus_longitude"
     static let kindKey = "bytspot_native_map_focus_kind"
     static let modeKey = "bytspot_native_map_focus_mode"
+    static let locationScopedKey = "bytspot_native_map_focus_location_scoped"
+    static let originLatitudeKey = "bytspot_native_map_focus_origin_latitude"
+    static let originLongitudeKey = "bytspot_native_map_focus_origin_longitude"
 
-    static func store(venue: NativeVenueSummary, modeOverride: String? = nil, defaults: UserDefaults = .standard) {
+    static func store(venue: NativeVenueSummary, modeOverride: String? = nil, locationScopeOrigin: NativeLocationCoordinate? = nil, defaults: UserDefaults = .standard) {
         guard venue.hasKnownCoordinates else { clear(defaults: defaults); return }
+        if let locationScopeOrigin, locationScopeOrigin.isFallback {
+            clear(defaults: defaults)
+            return
+        }
         let isParking = venue.discoverType == "parking" || venue.parking.totalAvailable > 0
-        defaults.set(venue.id, forKey: idKey)
         defaults.set(venue.name, forKey: titleKey)
         defaults.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
         defaults.set(venue.latitude, forKey: latitudeKey)
         defaults.set(venue.longitude, forKey: longitudeKey)
         defaults.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "access", forKey: kindKey)
         defaults.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
+        defaults.set(locationScopeOrigin != nil, forKey: locationScopedKey)
+        if let locationScopeOrigin {
+            defaults.set(locationScopeOrigin.latitude, forKey: originLatitudeKey)
+            defaults.set(locationScopeOrigin.longitude, forKey: originLongitudeKey)
+        } else {
+            defaults.removeObject(forKey: originLatitudeKey)
+            defaults.removeObject(forKey: originLongitudeKey)
+        }
+        defaults.set(venue.id, forKey: idKey)
     }
 
     static var hasPendingFocus: Bool {
@@ -9510,8 +9525,24 @@ enum NativeMapFocusHandoff {
         return !id.isEmpty || !title.isEmpty
     }
 
+    static func isLocationScoped(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: locationScopedKey)
+    }
+
+    static func locationScopeOrigin(in defaults: UserDefaults = .standard) -> NativeLocationCoordinate? {
+        guard isLocationScoped(in: defaults),
+              defaults.object(forKey: originLatitudeKey) != nil,
+              defaults.object(forKey: originLongitudeKey) != nil else { return nil }
+        return NativeLocationCoordinate(latitude: defaults.double(forKey: originLatitudeKey), longitude: defaults.double(forKey: originLongitudeKey), isFallback: false)
+    }
+
+    static func canConsume(at location: NativeLocationCoordinate, defaults: UserDefaults = .standard) -> Bool {
+        guard isLocationScoped(in: defaults) else { return true }
+        return NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin(in: defaults), current: location)
+    }
+
     static func clear(defaults: UserDefaults = .standard) {
-        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey].forEach { defaults.removeObject(forKey: $0) }
+        [idKey, titleKey, subtitleKey, latitudeKey, longitudeKey, kindKey, modeKey, locationScopedKey, originLatitudeKey, originLongitudeKey].forEach { defaults.removeObject(forKey: $0) }
     }
 }
 
@@ -13966,6 +13997,8 @@ private struct NativeMapExploreView: View {
     @AppStorage(NativeMapFocusHandoff.kindKey) private var mapFocusKind = ""
     @AppStorage(NativeMapFocusHandoff.modeKey) private var mapFocusMode = ""
     @State private var focusedHandoffPin: NativeMapPin?
+    @State private var focusedHandoffOrigin: NativeLocationCoordinate?
+    @State private var focusedHandoffIsLocationScoped = false
     private var venues: [NativeVenueSummary] {
         guard hasResolvedDeviceLocation else { return [] }
         return NativeTabContentStore.locationAwareVenues(
@@ -13988,7 +14021,8 @@ private struct NativeMapExploreView: View {
     }
 
     private var showsAtlantaSamples: Bool {
-        NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext)
+        guard !locationStore.coordinate.isFallback else { return false }
+        return NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext)
     }
 
     private var visibleCommunityReports: [NativeCommunityReport] {
@@ -14438,15 +14472,14 @@ private struct NativeMapExploreView: View {
         let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty || !title.isEmpty else { return }
+        guard NativeMapFocusHandoff.canConsume(at: locationStore.coordinate) else {
+            rejectPendingNativeMapFocusHandoff()
+            return
+        }
+        let isLocationScoped = NativeMapFocusHandoff.isLocationScoped()
+        let locationScopeOrigin = NativeMapFocusHandoff.locationScopeOrigin()
         guard NativeVenueSummary.hasValidMapCoordinate(latitude: mapFocusLatitude, longitude: mapFocusLongitude) else {
-            NativeMapFocusHandoff.clear()
-            focusedHandoffPin = nil
-            selectedPin = nil
-            selectedMode = "Nearby"
-            routeFocusedPinID = nil
-            activeRoutePinID = nil
-            if let currentLocation = headingProvider.userLocation ?? locationStore.lastLocation { region.center = currentLocation.coordinate }
-            showFunctionSheet = false
+            rejectPendingNativeMapFocusHandoff()
             return
         }
         didConsumeExplicitMapLaunch = true
@@ -14469,7 +14502,13 @@ private struct NativeMapExploreView: View {
             crowdLevel: kind == .parking ? 1 : nil
         )
         focusedHandoffPin = focused
+        focusedHandoffOrigin = locationScopeOrigin
+        focusedHandoffIsLocationScoped = isLocationScoped
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            guard !isLocationScoped || NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin, current: locationStore.coordinate) else {
+                clearLocationScopedMapFocus()
+                return
+            }
             let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
             selectedMode = resolvedMode
             routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
@@ -14479,6 +14518,37 @@ private struct NativeMapExploreView: View {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
             showFunctionSheet = false
             NativeMapFocusHandoff.clear()
+        }
+    }
+
+    private func rejectPendingNativeMapFocusHandoff() {
+        NativeMapFocusHandoff.clear()
+        focusedHandoffPin = nil
+        focusedHandoffOrigin = nil
+        focusedHandoffIsLocationScoped = false
+        selectedPin = nil
+        selectedMode = "Nearby"
+        routeFocusedPinID = nil
+        activeRoutePinID = nil
+        region.center = currentMapCoordinate
+        showFunctionSheet = false
+    }
+
+    private func clearLocationScopedMapFocus() {
+        NativeMapFocusHandoff.clear()
+        let staleID = focusedHandoffPin?.id
+        focusedHandoffPin = nil
+        focusedHandoffOrigin = nil
+        focusedHandoffIsLocationScoped = false
+        if selectedPin?.id == staleID {
+            selectedPin = nil
+            selectedMode = "Nearby"
+            showFunctionSheet = false
+        }
+        if routeFocusedPinID == staleID { routeFocusedPinID = nil }
+        if activeRoutePinID == staleID { activeRoutePinID = nil }
+        if !locationStore.coordinate.isFallback {
+            region.center = CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
         }
     }
 
@@ -14534,6 +14604,28 @@ private struct NativeMapExploreView: View {
     }
 
     private func handleMapLocationChange() {
+        if NativeMapFocusHandoff.hasPendingFocus,
+           !NativeMapFocusHandoff.canConsume(at: locationStore.coordinate) {
+            NativeMapFocusHandoff.clear()
+        }
+        if focusedHandoffIsLocationScoped,
+           !NativeTabContentStore.canPresentLocationScopedContent(origin: focusedHandoffOrigin, current: locationStore.coordinate) {
+            clearLocationScopedMapFocus()
+        }
+        if let selectedPin,
+           focusedHandoffPin?.id != selectedPin.id,
+           !venues.contains(where: { $0.id == selectedPin.id }) {
+            self.selectedPin = nil
+            routeFocusedPinID = nil
+            activeRoutePinID = nil
+            detailVenue = nil
+            parkingBookingVenue = nil
+            selectedMode = "Nearby"
+            showFunctionSheet = false
+        }
+        if focusedHandoffPin == nil, !locationStore.coordinate.isFallback {
+            region.center = CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
+        }
         refreshProximityLatch()
         centerOnCurrentLocationIfAppropriate()
     }

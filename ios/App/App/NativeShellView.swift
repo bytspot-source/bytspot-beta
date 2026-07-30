@@ -814,7 +814,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
                     appClipMiniRow(title: event.locationLabel, subtitle: event.privacyStatus == .privateInvite ? "Shared after joining" : "Location", icon: "mappin.and.ellipse")
                     appClipMiniRow(title: event.guestSummary, subtitle: event.hideGuestList ? "Guest list hidden" : "Group capacity", icon: "person.2.fill")
                 }
-                appClipInfo(title: event.coHosts.isEmpty ? "Hosted by \(event.hostName)" : "Hosted by \(event.hostName) + \(event.coHosts.count) co-host\(event.coHosts.count == 1 ? "" : "s")", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.crop.circle.badge.checkmark")
+                appClipInfo(title: event.coHosts.isEmpty ? "Hosted by \(event.hostName)" : "Hosted by \(event.hostName) + \(event.coHosts.count) co-host\(event.coHosts.count == 1 ? "" : "s")", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.2.fill")
                 if !event.coHosts.isEmpty { coHostTeam }
                 rsvpPreview
                 appClipInfo(title: "Privacy protected", subtitle: "Your invite, RSVP, and circle stay separate from your phone contacts unless you choose to match.", icon: "lock.shield.fill")
@@ -878,7 +878,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
             Text("EVENT TEAM").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary).tracking(0.9)
             ForEach(Array(event.coHosts.enumerated()), id: \.offset) { _, name in
                 HStack(spacing: 10) {
-                    Image(systemName: "person.crop.circle.badge.checkmark").font(.system(size: 17, weight: .bold)).foregroundColor(accent)
+                    Image(systemName: "person.2.circle.fill").font(.system(size: 17, weight: .bold)).foregroundColor(accent)
                     Text(name).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
                     Spacer()
                     Text("Pending access").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
@@ -3713,7 +3713,7 @@ private struct NativeProfileNetworkCard: View {
                 NativeProfileMicroChip(group.fontStyle, icon: "textformat", color: NativeTheme.purple)
                 if group.hideGuestList { NativeProfileMicroChip("Guest list hidden", icon: "eye.slash.fill", color: NativeTheme.orange) }
                 if let chipIn = group.chipInLabel, !chipIn.isEmpty { NativeProfileMicroChip(chipIn, icon: "dollarsign.circle.fill", color: NativeTheme.emerald) }
-                ForEach(group.coHosts.prefix(2), id: \.self) { NativeProfileMicroChip($0, icon: "person.crop.circle.badge.checkmark", color: NativeTheme.cyan) }
+                ForEach(group.coHosts.prefix(2), id: \.self) { NativeProfileMicroChip("\($0) · pending", icon: "person.2.circle.fill", color: NativeTheme.cyan) }
             }
         }
     }

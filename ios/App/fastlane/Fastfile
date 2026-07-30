@@ -113,6 +113,12 @@ platform :ios do
       UI.important("STRIPE_PUBLISHABLE_KEY is not set; native Apple Pay will fall back to card checkout.")
     end
     google_client_id = ENV["GOOGLE_CLIENT_ID"].to_s.strip
+    xcargs = ["STRIPE_PUBLISHABLE_KEY=#{Shellwords.escape(stripe_publishable_key)}"]
+    if google_client_id.empty?
+      UI.important("GOOGLE_CLIENT_ID is not set; using the App target's Release default.")
+    else
+      xcargs << "GOOGLE_CLIENT_ID=#{Shellwords.escape(google_client_id)}"
+    end
 
     # Build the signed .ipa with embedded App Clip
     build_app(
@@ -132,10 +138,7 @@ platform :ios do
       skip_profile_detection: true,
       output_directory: "./build",
       output_name:      "Bytspot.ipa",
-      xcargs:           [
-        "STRIPE_PUBLISHABLE_KEY=#{Shellwords.escape(stripe_publishable_key)}",
-        "GOOGLE_CLIENT_ID=#{Shellwords.escape(google_client_id)}"
-      ].join(" "),
+      xcargs:           xcargs.join(" "),
       clean:            true
     )
 

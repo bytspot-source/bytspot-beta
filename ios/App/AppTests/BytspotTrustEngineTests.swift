@@ -1419,6 +1419,12 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertNotEqual(serverClientID, iosClientID)
     }
 
+    func testHomeVisibleCopyAvoidsUnprovenAvailabilityClaims() {
+        let visibleCopy = [NativeHomeCopyContract.boutiqueStayQuickActionSubtitle] + NativeHomeCopyContract.visibleSurfaceLabels
+        XCTAssertFalse(NativeHomeCopyContract.containsUnprovenAvailabilityClaim(visibleCopy))
+        XCTAssertEqual(NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, "Browse stays")
+    }
+
     @MainActor
     func testAppleAndGoogleProviderSessionsPersistThroughKeychain() async {
         let account = "native_auth_persistence_\(UUID().uuidString)"

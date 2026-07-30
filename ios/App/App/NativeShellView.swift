@@ -6999,6 +6999,15 @@ enum NativeSearchRouter {
     }
 }
 
+enum NativeHomeCopyContract {
+    static let boutiqueStayQuickActionSubtitle = "Browse stays"
+    static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
+
+    static func containsUnprovenAvailabilityClaim(_ values: [String]) -> Bool {
+        values.contains { $0.localizedCaseInsensitiveContains("available tonight") }
+    }
+}
+
 enum NativeHomeRegionPresentation {
     static func isAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
@@ -7198,7 +7207,7 @@ private struct NativeHomeDashboardView: View {
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
         QuickActionSpec(id: "food", title: "Food", subtitle: "Pickup & dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
-        QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: "Available tonight", icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
+        QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
         QuickActionSpec(id: "valet-ride", title: "Airport Ride", subtitle: "Estimate + review", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
         QuickActionSpec(id: "parking", title: "Parking", subtitle: "Before you arrive", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
         QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for help", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
@@ -7220,7 +7229,7 @@ private struct NativeHomeDashboardView: View {
     static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
     static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate crowd", "time/day"]
-    static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
+    static let visibleHomeSurfaceLabels = NativeHomeCopyContract.visibleSurfaceLabels
 
     private var regionalSnapshot: NativeTabContentSnapshot {
         NativeHomeRegionPresentation.homeSafeSnapshot(tabContentStore.snapshot(for: locationStore.coordinate))
@@ -18531,7 +18540,7 @@ enum NativeHomeParitySelfTests {
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
         precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Airport Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
-        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Available tonight", "Estimate + review", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
+        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Browse stays", "Estimate + review", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
         precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "airplane.departure", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
         precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet/Elife flow, not hybrid web.")
@@ -18542,6 +18551,7 @@ enum NativeHomeParitySelfTests {
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
         let visibleHomeCopy = NativeHomeDashboardView.visibleHomeSurfaceLabels.joined(separator: " | ")
         precondition(!NativeHomeDashboardView.prohibitedContextSnapshotLabels.contains { visibleHomeCopy.localizedCaseInsensitiveContains($0) }, "NativeHomeParitySelfTests: native Home must not expose context snapshot placeholder copy.")
+        precondition(!NativeHomeCopyContract.containsUnprovenAvailabilityClaim(actions.map(\.subtitle) + NativeHomeDashboardView.visibleHomeSurfaceLabels), "NativeHomeParitySelfTests: native Home must not claim current stay availability without dedicated provenance.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
         precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalServiceCards[0]) == "View Menu", "NativeHomeParitySelfTests: dining service AI Pick CTA must be category-aware.")

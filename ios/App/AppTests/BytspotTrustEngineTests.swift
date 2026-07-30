@@ -921,6 +921,24 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(localProviderCards.first?.latitude, providerCard.latitude)
         XCTAssertEqual(localProviderCards.first?.longitude, providerCard.longitude)
         XCTAssertNil(NativeDiscoverRouteResolver.routeVenue(for: unresolved, venues: [venue]))
+
+        let providerLatitude = try XCTUnwrap(providerCard.latitude)
+        let providerLongitude = try XCTUnwrap(providerCard.longitude)
+        let sameTitleElsewhere = NativeVenueSummary(id: "different-provider", name: providerCard.title, category: "coffee", address: "Wrong place", distance: "0.5 mi", rating: nil, latitude: 33.7970, longitude: -84.3930, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let exactIDElsewhere = NativeVenueSummary(id: providerCard.id, name: providerCard.title, category: "coffee", address: "Wrong ID place", distance: "0.6 mi", rating: nil, latitude: 33.8070, longitude: -84.4030, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let partialTitleNearby = NativeVenueSummary(id: "provider-annex", name: "Provider Cafe Annex", category: "coffee", address: "Nearby annex", distance: "0.3 mi", rating: nil, latitude: providerLatitude, longitude: providerLongitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let suiteName = "NativeProviderDiscoverRouteHandoff.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        for candidate in [sameTitleElsewhere, exactIDElsewhere, partialTitleNearby] {
+            let resolved = try XCTUnwrap(NativeDiscoverRouteResolver.routeVenue(for: providerCard, venues: [candidate]))
+            XCTAssertEqual(resolved.id, providerCard.id)
+            XCTAssertEqual(resolved.latitude, providerCard.latitude)
+            XCTAssertEqual(resolved.longitude, providerCard.longitude)
+            NativeMapFocusHandoff.store(venue: resolved, defaults: defaults)
+            XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.latitudeKey), providerLatitude)
+            XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.longitudeKey), providerLongitude)
+        }
     }
 
     func testDiscoverRouteResolverPrefersExactAndLongestCompanionVenueIDs() {

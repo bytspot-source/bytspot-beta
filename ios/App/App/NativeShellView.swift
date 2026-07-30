@@ -14078,6 +14078,17 @@ enum NativeMapSavedRoutes {
     }
 }
 
+enum NativeMapCoordinateTrustPolicy {
+    static let toleranceMeters = 25.0
+
+    static func agrees(latitude: Double, longitude: Double, candidateLatitude: Double, candidateLongitude: Double) -> Bool {
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: candidateLatitude, longitude: candidateLongitude) else { return false }
+        return CLLocation(latitude: latitude, longitude: longitude)
+            .distance(from: CLLocation(latitude: candidateLatitude, longitude: candidateLongitude)) <= toleranceMeters
+    }
+}
+
 enum NativeDiscoverRouteResolver {
     static func matchingVenue(cardID: String, title: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
         let normalizedCardID = normalizedID(cardID)
@@ -14114,9 +14125,16 @@ enum NativeDiscoverRouteResolver {
     }
 
     static func routeVenue(cardID: String, title: String, subtitle: String, type: String, distance: String, imageURL: URL?, latitude: Double?, longitude: Double?, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
-        if let venue = matchingVenue(cardID: cardID, title: title, venues: venues), venue.hasKnownCoordinates { return venue }
-        guard let latitude, let longitude, NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
-        return NativeVenueSummary(id: cardID, name: title, category: type, address: subtitle, distance: distance, rating: nil, latitude: latitude, longitude: longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: imageURL)
+        let matchedVenue = matchingVenue(cardID: cardID, title: title, venues: venues)
+        if let latitude, let longitude, NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) {
+            if let matchedVenue, matchedVenue.hasKnownCoordinates,
+               NativeMapCoordinateTrustPolicy.agrees(latitude: latitude, longitude: longitude, candidateLatitude: matchedVenue.latitude, candidateLongitude: matchedVenue.longitude) {
+                return matchedVenue
+            }
+            return NativeVenueSummary(id: cardID, name: title, category: type, address: subtitle, distance: distance, rating: nil, latitude: latitude, longitude: longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: imageURL)
+        }
+        guard let matchedVenue, matchedVenue.hasKnownCoordinates else { return nil }
+        return matchedVenue
     }
 }
 
@@ -14132,14 +14150,10 @@ struct NativeMapFocusPinCandidate {
 }
 
 enum NativeMapFocusPinResolutionPolicy {
-    static let coordinateToleranceMeters = 25.0
-
     static func matchingIndex(handoffID: String, handoffTitle: String, latitude: Double, longitude: Double, candidates: [NativeMapFocusPinCandidate]) -> Int? {
         guard NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
-        let handoffLocation = CLLocation(latitude: latitude, longitude: longitude)
         let coordinateMatches = candidates.enumerated().filter { _, candidate in
-            guard NativeVenueSummary.hasValidMapCoordinate(latitude: candidate.latitude, longitude: candidate.longitude) else { return false }
-            return handoffLocation.distance(from: CLLocation(latitude: candidate.latitude, longitude: candidate.longitude)) <= coordinateToleranceMeters
+            NativeMapCoordinateTrustPolicy.agrees(latitude: latitude, longitude: longitude, candidateLatitude: candidate.latitude, candidateLongitude: candidate.longitude)
         }
         let normalizedID = handoffID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !normalizedID.isEmpty {

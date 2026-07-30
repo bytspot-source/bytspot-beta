@@ -85,6 +85,7 @@ final class NativeBridgeStore: ObservableObject {
 @MainActor
 final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDelegate {
     enum AuthorizationState: Equatable { case notDetermined, allowed, denied, restricted, unavailable }
+    enum RequestAction: Equatable { case requestWhenInUse, requestLocation, none }
 
     @Published private(set) var authorizationState: AuthorizationState = .notDetermined
     @Published private(set) var lastLocation: CLLocation?
@@ -114,12 +115,22 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     }
 
     func requestWhenInUseIfNeeded() {
-        guard CLLocationManager.locationServicesEnabled() else { authorizationState = .unavailable; return }
+        let servicesEnabled = CLLocationManager.locationServicesEnabled()
+        guard servicesEnabled else { authorizationState = .unavailable; return }
         updateAuthorization(manager.authorizationStatus)
+        switch Self.requestAction(locationServicesEnabled: servicesEnabled, authorizationState: authorizationState) {
+        case .requestWhenInUse: manager.requestWhenInUseAuthorization()
+        case .requestLocation: manager.requestLocation()
+        case .none: break
+        }
+    }
+
+    static func requestAction(locationServicesEnabled: Bool, authorizationState: AuthorizationState) -> RequestAction {
+        guard locationServicesEnabled else { return .none }
         switch authorizationState {
-        case .notDetermined: manager.requestWhenInUseAuthorization()
-        case .allowed: manager.requestLocation()
-        default: break
+        case .notDetermined: return .requestWhenInUse
+        case .allowed: return .requestLocation
+        case .denied, .restricted, .unavailable: return .none
         }
     }
 
@@ -463,6 +474,7 @@ struct BytspotNativeShellView: View {
         Binding(
             get: { selectedTab },
             set: { tab in
+                requestLocationForNearbyContentIfNeeded(tab)
                 if tab == .map { preparePlainMapOpen() }
                 selectedTab = tab
             }
@@ -542,8 +554,10 @@ struct BytspotNativeShellView: View {
         pendingProfilePanel = nil
         switch intent {
         case .explorePicks:
+            requestLocationForNearbyContentIfNeeded(.discover)
             selectedTab = .discover
         case .mapPicks:
+            requestLocationForNearbyContentIfNeeded(.map)
             NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
             selectedTab = .map
         case .savePicks:
@@ -589,12 +603,22 @@ struct BytspotNativeShellView: View {
     private func selectNativeTab(_ tab: BytspotNativeTab) {
         nativeImpactLight()
         cancelPostAuthHomeHold()
+        requestLocationForNearbyContentIfNeeded(tab)
         if tab == .map && !hasExplicitMapHandoff {
             preparePlainMapOpen()
         }
         withAnimation(.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)) {
             selectedTab = tab
         }
+    }
+
+    static func requiresLocationForNearbyContent(_ tab: BytspotNativeTab) -> Bool {
+        tab == .discover || tab == .map
+    }
+
+    private func requestLocationForNearbyContentIfNeeded(_ tab: BytspotNativeTab) {
+        guard Self.requiresLocationForNearbyContent(tab) else { return }
+        locationStore.requestWhenInUseIfNeeded()
     }
 
     private var hasExplicitMapHandoff: Bool {
@@ -15877,6 +15901,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func cycleRecenterMode() {
+        requestMapLocationPermissionIfNeeded()
         switch recenterMode {
         case .off:
             recenterMode = .follow

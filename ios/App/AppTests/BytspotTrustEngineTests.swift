@@ -14,6 +14,24 @@ final class BytspotTrustEngineTests: XCTestCase {
     private let preStage = NativeProximityGate.preStageMeters
     private let discovery = NativeProximityGate.discoveryMeters
 
+    @MainActor
+    func testLocationPermissionRequestPolicyPromptsOnlyWhenUndecided() {
+        XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: true, authorizationState: .notDetermined), .requestWhenInUse)
+        XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: true, authorizationState: .allowed), .requestLocation)
+        XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: true, authorizationState: .denied), .none)
+        XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: true, authorizationState: .restricted), .none)
+        XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: false, authorizationState: .notDetermined), .none)
+    }
+
+    @MainActor
+    func testNearbyTabsTriggerLocationResolution() {
+        XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(.discover))
+        XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(.map))
+        XCTAssertFalse(BytspotNativeShellView.requiresLocationForNearbyContent(.home))
+        XCTAssertFalse(BytspotNativeShellView.requiresLocationForNearbyContent(.concierge))
+        XCTAssertFalse(BytspotNativeShellView.requiresLocationForNearbyContent(.profile))
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,

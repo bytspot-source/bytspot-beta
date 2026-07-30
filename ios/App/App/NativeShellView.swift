@@ -9614,12 +9614,13 @@ enum NativeMapFocusHandoff {
             clear(defaults: defaults)
             return
         }
-        let isParking = venue.discoverType == "parking" || venue.parking.totalAvailable > 0
+        let kind = NativeMapPinKind.forVenue(venue)
+        let isParking = kind == .parking
         defaults.set(venue.name, forKey: titleKey)
         defaults.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
         defaults.set(venue.latitude, forKey: latitudeKey)
         defaults.set(venue.longitude, forKey: longitudeKey)
-        defaults.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "venue", forKey: kindKey)
+        defaults.set(kind.storageValue, forKey: kindKey)
         defaults.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
         defaults.set(locationScopeOrigin != nil, forKey: locationScopedKey)
         if let locationScopeOrigin {
@@ -14105,15 +14106,20 @@ enum NativeMapInteractionContract {
 
 enum NativeMapSearchRoutePolicy {
     static func routeVenue(for suggestion: NativeSearchSuggestion, snapshot: NativeTabContentSnapshot, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
-        if let card = snapshot.discoverCards.first(where: { $0.title.caseInsensitiveCompare(suggestion.title) == .orderedSame }),
-           let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
-            return venue
+        var exactDestinations = [suggestion.title]
+        if case .map(let destination, _) = suggestion.route { exactDestinations.append(destination) }
+        for destination in exactDestinations {
+            let normalized = destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else { continue }
+            if let card = snapshot.discoverCards.first(where: { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized || $0.id.lowercased() == normalized }),
+               let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
+                return venue
+            }
+            if let venue = venues.first(where: { ($0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized || $0.id.lowercased() == normalized) && $0.hasKnownCoordinates }) {
+                return venue
+            }
         }
-        if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: suggestion.title, mode: "Route", venues: venues), venue.hasKnownCoordinates {
-            return venue
-        }
-        guard case .map(let destination, let mode) = suggestion.route else { return nil }
-        return NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues).flatMap { $0.hasKnownCoordinates ? $0 : nil }
+        return nil
     }
 }
 
@@ -15170,13 +15176,15 @@ private struct NativeMapExploreView: View {
     private var isFunctionSheetDefault: Bool { showFunctionSheet && selectedPin == nil }
 
     private func mapStatusBanner(_ message: String) -> some View {
-        Label(message, systemImage: "checkmark.circle.fill")
+        let isWarning = message.lowercased().hasPrefix("no ") || message.lowercased().contains("needs a nearby")
+        let accent = isWarning ? NativeTheme.orange : NativeTheme.emerald
+        return Label(message, systemImage: isWarning ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
             .font(.system(size: 12, weight: .black))
             .foregroundColor(NativeTheme.textPrimary)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-            .background(NativeTheme.emerald.opacity(0.14))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
+            .background(accent.opacity(0.14))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.32), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .accessibilityIdentifier("native-map-status-message")
     }
@@ -18671,6 +18679,7 @@ enum NativeMapPinKind: Equatable { case partner, parking, access, venue
         if venue.discoverType == "parking" || venue.parking.totalAvailable > 0 { return .parking }
         return .venue
     }
+    var storageValue: String { self == .partner ? "partner" : self == .parking ? "parking" : self == .access ? "access" : "venue" }
     var mapColor: Color { self == .parking ? NativeTheme.emerald : self == .partner ? NativeTheme.cyan : self == .access ? NativeTheme.pink : NativeTheme.orange }
     var icon: String { self == .partner ? "checkmark.seal.fill" : self == .parking ? "parkingsign.circle.fill" : self == .access ? "key.fill" : "mappin.circle.fill" }
     var emoji: String { self == .partner ? "⚡" : self == .parking ? "P" : self == .access ? "🛍" : "●" }

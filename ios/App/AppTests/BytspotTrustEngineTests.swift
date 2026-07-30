@@ -930,6 +930,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNotEqual(NativeMapPinKind.forVenue(venue), .access)
         XCTAssertEqual(NativeMapPinKind.forVenue(NativeVenueSummary(id: "verified", name: "Verified", category: "coffee", address: "3 Route St", distance: "0.4 mi", rating: nil, latitude: 33.7871, longitude: -84.3831, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: "BYT-VERIFIED", imageUrl: nil)), .partner)
         XCTAssertEqual(NativeMapPinKind.forVenue(NativeVenueSummary(id: "parking", name: "Parking", category: "parking", address: "4 Route St", distance: "0.5 mi", rating: nil, latitude: 33.7872, longitude: -84.3832, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"), verifiedPatchId: nil, imageUrl: nil)), .parking)
+        let verifiedParking = NativeVenueSummary(id: "verified-parking", name: "Verified Parking", category: "parking", address: "5 Route St", distance: "0.6 mi", rating: nil, latitude: 33.7873, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 8, priceLabel: "$8/hr"), verifiedPatchId: "BYT-PARKING", imageUrl: nil)
+        NativeMapFocusHandoff.store(venue: verifiedParking, defaults: defaults)
+        XCTAssertEqual(NativeMapPinKind.forVenue(verifiedParking), .partner)
+        XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.kindKey), NativeMapPinKind.forVenue(verifiedParking).storageValue)
     }
 
     func testMapSearchRoutePolicyFailsClosedForUnresolvedTextDestination() {
@@ -937,6 +941,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         let suggestion = NativeSearchSuggestion(id: "parking-near-me", title: "Parking near me", subtitle: "Search nearby", address: "Parking near me", icon: "parkingsign", actionLabel: "Route", badge: "Map", score: 100, route: .map(destination: "Parking near me", mode: "Route"))
 
         XCTAssertNil(NativeMapSearchRoutePolicy.routeVenue(for: suggestion, snapshot: snapshot, venues: []))
+    }
+
+    func testMapSearchRoutePolicyRejectsPartialVenueNamesAndAcceptsExactNames() {
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+        let venue = NativeVenueSummary(id: "parkside-garage", name: "Parkside Garage", category: "parking", address: "10 Park St", distance: "0.4 mi", rating: nil, latitude: 33.7874, longitude: -84.3834, crowd: nil, parking: NativeParkingSummary(totalAvailable: 5, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
+        let partial = NativeSearchSuggestion(id: "route-park", title: "Route to Park", subtitle: "Open Map", address: "Park", icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 200, route: .map(destination: "Park", mode: "Route"))
+        let exact = NativeSearchSuggestion(id: "route-parkside", title: "Route to Parkside Garage", subtitle: "Open Map", address: venue.name, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 200, route: .map(destination: venue.name, mode: "Route"))
+
+        XCTAssertNil(NativeMapSearchRoutePolicy.routeVenue(for: partial, snapshot: snapshot, venues: [venue]))
+        XCTAssertEqual(NativeMapSearchRoutePolicy.routeVenue(for: exact, snapshot: snapshot, venues: [venue])?.id, venue.id)
     }
 
     func testMapFunctionSheetUsesAViewportBoundedScrollableHeight() {

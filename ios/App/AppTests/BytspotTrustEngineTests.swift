@@ -1439,6 +1439,19 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")
         XCTAssertEqual(fallbackWeather.headerTemperature, "—")
 
+        let completeWeather: [String: Any] = ["temperature_2m": 64.2, "apparent_temperature": 63.8, "relative_humidity_2m": 62, "precipitation": 0, "weather_code": 2, "wind_speed_10m": 7.4, "is_day": 1]
+        let liveWeather = try? NativeLiveDiscoveryAPI.weatherSnapshot(from: completeWeather, updatedAt: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(liveWeather?.source, .live)
+        XCTAssertEqual(liveWeather?.temperatureF, 64)
+
+        var missingTemperature = completeWeather
+        missingTemperature.removeValue(forKey: "temperature_2m")
+        XCTAssertThrowsError(try NativeLiveDiscoveryAPI.weatherSnapshot(from: missingTemperature))
+        let malformedPresentation = NativeHomeCopyContract.weatherPresentation(for: (try? NativeLiveDiscoveryAPI.weatherSnapshot(from: missingTemperature)) ?? .fallback)
+        XCTAssertEqual(malformedPresentation.headline, "Weather update unavailable")
+        XCTAssertEqual(malformedPresentation.headerTemperature, "—")
+        XCTAssertNotEqual(malformedPresentation.badge, "LIVE")
+
         let decodedMissingCrowdLabel = NativeTabContentStore.venue(from: ["id": "missing-crowd-label", "name": "Missing Crowd Label", "lat": 33.7867, "lng": -84.3832, "crowd": ["level": 1]])
         XCTAssertNil(decodedMissingCrowdLabel?.crowd)
     }

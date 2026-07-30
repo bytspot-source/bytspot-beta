@@ -1385,15 +1385,28 @@ struct NativeLiveDiscoveryAPI {
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any], let current = root["current"] as? [String: Any] else { throw BytspotAPIClient.APIError.invalidResponse }
+        return try Self.weatherSnapshot(from: current)
+    }
+
+    static func weatherSnapshot(from current: [String: Any], updatedAt: Date = Date()) throws -> NativeWeatherSnapshot {
+        guard let temperature = Self.double(current["temperature_2m"]), temperature.isFinite,
+              let apparentTemperature = Self.double(current["apparent_temperature"]), apparentTemperature.isFinite,
+              let humidity = Self.double(current["relative_humidity_2m"]), humidity.isFinite,
+              let precipitation = Self.double(current["precipitation"]), precipitation.isFinite,
+              let weatherCode = Self.double(current["weather_code"]), weatherCode.isFinite,
+              let windSpeed = Self.double(current["wind_speed_10m"]), windSpeed.isFinite,
+              let isDay = Self.double(current["is_day"]), isDay.isFinite else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
         return NativeWeatherSnapshot(
-            temperatureF: Int((Self.double(current["temperature_2m"]) ?? 72).rounded()),
-            feelsLikeF: Int((Self.double(current["apparent_temperature"]) ?? Self.double(current["temperature_2m"]) ?? 72).rounded()),
-            humidity: Int((Self.double(current["relative_humidity_2m"]) ?? 0).rounded()),
-            windMph: Int((Self.double(current["wind_speed_10m"]) ?? 0).rounded()),
-            precipitationIn: Self.double(current["precipitation"]) ?? 0,
-            weatherCode: Int((Self.double(current["weather_code"]) ?? 1).rounded()),
-            isDay: (Self.double(current["is_day"]) ?? 1) != 0,
-            updatedAt: Date(),
+            temperatureF: Int(temperature.rounded()),
+            feelsLikeF: Int(apparentTemperature.rounded()),
+            humidity: Int(humidity.rounded()),
+            windMph: Int(windSpeed.rounded()),
+            precipitationIn: precipitation,
+            weatherCode: Int(weatherCode.rounded()),
+            isDay: isDay != 0,
+            updatedAt: updatedAt,
             source: .live
         )
     }

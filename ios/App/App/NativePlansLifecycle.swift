@@ -101,6 +101,15 @@ enum NativePlanMarketPolicy {
         isPublished(lifecycle, accountScope: accountScope)
     }
 
+    static func canRetainGuestManagementSession(
+        _ lifecycle: NativePlanLifecycleRecord?,
+        authorizedAccountScope: NativePlanAccountScope?,
+        currentAccountScope: NativePlanAccountScope?
+    ) -> Bool {
+        guard let authorizedAccountScope, authorizedAccountScope == currentAccountScope else { return false }
+        return canManageGuests(lifecycle, accountScope: currentAccountScope)
+    }
+
     static func canManageAsCoHost(_ collaborator: NativePlanCollaborator) -> Bool {
         coHostManagementAvailable && collaborator.authority == .serverVerified
     }

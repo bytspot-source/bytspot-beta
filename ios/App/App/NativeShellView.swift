@@ -3523,6 +3523,8 @@ private struct NativeProfileNetworkCard: View {
     @State private var showGroupSetup = false
     @State private var showInviteAccess = false
     @State private var showHostDashboard = false
+    @State private var hostDashboardEvent: NativeGroupEventRecord?
+    @State private var hostDashboardAccountScope: NativePlanAccountScope?
     @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
     @State private var didRunGroupSetupPreviewCheck = false
     @State private var publishingGroupEventIDs: Set<String> = []
@@ -3578,9 +3580,12 @@ private struct NativeProfileNetworkCard: View {
                 if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
             }
         }
-        .sheet(isPresented: $showHostDashboard) {
-            if let activeGroup = presentedActiveGroup {
-                let dashboard = NativeGroupEventHostDashboardView(event: activeGroup, sessionStore: sessionStore)
+        .sheet(isPresented: $showHostDashboard, onDismiss: {
+            hostDashboardEvent = nil
+            hostDashboardAccountScope = nil
+        }) {
+            if let event = hostDashboardEvent, let accountScope = hostDashboardAccountScope {
+                let dashboard = NativeGroupEventHostDashboardView(event: event, authorizedAccountScope: accountScope, sessionStore: sessionStore)
                 if #available(iOS 16.0, *) { dashboard.presentationDetents([.large]).presentationDragIndicator(.visible) } else { dashboard }
             }
         }
@@ -4046,11 +4051,14 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func openHostDashboard(_ group: NativeGroupEventRecord) {
-        guard NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: currentAccountScope) else {
+        guard let accountScope = currentAccountScope,
+              NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: accountScope) else {
             networkStatus = "Publish this plan before opening guest management. Co-host access requires separate server verification."
             return
         }
         nativeImpactLight()
+        hostDashboardEvent = group
+        hostDashboardAccountScope = accountScope
         showHostDashboard = true
     }
 
@@ -4323,7 +4331,9 @@ private struct NativeGroupInviteAccessSheet: View {
 
 private struct NativeGroupEventHostDashboardView: View {
     let event: NativeGroupEventRecord
-    let sessionStore: BytspotSessionStore
+    let authorizedAccountScope: NativePlanAccountScope
+    @ObservedObject var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var planStore: NativePlanStore
     @Environment(\.dismiss) private var dismiss
     @State private var guests: [NativeGroupEventGuestRecord] = []
     @State private var pending: [NativeGroupEventGuestRecord] = []
@@ -4337,6 +4347,18 @@ private struct NativeGroupEventHostDashboardView: View {
         case .platinum: return NativeTheme.cyan
         case .black: return NativeTheme.orange
         }
+    }
+
+    private var currentAccountScope: NativePlanAccountScope? {
+        NativePlanAccountScope.authenticated(userID: sessionStore.authenticatedUserID)
+    }
+
+    private var hasManagementAuthority: Bool {
+        NativePlanMarketPolicy.canRetainGuestManagementSession(
+            planStore.lifecycle(for: event.id),
+            authorizedAccountScope: authorizedAccountScope,
+            currentAccountScope: currentAccountScope
+        )
     }
 
     var body: some View {
@@ -4353,7 +4375,12 @@ private struct NativeGroupEventHostDashboardView: View {
         }
         .background(NativeTheme.background.ignoresSafeArea())
         .accessibilityIdentifier("native-group-event-host-dashboard")
-        .task { await load() }
+        .task {
+            guard hasManagementAuthority else { dismiss(); return }
+            await load()
+        }
+        .onChange(of: sessionStore.authenticatedUserID ?? "") { _ in revokeAccessIfNeeded() }
+        .onReceive(planStore.$records) { _ in revokeAccessIfNeeded() }
     }
 
     private var header: some View {
@@ -4446,21 +4473,25 @@ private struct NativeGroupEventHostDashboardView: View {
     }
 
     @MainActor private func load() async {
+        guard hasManagementAuthority else { dismiss(); return }
         loading = true
         defer { loading = false }
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
         do {
             let view = try await api.host(eventId: event.id)
+            guard hasManagementAuthority else { dismiss(); return }
             guests = view.guests
             pending = view.pending
             statusMessage = nil
         } catch {
+            guard hasManagementAuthority else { dismiss(); return }
             statusMessage = "Couldn't load the live guest list. Reopen when you're back online."
         }
     }
 
     @MainActor private func decide(_ guest: NativeGroupEventGuestRecord, approve: Bool) async {
+        guard hasManagementAuthority else { dismiss(); return }
         nativeImpactLight()
         decidingUserId = guest.userId
         defer { decidingUserId = nil }
@@ -4468,10 +4499,19 @@ private struct NativeGroupEventHostDashboardView: View {
         let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
         do {
             _ = try await api.decide(eventId: event.id, userId: guest.userId, decision: approve ? "approve" : "decline")
+            guard hasManagementAuthority else { dismiss(); return }
             await load()
         } catch {
+            guard hasManagementAuthority else { dismiss(); return }
             statusMessage = "Couldn't update \(guest.displayName). Try again."
         }
+    }
+
+    @MainActor private func revokeAccessIfNeeded() {
+        guard !hasManagementAuthority else { return }
+        guests = []
+        pending = []
+        dismiss()
     }
 }
 

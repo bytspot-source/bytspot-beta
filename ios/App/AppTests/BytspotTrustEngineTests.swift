@@ -890,6 +890,20 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: NativeMapFocusHandoff.longitudeKey))
     }
 
+    func testMapFocusConsumerKeepsAuthoritativeCoordinateAgainstTitleCollision() {
+        let handoffLatitude = 33.7870
+        let handoffLongitude = -84.3830
+        let candidates = [
+            NativeMapFocusPinCandidate(id: "different-provider", title: "Provider Cafe", latitude: 33.7970, longitude: -84.3930),
+            NativeMapFocusPinCandidate(id: "provider-annex", title: "Provider Cafe Annex", latitude: 33.7870, longitude: -84.3830)
+        ]
+
+        XCTAssertNil(NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: "place-provider-cafe", handoffTitle: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude, candidates: candidates))
+        XCTAssertNil(NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: "different-provider", handoffTitle: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude, candidates: candidates))
+        let coordinateConsistent = NativeMapFocusPinCandidate(id: "native-provider", title: "Provider Cafe", latitude: handoffLatitude + 0.00001, longitude: handoffLongitude)
+        XCTAssertEqual(NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: "place-provider-cafe", handoffTitle: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude, candidates: [coordinateConsistent]), 0)
+    }
+
     @MainActor
     func testDiscoverRouteEligibilityResolvesGeneratedVenueCardsAndFailsClosedWithoutCoordinates() throws {
         let parking = NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr")

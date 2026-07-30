@@ -14124,6 +14124,36 @@ enum NativeMapInteractionContract {
     static let functionSheetMaxHeightFraction: CGFloat = 0.78
 }
 
+struct NativeMapFocusPinCandidate {
+    let id: String
+    let title: String
+    let latitude: Double
+    let longitude: Double
+}
+
+enum NativeMapFocusPinResolutionPolicy {
+    static let coordinateToleranceMeters = 25.0
+
+    static func matchingIndex(handoffID: String, handoffTitle: String, latitude: Double, longitude: Double, candidates: [NativeMapFocusPinCandidate]) -> Int? {
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
+        let handoffLocation = CLLocation(latitude: latitude, longitude: longitude)
+        let coordinateMatches = candidates.enumerated().filter { _, candidate in
+            guard NativeVenueSummary.hasValidMapCoordinate(latitude: candidate.latitude, longitude: candidate.longitude) else { return false }
+            return handoffLocation.distance(from: CLLocation(latitude: candidate.latitude, longitude: candidate.longitude)) <= coordinateToleranceMeters
+        }
+        let normalizedID = handoffID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !normalizedID.isEmpty {
+            let idMatches = coordinateMatches.filter { $0.element.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedID }
+            if idMatches.count == 1 { return idMatches[0].offset }
+            if idMatches.count > 1 { return nil }
+        }
+        let normalizedTitle = NativeSearchRouter.normalized(handoffTitle)
+        guard !normalizedTitle.isEmpty else { return nil }
+        let titleMatches = coordinateMatches.filter { NativeSearchRouter.normalized($0.element.title) == normalizedTitle }
+        return titleMatches.count == 1 ? titleMatches[0].offset : nil
+    }
+}
+
 enum NativeMapSearchRoutePolicy {
     static func routeVenue(for suggestion: NativeSearchSuggestion, snapshot: NativeTabContentSnapshot, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
         var exactDestinations = [suggestion.title]
@@ -14725,11 +14755,9 @@ private struct NativeMapExploreView: View {
         didConsumeExplicitMapLaunch = true
         didOpenMapContext = true
         let coordinate = CLLocationCoordinate2D(latitude: mapFocusLatitude, longitude: mapFocusLongitude)
-        let lowerID = id.lowercased()
-        let lowerTitle = title.lowercased()
-        let existing = pins.first { pin in
-            pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
-        }
+        let pinCandidates = pins.map { NativeMapFocusPinCandidate(id: $0.id, title: $0.title, latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }
+        let existingIndex = NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: id, handoffTitle: title, latitude: mapFocusLatitude, longitude: mapFocusLongitude, candidates: pinCandidates)
+        let existing = existingIndex.flatMap { pins.indices.contains($0) ? pins[$0] : nil }
         let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : mapFocusKind == "access" ? .access : .venue
         let focused = existing ?? NativeMapPin(
             id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,

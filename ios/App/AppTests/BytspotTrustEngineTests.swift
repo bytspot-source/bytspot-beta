@@ -909,6 +909,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeDiscoverRouteResolver.routeVenue(for: unresolved, venues: [venue]))
     }
 
+    func testDiscoverRouteResolverPrefersExactAndLongestCompanionVenueIDs() {
+        let parking = NativeParkingSummary(totalAvailable: 5, priceLabel: "$6/hr")
+        let garage = NativeVenueSummary(id: "garage", name: "Garage", category: "parking", address: "1 Short St", distance: "0.2 mi", rating: nil, latitude: 33.7870, longitude: -84.3830, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let parkside = NativeVenueSummary(id: "parkside-garage", name: "Parkside Garage", category: "parking", address: "2 Long St", distance: "0.3 mi", rating: nil, latitude: 33.7871, longitude: -84.3831, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let venues = [garage, parkside]
+
+        XCTAssertEqual(NativeDiscoverRouteResolver.matchingVenue(cardID: "venue-parkside-garage", title: parkside.name, venues: venues)?.id, parkside.id)
+        XCTAssertEqual(NativeDiscoverRouteResolver.matchingVenue(cardID: "companion-parking-parkside-garage", title: "Parking nearby: \(parkside.name)", venues: venues)?.id, parkside.id)
+    }
+
     func testSavedMapRouteCodecIsDeterministicAndIgnoresBlankRows() {
         let raw = NativeMapSavedRoutes.rawValue(for: ["route-b", "route-a"])
 
@@ -948,9 +958,13 @@ final class BytspotTrustEngineTests: XCTestCase {
         let venue = NativeVenueSummary(id: "parkside-garage", name: "Parkside Garage", category: "parking", address: "10 Park St", distance: "0.4 mi", rating: nil, latitude: 33.7874, longitude: -84.3834, crowd: nil, parking: NativeParkingSummary(totalAvailable: 5, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
         let partial = NativeSearchSuggestion(id: "route-park", title: "Route to Park", subtitle: "Open Map", address: "Park", icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 200, route: .map(destination: "Park", mode: "Route"))
         let exact = NativeSearchSuggestion(id: "route-parkside", title: "Route to Parkside Garage", subtitle: "Open Map", address: venue.name, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 200, route: .map(destination: venue.name, mode: "Route"))
+        let normalizedExact = NativeSearchSuggestion(id: "route-normalized-parkside", title: "Route to Parkside---Garage", subtitle: "Open Map", address: venue.name, icon: "arrow.triangle.turn.up.right.diamond.fill", actionLabel: "Route", badge: "Map", score: 200, route: .map(destination: "  Parkside---   Garage  ", mode: "Route"))
+        let duplicateName = NativeVenueSummary(id: "other-parkside", name: venue.name, category: "parking", address: "11 Park St", distance: "0.5 mi", rating: nil, latitude: 33.7875, longitude: -84.3835, crowd: nil, parking: NativeParkingSummary(totalAvailable: 2, priceLabel: "$7/hr"), verifiedPatchId: nil, imageUrl: nil)
 
         XCTAssertNil(NativeMapSearchRoutePolicy.routeVenue(for: partial, snapshot: snapshot, venues: [venue]))
         XCTAssertEqual(NativeMapSearchRoutePolicy.routeVenue(for: exact, snapshot: snapshot, venues: [venue])?.id, venue.id)
+        XCTAssertEqual(NativeMapSearchRoutePolicy.routeVenue(for: normalizedExact, snapshot: snapshot, venues: [venue])?.id, venue.id)
+        XCTAssertNil(NativeMapSearchRoutePolicy.routeVenue(for: exact, snapshot: snapshot, venues: [venue, duplicateName]))
     }
 
     func testMapFunctionSheetUsesAViewportBoundedScrollableHeight() {

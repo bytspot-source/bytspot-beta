@@ -14080,13 +14080,33 @@ enum NativeMapSavedRoutes {
 
 enum NativeDiscoverRouteResolver {
     static func matchingVenue(cardID: String, title: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
-        venues.first {
-            $0.id == cardID
-                || "venue-\($0.id)" == cardID
-                || cardID.hasSuffix("-\($0.id)")
-                || $0.name.caseInsensitiveCompare(title) == .orderedSame
-                || title.lowercased().hasSuffix($0.name.lowercased())
+        let normalizedCardID = normalizedID(cardID)
+        let directMatches = venues.filter {
+            let venueID = normalizedID($0.id)
+            return !venueID.isEmpty && (venueID == normalizedCardID || "venue-\(venueID)" == normalizedCardID)
         }
+        if directMatches.count == 1 { return directMatches[0] }
+        if directMatches.count > 1 { return nil }
+
+        if normalizedCardID.hasPrefix("companion-") {
+            let companionMatches = venues.filter {
+                let venueID = normalizedID($0.id)
+                return !venueID.isEmpty && normalizedCardID.hasSuffix("-\(venueID)")
+            }
+            if let longestIDLength = companionMatches.map({ normalizedID($0.id).count }).max() {
+                let longestMatches = companionMatches.filter { normalizedID($0.id).count == longestIDLength }
+                return longestMatches.count == 1 ? longestMatches[0] : nil
+            }
+        }
+
+        let normalizedTitle = NativeSearchRouter.normalized(title)
+        guard !normalizedTitle.isEmpty else { return nil }
+        let titleMatches = venues.filter { NativeSearchRouter.normalized($0.name) == normalizedTitle }
+        return titleMatches.count == 1 ? titleMatches[0] : nil
+    }
+
+    private static func normalizedID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     static func routeVenue(for card: NativeDiscoverSummary, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
@@ -14109,15 +14129,22 @@ enum NativeMapSearchRoutePolicy {
         var exactDestinations = [suggestion.title]
         if case .map(let destination, _) = suggestion.route { exactDestinations.append(destination) }
         for destination in exactDestinations {
-            let normalized = destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !normalized.isEmpty else { continue }
-            if let card = snapshot.discoverCards.first(where: { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized || $0.id.lowercased() == normalized }),
+            let normalizedDisplay = NativeSearchRouter.normalized(destination)
+            let normalizedID = destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalizedDisplay.isEmpty else { continue }
+            let cardsByID = snapshot.discoverCards.filter { $0.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedID }
+            let cardsByTitle = snapshot.discoverCards.filter { NativeSearchRouter.normalized($0.title) == normalizedDisplay }
+            let exactCards = cardsByID.isEmpty ? cardsByTitle : cardsByID
+            if exactCards.count > 1 { return nil }
+            if let card = exactCards.first,
                let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
                 return venue
             }
-            if let venue = venues.first(where: { ($0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized || $0.id.lowercased() == normalized) && $0.hasKnownCoordinates }) {
-                return venue
-            }
+            let venuesByID = venues.filter { $0.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedID && $0.hasKnownCoordinates }
+            let venuesByName = venues.filter { NativeSearchRouter.normalized($0.name) == normalizedDisplay && $0.hasKnownCoordinates }
+            let exactVenues = venuesByID.isEmpty ? venuesByName : venuesByID
+            if exactVenues.count > 1 { return nil }
+            if let venue = exactVenues.first { return venue }
         }
         return nil
     }

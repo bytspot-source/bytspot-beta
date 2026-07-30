@@ -73,7 +73,7 @@ source_guards() {
   ! grep -Eq "Let's Go|Sign in to save these picks|at least 8 characters|Atlanta picks|Personalization → Atlanta" docs/native-profile-product-wireframe-contract.md
   grep -q "Native Fallback Audit" docs/native-profile-product-wireframe-contract.md
   grep -q "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT" ios/App/App/NativeShellView.swift scripts/native-root-smoke.sh
-  grep -q "bytspot_saved_spots_planned_ids" ios/App/App/NativeShellView.swift
+  ! grep -q "bytspot_saved_spots_planned_ids" ios/App/App/NativeShellView.swift
   grep -q "bytspot_places_visited_favorite_ids" ios/App/App/NativeShellView.swift
 }
 
@@ -218,7 +218,7 @@ run_launch_visual_captures() {
   ocr native-personalization-ready
   expect_ocr native-personalization-ready "Your Bytspot is ready"
   expect_ocr native-personalization-ready "Discover with context"
-  expect_ocr native-personalization-ready "Plan the arrival"
+  expect_ocr native-personalization-ready "Simplify your arrival"
   expect_ocr native-personalization-ready "Start Exploring"
   expect_ocr native-personalization-ready "Sign in to save your experience"
 
@@ -285,7 +285,7 @@ run_launch_visual_captures
 run_panel access access-panel "My Access|Verified patches|Digital passes"
 run_panel reservations arrivals-panel "Arrivals|Parking bookings|Arrival windows"
 run_panel rewards rewards-panel "Rewards|badges|Bronze rewards"
-run_panel savedSpots saved-spots-panel "Saved Spots|Review|Plan visit"
+run_panel savedSpots saved-spots-panel "Saved Spots|Review|View Details"
 run_panel placesVisited places-visited-panel "Places I've Been|Review|Mark favorite"
 run_panel personalInformation personal-information-panel "Personal Information|Profile on this iPhone|Save on This iPhone"
 run_panel vehicles vehicles-panel "My Vehicles|Vehicle details|No vehicle saved yet"

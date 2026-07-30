@@ -144,22 +144,19 @@ struct NativeSocialCircle: Codable, Equatable, Identifiable {
     var name: String
     var ownerUserId: String?
     var memberCount: Int
-    var privacy: String
-    var role: String?
+    var memberIDs: [String]
+    var role: String
 
-    var privacyLabel: String { privacy == "private" ? "Private" : "Invite only" }
     var memberLabel: String { "\(memberCount) member\(memberCount == 1 ? "" : "s")" }
-
-    static let fallbackStarter = [
-        NativeSocialCircle(id: "starter-close-friends", name: "Close Friends", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member"),
-        NativeSocialCircle(id: "starter-family", name: "Family", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member"),
-        NativeSocialCircle(id: "starter-crew", name: "Crew", ownerUserId: nil, memberCount: 0, privacy: "invite_only", role: "member")
-    ]
 
     static func normalizeSocialCircle(_ value: Any) -> NativeSocialCircle? {
         guard let row = value as? [String: Any] else { return nil }
         guard let id = cleanValue(row["id"] ?? row["groupId"]), let name = cleanValue(row["name"] ?? row["title"]) else { return nil }
-        return NativeSocialCircle(id: id, name: name, ownerUserId: cleanValue(row["ownerUserId"]), memberCount: intValue(row["memberCount"] ?? row["membersCount"]) ?? 0, privacy: (row["privacy"] as? String) == "private" ? "private" : "invite_only", role: cleanValue(row["role"]) ?? "member")
+        let rawMembers = (row["memberIds"] as? [Any]) ?? (row["memberIDs"] as? [Any]) ?? []
+        let memberIDs = rawMembers.compactMap { member in
+            cleanValue(member) ?? (member as? [String: Any]).flatMap { cleanValue($0["userId"] ?? $0["id"]) }
+        }
+        return NativeSocialCircle(id: id, name: name, ownerUserId: cleanValue(row["ownerUserId"]), memberCount: intValue(row["memberCount"] ?? row["membersCount"]) ?? memberIDs.count, memberIDs: memberIDs, role: cleanValue(row["role"]) ?? "member")
     }
 
     static func normalizeSocialCircles(_ response: Any) -> [NativeSocialCircle] {
@@ -194,33 +191,36 @@ struct NativeSocialCircleSnapshot: Equatable {
     var groups: [NativeSocialCircle]
 
     static let empty = NativeSocialCircleSnapshot(source: .fallback, groups: [])
-    static let starter = NativeSocialCircleSnapshot(source: .fallback, groups: NativeSocialCircle.fallbackStarter)
 
     var totalMembers: Int { groups.reduce(0) { $0 + $1.memberCount } }
     var summaryLine: String {
         if groups.isEmpty { return "Sign in to load private circles and trusted connections." }
-        let sourceLabel = source == .backend ? "Live social circles" : "Starter circles"
-        return "\(sourceLabel) · \(groups.count) circle\(groups.count == 1 ? "" : "s") · \(totalMembers) connection\(totalMembers == 1 ? "" : "s")"
+        return "\(groups.count) circle\(groups.count == 1 ? "" : "s") · \(totalMembers) connection\(totalMembers == 1 ? "" : "s")"
     }
 }
 
-struct NativePrimaryEventDraft: Equatable, Identifiable {
+struct NativeSocialInvitation: Equatable, Identifiable {
     var id: String
-    var title: String
-    var tier: String
-    var hostName: String
-    var capacityLimit: Int
+    var direction: String
+    var status: String
+    var personID: String
+    var personName: String
+    var circleID: String?
+    var circleName: String?
 
-    static func normalizeEventDraft(_ value: Any) -> NativePrimaryEventDraft? {
+    static func normalize(_ value: Any) -> NativeSocialInvitation? {
         guard let row = value as? [String: Any] else { return nil }
-        guard let id = NativeSocialCircle.cleanValue(row["id"] ?? row["eventId"] ?? row["draftId"]), let title = NativeSocialCircle.cleanValue(row["title"]) else { return nil }
-        let tier = NativeSocialCircle.cleanValue(row["tier"]) ?? "green"
-        return NativePrimaryEventDraft(id: id, title: title, tier: tier, hostName: NativeSocialCircle.cleanValue(row["hostName"]) ?? "Bytspot Member", capacityLimit: NativeSocialCircle.intValue(row["capacityLimit"]) ?? 1)
+        guard let id = NativeSocialCircle.cleanValue(row["id"] ?? row["inviteId"]) else { return nil }
+        let direction = NativeSocialCircle.cleanValue(row["direction"])?.lowercased() == "incoming" || (row["incoming"] as? Bool) == true ? "incoming" : "outgoing"
+        let person = (row["person"] as? [String: Any]) ?? (direction == "incoming" ? row["sender"] as? [String: Any] : row["recipient"] as? [String: Any]) ?? row
+        guard let personID = NativeSocialCircle.cleanValue(person["userId"] ?? person["id"]) else { return nil }
+        let circle = (row["group"] as? [String: Any]) ?? (row["circle"] as? [String: Any])
+        return NativeSocialInvitation(id: id, direction: direction, status: NativeSocialCircle.cleanValue(row["status"])?.lowercased() ?? "pending", personID: personID, personName: NativeSocialCircle.cleanValue(person["name"] ?? person["displayName"]) ?? "Bytspot member", circleID: NativeSocialCircle.cleanValue(row["groupId"] ?? row["circleId"] ?? circle?["id"]), circleName: NativeSocialCircle.cleanValue(row["groupName"] ?? row["circleName"] ?? circle?["name"]))
     }
 
-    static func normalizeEventDrafts(_ response: Any) -> [NativePrimaryEventDraft] {
-        if let single = normalizeEventDraft(response) { return [single] }
-        return NativeSocialCircle.rows(from: response, keys: ["drafts", "events", "items"]).compactMap(normalizeEventDraft)
+    static func normalizeList(_ response: Any) -> [NativeSocialInvitation] {
+        if let single = normalize(response) { return [single] }
+        return NativeSocialCircle.rows(from: response, keys: ["invites", "invitations", "items"]).compactMap(normalize)
     }
 }
 
@@ -548,93 +548,6 @@ struct NativeMobilityDataAPI {
     }
 }
 
-struct NativeGroupEventServerRecord: Codable, Equatable, Identifiable {
-    var id: String
-    var hostId: String?
-    var title: String?
-    var groupType: String?
-    var tier: String?
-    var timing: String?
-    var scheduledDate: String?
-    var location: String?
-    var theme: String?
-    var instagramHandle: String?
-    var allowNearbyOffers: Bool?
-    var approvalMode: String?
-    var createdAt: String?
-}
-
-struct NativeGroupEventGuestRecord: Codable, Equatable, Identifiable {
-    var userId: String
-    var name: String?
-    var profileImage: String?
-    var initials: String?
-    var status: String?
-    var message: String?
-    var joinedAt: String?
-
-    var id: String { userId }
-    var displayName: String { name?.isEmpty == false ? name! : "Guest" }
-    var avatarInitials: String { initials?.isEmpty == false ? initials! : String(displayName.prefix(1)).uppercased() }
-}
-
-struct NativeGroupEventHostView: Codable, Equatable {
-    var event: NativeGroupEventServerRecord
-    var guests: [NativeGroupEventGuestRecord]
-    var pending: [NativeGroupEventGuestRecord]
-}
-
-struct NativeGroupEventDecision: Codable, Equatable {
-    var userId: String?
-    var status: String?
-}
-
-/// Host-side group-event API. The backend runs tRPC without a data transformer,
-/// so inputs travel raw (query `?input=<json>`, mutation body `<json>`) rather
-/// than through BytspotAPIClient.trpcPayload's `{"json":…}` wrapper.
-struct NativeGroupEventDataAPI {
-    let client: BytspotAPIClient
-
-    func create(input: [String: Any]) async throws -> NativeGroupEventServerRecord {
-        try await mutation(NativeGroupEventServerRecord.self, path: "/trpc/groupEvents.create", input: input)
-    }
-
-    func host(eventId: String) async throws -> NativeGroupEventHostView {
-        try await query(NativeGroupEventHostView.self, path: "/trpc/groupEvents.host", input: ["eventId": eventId])
-    }
-
-    func decide(eventId: String, userId: String, decision: String) async throws -> NativeGroupEventDecision {
-        try await mutation(NativeGroupEventDecision.self, path: "/trpc/groupEvents.decide", input: ["eventId": eventId, "userId": userId, "decision": decision])
-    }
-
-    private func mutation<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
-        try Self.decode(type, from: try await client.json(path: path, method: "POST", body: Self.rawMutationBody(input)))
-    }
-
-    private func query<T: Decodable>(_ type: T.Type, path: String, input: [String: Any]) async throws -> T {
-        try Self.decode(type, from: try await client.json(path: Self.rawQueryPath(path, input: input)))
-    }
-
-    /// Raw (untransformed) mutation body: the input dictionary serialized directly,
-    /// NOT wrapped in the `{"json":…}` envelope, matching the transformer-less backend.
-    static func rawMutationBody(_ input: [String: Any]) throws -> Data {
-        try JSONSerialization.data(withJSONObject: input)
-    }
-
-    /// Raw query path: `path?input=<url-encoded raw json>`, again without the
-    /// `{"json":…}` envelope.
-    static func rawQueryPath(_ path: String, input: [String: Any]) throws -> String {
-        let inputData = try JSONSerialization.data(withJSONObject: input)
-        let encoded = String(data: inputData, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return "\(path)?input=\(encoded)"
-    }
-
-    private static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {
-        let data = try JSONSerialization.data(withJSONObject: BytspotAPIClient.unwrapTRPCData(raw))
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-}
-
 enum NativeCheckInV2Contract {
     static let createRoute = "/trpc/checkins.create"
     static let syncRoute = "/trpc/checkins.sync"
@@ -642,15 +555,13 @@ enum NativeCheckInV2Contract {
     static let providerCountsRoute = "/trpc/checkins.providerCounts"
     static let venueIntelligenceRoute = "/trpc/venues.intelligence"
     static let verifyRoute = "/trpc/checkins.verify"
-    static let groupJoinRoute = "/trpc/groupEvents.join"
     static let manualTrustLevel = "staticDiscovery"
     static let manualSource = "native_ios_manual"
 
-    static func manualCreateInput(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil, groupEventId: String? = nil) -> [String: Any] {
+    static func manualCreateInput(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil) -> [String: Any] {
         var input: [String: Any] = ["venueId": venueId, "idempotencyKey": idempotencyKey, "trustLevel": manualTrustLevel, "source": manualSource]
         if let observedAt, !observedAt.isEmpty { input["observedAt"] = observedAt }
         if let patchId, !patchId.isEmpty { input["patchId"] = patchId }
-        if let groupEventId, !groupEventId.isEmpty { input["groupEventId"] = groupEventId }
         return input
     }
 }
@@ -677,14 +588,11 @@ enum NativeLiveContentV2Contract {
     static let tablesReserveRoute = "/trpc/tables.reserve"
     static let socialGroupsListRoute = "/trpc/social.groups.list"
     static let socialGroupsCreateRoute = "/trpc/social.groups.create"
+    static let socialGroupsMembersAddRoute = "/trpc/social.groups.members.add"
+    static let socialGroupsMembersRemoveRoute = "/trpc/social.groups.members.remove"
     static let socialInvitesCreateRoute = "/trpc/social.invites.create"
     static let socialInvitesListRoute = "/trpc/social.invites.list"
-    static let eventsDraftsCreateRoute = "/trpc/events.drafts.create"
-    static let eventsDraftsUpdateRoute = "/trpc/events.drafts.update"
-    static let eventsPublishRoute = "/trpc/events.publish"
-    static let eventsRSVPRespondRoute = "/trpc/events.rsvp.respond"
-    static let eventsRSVPListRoute = "/trpc/events.rsvp.list"
-    static let groupJoinRoute = "/trpc/groupEvents.join"
+    static let socialInvitesRespondRoute = "/trpc/social.invites.respond"
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
@@ -727,8 +635,8 @@ struct NativeCheckInPointsReconciliation: Codable, Equatable {
 struct NativeCheckInDataAPI {
     let client: BytspotAPIClient
 
-    func createManualCheckIn(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil, groupEventId: String? = nil) async throws -> NativeCheckInCreateResponse {
-        try await client.trpcDecode(NativeCheckInCreateResponse.self, path: NativeCheckInV2Contract.createRoute, method: "POST", input: NativeCheckInV2Contract.manualCreateInput(venueId: venueId, idempotencyKey: idempotencyKey, observedAt: observedAt, patchId: patchId, groupEventId: groupEventId))
+    func createManualCheckIn(venueId: String, idempotencyKey: String, observedAt: String? = nil, patchId: String? = nil) async throws -> NativeCheckInCreateResponse {
+        try await client.trpcDecode(NativeCheckInCreateResponse.self, path: NativeCheckInV2Contract.createRoute, method: "POST", input: NativeCheckInV2Contract.manualCreateInput(venueId: venueId, idempotencyKey: idempotencyKey, observedAt: observedAt, patchId: patchId))
     }
 
     func sync(records: [[String: Any]]) async throws -> [NativeCheckInCreateResponse] {
@@ -846,7 +754,7 @@ struct NativeProfileDataAPI {
     static let fixturePaymentMethods = [NativePaymentMethodRecord(id: "pm_fixture_1", type: "card", brand: "visa", last4: "4242", expiryMonth: "04", expiryYear: "30", isDefault: true)]
     static let fixtureNotificationPreferences = NativeNotificationPreferences.webDefaults
     static let fixtureUserPreferences = NativeUserPreferencesRecord(interests: nil, vibes: ["drinks"], cuisines: nil, parking: NativeUserPreferencesRecord.Parking(covered: true, evCharging: true, security: "premium"))
-    static let fixtureSocialCircles = [NativeSocialCircle(id: "circle-fixture-close", name: "Close Friends", ownerUserId: "native-fixture-user", memberCount: 8, privacy: "private", role: "owner"), NativeSocialCircle(id: "circle-fixture-crew", name: "Creator Crew", ownerUserId: "native-fixture-user", memberCount: 5, privacy: "invite_only", role: "admin")]
+    static let fixtureSocialCircles = [NativeSocialCircle(id: "circle-fixture-close", name: "Close Friends", ownerUserId: "native-fixture-user", memberCount: 8, memberIDs: [], role: "owner"), NativeSocialCircle(id: "circle-fixture-crew", name: "Creator Crew", ownerUserId: "native-fixture-user", memberCount: 5, memberIDs: [], role: "admin")]
     #endif
 
     func loadProfile() async throws -> NativeUserProfileRecord {
@@ -940,11 +848,29 @@ struct NativeProfileDataAPI {
         return NativeSocialCircleSnapshot(source: .fallback, groups: fallback)
     }
 
-    func createPrimaryEventDraftViaRpc(input: [String: Any]) async throws -> [NativePrimaryEventDraft] {
-        var payload = input
-        payload["surface"] = "profile_network_card"
-        let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.eventsDraftsCreateRoute, method: "POST", input: payload)
-        return NativePrimaryEventDraft.normalizeEventDrafts(response)
+    func createSocialCircleViaRpc(name: String) async throws -> NativeSocialCircle? {
+        let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsCreateRoute, method: "POST", input: ["name": name, "privacy": "private", "surface": "network"])
+        return NativeSocialCircle.normalizeSocialCircle(response) ?? NativeSocialCircle.normalizeSocialCircles(response).first
+    }
+
+    func addPersonToSocialCircleViaRpc(circleID: String, userID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsMembersAddRoute, method: "POST", input: ["groupId": circleID, "userId": userID, "surface": "network"])
+    }
+
+    func listSocialInvitationsViaRpc() async throws -> [NativeSocialInvitation] {
+        let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialInvitesListRoute, input: ["surface": "network"])
+        return NativeSocialInvitation.normalizeList(response)
+    }
+
+    func sendSocialInvitationViaRpc(userID: String, circleID: String?) async throws -> NativeSocialInvitation? {
+        var input: [String: Any] = ["targetType": "user", "targetValue": userID, "surface": "network"]
+        if let circleID { input["groupId"] = circleID }
+        let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesCreateRoute, method: "POST", input: input)
+        return NativeSocialInvitation.normalize(response) ?? NativeSocialInvitation.normalizeList(response).first
+    }
+
+    func respondToSocialInvitationViaRpc(id: String, response: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesRespondRoute, method: "POST", input: ["inviteId": id, "response": response, "surface": "network"])
     }
 
     func setDefaultPaymentMethod(id: String) async throws {
@@ -1010,7 +936,7 @@ struct NativeProfileDataAPI {
         return input
     }
 
-    static func socialCircleListInput() -> [String: Any] { ["surface": "profile_network_card"] }
+    static func socialCircleListInput() -> [String: Any] { ["surface": "network"] }
 
     private func vehicleInput(_ vehicle: NativeVehicleRecord, includeID: Bool) -> [String: Any] {
         var input: [String: Any] = [

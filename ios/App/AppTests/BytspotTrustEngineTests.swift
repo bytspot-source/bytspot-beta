@@ -44,6 +44,13 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(try XCTUnwrap(coordinator.requestedTab)))
     }
 
+    @MainActor
+    func testNativeRoutingDoesNotRouteLegacyGroupEvents() throws {
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertFalse(coordinator.handle(url: try XCTUnwrap(URL(string: "bytspot://group/legacy-event"))))
+        XCTAssertNil(coordinator.requestedDestination)
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,
@@ -242,7 +249,6 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testNativeCheckInV2ContractLocksManualCreateInput() throws {
         XCTAssertEqual(NativeCheckInV2Contract.createRoute, "/trpc/checkins.create")
         XCTAssertEqual(NativeCheckInV2Contract.providerCountsRoute, "/trpc/checkins.providerCounts")
-        XCTAssertEqual(NativeCheckInV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
 
         let input = NativeCheckInV2Contract.manualCreateInput(venueId: "venue-42", idempotencyKey: "idem-42", observedAt: "2026-07-17T12:00:00Z", patchId: "BYT424-0301-P")
         XCTAssertEqual(input["venueId"] as? String, "venue-42")
@@ -283,14 +289,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.tablesReserveRoute, "/trpc/tables.reserve")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsMembersAddRoute, "/trpc/social.groups.members.add")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsCreateRoute, "/trpc/events.drafts.create")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsUpdateRoute, "/trpc/events.drafts.update")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsPublishRoute, "/trpc/events.publish")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPRespondRoute, "/trpc/events.rsvp.respond")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsRSVPListRoute, "/trpc/events.rsvp.list")
-        XCTAssertEqual(NativeLiveContentV2Contract.groupJoinRoute, "/trpc/groupEvents.join")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesRespondRoute, "/trpc/social.invites.respond")
     }
 
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
@@ -1379,10 +1381,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual((userInput["parking"] as? [String: Any])?["security"] as? String, "premium")
     }
 
-    func testProfileNetworkCardUsesSocialCirclesRpcSurface() throws {
+    func testNetworkUsesSocialCircleAndInvitationRoutes() throws {
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
-        XCTAssertEqual(NativeLiveContentV2Contract.eventsDraftsCreateRoute, "/trpc/events.drafts.create")
-        XCTAssertEqual(NativeProfileDataAPI.socialCircleListInput()["surface"] as? String, "profile_network_card")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsMembersAddRoute, "/trpc/social.groups.members.add")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesRespondRoute, "/trpc/social.invites.respond")
+        XCTAssertEqual(NativeProfileDataAPI.socialCircleListInput()["surface"] as? String, "network")
 
         let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.socialGroupsListRoute, input: NativeProfileDataAPI.socialCircleListInput())
         let components = URLComponents(string: path)
@@ -1390,31 +1396,12 @@ final class NativeProfileDataAPITests: XCTestCase {
         let data = try XCTUnwrap(rawInput.data(using: .utf8))
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        XCTAssertEqual(decoded["surface"] as? String, "profile_network_card")
+        XCTAssertEqual(decoded["surface"] as? String, "network")
     }
 
-    func testPrimaryEventDraftBuilderUsesProfileNetworkCardSurfaceAndSocialCircleID() throws {
-        let payment = NativePrimaryEventManualPayment(method: "Venmo", label: "Host Venmo", url: "https://venmo.example/pay", note: "Split after dinner")
-        let record = NativeGroupEventRecord.created(type: "Dinner", title: "Trust Crew Dinner", hostName: "Ama", tier: .black, privacyStatus: .privateInvite, audienceCircle: "Trust Crew", coHosts: ["Kojo"], ticketingLabel: "RSVP required", chipInLabel: "$25", manualPayment: payment, customQuestions: ["Any allergies?"], hideGuestList: true, eventNotes: "API-first draft")
-
-        let input = NativePrimaryEventDraftBuilder.input(for: record, audienceGroupId: "circle-trust-crew")
-
-        XCTAssertEqual(input["surface"] as? String, "profile_network_card")
-        XCTAssertEqual(input["title"] as? String, "Trust Crew Dinner")
-        XCTAssertEqual(input["visibility"] as? String, "private")
-        XCTAssertEqual(input["audienceGroupIds"] as? [String], ["circle-trust-crew"])
-        XCTAssertEqual(input["capacityLimit"] as? Int, NativeGroupEventContract.entitlement(for: .black).participantCapacity)
-        let rsvp = try XCTUnwrap(input["rsvp"] as? [String: Any])
-        XCTAssertEqual(rsvp["customQuestions"] as? [String], ["Any allergies?"])
-        XCTAssertEqual(rsvp["hideGuestList"] as? Bool, true)
-        let payments = try XCTUnwrap(input["paymentLinks"] as? [[String: Any]])
-        XCTAssertEqual(payments.first?["verification"] as? String, "manual_unverified")
-        XCTAssertEqual(payments.first?["url"] as? String, "https://venmo.example/pay")
-    }
-
-    func testNormalizeSocialCircleMirrorsPrimaryEventRpcShape() throws {
+    func testSocialNormalizationSupportsCirclesAndInvitations() throws {
         let payload: [String: Any] = ["groups": [
-            ["id": "circle-1", "name": "Trust Crew", "ownerUserId": "user-1", "memberCount": 12, "privacy": "private", "role": "owner"],
+            ["id": "circle-1", "name": "Trust Crew", "ownerUserId": "user-1", "memberCount": 12, "memberIDs": ["user-2", ["userId": "user-3"]], "role": "owner"],
             ["groupId": "circle-2", "title": "Family", "membersCount": "4"]
         ]]
 
@@ -1424,19 +1411,27 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(groups.first?.id, "circle-1")
         XCTAssertEqual(groups.first?.name, "Trust Crew")
         XCTAssertEqual(groups.first?.memberCount, 12)
-        XCTAssertEqual(groups.first?.privacy, "private")
+        XCTAssertEqual(groups.first?.memberIDs, ["user-2", "user-3"])
         XCTAssertEqual(groups.last?.id, "circle-2")
         XCTAssertEqual(groups.last?.name, "Family")
         XCTAssertEqual(groups.last?.memberCount, 4)
-        XCTAssertEqual(groups.last?.privacy, "invite_only")
+
+        let invites = NativeSocialInvitation.normalizeList(["invitations": [
+            ["inviteId": "invite-in", "incoming": true, "status": "pending", "sender": ["id": "sender-1", "displayName": "Ama"], "groupId": "circle-1", "groupName": "Trust Crew"],
+            ["id": "invite-out", "direction": "OUTGOING", "status": "ACCEPTED", "recipient": ["userId": "recipient-1", "name": "Kojo"], "circle": ["id": "circle-2", "name": "Family"]]
+        ]])
+        XCTAssertEqual(invites.map(\.direction), ["incoming", "outgoing"])
+        XCTAssertEqual(invites.first?.personName, "Ama")
+        XCTAssertEqual(invites.first?.circleID, "circle-1")
+        XCTAssertEqual(invites.last?.status, "accepted")
+        XCTAssertEqual(invites.last?.circleName, "Family")
     }
 
-    func testNativeProfileWireframeRemovesRedundantFriendsMenuGroup() {
+    func testNativeNetworkHasExactlyPeopleCirclesAndInvitations() {
         XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
-        XCTAssertFalse(NativeProfileWireframeGuard.socialActivityPanels.contains(.friends))
-        XCTAssertEqual(NativeProfileWireframeGuard.friendsPanelTitle, "Find Friends")
-        XCTAssertEqual(NativeProfileWireframeGuard.friendsPanelEyebrow, "NETWORK")
-        XCTAssertEqual(NativeProfileWireframeGuard.networkCardTitle, "Profile Network")
+        XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations"])
+        XCTAssertFalse(NativeProfileWireframeGuard.networkSegments.contains("Plans"))
+        XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
     }
 
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
@@ -1615,15 +1610,12 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     @MainActor
-    func testEmailAuthSessionPersistsStableIdentityAndEnablesHostPublication() throws {
+    func testEmailAuthSessionPersistsStableIdentity() throws {
         let account = "native_email_auth_persistence_\(UUID().uuidString)"
         let service = "com.bytspot.native-email-auth-persistence-tests"
-        let suite = "NativeEmailAuthHostAuthorityTests.\(UUID().uuidString)"
         let sessionStore = BytspotSessionStore(account: account, service: service)
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer {
             sessionStore.signOut()
-            defaults.removePersistentDomain(forName: suite)
         }
 
         let response = NativeAuthResponse(token: "email_session_token", user: NativeAuthUserRecord(id: "email-user-id", email: "member@example.com", name: "Member"), isNewUser: false)
@@ -1632,15 +1624,6 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let restoredSession = BytspotSessionStore(account: account, service: service)
         XCTAssertEqual(restoredSession.token, "email_session_token")
         XCTAssertEqual(restoredSession.authenticatedUserID, "email-user-id")
-
-        let hosted = NativeGroupEventRecord(id: "email-host-plan", title: "Member Dinner", groupType: "Dinner", hostName: "Member", tier: .green, timing: .today, participantCount: 1, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
-        let planStore = NativePlanStore(defaults: defaults)
-        planStore.refresh(events: [hosted])
-        let accountScope = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: restoredSession.authenticatedUserID))
-        XCTAssertTrue(planStore.bindOwner(for: hosted.id, accountScope: accountScope))
-        XCTAssertTrue(NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: hosted.id), accountScope: accountScope))
-        XCTAssertTrue(planStore.setPublication(.published, for: hosted.id, accountScope: accountScope))
-        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: hosted.id), accountScope: accountScope))
     }
 
     @MainActor
@@ -1756,464 +1739,6 @@ final class NativeAppearanceModeContractTests: XCTestCase {
     }
 }
 
-final class NativeGroupEventContractTests: XCTestCase {
-    func testConsumerTierEntitlementsFollowGreenPlatinumBlackHierarchy() {
-        let green = NativeGroupEventProbe.entitlementSnapshot(tier: .green)
-        XCTAssertEqual(green.activeEventLimit, 1)
-        XCTAssertEqual(green.participantCapacity, 5)
-        XCTAssertEqual(green.liveDurationHours, 2)
-        XCTAssertEqual(green.allowedTimingStates.map(\.label), ["Now", "Today"])
-        XCTAssertFalse(green.allowsCustomBannerImage)
-
-        let platinum = NativeGroupEventProbe.entitlementSnapshot(tier: .platinum)
-        XCTAssertEqual(platinum.activeEventLimit, 3)
-        XCTAssertEqual(platinum.participantCapacity, 25)
-        XCTAssertEqual(platinum.liveDurationHours, 12)
-        XCTAssertTrue(platinum.allowedTimingStates.contains(.weekly))
-
-        let black = NativeGroupEventProbe.entitlementSnapshot(tier: .black)
-        XCTAssertEqual(black.activeEventLimit, 10)
-        XCTAssertEqual(black.participantCapacity, 100)
-        XCTAssertEqual(black.liveDurationHours, 48)
-        XCTAssertEqual(black.offerPriority, "Exclusive matched offers")
-    }
-
-    func testVendorLTOTierEntitlementsScaleBroadcastAndAnalytics() {
-        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .green).activeOfferLimit, 1)
-        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .platinum).activeOfferLimit, 5)
-        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .black).activeOfferLimit, 20)
-        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .green).analyticsLevel, "Views + claims")
-        XCTAssertEqual(NativeGroupEventProbe.vendorSnapshot(tier: .black).boostAccess, "Featured boosts")
-    }
-
-    func testHomepageBannerUsesInstantAccessBytspotCopy() {
-        let banner = NativeGroupEventProbe.homepageBanner(tier: .black)
-        XCTAssertEqual(banner.sectionTitle, "Live Event Happening Now")
-        XCTAssertEqual(banner.eyebrow, "LIVE NOW")
-        XCTAssertEqual(banner.title, "Family Dinner")
-        XCTAssertEqual(banner.tierBadge, "Black")
-        XCTAssertEqual(banner.privacyBadge, "Private Group")
-        XCTAssertEqual(banner.ctaTitle, "Open Group")
-        XCTAssertTrue(banner.subtitle.contains("48h live window"))
-
-        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).eyebrow, "WEEKLY")
-        XCTAssertEqual(NativeGroupEventProbe.homepageBanner(tier: .platinum, timing: .weekly).ctaTitle, "Join Instantly")
-    }
-
-    func testInviteURLIsAppClipInstantJoinFriendly() {
-        let url = NativeGroupEventProbe.inviteURLString(tier: .green)
-        XCTAssertTrue(url.hasPrefix("https://bytspot.app/group/family-dinner?"))
-        XCTAssertTrue(url.contains("tier=green"))
-        XCTAssertTrue(url.contains("timing=now"))
-        XCTAssertTrue(url.contains("title=Family%20Dinner"))
-        XCTAssertTrue(url.contains("type=Family"))
-        XCTAssertTrue(url.contains("participants=3"))
-        XCTAssertTrue(url.contains("scheduled="))
-        XCTAssertTrue(url.contains("host=Bytspot%20Member"))
-        XCTAssertTrue(url.contains("location="))
-        XCTAssertTrue(url.contains("theme="))
-        XCTAssertTrue(url.contains("guestSummary="))
-        XCTAssertTrue(url.contains("activities="))
-        XCTAssertTrue(url.contains("hero=https"))
-        XCTAssertTrue(url.contains("thumbnail=https"))
-        XCTAssertTrue(url.contains("source=app_clip"))
-    }
-
-    func testInviteActionFeedbackKeepsButtonsResponsiveForDraftAndPublishedStates() {
-        XCTAssertTrue(NativeGroupInviteActionKind.copy.draftStatus.contains("copy becomes available"))
-        XCTAssertTrue(NativeGroupInviteActionKind.qr.draftStatus.contains("QR becomes available"))
-        XCTAssertTrue(NativeGroupInviteActionKind.nfc.draftStatus.contains("NFC becomes available"))
-        XCTAssertTrue(NativeGroupInviteActionKind.copy.publishedStatus.contains("Invite link copied"))
-        XCTAssertTrue(NativeGroupInviteActionKind.qr.publishedStatus.contains("QR invite opened"))
-        XCTAssertTrue(NativeGroupInviteActionKind.nfc.publishedStatus.contains("NFC invite opened"))
-    }
-
-    func testInviteAccessSheetCopyIsDraftAwareUntilPublishSucceeds() {
-        XCTAssertEqual(NativeGroupInvitePublishState.published.qrTitle, "Scan to Join")
-        XCTAssertTrue(NativeGroupInvitePublishState.published.nfcSubtitle.contains("App Clip ready"))
-        XCTAssertEqual(NativeGroupInvitePublishState.draftSignedOut.qrTitle, "Draft QR Preview")
-        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.noticeBody.contains("Sign in and publish"))
-        XCTAssertTrue(NativeGroupInvitePublishState.draftAuthenticated.qrDetail.contains("after this group publishes"))
-        XCTAssertTrue(NativeGroupInvitePublishState.publishing.nfcInstruction.contains("Wait for publish"))
-        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.copiedStatus.contains("unavailable"))
-        XCTAssertFalse(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: true, publishState: .draftAuthenticated))
-        XCTAssertFalse(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: false, publishState: .published))
-        XCTAssertTrue(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: true, publishState: .published))
-    }
-
-    func testSilentPublishCanBeUpgradedToAnnouncedByUserAction() {
-        let eventID = "family-dinner"
-        let silent = NativeGroupInvitePublishAnnouncement.updatedIDs([], eventID: eventID, announce: false)
-        XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: silent))
-        let upgraded = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(silent, eventID: eventID, announce: true)
-        XCTAssertTrue(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: upgraded))
-        let reset = NativeGroupInvitePublishAnnouncement.updatedIDs(upgraded, eventID: eventID, announce: false)
-        XCTAssertFalse(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: reset))
-    }
-
-    func testSilentDuplicatePublishDoesNotDowngradeAnnouncedInFlightPublish() {
-        let eventID = "family-dinner"
-        let announced = NativeGroupInvitePublishAnnouncement.updatedIDs([], eventID: eventID, announce: true)
-        let silentDuplicate = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(announced, eventID: eventID, announce: false)
-        XCTAssertTrue(NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: eventID, announcedIDs: silentDuplicate))
-    }
-
-    func testTieredGroupCreationCarriesPlatinumAndBlackMetadataIntoInviteURLs() {
-        let platinum = NativeGroupEventRecord.created(
-            type: "Dinner",
-            title: "Platinum Dinner Group",
-            timing: .weekly,
-            inviteNote: "Host-led arrival.",
-            allowNearbyOffers: true,
-            hostName: "Kojo Asante",
-            tier: .platinum,
-            scheduledDate: "Tonight · 8:00 PM",
-            locationLabel: "Host-selected private table",
-            theme: "Premium dinner",
-            activityHighlights: ["Chef menu", "Private arrival"]
-        )
-        XCTAssertEqual(platinum.tier, .platinum)
-        XCTAssertEqual(platinum.timing, .weekly)
-        XCTAssertEqual(platinum.hostName, "Kojo Asante")
-        XCTAssertEqual(platinum.guestSummary, "1 joined · up to 25 guests")
-        let platinumURL = NativeGroupEventContract.inviteURL(for: platinum).absoluteString
-        XCTAssertTrue(platinumURL.contains("tier=platinum"))
-        XCTAssertTrue(platinumURL.contains("scheduled=Tonight"))
-        XCTAssertTrue(platinumURL.contains("host=Kojo%20Asante"))
-        XCTAssertTrue(platinumURL.contains("location=Host-selected%20private%20table"))
-        XCTAssertTrue(platinumURL.contains("theme=Premium%20dinner"))
-        XCTAssertTrue(platinumURL.contains("activities=Chef%20menu,Private%20arrival"))
-
-        let black = NativeGroupEventRecord.created(type: "Family", hostName: "Black Host", tier: .black)
-        XCTAssertEqual(black.tier, .black)
-        XCTAssertTrue(black.guestSummary.contains("100 guests"))
-        XCTAssertTrue(NativeGroupEventContract.inviteURL(for: black).absoluteString.contains("tier=black"))
-    }
-
-    @MainActor
-    func testGroupInviteURLRoutesToAppClipStyleJoinDestination() {
-        let urlString = "https://bytspot.app/group/platinum-private-dinner?tier=Platinum&timing=this-week&source=app_clip&participants=12&scheduled=Tonight%20%C2%B7%208%3A00%20PM&host=Kojo%20Asante&location=Host-selected%20private%20table&theme=Premium%20dinner&activities=Chef%20menu,Private%20arrival"
-        let invite = NativeGroupEventProbe.parsedInvite(urlString: urlString)
-        XCTAssertEqual(invite?.id, "platinum-private-dinner")
-        XCTAssertEqual(invite?.tier, .platinum)
-        XCTAssertEqual(invite?.timing, .thisWeek)
-        XCTAssertEqual(invite?.hostName, "Kojo Asante")
-        XCTAssertEqual(invite?.locationLabel, "Host-selected private table")
-        XCTAssertEqual(invite?.theme, "Premium dinner")
-        XCTAssertEqual(invite?.activityHighlights, ["Chef menu", "Private arrival"])
-        XCTAssertEqual(invite?.privateAssociation, .joinedViaInvite)
-
-        let coordinator = NativeNavigationCoordinator()
-        XCTAssertTrue(coordinator.handle(url: URL(string: urlString)!))
-        XCTAssertEqual(coordinator.requestedTab, .home)
-        if case .groupEvent(let routedInvite) = coordinator.requestedDestination {
-            XCTAssertEqual(routedInvite.id, "platinum-private-dinner")
-            XCTAssertEqual(routedInvite.privateAssociation, .joinedViaInvite)
-        } else {
-            XCTFail("Group invite links must route to the App Clip-style group destination, not Profile.")
-        }
-    }
-
-    func testGroupEventStorePersistsPrimaryLiveEvent() {
-        NativeGroupEventStore.clear()
-        XCTAssertNil(NativeGroupEventStore.primaryLiveEvent())
-        let record = NativeGroupEventRecord.created(type: "Dinner", hostName: "Bytspot Member", tier: .green)
-        NativeGroupEventStore.upsert(record)
-        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.title, "Dinner Group")
-        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.tier, .green)
-        NativeGroupEventStore.clear()
-    }
-
-    func testPreLiveTemplateDetailsFlowIntoCreatedRecord() {
-        let record = NativeGroupEventRecord.created(
-            type: "Birthday",
-            title: "Ama's Birthday Dinner",
-            timing: .today,
-            inviteNote: "Meet at 7 — offer claim before ordering.",
-            allowNearbyOffers: false,
-            hostName: "Bytspot Member",
-            tier: .green
-        )
-        XCTAssertEqual(record.title, "Ama's Birthday Dinner")
-        XCTAssertEqual(record.timing, .today)
-        XCTAssertEqual(record.inviteNote, "Meet at 7 — offer claim before ordering.")
-        XCTAssertFalse(record.allowNearbyOffers)
-    }
-
-    func testPrimaryEventTemplatePreservesSocialCircleMetadataAndManualPayments() throws {
-        let payment = NativePrimaryEventManualPayment(method: "Venmo", label: "Venmo @ama", url: "https://venmo.example/ama", note: "Add your name")
-        let record = NativeGroupEventRecord.created(
-            type: "Listening Party",
-            title: "Primary Event Social Night",
-            timing: .thisWeek,
-            hostName: "Ama",
-            tier: .platinum,
-            privacyStatus: .publicDiscovery,
-            audienceCircle: "Creators",
-            fontStyle: "Serif Luxe",
-            coHosts: ["DJ Kojo", "Broni Home Taste"],
-            playlistURLString: "https://music.example/playlist",
-            ticketingLabel: "$20 standard ticket",
-            chipInLabel: "Pay what you can",
-            manualPayment: payment,
-            rsvpCutoff: "Friday · 6 PM",
-            customQuestions: ["Any allergies?"],
-            hideActivityTimestamps: true,
-            hideGuestList: true,
-            dressCode: "All black",
-            foodSituation: "Small bites",
-            parkingInstructions: "Use rear garage",
-            accommodation: "Nearby hotel block",
-            eventNotes: "Bring photo ID",
-            linkURLString: "https://example.com/event",
-            iconName: "music.note"
-        )
-
-        XCTAssertEqual(record.privacyStatus, .publicDiscovery)
-        XCTAssertEqual(record.audienceCircle, "Creators")
-        XCTAssertEqual(record.fontStyle, "Serif Luxe")
-        XCTAssertEqual(record.coHosts, ["DJ Kojo", "Broni Home Taste"])
-        XCTAssertEqual(record.manualPayment?.verificationStatus, "manual_unverified")
-        XCTAssertEqual(record.primaryEventMetadataPayload["parking"] as? String, "Use rear garage")
-
-        let invite = try XCTUnwrap(NativeGroupEventContract.groupInvite(from: NativeGroupEventContract.inviteURL(for: record)))
-        XCTAssertEqual(invite.privateAssociation, .joinedViaInvite)
-        XCTAssertEqual(invite.audienceCircle, "Creators")
-        XCTAssertEqual(invite.fontStyle, "Serif Luxe")
-        XCTAssertEqual(invite.coHosts, ["DJ Kojo", "Broni Home Taste"])
-        XCTAssertEqual(invite.manualPayment?.verificationStatus, "manual_unverified")
-        XCTAssertEqual(invite.customQuestions, ["Any allergies?"])
-        XCTAssertTrue(invite.hideGuestList)
-
-        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONEncoder().encode(record))
-        XCTAssertEqual(decoded.dressCode, "All black")
-        XCTAssertEqual(decoded.manualPayment?.label, "Venmo @ama")
-    }
-
-    func testHomepagePrivacyHidesDinnerAndFamilyWithoutPrivateAssociation() {
-        let unaffiliatedFamily = NativeGroupEventRecord(id: "family-public", title: "Family Dinner", groupType: "Family", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
-        XCTAssertTrue(unaffiliatedFamily.requiresPrivateHomepageAssociation)
-        XCTAssertFalse(unaffiliatedFamily.isHomepageVisibleToCurrentViewer)
-
-        let unaffiliatedDinner = NativeGroupEventRecord(id: "dinner-public", title: "Dinner Group", groupType: "Dinner", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
-        XCTAssertTrue(unaffiliatedDinner.requiresPrivateHomepageAssociation)
-        XCTAssertFalse(unaffiliatedDinner.isHomepageVisibleToCurrentViewer)
-
-        let joinedFamily = NativeGroupEventRecord(id: "family-joined", title: "Family Dinner", groupType: "Family", hostName: "Host", tier: .green, timing: .now, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .joinedViaInvite)
-        XCTAssertTrue(joinedFamily.isHomepageVisibleToCurrentViewer)
-    }
-
-    func testHomepageRetrievalSkipsPrivateUnaffiliatedEvents() {
-        NativeGroupEventStore.clear()
-        let privatePickup = NativeGroupEventRecord(id: "pickup-private", title: "Pickup Group", groupType: "Pickup", hostName: "Host", tier: .green, timing: .now, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .privateInvite, privateAssociation: .none)
-        let publicPickup = NativeGroupEventRecord(id: "pickup-public", title: "Pickup Crew", groupType: "Pickup", hostName: "Host", tier: .green, timing: .now, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privacyStatus: .publicDiscovery, privateAssociation: .none)
-        NativeGroupEventStore.upsert(publicPickup)
-        NativeGroupEventStore.upsert(privatePickup)
-        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.id, "pickup-private")
-        XCTAssertEqual(NativeGroupEventStore.primaryHomepageVisibleEvent()?.id, "pickup-public")
-        NativeGroupEventStore.clear()
-    }
-
-    // MARK: - Host approval mode (record Codable + tRPC wire value)
-
-    func testApprovalModeCodableRoundTripAndWireValue() throws {
-        let approval = NativeGroupEventRecord.created(type: "Dinner", requiresApproval: true, hostName: "Host", tier: .green)
-        XCTAssertTrue(approval.requiresApproval)
-        XCTAssertEqual(approval.approvalMode, "approval")
-
-        let open = NativeGroupEventRecord.created(type: "Dinner", requiresApproval: false, hostName: "Host", tier: .green)
-        XCTAssertFalse(open.requiresApproval)
-        XCTAssertEqual(open.approvalMode, "open")
-
-        // Encode → decode preserves requiresApproval and its wire value.
-        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONEncoder().encode(approval))
-        XCTAssertTrue(decoded.requiresApproval)
-        XCTAssertEqual(decoded.approvalMode, "approval")
-
-        // Backward compatibility: legacy payloads without the key default to open.
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try JSONEncoder().encode(approval)) as? [String: Any])
-        object.removeValue(forKey: "requiresApproval")
-        let legacy = try JSONDecoder().decode(NativeGroupEventRecord.self, from: try JSONSerialization.data(withJSONObject: object))
-        XCTAssertFalse(legacy.requiresApproval)
-        XCTAssertEqual(legacy.approvalMode, "open")
-    }
-
-    func testLegacyGroupRecordWithoutViewerAssociationFailsClosed() throws {
-        let hosted = NativeGroupEventRecord(id: "legacy-host", title: "Legacy Dinner", groupType: "Dinner", hostName: "Host", tier: .green, timing: .today, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try JSONEncoder().encode(hosted)) as? [String: Any])
-        object.removeValue(forKey: "privateAssociation")
-
-        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: JSONSerialization.data(withJSONObject: object))
-
-        XCTAssertEqual(decoded.privateAssociation, .none)
-        XCTAssertFalse(decoded.isHomepageVisibleToCurrentViewer)
-    }
-
-    func testGroupEventDataAPIUsesRawTRPCWireFormat() throws {
-        // Mutation body is the raw input dictionary — NOT the {"json":…} envelope.
-        let body = try NativeGroupEventDataAPI.rawMutationBody(["id": "family-dinner", "approvalMode": "approval"])
-        let bodyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(bodyObject["id"] as? String, "family-dinner")
-        XCTAssertEqual(bodyObject["approvalMode"] as? String, "approval")
-        XCTAssertNil(bodyObject["json"], "Mutation body must be raw, not the {\"json\":…} envelope.")
-
-        // Query carries the raw input in `?input=<url-encoded json>`.
-        let prefix = "/trpc/groupEvents.host?input="
-        let path = try NativeGroupEventDataAPI.rawQueryPath("/trpc/groupEvents.host", input: ["eventId": "family-dinner"])
-        XCTAssertTrue(path.hasPrefix(prefix))
-        let decodedQuery = try XCTUnwrap(String(path.dropFirst(prefix.count)).removingPercentEncoding)
-        let queryObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(decodedQuery.utf8)) as? [String: Any])
-        XCTAssertEqual(queryObject["eventId"] as? String, "family-dinner")
-        XCTAssertNil(queryObject["json"], "Query input must be raw, not the {\"json\":…} envelope.")
-    }
-
-    // MARK: - Unguessable invite slug (private events must not be enumerable)
-
-    func testCreatedInviteSlugIsUnguessableAndURLSafe() {
-        let a = NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", tier: .green)
-        let b = NativeGroupEventRecord.created(type: "Dinner", hostName: "Host", tier: .green)
-
-        // Two events of the same type/second must not collide — rules out the old
-        // predictable `group-<type>-<unix-seconds>` scheme.
-        XCTAssertNotEqual(a.id, b.id)
-
-        let prefix = "group-dinner-"
-        XCTAssertTrue(a.id.hasPrefix(prefix))
-        let suffix = String(a.id.dropFirst(prefix.count))
-        XCTAssertEqual(suffix.count, 22, "Random suffix must carry high entropy.")
-        XCTAssertFalse(suffix.allSatisfy { $0.isNumber }, "Suffix must not be a plain timestamp.")
-
-        // URL-path safe: only lowercase/uppercase letters, digits, and hyphens.
-        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
-        XCTAssertTrue(a.id.allSatisfy { allowed.contains($0) })
-
-        // Entropy sanity: many tokens stay unique.
-        let tokens = Set((0..<200).map { _ in NativeGroupEventRecord.inviteToken() })
-        XCTAssertEqual(tokens.count, 200)
-    }
-
-    @MainActor
-    func testPlanLifecycleRefreshMigratesViewerRoleAndPresentationOnlyCoHosts() throws {
-        let suite = "NativePlanLifecycleTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let store = NativePlanStore(defaults: defaults, clock: { now })
-        let invite = NativeGroupEventRecord(id: "shared-plan", title: "Dinner", groupType: "Dinner", hostName: "Ama", tier: .green, timing: .today, participantCount: 3, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite, coHosts: ["Kojo", "Esi"])
-
-        store.refresh(events: [invite])
-
-        let attendee = try XCTUnwrap(store.lifecycle(for: invite.id))
-        XCTAssertEqual(attendee.viewerRole, .attendee)
-        XCTAssertEqual(attendee.publication, .localDraft)
-        XCTAssertEqual(attendee.collaborators.map(\.displayName), ["Kojo", "Esi"])
-        XCTAssertTrue(attendee.collaborators.allSatisfy { $0.authority == .presentationOnly })
-
-        let hosted = NativeGroupEventRecord(id: invite.id, title: invite.title, groupType: invite.groupType, hostName: invite.hostName, tier: invite.tier, timing: invite.timing, participantCount: invite.participantCount, allowNearbyOffers: invite.allowNearbyOffers, inviteNote: invite.inviteNote, privateAssociation: .host, coHosts: ["Kojo"])
-        store.refresh(events: [hosted])
-        XCTAssertEqual(store.lifecycle(for: invite.id)?.viewerRole, .owner)
-        XCTAssertEqual(store.lifecycle(for: invite.id)?.collaborators.map(\.displayName), ["Kojo"])
-    }
-
-    @MainActor
-    func testPlanRSVPPersistsLocallyWithoutClaimingRemoteConfirmation() throws {
-        let suite = "NativePlanRSVPPersistenceTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let invite = NativeGroupEventRecord(id: "rsvp-plan", title: "Listening Party", groupType: "Party", hostName: "Host", tier: .platinum, timing: .thisWeek, participantCount: 8, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite)
-        let store = NativePlanStore(defaults: defaults)
-        store.refresh(events: [invite])
-
-        XCTAssertTrue(store.setRSVP(.going, for: invite.id))
-        XCTAssertEqual(store.lifecycle(for: invite.id)?.rsvpChoice, .going)
-        XCTAssertEqual(store.lifecycle(for: invite.id)?.rsvpSync, .localOnly)
-
-        let relaunchedStore = NativePlanStore(defaults: defaults)
-        XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpChoice, .going)
-        XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpSync, .localOnly)
-        XCTAssertEqual(NativePlanMarketPolicy.rsvpSummary(relaunchedStore.lifecycle(for: invite.id)), "Going · on this iPhone")
-        XCTAssertFalse(NativePlanMarketPolicy.remoteRSVPAvailable)
-    }
-
-    @MainActor
-    func testPlanManagementAndSocialDataPoliciesFailClosed() throws {
-        let suite = "NativePlanMarketPolicyTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let hosted = NativeGroupEventRecord(id: "host-plan", title: "Private Dinner", groupType: "Dinner", hostName: "Host", tier: .black, timing: .today, participantCount: 12, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
-        let store = NativePlanStore(defaults: defaults)
-        store.refresh(events: [hosted])
-
-        let accountA = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-a"))
-        let refreshedAccountA = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-a"))
-        let accountB = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-b"))
-        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
-        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountA), "Unbound legacy records must fail closed")
-        XCTAssertTrue(store.bindOwner(for: hosted.id, accountScope: accountA))
-        XCTAssertTrue(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountA))
-        XCTAssertTrue(store.setPublication(.published, for: hosted.id, accountScope: accountA))
-        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
-        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: refreshedAccountA), "A refreshed token must not change stable user authority")
-        XCTAssertTrue(NativePlanMarketPolicy.canRetainGuestManagementSession(store.lifecycle(for: hosted.id), authorizedAccountScope: accountA, currentAccountScope: refreshedAccountA))
-        XCTAssertFalse(NativePlanMarketPolicy.canRetainGuestManagementSession(store.lifecycle(for: hosted.id), authorizedAccountScope: accountA, currentAccountScope: accountB), "An account switch must revoke an open management session")
-        XCTAssertFalse(NativePlanMarketPolicy.canRetainGuestManagementSession(store.lifecycle(for: hosted.id), authorizedAccountScope: accountA, currentAccountScope: nil), "Sign-out must revoke an open management session")
-        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountB))
-        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: nil))
-        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountB))
-        XCTAssertFalse(NativePlanMarketPolicy.canPresentHostTools(store.lifecycle(for: hosted.id), accountScope: accountB))
-        XCTAssertFalse(NativePlanMarketPolicy.canPresentHostTools(store.lifecycle(for: hosted.id), accountScope: nil))
-
-        let verifiedCoHost = NativePlanCollaborator(id: "verified", displayName: "Esi", role: "Co-host", authority: .serverVerified)
-        XCTAssertFalse(NativePlanMarketPolicy.canManageAsCoHost(verifiedCoHost))
-        XCTAssertFalse(NativePlanMarketPolicy.coHostManagementAvailable)
-
-        let liveCircle = NativeSocialCircle(id: "friends", name: "Friends", ownerUserId: "owner", memberCount: 4, privacy: "private", role: "owner")
-        XCTAssertTrue(NativePlanMarketPolicy.liveCircles(from: .starter).isEmpty)
-        XCTAssertEqual(NativePlanMarketPolicy.liveCircles(from: NativeSocialCircleSnapshot(source: .backend, groups: [liveCircle])), [liveCircle])
-    }
-
-    @MainActor
-    func testAttendeePlansCannotPublishAndHostedSelectionExcludesInvites() throws {
-        let suite = "NativePlanAttendeeAuthorityTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite); NativeGroupEventStore.clear() }
-        let attendee = NativeGroupEventRecord(id: "attendee", title: "Invite", groupType: "Dinner", hostName: "Host", tier: .green, timing: .today, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite)
-        let hosted = NativeGroupEventRecord(id: "hosted", title: "Hosted", groupType: "Dinner", hostName: "Me", tier: .green, timing: .today, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
-        let store = NativePlanStore(defaults: defaults)
-        store.refresh(events: [attendee, hosted])
-        let account = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "host-user"))
-
-        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: attendee.id), accountScope: account))
-        XCTAssertFalse(store.setPublication(.published, for: attendee.id, accountScope: account))
-        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: account), "Unbound host records must not be claimable through publish")
-        NativeGroupEventStore.clear()
-        NativeGroupEventStore.upsert(hosted)
-        NativeGroupEventStore.upsert(attendee)
-        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.id, attendee.id)
-        XCTAssertEqual(NativeGroupEventStore.primaryHostedEvent()?.id, hosted.id)
-    }
-
-    @MainActor
-    func testPlanLifecycleLoadKeepsNewestDuplicateRecord() throws {
-        let suite = "NativePlanDuplicateLoadTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let older = NativePlanLifecycleRecord(version: 1, eventID: "duplicate", viewerRole: .attendee, rsvpChoice: .maybe, rsvpSync: .localOnly, publication: .localDraft, collaborators: [], updatedAt: Date(timeIntervalSince1970: 10))
-        let newer = NativePlanLifecycleRecord(version: 2, eventID: "duplicate", viewerRole: .attendee, rsvpChoice: .going, rsvpSync: .localOnly, publication: .localDraft, collaborators: [], updatedAt: Date(timeIntervalSince1970: 20))
-        defaults.set(try JSONEncoder().encode([older, newer]), forKey: NativePlanStore.storageKey)
-
-        let store = NativePlanStore(defaults: defaults)
-
-        XCTAssertEqual(store.lifecycle(for: "duplicate")?.rsvpChoice, .going)
-        XCTAssertEqual(store.lifecycle(for: "duplicate")?.version, 2)
-    }
-}
-
-/// CI-runnable promotion of the launch-time `NativeMenuParitySelfTests` order +
-/// ledger checks. These lock the same pure contract the `precondition` self-tests
-/// do — so drift is caught on every PR, not only when the opt-in
-/// `BYT_NATIVE_ROOT=1` simulator root boots — reaching the private order/checkout
-/// types through the internal `NativeMenuCheckoutProbe` façade.
 final class NativeMenuCheckoutTests: XCTestCase {
     private func fixture() -> (venue: NativeVenueSummary, menu: PartnerMenu, firstItem: MenuItem) {
         let venue = NativeVenueSummary(id: "broni", name: "Broni Home Taste", category: "dining", address: "Authentic Ghanaian Home Cooking", distance: "Dining", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)

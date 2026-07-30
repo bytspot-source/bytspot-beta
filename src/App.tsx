@@ -28,7 +28,6 @@ import { isValidTagId, loadVirtualPatchContext, saveVirtualPatchContext, type Vi
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
-import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
 import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
@@ -2027,53 +2026,6 @@ export default function App() {
                                 </motion.button>
                               );
                             })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* ── 👥 Friends are at... ── Social feed row */}
-                    {(() => {
-                      const feed = getSocialFeed().slice(0, 6);
-                      if (feed.length === 0) return null;
-                      const crowdEmoji: Record<string, string> = { Chill: '🟢', Active: '🟡', Busy: '🟠', Packed: '🔴' };
-                      const timeAgo = (ts: string) => {
-                        const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
-                        if (mins < 60) return `${mins}m ago`;
-                        return `${Math.floor(mins / 60)}h ago`;
-                      };
-                      return (
-				                        <div className="mb-6">
-                          <div className="mb-3 flex items-center justify-between">
-				                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>👥 Friends Are At…</h2>
-                            <span className="text-[11px] text-purple-300/80" style={{ fontWeight: 600 }}>Live</span>
-                          </div>
-				                          <div className={HOME_CAROUSEL_CLASS}>
-                            {feed.map((event, i) => (
-                              <motion.div
-                                key={event.id}
-				                                className={`${HOME_FEATURE_CARD_CLASS} border border-purple-500/20 p-3`}
-				                                style={HOME_FEATURE_CARD_STYLE}
-                                initial={{ opacity: 0, y: 12 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ ...springConfig, delay: 0.35 + i * 0.04 }}
-                              >
-	                                <div className="absolute inset-x-3 top-0 h-px bg-purple-200/30" />
-                                <div className="flex items-center gap-2 mb-2">
-	                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white text-[11px] shadow-lg shadow-purple-500/20 ring-1 ring-white/25" style={{ fontWeight: 700 }}>
-                                    {event.userName.slice(0, 1).toUpperCase()}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-[12px] text-white truncate" style={{ fontWeight: 600 }}>{event.userName}</p>
-                                    <p className="text-[10px] text-white/40">{timeAgo(event.timestamp)}</p>
-                                  </div>
-                                </div>
-				                                <p className="text-[12px] text-white/90 line-clamp-2 leading-snug min-h-[32px]" style={{ fontWeight: 500 }}>{event.venueName}</p>
-                                <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-purple-500/20 border border-purple-400/30 text-purple-300" style={{ fontWeight: 600 }}>
-                                  {crowdEmoji[event.crowdLabel] ?? '📍'} {event.crowdLabel}
-                                </div>
-                              </motion.div>
-                            ))}
                           </div>
                         </div>
                       );

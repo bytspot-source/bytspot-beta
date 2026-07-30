@@ -5,11 +5,10 @@ export const NATIVE_CHECKIN_V2_ROUTES = {
   providerCounts: 'checkins.providerCounts',
   venueIntelligence: 'venues.intelligence',
   verify: 'checkins.verify',
-  groupJoin: 'groupEvents.join',
 } as const;
 
 export type NativeCheckInTrustLevel = 'staticDiscovery' | 'proximate' | 'signedToken' | 'nfcCounterVerified';
-export type NativeCheckInSource = 'native_ios_manual' | 'app_clip_group' | 'provider_console' | 'web_discover';
+export type NativeCheckInSource = 'native_ios_manual' | 'provider_console' | 'web_discover';
 export type NativeCheckInProviderSource = 'backend' | 'fallback';
 
 export interface NativeCheckInCreateInput {
@@ -19,7 +18,6 @@ export interface NativeCheckInCreateInput {
   source: NativeCheckInSource;
   observedAt?: string;
   patchId?: string;
-  groupEventId?: string;
 }
 
 export interface NativeCheckInCreateResponse {
@@ -94,7 +92,6 @@ export function buildManualCheckInCreateInput(input: {
   idempotencyKey: string;
   observedAt?: string | Date;
   patchId?: string;
-  groupEventId?: string;
 }): NativeCheckInCreateInput {
   const observedAt = input.observedAt instanceof Date ? input.observedAt.toISOString() : input.observedAt;
   return {
@@ -104,7 +101,6 @@ export function buildManualCheckInCreateInput(input: {
     source: 'native_ios_manual',
     ...(observedAt ? { observedAt } : {}),
     ...(input.patchId ? { patchId: input.patchId } : {}),
-    ...(input.groupEventId ? { groupEventId: input.groupEventId } : {}),
   };
 }
 

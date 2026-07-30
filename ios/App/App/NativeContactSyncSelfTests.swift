@@ -52,15 +52,15 @@ enum NativeContactSyncSelfTests {
     }
 
     private static func assertSuggestionRanking() {
-        let mutual = NativeFriendSuggestion(userId: "a", name: "A", source: "apple", mutual: true, mutualContacts: 0, sharedVerifiedVenues: 0)
-        let common = NativeFriendSuggestion(userId: "b", name: "B", source: "apple", mutual: false, mutualContacts: 2, sharedVerifiedVenues: 0)
-        let venues = NativeFriendSuggestion(userId: "c", name: "C", source: "google", mutual: false, mutualContacts: 0, sharedVerifiedVenues: 3)
-        precondition(mutual.reason == "Mutual contact", "NativeContactSyncSelfTests: mutual reason drifted.")
-        precondition(common.reason == "2 contacts in common", "NativeContactSyncSelfTests: contacts-in-common reason drifted.")
-        precondition(venues.reason == "3 shared verified spots", "NativeContactSyncSelfTests: shared-venues reason drifted.")
-        precondition(BytspotContactSyncStore.ranked([venues, mutual, common]).map(\.userId) == ["a", "b", "c"], "NativeContactSyncSelfTests: suggestion ranking must prioritize mutual edges, contacts, then verified venues.")
+        let incoming = NativeFriendSuggestion(userId: "a", name: "A", relationshipStatus: "invite_received", circleIDs: [])
+        let connected = NativeFriendSuggestion(userId: "b", name: "B", relationshipStatus: "connected", circleIDs: ["crew"])
+        let suggested = NativeFriendSuggestion(userId: "c", name: "C", relationshipStatus: "suggested", circleIDs: [])
+        precondition(incoming.reason == "Invited you", "NativeContactSyncSelfTests: incoming relationship reason drifted.")
+        precondition(connected.reason == "Connected", "NativeContactSyncSelfTests: connected reason drifted.")
+        precondition(suggested.reason == "Suggested from your contacts", "NativeContactSyncSelfTests: suggested reason drifted.")
+        precondition(BytspotContactSyncStore.ranked([suggested, connected, incoming]).map(\.userId) == ["a", "b", "c"], "NativeContactSyncSelfTests: suggestion ranking must use relationship status only.")
         precondition(BytspotContactSyncStore.previewSuggestionsEnvironmentKey == "BYT_NATIVE_CONTACT_PREVIEW", "NativeContactSyncSelfTests: contact preview screenshot env key drifted.")
-        precondition(BytspotContactSyncStore.previewSuggestions.map(\.userId) == ["preview-mutual", "preview-contacts", "preview-venues"], "NativeContactSyncSelfTests: preview suggestions must stay ranked for deterministic screenshots.")
+        precondition(BytspotContactSyncStore.previewSuggestions.map(\.userId) == ["preview-incoming", "preview-connected", "preview-suggested"], "NativeContactSyncSelfTests: preview suggestions must stay ranked for deterministic screenshots.")
     }
 
     private static func isHex(_ value: String?) -> Bool {

@@ -15,7 +15,6 @@ test('native check-in v2 routes lock backend procedure names', () => {
   assert.equal(NATIVE_CHECKIN_V2_ROUTES.providerCounts, 'checkins.providerCounts');
   assert.equal(NATIVE_CHECKIN_V2_ROUTES.venueIntelligence, 'venues.intelligence');
   assert.equal(NATIVE_CHECKIN_V2_ROUTES.verify, 'checkins.verify');
-  assert.equal(NATIVE_CHECKIN_V2_ROUTES.groupJoin, 'groupEvents.join');
 });
 
 test('buildManualCheckInCreateInput tags manual native check-ins as static discovery', () => {

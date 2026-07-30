@@ -225,9 +225,6 @@ struct BytspotNativeShellView: View {
     @State private var didOpenBoutiqueStayPreview = false
     @State private var showPartnerMenuPreviewSheet = false
     @State private var didOpenPartnerMenuPreview = false
-    @State private var showGroupInvitePreviewSheet = false
-    @State private var groupInvitePreviewMode: NativeGroupInviteAccessMode = .qr
-    @State private var groupInvitePreviewEvent: NativeGroupEventRecord?
     @State private var nativeAuthDismissalHandled = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
@@ -281,12 +278,6 @@ struct BytspotNativeShellView: View {
         return ["1", "true", "yes"].contains(raw ?? "")
     }
 
-    private static var previewGroupAppClipRequested: Bool {
-        guard NativeMigrationConfig.isNativeRootEnabled else { return false }
-        let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_APPCLIP_PREVIEW"] ?? nativeLaunchArgument("byt-native-group-appclip-preview"))?.lowercased()
-        return ["1", "true", "yes"].contains(raw ?? "")
-    }
-
     private var effectiveAppearance: NativeAppearanceMode {
         appearanceRuntimeStore.selectedMode ?? NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw)
     }
@@ -302,7 +293,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeGroupEvent: openNativeGroupEvent, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -311,7 +302,7 @@ struct BytspotNativeShellView: View {
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .profile:
-                        NativeProfileTabView(initialPanel: pendingProfilePanel, consumeInitialPanel: { pendingProfilePanel = nil }, activeTier: activeTier)
+                        NativeProfileTabView(initialPanel: pendingProfilePanel, consumeInitialPanel: { pendingProfilePanel = nil })
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -338,8 +329,6 @@ struct BytspotNativeShellView: View {
             openRootValetPreviewIfRequested()
             openRootBoutiqueStayPreviewIfRequested()
             openRootPartnerMenuPreviewIfRequested()
-            openRootGroupInvitePreviewIfRequested()
-            openRootGroupAppClipPreviewIfRequested()
         }
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }
@@ -367,7 +356,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier)
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) })
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
@@ -380,10 +369,6 @@ struct BytspotNativeShellView: View {
         }
         .sheet(isPresented: $showPartnerMenuPreviewSheet) {
             NativePartnerMenuView(menu: PartnerMenu.sample(for: Self.previewPartnerMenuVenue), tier: activeTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: { openNativeEquivalent(for: .access) }, onOpenAuth: { openNativeAuth(mode: .login) })
-                .preferredColorScheme(effectivePreferredColorScheme)
-        }
-        .sheet(isPresented: $showGroupInvitePreviewSheet) {
-            NativeGroupInviteAccessSheet(event: groupInvitePreviewEvent ?? .preview(tier: activeTier), initialMode: groupInvitePreviewMode, publishState: .draftSignedOut)
                 .preferredColorScheme(effectivePreferredColorScheme)
         }
     }
@@ -415,26 +400,6 @@ struct BytspotNativeShellView: View {
         didOpenPartnerMenuPreview = true
         selectedTab = .home
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { showPartnerMenuPreviewSheet = true }
-    }
-
-    private func openRootGroupInvitePreviewIfRequested() {
-        #if DEBUG
-        let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_INVITE_PREVIEW"]?.lowercased() ?? ""
-        guard raw == "qr" || raw == "nfc" else { return }
-        groupInvitePreviewMode = raw == "nfc" ? .nfc : .qr
-        groupInvitePreviewEvent = NativeGroupEventStore.primaryLiveEvent() ?? .preview(tier: activeTier)
-        selectedTab = .home
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { showGroupInvitePreviewSheet = true }
-        #endif
-    }
-
-    private func openRootGroupAppClipPreviewIfRequested() {
-        #if DEBUG
-        guard Self.previewGroupAppClipRequested else { return }
-        selectedTab = .home
-        let event = NativeGroupEventStore.primaryLiveEvent() ?? .preview(tier: activeTier)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { contextualDestination = .groupEvent(event) }
-        #endif
     }
 
     private func openHybrid(_ route: BytspotHybridRoute) {
@@ -493,11 +458,6 @@ struct BytspotNativeShellView: View {
 
     private func openNativeProfile() {
         openNativeProfile(panel: nil)
-    }
-
-    private func openNativeGroupEvent(_ event: NativeGroupEventRecord) {
-        nativeImpactLight()
-        contextualDestination = .groupEvent(event)
     }
 
     private func openNativeAuth(mode: NativeAuthMode) {
@@ -704,11 +664,10 @@ private struct BytspotNativeBottomTabBar: View {
 private struct NativeProfileTabView: View {
     let initialPanel: NativeProfilePanel?
     let consumeInitialPanel: () -> Void
-    let activeTier: BytspotTier
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            NativeProfileAccountView(initialPanel: initialPanel, consumeInitialPanel: consumeInitialPanel, activeTier: activeTier)
+            NativeProfileAccountView(initialPanel: initialPanel, consumeInitialPanel: consumeInitialPanel)
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 112)
@@ -724,14 +683,12 @@ private struct NativeContextualDestinationView: View {
     let consumeInitialProfilePanel: () -> Void
     let openNativeProfilePanel: (NativeProfilePanel?) -> Void
     let openAccess: () -> Void
-    let activeTier: BytspotTier
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var locationStore: NativeLocationStore
-    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
 
     var body: some View {
         NavigationView {
@@ -742,12 +699,11 @@ private struct NativeContextualDestinationView: View {
                             .environmentObject(sessionStore)
                             .environmentObject(authCoordinator)
                             .environmentObject(tabContentStore)
-                            .environmentObject(contactSyncStore)
                             .onAppear(perform: consumeInitialProfilePanel)
                             .navigationBarHidden(true)
                     } else {
                         ScrollView {
-                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel, activeTier: activeTier)
+                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel)
                                 .environmentObject(sessionStore)
                                 .environmentObject(authCoordinator)
                                 .environmentObject(apiState)
@@ -758,13 +714,6 @@ private struct NativeContextualDestinationView: View {
                         .background(NativePolish.screenBackground.ignoresSafeArea())
                         .navigationBarHidden(true)
                     }
-                } else if case .groupEvent(let event) = destination {
-                    NativeGroupEventAppClipFallbackView(event: event)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 112)
-                        .background(NativePolish.screenBackground.ignoresSafeArea())
-                        .navigationBarHidden(true)
                 } else {
                     NativeScreenScroll {
                         NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
@@ -787,144 +736,6 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
-    }
-}
-
-private struct NativeGroupEventAppClipFallbackView: View {
-    let event: NativeGroupEventRecord
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var planStore: NativePlanStore
-    @State private var selectedRSVP: NativePlanRSVPChoice = .none
-    @State private var statusMessage = ""
-
-    private var accent: Color {
-        switch event.tier {
-        case .green: return NativeTheme.emerald
-        case .platinum: return NativeTheme.cyan
-        case .black: return NativeTheme.orange
-        }
-    }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                appClipHero
-                VStack(spacing: 8) {
-                    appClipMiniRow(title: event.scheduledDate, subtitle: "Date & time", icon: "calendar.badge.clock")
-                    appClipMiniRow(title: event.locationLabel, subtitle: event.privacyStatus == .privateInvite ? "Shared after joining" : "Location", icon: "mappin.and.ellipse")
-                    appClipMiniRow(title: event.guestSummary, subtitle: event.hideGuestList ? "Guest list hidden" : "Group capacity", icon: "person.2.fill")
-                }
-                appClipInfo(title: event.coHosts.isEmpty ? "Hosted by \(event.hostName)" : "Hosted by \(event.hostName) + \(event.coHosts.count) co-host\(event.coHosts.count == 1 ? "" : "s")", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.2.fill")
-                if !event.coHosts.isEmpty { coHostTeam }
-                rsvpPreview
-                appClipInfo(title: "Privacy protected", subtitle: "Your invite, RSVP, and circle stay separate from your phone contacts unless you choose to match.", icon: "lock.shield.fill")
-                Button(action: saveRSVP) { Text(selectedRSVP == .none ? "Choose a response" : "Save response").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(selectedRSVP == .none ? NativeTheme.textTertiary : accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain).disabled(selectedRSVP == .none).accessibilityIdentifier("native-group-event-save-rsvp")
-                Button(action: { dismiss() }) { Text("Back to Home").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
-                if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).frame(maxWidth: .infinity).multilineTextAlignment(.center).accessibilityIdentifier("native-group-event-rsvp-status") }
-            }
-        }
-        .accessibilityIdentifier("native-group-event-app-clip-fallback")
-        .onAppear {
-            planStore.refresh(events: NativeGroupEventStore.all() + [event])
-            selectedRSVP = planStore.lifecycle(for: event.id)?.rsvpChoice ?? .none
-        }
-    }
-
-    private var appClipHero: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 32, style: .continuous).fill(LinearGradient(colors: [accent.opacity(0.88), NativeTheme.purple.opacity(0.54), NativeTheme.pink.opacity(0.38), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-            Image(systemName: event.iconName ?? "person.3.sequence.fill").font(.system(size: 92, weight: .black)).foregroundColor(.black.opacity(0.18)).offset(x: 170, y: -18)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 7) { NativeProfileMicroChip("APP CLIP", icon: "bolt.fill", color: accent); NativeProfileMicroChip(event.privacyStatus.label, icon: "lock.fill", color: NativeTheme.cyan) }
-                Text(event.title).font(.system(size: 32, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                Text("\(event.groupType) · \(event.audienceCircle)").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.80))
-            }.padding(20)
-        }
-        .frame(height: 252)
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-    }
-
-    private var rsvpPreview: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Your response").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Text(event.rsvpCutoff ?? "Open now").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
-            HStack(spacing: 10) { rsvpOption(.going); rsvpOption(.maybe); rsvpOption(.notGoing) }
-            Text(NativePlanMarketPolicy.remoteRSVPAvailable ? "Your response will sync with the host." : "Responses are saved only on this iPhone. Server RSVP confirmation is not available yet.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .background(NativePolish.elevatedSurface.opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-    }
-
-    private func rsvpOption(_ choice: NativePlanRSVPChoice) -> some View {
-        Button(action: { nativeImpactLight(); selectedRSVP = choice; statusMessage = "" }) {
-            VStack(spacing: 7) {
-                Image(systemName: choice.icon).font(.system(size: 23, weight: .bold))
-                Text(choice.title).font(.system(size: 11, weight: .black))
-            }
-            .foregroundColor(selectedRSVP == choice ? .black : NativeTheme.textSecondary)
-            .frame(maxWidth: .infinity).frame(height: 76)
-            .background(selectedRSVP == choice ? accent : accent.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(selectedRSVP == choice ? accent : NativePolish.softBorder, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-group-event-rsvp-\(choice.rawValue)")
-        .accessibilityAddTraits(selectedRSVP == choice ? .isSelected : [])
-    }
-
-    private var coHostTeam: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("EVENT TEAM").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary).tracking(0.9)
-            ForEach(Array(event.coHosts.enumerated()), id: \.offset) { _, name in
-                HStack(spacing: 10) {
-                    Image(systemName: "person.2.circle.fill").font(.system(size: 17, weight: .bold)).foregroundColor(accent)
-                    Text(name).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
-                    Spacer()
-                    Text("Pending access").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
-                }
-            }
-            Text("Co-hosts are shown on this invitation. Management access requires separate verification.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-        }
-        .padding(14).background(NativePolish.elevatedSurface.opacity(0.9)).clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .accessibilityIdentifier("native-group-event-cohosts")
-    }
-
-    private func appClipMiniRow(title: String, subtitle: String, icon: String) -> some View {
-        HStack(spacing: 11) {
-            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(accent).frame(width: 32, height: 32).background(accent.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1); Text(subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
-            Spacer(minLength: 0)
-        }
-        .padding(13).background(NativePolish.elevatedSurface.opacity(0.86)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-    }
-
-    private func appClipInfo(title: String, subtitle: String, icon: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 34, height: 34).background(accent.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text(subtitle).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(15)
-        .background(NativePolish.elevatedSurface.opacity(0.92))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func saveRSVP() {
-        guard selectedRSVP != .none else { return }
-        nativeImpactLight()
-        NativeGroupEventStore.upsert(event)
-        planStore.refresh(events: NativeGroupEventStore.all())
-        guard planStore.setRSVP(selectedRSVP, for: event.id) else {
-            statusMessage = "Your response couldn't be saved. Please try again."
-            return
-        }
-        statusMessage = NativePlanMarketPolicy.remoteRSVPAvailable
-            ? "Your response is syncing with the host."
-            : "\(selectedRSVP.title) saved on this iPhone. It has not been sent to the host."
     }
 }
 
@@ -1099,9 +910,7 @@ private struct NativeProfileHeaderCard: View {
 private struct NativeProfileAccountView: View {
     let initialPanel: NativeProfilePanel?
     let consumeInitialPanel: () -> Void
-    let activeTier: BytspotTier
     @EnvironmentObject private var sessionStore: BytspotSessionStore
-    @EnvironmentObject private var planStore: NativePlanStore
     @State private var activePanel: NativeProfilePanel?
     @State private var showNetworkHub = false
     @State private var socialCircleSnapshot: NativeSocialCircleSnapshot = .empty
@@ -1113,8 +922,6 @@ private struct NativeProfileAccountView: View {
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
-            NativeProfileIAHeader(title: "Your Plans", subtitle: "Invitations, RSVPs, hosting, and co-host activity in one place.")
-            NativeProfileYourPlansCard(openNetwork: { showNetworkHub = true })
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
@@ -1130,7 +937,6 @@ private struct NativeProfileAccountView: View {
         }
         .accessibilityIdentifier("native-profile-account")
         .onAppear {
-            planStore.refresh(events: NativeGroupEventStore.all())
             openInitialPanelIfNeeded()
             openDirectSmokePanelIfRequested()
         }
@@ -1145,8 +951,8 @@ private struct NativeProfileAccountView: View {
                 sheet
             }
         }
-        .sheet(isPresented: $showNetworkHub, onDismiss: { planStore.refresh(events: NativeGroupEventStore.all()) }) {
-            let hub = NativeNetworkHubView(activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot)
+        .sheet(isPresented: $showNetworkHub) {
+            let hub = NativeNetworkHubView(initialCircleSnapshot: socialCircleSnapshot)
             if #available(iOS 16.0, *) { hub.presentationDetents([.large]).presentationDragIndicator(.visible) } else { hub }
         }
     }
@@ -1183,13 +989,13 @@ private struct NativeProfileAccountView: View {
             return
         }
         let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
-        socialCircleSnapshot = await api.listSocialCirclesViaRpc(fallback: NativeSocialCircle.fallbackStarter)
+        socialCircleSnapshot = await api.listSocialCirclesViaRpc()
     }
 }
 
 enum NativeProfilePanel: String, Identifiable, CaseIterable {
     case reservations, access, rewards
-    case personalInformation, vehicles, paymentMethods, savedSpots, placesVisited, friends
+    case personalInformation, vehicles, paymentMethods, savedSpots, placesVisited
     case vibePreferences, parkingPreferences, notifications
     case locationPrivacy, generalSettings, appearance, deleteAccount
     case privacyPolicy, termsOfService, disclaimer
@@ -1217,7 +1023,6 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .paymentMethods: return "Payment Methods"
         case .savedSpots: return "Saved Places"
         case .placesVisited: return "Places I've Been"
-        case .friends: return "Find Friends"
         case .vibePreferences: return "Vibe Preferences"
         case .parkingPreferences: return "Parking Preferences"
         case .notifications: return "Notifications"
@@ -1236,7 +1041,6 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .access: return "WALLET"
         case .rewards: return "MEMBERSHIP"
         case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
-        case .friends: return "NETWORK"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
         case .deleteAccount: return "SAFETY"
@@ -1253,7 +1057,6 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .paymentMethods: return "creditcard.fill"
         case .savedSpots: return "heart.fill"
         case .placesVisited: return "clock.fill"
-        case .friends: return "person.2.fill"
         case .vibePreferences: return "sparkles"
         case .parkingPreferences: return "parkingsign.circle.fill"
         case .notifications: return "bell.fill"
@@ -1270,7 +1073,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return NativeTheme.cyan
         case .access, .paymentMethods: return NativeTheme.pink
-        case .rewards, .vibePreferences, .friends: return NativeTheme.purple
+        case .rewards, .vibePreferences: return NativeTheme.purple
         case .appearance: return NativeTheme.purple
         case .deleteAccount: return NativeProfileStyle.danger
         case .vehicles, .savedSpots, .placesVisited, .parkingPreferences: return NativeTheme.emerald
@@ -1284,7 +1087,6 @@ private struct NativeProfilePanelSheet: View {
     var openPanel: ((NativeProfilePanel) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
-    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var locationStore: NativeLocationStore
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
@@ -1331,10 +1133,6 @@ private struct NativeProfilePanelSheet: View {
             NativeVehicleInteractionPanel(sessionStore: sessionStore)
         case .paymentMethods:
             NativePaymentMethodsPanel(sessionStore: sessionStore)
-        case .friends:
-            NativeProfileFriendsPanel()
-                .environmentObject(contactSyncStore)
-                .environmentObject(sessionStore)
         case .savedSpots:
             NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
         case .placesVisited:
@@ -1400,7 +1198,6 @@ private struct NativeProfilePanelSheet: View {
         case .paymentMethods: return NativePaymentMethodsLedgerContract.summary
         case .savedSpots: return NativeSavedPlacesBoardContract.summary
         case .placesVisited: return "Recent visits are summarized in a simple activity timeline."
-        case .friends: return "Find friends and manage contact matching from Profile."
         case .vibePreferences: return "Tune atmosphere, priorities, accessibility needs, and discovery style."
         case .parkingPreferences: return "Choose parking type, features, budget, alerts, and walking distance."
         case .notifications: return "Manage push, email, SMS categories, and reminders."
@@ -1432,8 +1229,6 @@ private struct NativeProfilePanelSheet: View {
             return []
         case .placesVisited:
             return [("Timeline", "Recent check-ins and visits will be grouped by date.", "clock.fill"), ("Crowd memory", "Visited places can tune future recommendations.", "person.wave.2.fill"), ("Activity history", "Your recent places stay available from Profile.", "checkmark.shield.fill")]
-        case .friends:
-            return [("Contact matching", "Your contact details are protected before suggestions are shown.", "person.crop.circle.badge.checkmark"), ("Suggestions", "Friend suggestions appear after sign-in.", "person.2.fill"), ("Shared spots", "See places you and friends both care about.", "checkmark.shield.fill")]
         case .vibePreferences:
             return [("Atmosphere", "Set energy, social, style, noise, and crowd comfort.", "slider.horizontal.3"), ("Vibe style", "Zen, Balanced, Social, and Energy guide recommendations.", "sparkles"), ("Recommendation tuning", "Preferences help personalize Discover and Concierge.", "checkmark.shield.fill")]
         case .parkingPreferences:
@@ -1467,9 +1262,7 @@ private enum NativeProfileBoardDesignContract {
 enum NativeProfileWireframeGuard {
     static let menuSectionTitles = NativeProfileAccountView.menuSectionOrder.map(\.title)
     static let socialActivityPanels = NativeProfilePanel.p2SocialActivityPanels
-    static let friendsPanelTitle = NativeProfilePanel.friends.title
-    static let friendsPanelEyebrow = NativeProfilePanel.friends.eyebrow
-    static let networkCardTitle = NativeProfileNetworkCard.title
+    static let networkSegments = NativeNetworkSegment.allCases.map(\.rawValue)
 }
 
 private enum NativeArrivalLedgerContract {
@@ -2676,76 +2469,25 @@ private struct NativeProfileTextField: View {
     }
 }
 
-private struct NativeProfileFriendsPanel: View {
-    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
-    @EnvironmentObject private var sessionStore: BytspotSessionStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                NativeProfilePanelStat(value: "\(contactSyncStore.suggestions.count)", label: "Suggestions", color: NativeTheme.purple)
-                NativeProfilePanelStat(value: "\(sharedVenueCount)", label: "Shared spots", color: NativeTheme.cyan)
-            }
-            NativeWalletLine(title: "Privacy-first matching", subtitle: "Your contact details are protected before friend suggestions appear.", icon: "lock.shield.fill")
-            if sessionStore.isAuthenticated {
-                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: ctaTitle, color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant) }
-                    .buttonStyle(.plain)
-                    .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
-                if let summary = contactSyncStore.lastSummary { Text(summary).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-                suggestionList
-            } else {
-                NativeProfileEmptyState(title: "Sign in to find friends", subtitle: "Friend suggestions are available after sign-in.", icon: "person.crop.circle.badge.exclamationmark")
-            }
-        }
-    }
-
-    private var sharedVenueCount: Int { contactSyncStore.suggestions.reduce(0) { $0 + $1.sharedVerifiedVenues } }
-    private var ctaTitle: String { contactSyncStore.phase == .syncing ? "Syncing contacts…" : contactSyncStore.lastSummary == nil ? "Sync contacts" : "Re-sync contacts" }
-
-    @ViewBuilder private var suggestionList: some View {
-        if contactSyncStore.suggestions.isEmpty {
-            NativeProfileEmptyState(title: "No matches yet", subtitle: "Sync contacts to see mutual friends and people who share verified Bytspot spots.", icon: "person.2.slash.fill")
-        } else {
-            VStack(spacing: 8) {
-                ForEach(contactSyncStore.suggestions.prefix(6)) { suggestion in NativeFriendSuggestionRow(suggestion: suggestion) }
-            }
-        }
-    }
-}
-
 private struct NativeProfileSavedSpotsPanel: View {
     let snapshot: NativeTabContentSnapshot
-    @AppStorage("bytspot_saved_spots_planned_ids") private var plannedSpotIDsRaw = ""
     @AppStorage("bytspot_saved_spots_last_reviewed_id") private var reviewedSpotID = ""
-    @State private var statusMessage = ""
     private var spots: [NativeProfileSavedSpot] { NativeProfileSavedSpot.saved(from: snapshot) }
-    private var plannedSpots: [NativeProfileSavedSpot] { spots.filter { plannedSpotIDs.contains($0.id) } }
-    private var savedOnlySpots: [NativeProfileSavedSpot] { spots.filter { !plannedSpotIDs.contains($0.id) } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             boardSummary
-            if !statusMessage.isEmpty { statusBanner }
-            if !plannedSpots.isEmpty {
-                savedSection(title: "Next Visit", subtitle: "Places already marked for a future stop.", spots: plannedSpots)
-            }
-            if plannedSpots.isEmpty || !savedOnlySpots.isEmpty {
-                savedSection(title: "Saved", subtitle: "Places worth returning to or reviewing before arrival.", spots: plannedSpots.isEmpty ? spots : savedOnlySpots)
-            }
+            savedSection
         }
         .accessibilityIdentifier(NativeSavedPlacesBoardContract.accessibilityID)
     }
 
-    private var plannedSpotIDs: Set<String> { Set(plannedSpotIDsRaw.split(separator: ",").map(String.init)) }
     private var boardSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(plannedSpotIDs.isEmpty ? NativeSavedPlacesBoardContract.emptyPlanHeadline : "\(plannedSpotIDs.count) next visit\(plannedSpotIDs.count == 1 ? "" : "s") from \(spots.count) saved places")
+            Text("\(spots.count) saved place\(spots.count == 1 ? "" : "s")")
                 .font(.system(size: 15, weight: .black))
                 .foregroundColor(NativeTheme.textPrimary)
-            HStack(spacing: 8) {
-                savedBoardBadge("\(spots.count) saved", color: NativeTheme.textSecondary)
-                if !plannedSpotIDs.isEmpty { savedBoardBadge("\(plannedSpotIDs.count) planned", color: NativeTransactionVisuals.pendingAccent) }
-            }
+            Text("Open a saved place to review its details.").nativeBody(size: 12)
         }
         .padding(14)
         .background(NativePolish.mapPanelSurface.opacity(0.92))
@@ -2753,82 +2495,44 @@ private struct NativeProfileSavedSpotsPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var statusBanner: some View {
-        Text(statusMessage)
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(NativeTransactionVisuals.pendingAccent)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: 36)
-            .background(NativeTransactionVisuals.pendingAccent.opacity(0.10))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(NativeTransactionVisuals.pendingAccent.opacity(0.20), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    private func savedSection(title: String, subtitle: String, spots: [NativeProfileSavedSpot]) -> some View {
+    private var savedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title.uppercased()).font(.system(size: 10.5, weight: .black)).tracking(1.0).foregroundColor(NativeTheme.textTertiary)
-                Text(subtitle).nativeBody(size: 12)
+                Text("SAVED").font(.system(size: 10.5, weight: .black)).tracking(1.0).foregroundColor(NativeTheme.textTertiary)
+                Text("Places worth returning to or reviewing.").nativeBody(size: 12)
             }
             ForEach(spots) { spot in
                 NativeSavedPlaceBoardCard(
                     spot: spot,
                     isReviewed: reviewedSpotID == spot.id,
-                    isPlanned: plannedSpotIDs.contains(spot.id),
-                    detailsAction: { review(spot) },
-                    planAction: { togglePlanned(spot) }
+                    detailsAction: { review(spot) }
                 )
             }
         }
     }
 
-    private func savedBoardBadge(_ title: String, color: Color) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10.5, weight: .black))
-            .tracking(0.8)
-            .foregroundColor(color)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(color.opacity(0.10))
-            .clipShape(Capsule())
-    }
-
     private func review(_ spot: NativeProfileSavedSpot) {
         nativeImpactLight()
         reviewedSpotID = spot.id
-        statusMessage = "Details opened · \(spot.title)"
-    }
-
-    private func togglePlanned(_ spot: NativeProfileSavedSpot) {
-        nativeImpactLight()
-        var ids = plannedSpotIDs
-        if ids.contains(spot.id) { ids.remove(spot.id); statusMessage = "Removed from next visits · \(spot.title)" } else { ids.insert(spot.id); statusMessage = "Next visit set · \(spot.title)" }
-        plannedSpotIDsRaw = ids.sorted().joined(separator: ",")
     }
 }
 
 private enum NativeSavedPlacesBoardContract {
-    static let summary = "Saved places are organized by next visit state, verification, and the best action before arrival."
-    static let emptyPlanHeadline = "No next visit planned"
+    static let summary = "Saved places keep venue and access details together for quick review."
     static let accessibilityID = "native-saved-places-board"
 }
 
 private struct NativeSavedPlaceBoardCard: View {
     let spot: NativeProfileSavedSpot
     let isReviewed: Bool
-    let isPlanned: Bool
     let detailsAction: () -> Void
-    let planAction: () -> Void
 
     private var statusColor: Color {
-        if isPlanned { return NativeTransactionVisuals.pendingAccent }
         if spot.verified { return NativeTransactionVisuals.confirmedAccent }
         return NativeTheme.textSecondary
     }
 
     private var statusLabel: String {
-        if isPlanned { return "PLANNED" }
         if spot.verified { return "VERIFIED" }
         return "SAVED"
     }
@@ -2847,23 +2551,17 @@ private struct NativeSavedPlaceBoardCard: View {
                 Spacer(minLength: 0)
             }
             VStack(spacing: 0) {
-                savedPlaceFactRow("Why saved", spot.readinessLabel)
+                savedPlaceFactRow("Why saved", spot.savedReason)
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 savedPlaceFactRow("Context", spot.meta)
-                Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                savedPlaceFactRow("Next step", isPlanned ? "Review plan before arrival" : "Choose a future visit")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 4)
             .background(NativePolish.elevatedSurface.opacity(0.72))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            HStack(spacing: 8) {
-                Button(action: { nativeImpactLight(); isPlanned ? detailsAction() : planAction() }) { primaryActionLabel }
-                    .buttonStyle(.plain)
-                Button(action: { nativeImpactLight(); isPlanned ? planAction() : detailsAction() }) { secondaryActionLabel }
-                    .buttonStyle(.plain)
-            }
+            Button(action: { nativeImpactLight(); detailsAction() }) { detailsActionLabel }
+                .buttonStyle(.plain)
         }
         .padding(14)
         .background(NativePolish.mapPanelSurface.opacity(0.92))
@@ -2871,24 +2569,13 @@ private struct NativeSavedPlaceBoardCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var primaryActionLabel: some View {
-        Text(isPlanned ? "View Plan" : "Plan Visit")
+    private var detailsActionLabel: some View {
+        Text(isReviewed ? "Details Viewed" : "View Details")
             .font(.system(size: 12.5, weight: .black))
             .foregroundColor(NativeTheme.textPrimary)
             .frame(maxWidth: .infinity)
             .frame(height: 38)
-            .background(isPlanned ? NativeTransactionVisuals.pendingAccent.opacity(0.14) : NativeTheme.selectedControlSurface)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isPlanned ? NativeTransactionVisuals.pendingAccent.opacity(0.28) : NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var secondaryActionLabel: some View {
-        Text(isPlanned ? "Remove" : isReviewed ? "Viewed" : "Details")
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(NativeTheme.textSecondary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 38)
-            .background(NativePolish.elevatedSurface.opacity(0.58))
+            .background(NativeTheme.selectedControlSurface)
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -3011,7 +2698,7 @@ private struct NativeProfileSavedSpot: Identifiable, Equatable {
         return "Place"
     }
 
-    var readinessLabel: String {
+    var savedReason: String {
         if title.localizedCaseInsensitiveContains("pass") { return "Digital access ready" }
         if title.localizedCaseInsensitiveContains("parking") || meta.localizedCaseInsensitiveContains("/hr") { return "Parking context saved" }
         if verified { return "Verified option" }
@@ -3159,133 +2846,6 @@ private struct NativeProfileEmptyState: View {
     }
 }
 
-/// Privacy-first contact-graph entry point (WS-Social Phase 1). Hashes the
-/// device address book on-device and surfaces ranked `social.suggestions`.
-private struct NativeFindFriendsCard: View {
-    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
-    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
-    let sessionStore: BytspotSessionStore
-
-    static let title = "Find friends"
-    static let privacyCopy = "Sync contacts privately."
-    static let guestCopy = "Sign in to match contacts privately."
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: sessionStore.isAuthenticated ? 14 : 9) {
-            HStack(alignment: .center, spacing: sessionStore.isAuthenticated ? 12 : 10) {
-                ZStack {
-                    LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "person.badge.plus").font(.system(size: sessionStore.isAuthenticated ? 19 : 15, weight: .bold)).foregroundColor(.white)
-                }
-                .frame(width: sessionStore.isAuthenticated ? 44 : 34, height: sessionStore.isAuthenticated ? 44 : 34)
-                .clipShape(Circle())
-                VStack(alignment: .leading, spacing: sessionStore.isAuthenticated ? 4 : 2) {
-                    Text(sessionStore.isAuthenticated ? "CONTACTS" : "PRIVATE MATCHING").font(.system(size: sessionStore.isAuthenticated ? 11 : 10, weight: .heavy)).foregroundColor(NativeTheme.purple).tracking(1.2)
-                    Text(Self.title).font(.system(size: 16, weight: .bold)).foregroundColor(NativeProfileStyle.title)
-                    Text(sessionStore.isAuthenticated ? Self.privacyCopy : Self.guestCopy).font(.system(size: sessionStore.isAuthenticated ? 12 : 11.5, weight: .medium)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer()
-            }
-            if sessionStore.isAuthenticated {
-                NativeProfileMicroChip("On-device matching", icon: "lock.shield.fill", color: NativeTheme.cyan)
-            }
-            if sessionStore.isAuthenticated {
-                syncControls
-                suggestionList
-            } else {
-                Button(action: { authCoordinator.handle(.signIn(.apple), sessionStore: sessionStore) }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "apple.logo").font(.system(size: 13, weight: .black))
-                        Text("Sign in to find friends").font(.system(size: 13.5, weight: .black))
-                    }
-                    .foregroundColor(NativeProfileStyle.onVibrant)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .background(NativeTheme.cyan)
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }
-                    .buttonStyle(.plain)
-                Text("Contacts stay off until sync.").nativeBody(size: 11, color: NativeProfileStyle.muted)
-            }
-        }
-        .padding(sessionStore.isAuthenticated ? NativeProfileStyle.cardPadding : 14)
-        .nativeProfileCard(border: NativeTheme.purple.opacity(0.58), accent: NativeTheme.purple)
-        .accessibilityIdentifier("native-find-friends")
-    }
-
-    @ViewBuilder private var syncControls: some View {
-        Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) {
-            HStack(spacing: 8) {
-                Image(systemName: "person.2.fill").font(.system(size: 14, weight: .bold)).foregroundColor(.white)
-                Text(ctaTitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: NativeTheme.purple.opacity(0.24), radius: 14, x: 0, y: 8)
-        }
-        .buttonStyle(.plain)
-        .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
-        if let summary = contactSyncStore.lastSummary {
-            Text(summary).nativeBody(size: 11.5, color: NativeTheme.cyan)
-        }
-        if contactSyncStore.phase == .denied {
-            Text("Contacts access is off. Enable it in Settings to find friends.").nativeBody(size: 11.5, color: NativeTheme.orange)
-        }
-        if contactSyncStore.phase == .failed {
-            Text("Couldn't sync contacts. Try again in a moment.").nativeBody(size: 11.5, color: NativeTheme.orange)
-        }
-    }
-
-    private var ctaTitle: String {
-        switch contactSyncStore.phase {
-        case .requesting: return "Requesting access…"
-        case .syncing: return "Syncing contacts…"
-        default: return contactSyncStore.lastSummary == nil ? "Sync contacts to find friends" : "Re-sync contacts"
-        }
-    }
-
-    @ViewBuilder private var suggestionList: some View {
-        if contactSyncStore.suggestions.isEmpty {
-            if contactSyncStore.lastSummary != nil || contactSyncStore.phase == .failed || contactSyncStore.phase == .denied {
-                Text("No matches yet. Sync your contacts to see friends already on Bytspot.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(NativeProfileStyle.muted)
-            }
-        } else {
-            VStack(spacing: 8) {
-                ForEach(contactSyncStore.suggestions.prefix(8)) { suggestion in
-                    NativeFriendSuggestionRow(suggestion: suggestion)
-                }
-            }
-        }
-    }
-}
-
-private struct NativeFriendSuggestionRow: View {
-    let suggestion: NativeFriendSuggestion
-
-    var body: some View {
-        HStack(spacing: 12) {
-            NativeIcon(symbol: suggestion.mutual ? "person.2.circle.fill" : "person.crop.circle", color: suggestion.mutual ? NativeTheme.purple : NativeTheme.cyan)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(suggestion.name).nativeTitle(16)
-                Text(suggestion.reason).nativeBody(size: 12)
-            }
-            Spacer()
-            if suggestion.mutual {
-                Text("MUTUAL").font(.system(size: 10, weight: .black)).foregroundColor(.white).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.purple).clipShape(Capsule())
-            }
-        }
-        .padding(12)
-        .background(NativeProfileStyle.insetSurface)
-        .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
-    }
-}
-
 private enum NativeDebugAutoSheetPreviewGate {
     static var isEnabled: Bool {
         #if DEBUG
@@ -3296,93 +2856,25 @@ private enum NativeDebugAutoSheetPreviewGate {
     }
 }
 
-private enum NativeNetworkSegment: String, CaseIterable, Identifiable {
-    case plans = "Plans"
-    case circles = "Circles"
+enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     case people = "People"
+    case circles = "Social Circles"
+    case invitations = "Invitations"
     var id: String { rawValue }
     var icon: String {
         switch self {
-        case .plans: return "calendar.badge.clock"
-        case .circles: return "person.3.fill"
         case .people: return "person.2.fill"
-        }
-    }
-}
-
-private struct NativeProfileYourPlansCard: View {
-    @EnvironmentObject private var planStore: NativePlanStore
-    let openNetwork: () -> Void
-
-    private var plans: [NativeGroupEventRecord] {
-        NativeGroupEventStore.all().filter { $0.privateAssociation != .none }.sorted {
-            (planStore.lifecycle(for: $0.id)?.updatedAt ?? .distantPast) > (planStore.lifecycle(for: $1.id)?.updatedAt ?? .distantPast)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("Your Plans", systemImage: "calendar.badge.clock").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Spacer()
-                Button("See all", action: openNetwork).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
-            }
-            if plans.isEmpty {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "calendar.badge.plus").font(.system(size: 20, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 42, height: 42).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("No plans yet").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                        Text("Create a private plan or open an invitation. Nothing is shown as live until Bytspot confirms it.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(plans.prefix(3)) { planRow($0) }
-                }
-            }
-            Button(action: openNetwork) {
-                HStack { Text(plans.isEmpty ? "Open Network" : "Manage plans & RSVPs").font(.system(size: 14, weight: .black)); Spacer(); Image(systemName: "arrow.right").font(.system(size: 13, weight: .black)) }
-                    .foregroundColor(.black).padding(.horizontal, 15).frame(height: 44).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }.buttonStyle(.plain)
-        }
-        .padding(NativeProfileStyle.cardPadding).nativeProfileCard(accent: NativeTheme.cyan)
-        .accessibilityIdentifier("native-profile-your-plans")
-    }
-
-    private func planRow(_ event: NativeGroupEventRecord) -> some View {
-        let lifecycle = planStore.lifecycle(for: event.id)
-        let isOwner = lifecycle?.viewerRole == .owner
-        let state = isOwner ? publicationLabel(lifecycle?.publication) : NativePlanMarketPolicy.rsvpSummary(lifecycle)
-        return HStack(spacing: 12) {
-            Image(systemName: event.iconName ?? "calendar").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 38, height: 38).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(event.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
-                Text("\(event.scheduledDate) · \(isOwner ? "Hosting" : "Invited")").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Text(state).font(.system(size: 10.5, weight: .black)).foregroundColor(isOwner ? NativeTheme.orange : NativeTheme.cyan).padding(.horizontal, 9).padding(.vertical, 6).background((isOwner ? NativeTheme.orange : NativeTheme.cyan).opacity(0.10)).clipShape(Capsule())
-        }
-        .padding(11).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func publicationLabel(_ state: NativePlanPublicationState?) -> String {
-        switch state {
-        case .published: return "Live"
-        case .publishing: return "Publishing"
-        case .failed: return "Needs attention"
-        default: return "Draft"
+        case .circles: return "person.3.fill"
+        case .invitations: return "envelope.fill"
         }
     }
 }
 
 private struct NativeProfileNetworkOverviewCard: View {
-    @EnvironmentObject private var planStore: NativePlanStore
+    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     let sessionStore: BytspotSessionStore
     let socialCircleSnapshot: NativeSocialCircleSnapshot
     let openNetwork: () -> Void
-
-    private var liveGroups: [NativeSocialCircle] { NativePlanMarketPolicy.liveCircles(from: socialCircleSnapshot) }
-    private var planCount: Int { NativeGroupEventStore.all().filter { $0.privateAssociation != .none }.count }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -3390,17 +2882,15 @@ private struct NativeProfileNetworkOverviewCard: View {
                 Image(systemName: "person.3.fill").font(.system(size: 19, weight: .black)).foregroundColor(NativeTheme.purple).frame(width: 46, height: 46).background(NativeTheme.purple.opacity(0.11)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Network").font(.system(size: 19, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                    Text("Plans, private circles, and trusted connections.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                    Text("People, social circles, and invitations in one place.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
                 }
             }
             HStack(spacing: 0) {
-                NativeProfileStat(value: "\(planCount)", label: "Plans")
+                NativeProfileStat(value: "\(contactSyncStore.suggestions.count)", label: "People")
                 Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 25)
-                NativeProfileStat(value: "\(liveGroups.count)", label: "Circles")
-                Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 25)
-                NativeProfileStat(value: sessionStore.isAuthenticated ? "\(liveGroups.reduce(0) { $0 + $1.memberCount })" : "0", label: "People")
+                NativeProfileStat(value: "\(socialCircleSnapshot.groups.count)", label: "Circles")
             }
-            Text(socialCircleSnapshot.source == .backend ? "Private network synced with Bytspot." : "No live circles loaded. Starter ideas are never counted as your network.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+            Text(sessionStore.isAuthenticated ? "Circles make venue-to-group inviting instant without selecting the same people again." : "Sign in to load your private network.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
             Button(action: openNetwork) {
                 HStack { Text("Open Network").font(.system(size: 14, weight: .black)); Spacer(); Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .black)) }.foregroundColor(NativeProfileStyle.title).padding(.horizontal, 15).frame(height: 44).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             }.buttonStyle(.plain)
@@ -3411,20 +2901,27 @@ private struct NativeProfileNetworkOverviewCard: View {
 }
 
 private struct NativeNetworkHubView: View {
-    let activeTier: BytspotTier
-    let socialCircleSnapshot: NativeSocialCircleSnapshot
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
-    @EnvironmentObject private var planStore: NativePlanStore
-    @State private var segment: NativeNetworkSegment = .plans
-    @State private var selectedEvent: NativeGroupEventRecord?
+    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
+    @State private var segment: NativeNetworkSegment = .people
+    @State private var circleSnapshot: NativeSocialCircleSnapshot
+    @State private var invitations: [NativeSocialInvitation] = []
+    @State private var selectedPersonID: String?
+    @State private var selectedCircleID: String?
+    @State private var personQuery = ""
+    @State private var newCircleName = ""
+    @State private var statusMessage = ""
+    @State private var isWorking = false
 
-    private var plans: [NativeGroupEventRecord] { NativeGroupEventStore.all().filter { $0.privateAssociation != .none } }
+    init(initialCircleSnapshot: NativeSocialCircleSnapshot) {
+        _circleSnapshot = State(initialValue: initialCircleSnapshot)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) { Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.purple).tracking(1.2); Text("Plans & people").font(.system(size: 24, weight: .black)).foregroundColor(NativeProfileStyle.title) }
+                VStack(alignment: .leading, spacing: 3) { Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.purple).tracking(1.2); Text("Your social network").font(.system(size: 24, weight: .black)).foregroundColor(NativeProfileStyle.title) }
                 Spacer()
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 25, weight: .bold)).foregroundColor(NativeProfileStyle.body) }.buttonStyle(.plain)
             }.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
@@ -3432,9 +2929,9 @@ private struct NativeNetworkHubView: View {
             ScrollView(showsIndicators: false) {
                 Group {
                     switch segment {
-                    case .plans: plansContent
+                    case .people: peopleContent
                     case .circles: circlesContent
-                    case .people: NativeProfileFriendsPanel()
+                    case .invitations: invitationsContent
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 30)
@@ -3442,8 +2939,7 @@ private struct NativeNetworkHubView: View {
         }
         .background(NativePolish.screenBackground.ignoresSafeArea())
         .accessibilityIdentifier("native-network-hub")
-        .onAppear { planStore.refresh(events: NativeGroupEventStore.all()) }
-        .sheet(item: $selectedEvent) { NativeGroupEventAppClipFallbackView(event: $0) }
+        .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
     }
 
     private var segmentControl: some View {
@@ -3451,2577 +2947,168 @@ private struct NativeNetworkHubView: View {
             ForEach(NativeNetworkSegment.allCases) { item in
                 Button(action: { nativeImpactLight(); segment = item }) {
                     HStack(spacing: 5) { Image(systemName: item.icon); Text(item.rawValue) }.font(.system(size: 12, weight: .black)).foregroundColor(segment == item ? .black : NativeProfileStyle.body).frame(maxWidth: .infinity).frame(height: 38).background(segment == item ? NativeTheme.cyan : NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }.buttonStyle(.plain).accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased())")
+                }.buttonStyle(.plain).accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
             }
         }
     }
 
-    private var plansContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if !plans.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("YOUR PLANS").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1)
-                    ForEach(plans) { event in planCard(event) }
+    private var peopleContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Find a person, choose a circle, then add them and send an invitation.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+            if sessionStore.isAuthenticated {
+                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: contactSyncStore.phase == .syncing ? "Syncing contacts…" : "Find people from contacts", color: NativeTheme.purple, foreground: .white) }.buttonStyle(.plain).disabled(isWorking || contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
+                TextField("Search people", text: $personQuery).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if contactSyncStore.suggestions.isEmpty {
+                    NativeProfileEmptyState(title: "No people found yet", subtitle: "Sync contacts to load current Bytspot suggestions.", icon: "person.2.slash.fill")
+                } else if filteredPeople.isEmpty {
+                    NativeProfileEmptyState(title: "No matching people", subtitle: "Try another name from your current suggestions.", icon: "magnifyingglass")
+                } else {
+                    ForEach(filteredPeople) { suggestion in personRow(suggestion) }
                 }
+                if selectedPersonID != nil { personActions }
+            } else {
+                NativeProfileEmptyState(title: "Sign in to use Network", subtitle: "People, circles, and invitations are private to your account.", icon: "person.crop.circle.badge.exclamationmark")
             }
-            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot, includesPeople: false)
+            statusView
         }
     }
 
-    private func planCard(_ event: NativeGroupEventRecord) -> some View {
-        let lifecycle = planStore.lifecycle(for: event.id)
-        let owner = lifecycle?.viewerRole == .owner
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 11) {
-                Image(systemName: event.iconName ?? "calendar").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 40, height: 40).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                VStack(alignment: .leading, spacing: 3) { Text(event.title).font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title); Text("\(event.scheduledDate) · \(event.locationLabel)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2) }
+    private func personRow(_ person: NativeFriendSuggestion) -> some View {
+        Button(action: { nativeImpactLight(); selectedPersonID = person.userId; statusMessage = "Selected \(person.name)." }) {
+            HStack(spacing: 12) {
+                NativeIcon(symbol: person.relationshipStatus == "connected" ? "person.2.circle.fill" : "person.crop.circle", color: NativeTheme.purple)
+                VStack(alignment: .leading, spacing: 3) { Text(person.name).nativeTitle(15); Text(person.reason).nativeBody(size: 11.5) }
                 Spacer()
-                NativeProfileMicroChip(owner ? "HOSTING" : NativePlanMarketPolicy.rsvpSummary(lifecycle).uppercased(), icon: owner ? "crown.fill" : lifecycle?.rsvpChoice.icon, color: owner ? NativeTheme.orange : NativeTheme.cyan)
+                Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle").foregroundColor(NativeTheme.cyan)
+            }.padding(12).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }.buttonStyle(.plain).accessibilityIdentifier("native-network-person-\(person.userId)")
+    }
+
+    private var personActions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Menu {
+                ForEach(circleSnapshot.groups) { circle in Button(circle.name) { selectedCircleID = circle.id } }
+            } label: {
+                HStack { Text(selectedCircleName ?? "Select a circle"); Spacer(); Image(systemName: "chevron.up.chevron.down") }.font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 13).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }.disabled(circleSnapshot.groups.isEmpty)
+            HStack(spacing: 8) {
+                networkAction(hasSelectedMembership ? "Added to circle" : "Add to circle", icon: hasSelectedMembership ? "checkmark" : "person.badge.plus", color: NativeTheme.emerald, requiresCircle: true, disabled: hasSelectedMembership) { Task { await addSelectedPersonToCircle() } }
+                networkAction("Send invite", icon: "paperplane.fill", color: NativeTheme.cyan, requiresCircle: true, disabled: !hasSelectedMembership) { Task { await sendSelectedInvitation() } }
             }
-            if !event.coHosts.isEmpty { Text("With \(event.coHosts.joined(separator: ", ")) · Co-host access is presentation-only until verified.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
-            if !owner { Button("Review RSVP") { selectedEvent = event }.font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan) }
-        }
-        .padding(14).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }.padding(13).background(NativePolish.elevatedSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
     }
 
     private var circlesContent: some View {
         VStack(alignment: .leading, spacing: 13) {
-            if socialCircleSnapshot.source == .backend, !socialCircleSnapshot.groups.isEmpty {
-                Text("SYNCED CIRCLES").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(1)
-                ForEach(socialCircleSnapshot.groups) { circle in circleRow(circle, isStarter: false) }
+            Text("Circles save the people you invite together, so you don't have to select the same attendees every time. Choose a venue and invite the whole circle instantly.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+            if sessionStore.isAuthenticated {
+                HStack(spacing: 8) {
+                    TextField("Circle name", text: $newCircleName).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    Button("Create") { Task { await createCircle() } }.font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 42).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).disabled(newCircleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
+                }
+            }
+            if !circleSnapshot.groups.isEmpty {
+                Text("YOUR CIRCLES").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(1)
+                ForEach(circleSnapshot.groups) { circle in circleRow(circle) }
             } else {
                 Text("No synced circles yet").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text(sessionStore.isAuthenticated ? "Create a private circle for the people you plan with most. Starter ideas below are examples, not account data." : "Sign in to load private circles and trusted connections.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
-                Text("STARTER IDEAS · NOT SYNCED").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.orange).tracking(1).padding(.top, 5)
-                ForEach(NativeSocialCircle.fallbackStarter) { circle in circleRow(circle, isStarter: true) }
             }
+            statusView
         }
     }
 
-    private func circleRow(_ circle: NativeSocialCircle, isStarter: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: isStarter ? "person.3.sequence.fill" : "person.3.fill").font(.system(size: 16, weight: .black)).foregroundColor(isStarter ? NativeTheme.orange : NativeTheme.emerald).frame(width: 40, height: 40).background((isStarter ? NativeTheme.orange : NativeTheme.emerald).opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) { Text(circle.name).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title); Text(isStarter ? "Starter circle idea" : "\(circle.memberCount) connection\(circle.memberCount == 1 ? "" : "s") · Private").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
+    private func circleRow(_ circle: NativeSocialCircle) -> some View {
+        Button(action: { selectedCircleID = circle.id; segment = .people }) { HStack(spacing: 12) {
+            Image(systemName: "person.3.fill").font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.emerald).frame(width: 40, height: 40).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) { Text(circle.name).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title); Text(circle.memberLabel).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
             Spacer()
-            Image(systemName: isStarter ? "lightbulb.fill" : "lock.fill").foregroundColor(isStarter ? NativeTheme.orange : NativeTheme.emerald)
-        }
-        .padding(13).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-    }
-}
-
-private struct NativeProfileNetworkCard: View {
-    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
-    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
-    @EnvironmentObject private var planStore: NativePlanStore
-    let sessionStore: BytspotSessionStore
-    let activeTier: BytspotTier
-    let socialCircleSnapshot: NativeSocialCircleSnapshot
-    var includesPeople: Bool = true
-    @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
-    @State private var activeGroup = NativeGroupEventStore.primaryHostedEvent()
-    @State private var networkStatus: String?
-    @State private var showGroupSetup = false
-    @State private var showInviteAccess = false
-    @State private var showHostDashboard = false
-    @State private var hostDashboardEvent: NativeGroupEventRecord?
-    @State private var hostDashboardAccountScope: NativePlanAccountScope?
-    @State private var inviteAccessMode: NativeGroupInviteAccessMode = .qr
-    @State private var didRunGroupSetupPreviewCheck = false
-    @State private var publishingGroupEventIDs: Set<String> = []
-    @State private var announcedPublishingGroupEventIDs: Set<String> = []
-
-    static let title = "Profile Network"
-    static let actionTitles = ["Create Private Group", "Find friends"]
-    private let referralUrl = "https://bytspot.app?ref=guest"
-    private var currentAccountScope: NativePlanAccountScope? { NativePlanAccountScope.authenticated(userID: sessionStore.authenticatedUserID) }
-    private var presentedActiveGroup: NativeGroupEventRecord? {
-        NativeGroupEventStore.all().first {
-            $0.privateAssociation == .host && NativePlanMarketPolicy.canPresentHostTools(planStore.lifecycle(for: $0.id), accountScope: currentAccountScope)
-        }
-    }
-    private var currentTier: BytspotTier { presentedActiveGroup?.tier ?? .green }
-    private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
-    private var circlesForDisplay: [NativeSocialCircle] { NativePlanMarketPolicy.liveCircles(from: socialCircleSnapshot) }
-    private var circleNamesForGroupSetup: [String] {
-        var names: [String] = []
-        for name in circlesForDisplay.map(\.name) where !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !names.contains(name) { names.append(name) }
-        if !names.contains("Public") { names.append("Public") }
-        return names
+            Image(systemName: "chevron.right").foregroundColor(NativeTheme.emerald)
+        }.padding(13).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous)) }.buttonStyle(.plain)
     }
 
-    var body: some View {
+    private var invitationsContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            networkHeader
-
-            if let activeGroup = presentedActiveGroup {
-                activeGroupBlock(activeGroup)
-                if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-                inviteBlock
-                if includesPeople { networkDivider; findFriendsBlock }
-            } else {
-                preActiveNetworkContent
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(NativeProfileStyle.cardPadding)
-        .nativeProfileCard(border: NativeTheme.pink.opacity(0.48), accent: NativeTheme.pink)
-        .accessibilityIdentifier("native-profile-network-card")
-        .sheet(isPresented: $showGroupSetup) {
-            let setup = NativeGroupEventSetupSheet(initialType: selectedGroupType, tier: currentTier, socialCircleNames: circleNamesForGroupSetup, onCreate: createPrivateGroup)
-            if #available(iOS 16.0, *) {
-                setup.presentationDetents([.large]).presentationDragIndicator(.visible)
-            } else {
-                setup
-            }
-        }
-        .sheet(isPresented: $showInviteAccess) {
-            if let activeGroup = presentedActiveGroup {
-                let sheet = NativeGroupInviteAccessSheet(event: activeGroup, initialMode: inviteAccessMode, publishState: invitePublishState(for: activeGroup))
-                if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
-            }
-        }
-        .sheet(isPresented: $showHostDashboard, onDismiss: {
-            hostDashboardEvent = nil
-            hostDashboardAccountScope = nil
-        }) {
-            if let event = hostDashboardEvent, let accountScope = hostDashboardAccountScope {
-                let dashboard = NativeGroupEventHostDashboardView(event: event, authorizedAccountScope: accountScope, sessionStore: sessionStore)
-                if #available(iOS 16.0, *) { dashboard.presentationDetents([.large]).presentationDragIndicator(.visible) } else { dashboard }
-            }
-        }
-        .onAppear {
-            planStore.refresh(events: NativeGroupEventStore.all())
-            activeGroup = NativeGroupEventStore.primaryHostedEvent()
-            openGroupSetupPreviewIfRequested()
-            openInviteAccessPreviewIfRequested()
-            reconcileActiveGroupPublishState()
+            invitationSection(title: "INCOMING", items: invitations.filter { $0.direction == "incoming" })
+            invitationSection(title: "OUTGOING", items: invitations.filter { $0.direction == "outgoing" })
+            if invitations.isEmpty { NativeProfileEmptyState(title: "No invitations", subtitle: "Incoming and outgoing invitations appear here.", icon: "envelope.open.fill") }
+            statusView
         }
     }
 
-    private var networkHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                LinearGradient(colors: [NativeTheme.pink, NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "person.2.badge.plus.fill").font(.system(size: 19, weight: .black)).foregroundColor(.white)
-            }
-            .frame(width: 46, height: 46)
-            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Create private groups, share invites, and keep contacts protected.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var preActiveNetworkContent: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            startGroupBlock
-            if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-            compactInviteBlock
-            if includesPeople { compactFindFriendsBlock }
-            Text("Contacts stay private unless you choose to match.").nativeBody(size: 11, color: NativeProfileStyle.muted)
-        }
-    }
-
-    private var startGroupBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            NativeProfileNetworkRowHeader(title: NativeGroupEventContract.quickStartCTA, subtitle: "Choose a template, then publish a protected invite.", icon: "plus.app.fill", color: tierAccent)
-            Button(action: openGroupSetup) {
-                HStack(spacing: 8) { Image(systemName: "plus.app.fill").font(.system(size: 13, weight: .black)); Text("Create Private Group").font(.system(size: 14, weight: .black)) }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(LinearGradient(colors: [NativeTheme.emerald, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }.buttonStyle(.plain)
-            membershipStrip
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Quick templates").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(0.7)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(NativeGroupEventContract.defaultEventTypes.prefix(4)), id: \.self) { type in
-                            Button(action: { selectedGroupType = type }) {
-                                Text(type).font(.system(size: 12, weight: .black)).foregroundColor(selectedGroupType == type ? .black : NativeProfileStyle.title).padding(.horizontal, 11).frame(height: 32).background(selectedGroupType == type ? tierAccent : NativeProfileStyle.insetSurface).clipShape(Capsule())
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(14)
-        .background(NativeProfileStyle.insetSurface.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.26), lineWidth: 1))
-    }
-
-    private var membershipStrip: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "leaf.fill").font(.system(size: 12, weight: .black)).foregroundColor(.black).frame(width: 28, height: 28).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Green Membership").font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Free private invites for members and guests.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            NativeProfileMicroChip("Free", icon: "sparkles", color: NativeTheme.emerald)
-        }
-        .padding(11)
-        .background(NativeTheme.emerald.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.emerald.opacity(0.20), lineWidth: 1))
-    }
-
-    private func activeGroupBlock(_ group: NativeGroupEventRecord) -> some View {
-        let banner = NativeGroupEventContract.homepageBanner(for: group)
-        let canManage = NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: currentAccountScope)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles").font(.system(size: 14, weight: .black)).foregroundColor(.black).frame(width: 34, height: 34).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        NativeProfileMicroChip(banner.eyebrow, icon: "bolt.fill", color: NativeTheme.emerald)
-                        NativeProfileMicroChip(banner.tierBadge, icon: "leaf.fill", color: NativeTheme.emerald)
-                    }
-                    Text(group.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                    Text("\(group.participantCount) joined · Private · \(entitlement.liveDurationHours)h live window").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
-                    eventMetadataChips(group)
-                }
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 8) {
-                Button(action: { copyInvite(group) }) { groupActionLabel("Copy Invite", icon: "link") }.buttonStyle(.plain)
-                Button(action: { openInviteAccess(group, mode: .qr) }) { groupActionLabel("Show QR", icon: "qrcode") }.buttonStyle(.plain)
-                Button(action: { openInviteAccess(group, mode: .nfc) }) { groupActionLabel("NFC", icon: "dot.radiowaves.left.and.right") }.buttonStyle(.plain)
-            }
-            Button(action: { openHostDashboard(group) }) {
-                HStack(spacing: 7) {
-                    Image(systemName: "person.2.badge.gearshape.fill").font(.system(size: 13, weight: .black))
-                    Text(canManage ? (group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests") : (sessionStore.isAuthenticated ? "Publish to manage guests" : "Sign in to manage guests")).font(.system(size: 13, weight: .black))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
-                .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }.buttonStyle(.plain).disabled(!canManage).opacity(canManage ? 1 : 0.58)
-            matchedOfferPreview
-            Text(NativeGroupEventContract.matchedOfferExplanation).nativeBody(size: 11.5, color: NativeProfileStyle.muted)
-        }
-        .padding(14)
-        .background(NativeProfileStyle.insetSurface.opacity(0.74))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
-    }
-
-    private func eventMetadataChips(_ group: NativeGroupEventRecord) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                NativeProfileMicroChip(group.fontStyle, icon: "textformat", color: NativeTheme.purple)
-                if group.hideGuestList { NativeProfileMicroChip("Guest list hidden", icon: "eye.slash.fill", color: NativeTheme.orange) }
-                if let chipIn = group.chipInLabel, !chipIn.isEmpty { NativeProfileMicroChip(chipIn, icon: "dollarsign.circle.fill", color: NativeTheme.emerald) }
-                ForEach(group.coHosts.prefix(2), id: \.self) { NativeProfileMicroChip("\($0) · pending", icon: "person.2.circle.fill", color: NativeTheme.cyan) }
-            }
-        }
-    }
-
-    private var tierAccent: Color {
-        switch currentTier {
-        case .green: return NativeTheme.emerald
-        case .platinum: return NativeTheme.cyan
-        case .black: return NativeTheme.orange
-        }
-    }
-
-    private var matchedOfferPreview: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "tag.fill").font(.system(size: 13, weight: .black)).foregroundColor(.black).frame(width: 30, height: 30).background(NativeTheme.orange).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("MATCHED LTO PREVIEW").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.orange).tracking(0.8)
-                Text("Nearby group offers can appear here").font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text("Example: 15% off family-style orders · visible only as a matched offer, not a public group listing.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(NativeTheme.orange.opacity(0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativeTheme.orange.opacity(0.20), lineWidth: 1))
-    }
-
-    private func groupActionLabel(_ title: String, icon: String) -> some View {
-        HStack(spacing: 7) { Image(systemName: icon).font(.system(size: 12, weight: .black)); Text(title).font(.system(size: 12.5, weight: .black)) }
-            .foregroundColor(.black)
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .background(NativeTheme.cyan)
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    private var inviteBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NativeProfileNetworkRowHeader(title: "Invite a Friend", subtitle: "Share your personal Bytspot link", icon: "square.and.arrow.up", color: NativeTheme.pink)
-            HStack(spacing: 8) {
-                Text(referralUrl).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
-                Spacer()
-                Text("Copy").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.pink).padding(.horizontal, 10).padding(.vertical, 5).overlay(Capsule().stroke(NativeTheme.pink.opacity(0.38), lineWidth: 1))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(NativeProfileStyle.referralPillSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
-            HStack(spacing: 8) { Image(systemName: "square.and.arrow.up").font(.system(size: 13, weight: .black)); Text("Share Invite Link").font(.system(size: 14, weight: .black)) }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 42)
-                .background(LinearGradient(colors: [NativeTheme.pink, NativeTheme.cyan], startPoint: .leading, endPoint: .trailing))
-                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-        }
-    }
-
-    private var compactInviteBlock: some View {
+    private func invitationSection(title: String, items: [NativeSocialInvitation]) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            NativeProfileNetworkRowHeader(title: "Invite a Friend", subtitle: "Share your personal Bytspot link.", icon: "square.and.arrow.up", color: NativeTheme.pink)
-            HStack(spacing: 8) {
-                Text(referralUrl).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
-                Spacer()
-                Button(action: copyReferralLink) { Text("Copy").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.pink).padding(.horizontal, 10).frame(height: 28).overlay(Capsule().stroke(NativeTheme.pink.opacity(0.38), lineWidth: 1)) }.buttonStyle(.plain)
-                Button(action: shareReferralLink) { Text("Share").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 10).frame(height: 28).background(NativeProfileStyle.insetSurface).clipShape(Capsule()) }.buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(NativeProfileStyle.referralPillSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+            if !items.isEmpty { Text(title).font(.system(size: 10.5, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1) }
+            ForEach(items) { invitation in invitationRow(invitation) }
         }
     }
 
-    @ViewBuilder private var findFriendsBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NativeProfileNetworkRowHeader(title: "Find friends", subtitle: sessionStore.isAuthenticated ? NativeFindFriendsCard.privacyCopy : NativeFindFriendsCard.guestCopy, icon: "person.badge.plus", color: NativeTheme.purple)
-            if sessionStore.isAuthenticated {
-                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) {
-                    HStack(spacing: 8) { Image(systemName: "lock.shield.fill").font(.system(size: 13, weight: .black)); Text(contactCTA).font(.system(size: 14, weight: .black)) }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .leading, endPoint: .trailing))
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
-                contactStatus
-                if !contactSyncStore.suggestions.isEmpty {
-                    VStack(spacing: 8) { ForEach(contactSyncStore.suggestions.prefix(3)) { NativeFriendSuggestionRow(suggestion: $0) } }
-                }
-            } else {
-                Button(action: { authCoordinator.handle(.signIn(.apple), sessionStore: sessionStore) }) {
-                    HStack(spacing: 8) { Image(systemName: "apple.logo").font(.system(size: 13, weight: .black)); Text("Sign in to find friends").font(.system(size: 14, weight: .black)) }
-                        .foregroundColor(NativeProfileStyle.onVibrant)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(NativeTheme.cyan)
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                Text("Contacts stay off until you start private matching.").nativeBody(size: 11, color: NativeProfileStyle.muted)
-            }
-        }
-    }
-
-    @ViewBuilder private var compactFindFriendsBlock: some View {
+    private func invitationRow(_ invitation: NativeSocialInvitation) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            NativeProfileNetworkRowHeader(title: "Find friends", subtitle: sessionStore.isAuthenticated ? NativeFindFriendsCard.privacyCopy : NativeFindFriendsCard.guestCopy, icon: "person.badge.plus", color: NativeTheme.purple)
-            if sessionStore.isAuthenticated {
-                Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) {
-                    HStack(spacing: 8) { Image(systemName: "lock.shield.fill").font(.system(size: 12, weight: .black)); Text(contactCTA).font(.system(size: 13, weight: .black)) }
-                        .foregroundColor(NativeTheme.purple)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 38)
-                        .background(NativeTheme.purple.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
-                contactStatus
-            } else {
-                Button(action: { authCoordinator.handle(.signIn(.apple), sessionStore: sessionStore) }) {
-                    HStack(spacing: 8) { Image(systemName: "apple.logo").font(.system(size: 12, weight: .black)); Text("Sign in with Apple").font(.system(size: 13, weight: .black)) }
-                        .foregroundColor(NativeProfileStyle.title)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 38)
-                        .background(NativeProfileStyle.insetSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
+            HStack { VStack(alignment: .leading, spacing: 3) { Text(invitation.personName).nativeTitle(15); Text([invitation.circleName, invitation.status.capitalized].compactMap { $0 }.joined(separator: " · ")).nativeBody(size: 11.5) }; Spacer(); Image(systemName: invitation.direction == "incoming" ? "tray.and.arrow.down.fill" : "paperplane.fill").foregroundColor(NativeTheme.cyan) }
+            if invitation.direction == "incoming", invitation.status == "pending" { HStack(spacing: 8) { networkAction("Accept", icon: "checkmark", color: NativeTheme.emerald) { Task { await respond(to: invitation, response: "accepted") } }; networkAction("Decline", icon: "xmark", color: NativeTheme.orange) { Task { await respond(to: invitation, response: "declined") } } } }
+        }.padding(13).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
     }
 
-    private var contactCTA: String {
-        switch contactSyncStore.phase {
-        case .requesting: return "Requesting access…"
-        case .syncing: return "Syncing contacts…"
-        default: return contactSyncStore.lastSummary == nil ? "Sync contacts privately" : "Re-sync contacts"
-        }
+    private func networkAction(_ title: String, icon: String, color: Color, requiresCircle: Bool = false, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 12, weight: .black)).foregroundColor(NativeProfileStyle.title).frame(maxWidth: .infinity).frame(height: 38).background(color.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)) }.buttonStyle(.plain).disabled(disabled || isWorking || (requiresCircle && selectedCircleID == nil))
     }
 
-    @ViewBuilder private var contactStatus: some View {
-        if let summary = contactSyncStore.lastSummary { Text(summary).nativeBody(size: 11.5, color: NativeTheme.cyan) }
-        if contactSyncStore.phase == .denied { Text("Contacts access is off. Enable it in Settings to find friends.").nativeBody(size: 11.5, color: NativeTheme.orange) }
-        if contactSyncStore.phase == .failed { Text("Couldn't sync contacts. Try again in a moment.").nativeBody(size: 11.5, color: NativeTheme.orange) }
+    @ViewBuilder private var statusView: some View {
+        if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.cyan).fixedSize(horizontal: false, vertical: true) }
     }
 
-    private var networkDivider: some View { Rectangle().fill(NativeProfileStyle.hairline).frame(height: 1) }
+    private var filteredPeople: [NativeFriendSuggestion] {
+        let query = personQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? contactSyncStore.suggestions : contactSyncStore.suggestions.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+    private var selectedCircleName: String? { circleSnapshot.groups.first { $0.id == selectedCircleID }?.name }
+    private var hasSelectedMembership: Bool {
+        guard let personID = selectedPersonID, let circleID = selectedCircleID else { return false }
+        return circleSnapshot.groups.first { $0.id == circleID }?.memberIDs.contains(personID) == true
+    }
+    private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
-    private func copyReferralLink() {
-        nativeImpactLight()
-        UIPasteboard.general.string = referralUrl
-        networkStatus = "Personal invite link copied."
+    private func refreshNetwork() async {
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; return }
+        await contactSyncStore.refresh(sessionStore: sessionStore)
+        circleSnapshot = await api.listSocialCirclesViaRpc()
+        invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
+        if selectedCircleID == nil { selectedCircleID = circleSnapshot.groups.first?.id }
     }
 
-    private func shareReferralLink() {
-        nativeImpactLight()
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
-            copyReferralLink()
-            return
-        }
-        root.present(UIActivityViewController(activityItems: [referralUrl], applicationActivities: nil), animated: true)
+    private func createCircle() async {
+        let name = newCircleName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        isWorking = true; defer { isWorking = false }
+        do { if let circle = try await api.createSocialCircleViaRpc(name: name) { circleSnapshot.groups.append(circle); selectedCircleID = circle.id }; newCircleName = ""; statusMessage = "Circle created." } catch { statusMessage = "The circle couldn't be created. Try again." }
     }
 
-    private func openGroupSetup() {
-        nativeImpactLight()
-        showGroupSetup = true
-    }
-
-    private func openGroupSetupPreviewIfRequested() {
-        #if DEBUG
-        guard !didRunGroupSetupPreviewCheck else { return }
-        didRunGroupSetupPreviewCheck = true
-        guard NativeDebugAutoSheetPreviewGate.isEnabled,
-              ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_SETUP_PREVIEW"] == "1" else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { showGroupSetup = true }
-        #endif
-    }
-
-    private func createPrivateGroup(_ record: NativeGroupEventRecord) {
-        guard let currentAccountScope else {
-            networkStatus = "Sign in before creating a host plan so ownership can be verified."
-            return
-        }
-        nativeImpactLight()
-        NativeGroupEventStore.upsert(record)
-        planStore.refresh(events: NativeGroupEventStore.all())
-        _ = planStore.bindOwner(for: record.id, accountScope: currentAccountScope)
-        activeGroup = record
-        selectedGroupType = record.title.replacingOccurrences(of: " Group", with: "")
-        networkStatus = "Creating \(record.title) from your Profile Network… guests can join as soon as it syncs."
-        publishGroupEvent(record)
-    }
-
-    private func audienceGroupID(for record: NativeGroupEventRecord) -> String? {
-        guard record.privacyStatus != .publicDiscovery else { return nil }
-        return socialCircleSnapshot.groups.first { $0.name.caseInsensitiveCompare(record.audienceCircle) == .orderedSame }?.id
-    }
-
-    // Mirror the local event to the server so App Clip guests can join and, for
-    // approval events, appear in the host dashboard. Local upsert stays the source
-    // of truth for display, but only a confirmed publish marks the invite as
-    // shareable (publishedGroupEventIDs). `announce` controls whether we surface a
-    // status message (silent on background reconciliation).
-    private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
-        guard sessionStore.isAuthenticated,
-              let accountScope = currentAccountScope,
-              NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: record.id), accountScope: accountScope) else {
-            if announce { networkStatus = "Only the signed-in host account can publish this plan." }
-            return
-        }
-        guard !publishingGroupEventIDs.contains(record.id) else {
-            announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
-            return
-        }
-        publishingGroupEventIDs.insert(record.id)
-        _ = planStore.setPublication(.publishing, for: record.id, accountScope: accountScope)
-        announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
-        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
-        var input: [String: Any] = [
-            "id": record.id,
-            "title": record.title,
-            "groupType": record.groupType,
-            "tier": record.tier.rawValue,
-            "timing": record.timing.rawValue,
-            "allowNearbyOffers": record.allowNearbyOffers,
-            "approvalMode": record.approvalMode,
-            "scheduledDate": record.scheduledDate,
-            "location": record.locationLabel,
-            "theme": record.theme,
-            "visibility": record.privacyStatus.rawValue,
-            "audienceCircle": record.audienceCircle,
-            "fontStyle": record.fontStyle,
-            "coHosts": record.coHosts,
-            "playlistUrl": record.playlistURLString ?? "",
-            "ticketingLabel": record.ticketingLabel ?? "",
-            "chipInLabel": record.chipInLabel ?? "",
-            "rsvpCutoff": record.rsvpCutoff ?? "",
-            "customQuestions": record.customQuestions,
-            "hideActivityTimestamps": record.hideActivityTimestamps,
-            "hideGuestList": record.hideGuestList,
-            "metadata": record.primaryEventMetadataPayload,
-        ]
-        if let payment = record.manualPayment { input["manualPayment"] = payment.payload }
-        if let handle = record.instagramHandle, !handle.isEmpty { input["instagramHandle"] = handle }
-        let draftInput = NativePrimaryEventDraftBuilder.input(for: record, audienceGroupId: audienceGroupID(for: record))
-        Task { @MainActor in
-            let profileAPI = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
-            let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
-            do {
-                _ = try await profileAPI.createPrimaryEventDraftViaRpc(input: draftInput)
-                _ = try await api.create(input: input)
-                let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
-                publishingGroupEventIDs.remove(record.id)
-                announcedPublishingGroupEventIDs.remove(record.id)
-                _ = planStore.setPublication(.published, for: record.id, accountScope: accountScope)
-                if shouldAnnounce, currentAccountScope == accountScope {
-                    networkStatus = record.requiresApproval
-                        ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
-                        : "\(record.title) is live. Share the invite for instant App Clip join."
-                }
-            } catch {
-                let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
-                publishingGroupEventIDs.remove(record.id)
-                announcedPublishingGroupEventIDs.remove(record.id)
-                _ = planStore.setPublication(.failed, for: record.id)
-                if shouldAnnounce, currentAccountScope == accountScope {
-                    networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
-                }
-            }
-        }
-    }
-
-    private func isPublished(_ group: NativeGroupEventRecord) -> Bool {
-        NativePlanMarketPolicy.isPublished(planStore.lifecycle(for: group.id), accountScope: currentAccountScope)
-    }
-
-    private func invitePublishState(for group: NativeGroupEventRecord) -> NativeGroupInvitePublishState {
-        if isPublished(group) { return .published }
-        if publishingGroupEventIDs.contains(group.id) || planStore.lifecycle(for: group.id)?.publication == .publishing { return .publishing }
-        return sessionStore.isAuthenticated ? .draftAuthenticated : .draftSignedOut
-    }
-
-    private func authorizeInviteExposure(_ group: NativeGroupEventRecord, action: NativeGroupInviteActionKind) -> Bool {
-        let isAuthorizedHost = NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: group.id), accountScope: currentAccountScope)
-        let publishState = invitePublishState(for: group)
-        guard NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: isAuthorizedHost, publishState: publishState) else {
-            if isAuthorizedHost {
-                networkStatus = action.draftStatus
-                if publishState != .publishing { publishGroupEvent(group) }
-            } else {
-                networkStatus = sessionStore.isAuthenticated ? "Only the verified host account can publish or share this plan." : "Sign in as the verified host to publish this plan."
-            }
-            return false
-        }
-        return true
-    }
-
-    // On reappear, silently (re)publish an authenticated host's active group so a
-    // draft created offline/pre-auth becomes shareable once it syncs. create is an
-    // idempotent host-owned upsert, so re-calling it is safe.
-    private func reconcileActiveGroupPublishState() {
-        guard let group = presentedActiveGroup,
-              NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: group.id), accountScope: currentAccountScope),
-              !isPublished(group) else { return }
-        publishGroupEvent(group, announce: false)
-    }
-
-    private func copyInvite(_ group: NativeGroupEventRecord) {
-        guard authorizeInviteExposure(group, action: .copy) else { return }
-        nativeImpactLight()
-        UIPasteboard.general.string = NativeGroupEventContract.inviteURL(for: group).absoluteString
-        networkStatus = NativeGroupInviteActionKind.copy.publishedStatus
-    }
-
-    private func openInviteAccess(_ group: NativeGroupEventRecord, mode: NativeGroupInviteAccessMode) {
-        let action: NativeGroupInviteActionKind = mode == .qr ? .qr : .nfc
-        guard authorizeInviteExposure(group, action: action) else { return }
-        nativeImpactLight()
-        inviteAccessMode = mode
-        showInviteAccess = true
-        networkStatus = action.publishedStatus
-    }
-
-    private func openHostDashboard(_ group: NativeGroupEventRecord) {
-        guard let accountScope = currentAccountScope,
-              NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: accountScope) else {
-            networkStatus = "Publish this plan before opening guest management. Co-host access requires separate server verification."
-            return
-        }
-        nativeImpactLight()
-        hostDashboardEvent = group
-        hostDashboardAccountScope = accountScope
-        showHostDashboard = true
-    }
-
-    private func openInviteAccessPreviewIfRequested() {
-        #if DEBUG
-        guard activeGroup != nil else { return }
-        let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_INVITE_PREVIEW"]?.lowercased() ?? ""
-        guard raw == "qr" || raw == "nfc" else { return }
-        // DEBUG preview bypasses the publish gate so the invite sheet renders for
-        // UI inspection without a live server round-trip.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            inviteAccessMode = raw == "nfc" ? .nfc : .qr
-            showInviteAccess = true
-        }
-        #endif
-    }
-}
-
-enum NativeGroupInviteActionKind: Equatable {
-    case copy, qr, nfc
-
-    var draftStatus: String {
-        switch self {
-        case .copy: return "Publishing invite — copy becomes available when it is live."
-        case .qr: return "Publishing invite — QR becomes available when it is live."
-        case .nfc: return "Publishing invite — NFC becomes available when it is live."
-        }
-    }
-
-    var publishedStatus: String {
-        switch self {
-        case .copy: return "Invite link copied — guests can join instantly in the App Clip."
-        case .qr: return "QR invite opened — guests can scan to join instantly."
-        case .nfc: return "NFC invite opened — encode this link to a tag for one-tap join."
-        }
-    }
-}
-
-enum NativeGroupInvitePublishAnnouncement {
-    static func updatedIDs(_ current: Set<String>, eventID: String, announce: Bool) -> Set<String> {
-        var next = current
-        if announce { next.insert(eventID) } else { next.remove(eventID) }
-        return next
-    }
-
-    static func updatedInFlightIDs(_ current: Set<String>, eventID: String, announce: Bool) -> Set<String> {
-        guard announce else { return current }
-        var next = current
-        next.insert(eventID)
-        return next
-    }
-
-    static func shouldAnnounceCompletion(eventID: String, announcedIDs: Set<String>) -> Bool {
-        announcedIDs.contains(eventID)
-    }
-}
-
-enum NativeGroupInvitePublishState: Equatable {
-    case published, publishing, draftAuthenticated, draftSignedOut
-
-    var isPublished: Bool { self == .published }
-    var noticeTitle: String {
-        switch self {
-        case .published: return "Invite is live"
-        case .publishing: return "Publishing invite"
-        case .draftAuthenticated: return "Draft invite preview"
-        case .draftSignedOut: return "Draft invite — sign in required"
-        }
-    }
-    var noticeBody: String {
-        switch self {
-        case .published: return "Guests can use this link, QR, or NFC tag to join from the App Clip."
-        case .publishing: return "Guests can join after the group finishes publishing. Keep this as a preview for now."
-        case .draftAuthenticated: return "This link is not join-ready until the group publishes successfully."
-        case .draftSignedOut: return "Sign in and publish before sending this invite to guests."
-        }
-    }
-    var qrTitle: String { isPublished ? "Scan to Join" : "Draft QR Preview" }
-    var qrDetail: String { isPublished ? "Opens the App Clip for non-users; opens Bytspot for installed users." : "Guests can scan after this group publishes successfully." }
-    var nfcSubtitle: String { isPublished ? "Private NFC invite · App Clip ready" : self == .publishing ? "NFC invite preview · publishing" : "Draft NFC invite · not join-ready" }
-    var nfcInstruction: String {
-        switch self {
-        case .published: return "Program this URL onto a Bytspot NFC tag for one-tap private group join:"
-        case .publishing: return "Wait for publish to finish before programming or sending this NFC link:"
-        case .draftAuthenticated, .draftSignedOut: return "Do not program or send this NFC link until publish succeeds:"
-        }
-    }
-    var copiedStatus: String { isPublished ? "Invite link copied." : "Invite link unavailable until publish succeeds." }
-}
-
-enum NativeGroupInviteExposurePolicy {
-    static func canExpose(isAuthorizedHost: Bool, publishState: NativeGroupInvitePublishState) -> Bool {
-        isAuthorizedHost && publishState.isPublished
-    }
-}
-
-private struct NativeProfileNetworkRowHeader: View {
-    let title: String
-    let subtitle: String
-    let icon: String
-    let color: Color
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(color).frame(width: 32, height: 32).background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text(subtitle).font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-}
-
-enum NativeGroupInviteAccessMode: String, CaseIterable, Equatable {
-    case qr
-    case nfc
-
-    var title: String { self == .qr ? "QR Code" : "NFC Tap" }
-    var icon: String { self == .qr ? "qrcode" : "dot.radiowaves.left.and.right" }
-}
-
-private struct NativeGroupInviteAccessSheet: View {
-    let event: NativeGroupEventRecord
-    let publishState: NativeGroupInvitePublishState
-    @State private var mode: NativeGroupInviteAccessMode
-    @State private var copyStatus: String?
-    @EnvironmentObject private var sessionStore: BytspotSessionStore
-    @EnvironmentObject private var planStore: NativePlanStore
-    @Environment(\.dismiss) private var dismiss
-
-    init(event: NativeGroupEventRecord, initialMode: NativeGroupInviteAccessMode, publishState: NativeGroupInvitePublishState) {
-        self.event = event
-        self.publishState = publishState
-        _mode = State(initialValue: initialMode)
-    }
-
-    private var inviteURL: URL { NativeGroupEventContract.inviteURL(for: event) }
-    private var currentAccountScope: NativePlanAccountScope? { NativePlanAccountScope.authenticated(userID: sessionStore.authenticatedUserID) }
-    private var canExposeInvite: Bool { NativePlanMarketPolicy.isPublished(planStore.lifecycle(for: event.id), accountScope: currentAccountScope) }
-    private var displayPublishState: NativeGroupInvitePublishState {
-        if canExposeInvite { return .published }
-        if publishState == .publishing, NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: event.id), accountScope: currentAccountScope) { return .publishing }
-        return sessionStore.isAuthenticated ? .draftAuthenticated : .draftSignedOut
-    }
-    private var accent: Color {
-        switch event.tier {
-        case .green: return NativeTheme.emerald
-        case .platinum: return NativeTheme.cyan
-        case .black: return NativeTheme.orange
-        }
-    }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                publishNotice
-                modePicker
-                if mode == .qr { qrPreview } else { nfcPreview }
-                privacyCopy
-                if let copyStatus { Text(copyStatus).nativeBody(size: 12.5, color: accent) }
-                if canExposeInvite {
-                    Button(action: copyInvite) { Text("Copy Invite Link").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
-                }
-                Button(action: { dismiss() }) { Text("Close").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
-            }
-            .padding(20)
-            .padding(.bottom, 18)
-        }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
-        .accessibilityIdentifier("native-group-invite-access-sheet")
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("GROUP INVITE ACCESS").font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.2)
-            Text(event.title).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
-            Text("\(event.tier.displayName) · Private group · \(event.participantCount) joined").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
-        }
-    }
-
-    private var publishNotice: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: displayPublishState.isPublished ? "checkmark.seal.fill" : "exclamationmark.triangle.fill").font(.system(size: 15, weight: .black)).foregroundColor(displayPublishState.isPublished ? NativeTheme.emerald : NativeTheme.orange)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(displayPublishState.noticeTitle).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text(displayPublishState.noticeBody).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(13)
-        .background((displayPublishState.isPublished ? NativeTheme.emerald : NativeTheme.orange).opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke((displayPublishState.isPublished ? NativeTheme.emerald : NativeTheme.orange).opacity(0.25), lineWidth: 1))
-    }
-
-    private var modePicker: some View {
-        HStack(spacing: 8) {
-            ForEach(NativeGroupInviteAccessMode.allCases, id: \.rawValue) { item in
-                Button(action: { mode = item; nativeImpactLight() }) {
-                    HStack(spacing: 7) { Image(systemName: item.icon); Text(item.title) }
-                        .font(.system(size: 12.5, weight: .black))
-                        .foregroundColor(mode == item ? .black : NativeTheme.textPrimary)
-                        .frame(maxWidth: .infinity).frame(height: 40)
-                        .background(mode == item ? accent : NativePolish.elevatedSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }.buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var qrPreview: some View {
-        VStack(alignment: .center, spacing: 14) {
-            Text(displayPublishState.qrTitle).font(.system(size: 21, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            if canExposeInvite, let image = NativeParkingQRCodeRenderer.image(payload: inviteURL.absoluteString) {
-                Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(width: 220, height: 220).padding(18).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            } else {
-                Image(systemName: "lock.shield.fill").font(.system(size: 92, weight: .regular)).foregroundColor(NativeTheme.textSecondary).frame(width: 220, height: 220).padding(18).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
-            Text(displayPublishState.qrDetail).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(18)
-        .background(NativePolish.elevatedSurface.opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(accent.opacity(0.25), lineWidth: 1))
-    }
-
-    private var nfcPreview: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(LinearGradient(colors: [accent.opacity(0.82), NativeTheme.purple.opacity(0.50), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 92, weight: .black)).foregroundColor(.black.opacity(0.16)).offset(x: 210, y: -26)
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("TAP BYTSPOT TAG").font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.75)).tracking(1.2)
-                    Text(event.title).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                    Text(displayPublishState.nfcSubtitle).font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.78))
-                }.padding(22)
-            }
-            .frame(height: 220)
-            Text(displayPublishState.nfcInstruction).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
-            Text(canExposeInvite ? inviteURL.absoluteString : "Invite material stays hidden until publishing succeeds.").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundColor(NativeTheme.textTertiary).lineLimit(4)
-        }
-        .padding(18)
-        .background(NativePolish.elevatedSurface.opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(accent.opacity(0.25), lineWidth: 1))
-    }
-
-    private var privacyCopy: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(systemName: "lock.shield.fill").font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 32, height: 32).background(accent.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Private invite only").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text("Dinner and Family groups stay hidden from public discovery unless the viewer is the host or joined through this private invite.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background(NativePolish.elevatedSurface.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func copyInvite() {
-        guard canExposeInvite else { return }
-        nativeImpactLight()
-        UIPasteboard.general.string = inviteURL.absoluteString
-        copyStatus = displayPublishState.copiedStatus
-    }
-}
-
-private struct NativeGroupEventHostDashboardView: View {
-    let event: NativeGroupEventRecord
-    let authorizedAccountScope: NativePlanAccountScope
-    @ObservedObject var sessionStore: BytspotSessionStore
-    @EnvironmentObject private var planStore: NativePlanStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var guests: [NativeGroupEventGuestRecord] = []
-    @State private var pending: [NativeGroupEventGuestRecord] = []
-    @State private var loading = true
-    @State private var statusMessage: String?
-    @State private var decidingUserId: String?
-
-    private var accent: Color {
-        switch event.tier {
-        case .green: return NativeTheme.emerald
-        case .platinum: return NativeTheme.cyan
-        case .black: return NativeTheme.orange
-        }
-    }
-
-    private var currentAccountScope: NativePlanAccountScope? {
-        NativePlanAccountScope.authenticated(userID: sessionStore.authenticatedUserID)
-    }
-
-    private var hasManagementAuthority: Bool {
-        NativePlanMarketPolicy.canRetainGuestManagementSession(
-            planStore.lifecycle(for: event.id),
-            authorizedAccountScope: authorizedAccountScope,
-            currentAccountScope: currentAccountScope
-        )
-    }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                if loading { HStack { ProgressView().tint(accent); Text("Loading live guest list…").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.body) } }
-                if let statusMessage { Text(statusMessage).nativeBody(size: 12, color: NativeTheme.orange) }
-                if event.requiresApproval { pendingSection }
-                guestSection
-            }
-            .padding(20)
-            .padding(.bottom, 18)
-        }
-        .background(NativeTheme.background.ignoresSafeArea())
-        .accessibilityIdentifier("native-group-event-host-dashboard")
-        .task {
-            guard hasManagementAuthority else { dismiss(); return }
-            await load()
-        }
-        .onChange(of: sessionStore.authenticatedUserID ?? "") { _ in revokeAccessIfNeeded() }
-        .onReceive(planStore.$records) { _ in revokeAccessIfNeeded() }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("MANAGE GUESTS").font(.system(size: 10.5, weight: .black)).foregroundColor(accent).tracking(1.1)
-                Text(event.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                Text(event.requiresApproval ? "Approval required · you review each request" : "Open invite · guests join instantly").font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.body)
-            }
-            Spacer(minLength: 0)
-            Button(action: { dismiss() }) { Text("Done").font(.system(size: 14, weight: .black)).foregroundColor(accent) }.buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder private var pendingSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Pending requests (\(pending.count))")
-            if pending.isEmpty {
-                Text("No pending requests right now.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.muted).frame(maxWidth: .infinity, alignment: .leading).padding(13).background(NativeProfileStyle.insetSurface.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            } else {
-                ForEach(pending) { guestRow($0, showActions: true) }
-            }
-        }
-    }
-
-    private var guestSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Joined (\(guests.count))")
-            if guests.isEmpty {
-                Text("No guests have joined yet. Share the invite to get started.").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeProfileStyle.muted).frame(maxWidth: .infinity, alignment: .leading).padding(13).background(NativeProfileStyle.insetSurface.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            } else {
-                ForEach(guests) { guestRow($0, showActions: false) }
-            }
-        }
-    }
-
-    private func guestRow(_ guest: NativeGroupEventGuestRecord, showActions: Bool) -> some View {
-        HStack(spacing: 11) {
-            avatar(for: guest)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(guest.displayName).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                if let message = guest.message, !message.isEmpty {
-                    Text(message).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2)
-                }
-            }
-            Spacer(minLength: 0)
-            if showActions {
-                if decidingUserId == guest.userId {
-                    ProgressView().tint(accent)
-                } else {
-                    HStack(spacing: 8) {
-                        Button(action: { Task { await decide(guest, approve: false) } }) { decisionLabel("Decline", filled: false) }.buttonStyle(.plain)
-                        Button(action: { Task { await decide(guest, approve: true) } }) { decisionLabel("Approve", filled: true) }.buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(NativeProfileStyle.insetSurface.opacity(0.74))
-        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
-    }
-
-    private func avatar(for guest: NativeGroupEventGuestRecord) -> some View {
-        ZStack {
-            if let raw = guest.profileImage, let url = URL(string: raw) {
-                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { accent.opacity(0.25) }
-            } else {
-                accent.opacity(0.22)
-                Text(guest.avatarInitials).font(.system(size: 15, weight: .black)).foregroundColor(accent)
-            }
-        }
-        .frame(width: 40, height: 40)
-        .clipShape(Circle())
-    }
-
-    private func decisionLabel(_ title: String, filled: Bool) -> some View {
-        Text(title)
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(filled ? .black : accent)
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .background(filled ? accent : Color.clear)
-            .overlay(Capsule().stroke(accent.opacity(filled ? 0 : 0.55), lineWidth: 1.2))
-            .clipShape(Capsule())
-    }
-
-    private func setupLabel(_ title: String) -> some View {
-        Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1.0)
-    }
-
-    @MainActor private func load() async {
-        guard hasManagementAuthority else { dismiss(); return }
-        loading = true
-        defer { loading = false }
-        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
-        let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
+    private func addSelectedPersonToCircle() async {
+        guard let personID = selectedPersonID, let circleID = selectedCircleID else { statusMessage = "Select a person and circle first."; return }
+        isWorking = true; defer { isWorking = false }
         do {
-            let view = try await api.host(eventId: event.id)
-            guard hasManagementAuthority else { dismiss(); return }
-            guests = view.guests
-            pending = view.pending
-            statusMessage = nil
-        } catch {
-            guard hasManagementAuthority else { dismiss(); return }
-            statusMessage = "Couldn't load the live guest list. Reopen when you're back online."
-        }
-    }
-
-    @MainActor private func decide(_ guest: NativeGroupEventGuestRecord, approve: Bool) async {
-        guard hasManagementAuthority else { dismiss(); return }
-        nativeImpactLight()
-        decidingUserId = guest.userId
-        defer { decidingUserId = nil }
-        let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
-        let api = NativeGroupEventDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
-        do {
-            _ = try await api.decide(eventId: event.id, userId: guest.userId, decision: approve ? "approve" : "decline")
-            guard hasManagementAuthority else { dismiss(); return }
-            await load()
-        } catch {
-            guard hasManagementAuthority else { dismiss(); return }
-            statusMessage = "Couldn't update \(guest.displayName). Try again."
-        }
-    }
-
-    @MainActor private func revokeAccessIfNeeded() {
-        guard !hasManagementAuthority else { return }
-        guests = []
-        pending = []
-        dismiss()
-    }
-}
-
-private struct NativeGroupEventSetupSheet: View {
-    let tier: BytspotTier
-    let socialCircleNames: [String]
-    let onCreate: (NativeGroupEventRecord) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedType: String
-    @State private var eventName: String
-    @State private var timing: NativeGroupEventTimingState = .now
-    @State private var inviteNote = ""
-    @State private var hostName = "Bytspot Member"
-    @State private var scheduledDate = "Tonight · live now"
-    @State private var locationLabel = "Host-selected private table"
-    @State private var theme = "Premium dinner"
-    @State private var visibility: NativeGroupEventPrivacyStatus = .privateInvite
-    @State private var audienceCircle: String
-    @State private var fontStyle = NativeGroupEventContract.defaultFontStyles[0]
-    @State private var coHostsText = ""
-    @State private var playlistURL = ""
-    @State private var thumbnailURL = ""
-    @State private var videoURL = ""
-    @State private var ticketingLabel = ""
-    @State private var chipInLabel = ""
-    @State private var paymentMethod = "Venmo"
-    @State private var paymentLabel = ""
-    @State private var paymentURL = ""
-    @State private var paymentNote = ""
-    @State private var showCostPerPersonSheet = false
-    @State private var rsvpCutoff = ""
-    @State private var rsvpStyle: NativeGroupEventRSVPStyle = .emojis
-    @State private var showRSVPStylePicker = false
-    @State private var customQuestionsText = ""
-    @State private var hideActivityTimestamps = false
-    @State private var hideGuestList = false
-    @State private var dressCode = ""
-    @State private var foodSituation = ""
-    @State private var parkingInstructions = ""
-    @State private var accommodation = ""
-    @State private var eventNotes = ""
-    @State private var linkURL = ""
-    @State private var iconName = "sparkles"
-    @State private var selectedHeroImage: UIImage?
-    @State private var showHeroImagePicker = false
-    @State private var activityHighlightsText = "Chef menu, Private arrival, Invite-only offers"
-    @State private var instagramHandle = ""
-    @State private var allowNearbyOffers = true
-    @State private var requiresApproval = false
-    @State private var activeAddOnField: NativeGroupEventAddOnField?
-    @State private var addOnTitles: [String: String] = [:]
-    @State private var addOnIcons: [String: String] = [:]
-    @State private var didRunComposerPreviewCheck = false
-
-    init(initialType: String, tier: BytspotTier, socialCircleNames: [String] = NativeGroupEventContract.defaultAudienceCircles, onCreate: @escaping (NativeGroupEventRecord) -> Void) {
-        self.tier = tier
-        let circles = socialCircleNames.isEmpty ? NativeGroupEventContract.defaultAudienceCircles : socialCircleNames
-        self.socialCircleNames = circles
-        self.onCreate = onCreate
-        let safeType = NativeGroupEventContract.defaultEventTypes.contains(initialType) ? initialType : NativeGroupEventContract.defaultEventTypes[0]
-        _selectedType = State(initialValue: safeType)
-        _eventName = State(initialValue: safeType == "Custom" ? "Private Group" : "\(safeType) Group")
-        _audienceCircle = State(initialValue: circles.first ?? "Close Friends")
-    }
-
-    private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: tier) }
-    private var canGoLive: Bool { !eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var privateAudienceFallback: String { socialCircleNames.first(where: { $0 != "Public" }) ?? "Close Friends" }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                composerTopBar
-                composerHero
-                composerEssentials
-                composerAddOns
-                inputField(title: "Note for guests", placeholder: "Pull up when you can — details stay inside the invite.", text: $inviteNote, lineLimit: 3)
-                composerRSVP
-                composerHostControls
-                composerGuestPreview
-                goLiveButton
+            try await api.addPersonToSocialCircleViaRpc(circleID: circleID, userID: personID)
+            if let index = circleSnapshot.groups.firstIndex(where: { $0.id == circleID }), !circleSnapshot.groups[index].memberIDs.contains(personID) {
+                circleSnapshot.groups[index].memberIDs.append(personID)
+                circleSnapshot.groups[index].memberCount += 1
             }
-            .padding(20)
-            .padding(.bottom, 18)
-        }
-        .background(NativeTheme.background.ignoresSafeArea())
-        .onChange(of: selectedType) { type in
-            if eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || NativeGroupEventContract.defaultEventTypes.map({ $0 == "Custom" ? "Private Group" : "\($0) Group" }).contains(eventName) {
-                eventName = type == "Custom" ? "Private Group" : "\(type) Group"
-            }
-        }
-        .onAppear { openComposerSheetPreviewIfRequested() }
-        .sheet(isPresented: $showRSVPStylePicker) {
-            let picker = NativeGroupEventRSVPStylePickerSheet(selectedStyle: $rsvpStyle)
-            if #available(iOS 16.0, *) { picker.presentationDetents([.medium, .large]).presentationDragIndicator(.visible) } else { picker }
-        }
-        .sheet(item: $activeAddOnField) { field in
-            let editor = NativeGroupEventCustomFieldSheet(field: field, initialTitle: addOnTitle(for: field), initialIcon: addOnIcon(for: field), initialValue: addOnValue(for: field)) { title, icon, value in
-                saveAddOn(field, title: title, icon: icon, value: value)
-            }
-            if #available(iOS 16.0, *) { editor.presentationDetents([.height(430), .medium]).presentationDragIndicator(.visible) } else { editor }
-        }
-        .sheet(isPresented: $showHeroImagePicker) {
-            NativeGroupEventHeroImagePicker(image: $selectedHeroImage)
-        }
-        .sheet(isPresented: $showCostPerPersonSheet) {
-            let sheet = NativeGroupEventCostPerPersonSheet(initialMode: costSheetInitialMode, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, paymentMethod: paymentMethod, paymentLabel: paymentLabel, paymentURL: paymentURL, paymentNote: paymentNote) { ticketing, chipIn, method, label, url, note in
-                ticketingLabel = ticketing
-                chipInLabel = chipIn
-                paymentMethod = method
-                paymentLabel = label
-                paymentURL = url
-                paymentNote = note
-            }
-            if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
-        }
-        .accessibilityIdentifier("native-group-event-setup-sheet")
+            statusMessage = "Person added to \(selectedCircleName ?? "circle"). You can send the invite now."
+        } catch { statusMessage = "The person couldn't be added. Try again." }
     }
 
-    private var composerTopBar: some View {
-        HStack(spacing: 10) {
-            Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 38, height: 38).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
-            Spacer()
-            Button(action: { visibility = visibility == .privateInvite ? .publicDiscovery : .privateInvite; audienceCircle = visibility == .publicDiscovery ? "Public" : privateAudienceFallback }) { Label(visibility == .privateInvite ? "Private Invite" : "Public", systemImage: visibility == .privateInvite ? "lock.fill" : "globe").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).frame(height: 36).background(NativePolish.elevatedSurface).clipShape(Capsule()) }.buttonStyle(.plain)
-            Button(action: goLive) { Text("Save").font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 38).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(Capsule()) }.buttonStyle(.plain).disabled(!canGoLive)
-        }
+    private func sendSelectedInvitation() async {
+        guard let personID = selectedPersonID, let circleID = selectedCircleID else { statusMessage = "Select a person and circle first."; return }
+        isWorking = true; defer { isWorking = false }
+        do { if let invitation = try await api.sendSocialInvitationViaRpc(userID: personID, circleID: circleID) { invitations.removeAll { $0.id == invitation.id }; invitations.insert(invitation, at: 0) }; statusMessage = "Invitation sent."; segment = .invitations } catch { statusMessage = "The invitation couldn't be sent. Try again." }
     }
 
-    private var composerHero: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Untitled Group", text: $eventName)
-                .font(.system(size: 31, weight: .black, design: .rounded))
-                .foregroundColor(NativeTheme.textPrimary)
-                .tint(NativeTheme.cyan)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false).frame(width: 112) }.buttonStyle(.plain) } }
-            }
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 26, style: .continuous).fill(LinearGradient(colors: [NativeTheme.emerald.opacity(0.36), NativeTheme.cyan.opacity(0.28), NativeTheme.purple.opacity(0.26), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-                if let selectedHeroImage {
-                    Image(uiImage: selectedHeroImage).resizable().scaledToFill().frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
-                } else {
-                    Image(systemName: iconName.isEmpty ? "sparkles" : iconName).font(.system(size: 74, weight: .black)).foregroundColor(NativeTheme.cyan.opacity(0.34))
-                }
-                Button(action: { showHeroImagePicker = true }) {
-                    Image(systemName: selectedHeroImage == nil ? "photo.badge.plus" : "pencil")
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundColor(.black)
-                        .frame(width: 38, height: 38)
-                        .background(NativeTheme.emerald)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .padding(12)
-            }
-            .frame(height: 210)
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultFontStyles, id: \.self) { style in Button(action: { fontStyle = style }) { setupChip(style, active: fontStyle == style, locked: false).frame(width: 132) }.buttonStyle(.plain) } } }
-        }
-        .padding(15)
-        .background(NativePolish.elevatedSurface.opacity(0.76))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-    }
-
-    private var composerEssentials: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Essentials")
-            timingSelector
-            inputField(title: "Hosted by", placeholder: "Host nickname", text: $hostName)
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(socialCircleNames, id: \.self) { circle in Button(action: { audienceCircle = circle; visibility = circle == "Public" ? .publicDiscovery : .privateInvite }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 122) }.buttonStyle(.plain) } } }
-            inputField(title: "Date", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
-            inputField(title: "Location", placeholder: "Shared after joining", text: $locationLabel)
-            setupFact(title: "Spots", subtitle: "Up to \(entitlement.participantCapacity) guests on \(tier.displayName).", icon: "person.2.fill")
-            costPerPersonRow
-        }
-    }
-
-    private var costPerPersonRow: some View {
-        Button(action: { showCostPerPersonSheet = true }) {
-            HStack(spacing: 12) {
-                Image(systemName: "ticket.fill").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.orange).frame(width: 32, height: 32).background(NativeTheme.orange.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Cost per person").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                    Text(costPerPersonSummary).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Text(ticketingLabel.isEmpty && chipInLabel.isEmpty ? "Sell tickets!" : "Edit")
-                    .font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 30).background(NativeTheme.cyan).clipShape(Capsule())
-            }
-            .padding(13)
-            .background(NativePolish.elevatedSurface.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var costPerPersonSummary: String {
-        if !ticketingLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return ticketingLabel }
-        if !chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return chipInLabel }
-        return "Free until tickets or chip-in are set"
-    }
-
-    private var costSheetInitialMode: NativeGroupEventCostMode {
-        #if DEBUG
-        if NativeDebugAutoSheetPreviewGate.isEnabled,
-           ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased() == "cost-money" { return .requestMoney }
-        #endif
-        let hasSavedCost = !ticketingLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !paymentNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard hasSavedCost else { return .sellTickets }
-        let savedMethod = paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let savedChipIn = chipInLabel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if ["venmo", "cash app", "paypal"].contains(savedMethod) || savedChipIn.contains("required amount") || savedChipIn.contains("suggested amount") || savedChipIn.contains("optional chip-in") { return .requestMoney }
-        if !savedMethod.isEmpty && savedMethod != "stripe express" && savedMethod != "venmo" { return .requestMoney }
-        return .sellTickets
-    }
-
-    private var composerAddOns: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Add-ons")
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(NativeGroupEventAddOnField.allCases) { field in Button(action: { activeAddOnField = field }) { addOnChip(field) }.buttonStyle(.plain) } } }
-        }
-    }
-
-    private var composerRSVP: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack { setupLabel("RSVP Options"); Spacer(); Button(action: { showRSVPStylePicker = true }) { setupChip("\(rsvpStyle.leadingSymbol) \(rsvpStyle.displayName)", active: true, locked: false).frame(width: 132) }.buttonStyle(.plain) }
-            HStack(spacing: 10) { composerRSVPBubble(rsvpStyle.goingSymbol, "Going"); composerRSVPBubble(rsvpStyle.maybeSymbol, "Maybe"); composerRSVPBubble(rsvpStyle.cantGoSymbol, "Can't Go") }
-            inputField(title: "RSVP deadline", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
-            inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
-        }
-    }
-
-    private var composerHostControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Quick actions for hosts")
-            Toggle("Require guest approval", isOn: $requiresApproval).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Toggle("Hide guest list", isOn: $hideGuestList).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Toggle("Allow nearby offers", isOn: $allowNearbyOffers).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
-    private var composerGuestPreview: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Guest App Clip output")
-            HStack(alignment: .top, spacing: 11) {
-                Image(systemName: iconName.isEmpty ? "bolt.fill" : iconName).font(.system(size: 16, weight: .black)).foregroundColor(.black).frame(width: 38, height: 38).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) { Text(eventName.isEmpty ? "Untitled Group" : eventName).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("\(scheduledDate) · \(audienceCircle)").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary); Text("Guests see RSVP, host, location rules, and join/request button in the App Clip.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).fixedSize(horizontal: false, vertical: true) }
-                Spacer(minLength: 0)
-            }
-            .padding(14).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.24), lineWidth: 1))
-        }
-    }
-
-    private func addOnChip(_ field: NativeGroupEventAddOnField) -> some View {
-        let filled = !addOnValue(for: field).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return HStack(spacing: 7) {
-            Image(systemName: filled ? addOnIcon(for: field) : "plus").font(.system(size: 11, weight: .black))
-            Text(filled ? addOnTitle(for: field) : field.chipTitle).font(.system(size: 12, weight: .black))
-        }
-        .foregroundColor(filled ? .black : NativeTheme.textPrimary)
-        .padding(.horizontal, 13)
-        .frame(height: 34)
-        .background(filled ? NativeTheme.emerald : NativePolish.elevatedSurface.opacity(0.82))
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(filled ? NativeTheme.emerald.opacity(0.22) : NativePolish.softBorder, lineWidth: 1))
-    }
-
-    private func addOnTitle(for field: NativeGroupEventAddOnField) -> String { addOnTitles[field.rawValue] ?? field.displayTitle }
-    private func addOnIcon(for field: NativeGroupEventAddOnField) -> String { addOnIcons[field.rawValue] ?? field.defaultIcon }
-
-    private func addOnValue(for field: NativeGroupEventAddOnField) -> String {
-        switch field {
-        case .link, .registry: return linkURL
-        case .playlist: return playlistURL
-        case .dressCode: return dressCode
-        case .foodSituation: return foodSituation
-        case .parking: return parkingInstructions
-        case .accommodation: return accommodation
-        case .additionalInfo: return eventNotes
-        }
-    }
-
-    private func saveAddOn(_ field: NativeGroupEventAddOnField, title: String, icon: String, value: String) {
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanIcon = icon.trimmingCharacters(in: .whitespacesAndNewlines)
-        addOnTitles[field.rawValue] = cleanTitle.isEmpty ? field.displayTitle : cleanTitle
-        addOnIcons[field.rawValue] = cleanIcon.isEmpty ? field.defaultIcon : cleanIcon
-        switch field {
-        case .link, .registry: linkURL = value
-        case .playlist: playlistURL = value
-        case .dressCode: dressCode = value
-        case .foodSituation: foodSituation = value
-        case .parking: parkingInstructions = value
-        case .accommodation: accommodation = value
-        case .additionalInfo: eventNotes = value
-        }
-    }
-
-    private func openComposerSheetPreviewIfRequested() {
-        #if DEBUG
-        guard !didRunComposerPreviewCheck else { return }
-        didRunComposerPreviewCheck = true
-        guard NativeDebugAutoSheetPreviewGate.isEnabled else { return }
-        let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_GROUP_COMPOSER_PANEL_PREVIEW"]?.lowercased()
-        guard raw == "rsvp" || raw == "addon" || raw == "cost" || raw == "cost-money" else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            if raw == "rsvp" { showRSVPStylePicker = true }
-            else if raw == "addon" { activeAddOnField = .link }
-            else if raw == "cost" || raw == "cost-money" { showCostPerPersonSheet = true }
-        }
-        #endif
-    }
-
-    private func composerRSVPBubble(_ emoji: String, _ title: String) -> some View {
-        VStack(spacing: 5) { Text(emoji).font(.system(size: 25)); Text(title).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
-            .frame(maxWidth: .infinity).frame(height: 78).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("GROUP EVENT TEMPLATE").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.2)
-            Text("Confirm details before going live.").font(.system(size: 26, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-            Text("\(tier.rawValue.capitalized) includes \(entitlement.activeEventLimit) live group\(entitlement.activeEventLimit == 1 ? "" : "s"), up to \(entitlement.participantCapacity) people, and a \(entitlement.liveDurationHours)h live window.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            Text("Manual Venmo/Cash App/PayPal/custom links are saved as unverified host metadata only — Bytspot does not verify payment status in this phase.").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var typeSelector: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Group type")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(NativeGroupEventContract.defaultEventTypes, id: \.self) { type in
-                    Button(action: { selectedType = type }) { setupChip(type, active: selectedType == type, locked: false) }.buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var visibilitySelector: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Visibility & discovery")
-            HStack(spacing: 8) {
-                Button(action: { visibility = .privateInvite; audienceCircle = audienceCircle == "Public" ? privateAudienceFallback : audienceCircle }) { setupChip("Private", active: visibility == .privateInvite, locked: false) }.buttonStyle(.plain)
-                Button(action: { visibility = .publicDiscovery; audienceCircle = "Public" }) { setupChip("Public", active: visibility == .publicDiscovery, locked: false) }.buttonStyle(.plain)
-            }
-            Text(visibility == .publicDiscovery ? "Public events can appear on Home and Discovery." : "Private events distribute only to selected circles or invited guests.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
-        }
-    }
-
-    private var customizationFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Card customization")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(NativeGroupEventContract.defaultFontStyles, id: \.self) { style in Button(action: { fontStyle = style }) { setupChip(style, active: fontStyle == style, locked: false).frame(width: 132) }.buttonStyle(.plain) } }
-            }
-            inputField(title: "Thumbnail URL", placeholder: "https://.../poster.jpg", text: $thumbnailURL)
-            inputField(title: "Video URL", placeholder: "https://.../clip.mp4 or HLS", text: $videoURL)
-            inputField(title: "Artist playlist", placeholder: "Spotify / Apple Music / SoundCloud link", text: $playlistURL)
-        }
-    }
-
-    private var timingSelector: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("When")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(NativeGroupEventTimingState.allCases, id: \.rawValue) { option in
-                    let locked = !entitlement.allowedTimingStates.contains(option)
-                    Button(action: { if !locked { timing = option } }) { setupChip(option.label, active: timing == option, locked: locked) }.buttonStyle(.plain).disabled(locked)
-                }
-            }
-            Text("This Week and Weekly unlock with Platinum/Black.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
-        }
-    }
-
-    private var logisticsFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Logistics & experience")
-            inputField(title: "Host", placeholder: "Kojo Asante", text: $hostName)
-            inputField(title: "Co-hosts", placeholder: "DJ Ama, Broni Home Taste, Artist K", text: $coHostsText)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(socialCircleNames, id: \.self) { circle in Button(action: { audienceCircle = circle; visibility = circle == "Public" ? .publicDiscovery : .privateInvite }) { setupChip(circle, active: audienceCircle == circle, locked: false).frame(width: 120) }.buttonStyle(.plain) } }
-            }
-            inputField(title: "Schedule", placeholder: "Tonight · 8:00 PM", text: $scheduledDate)
-            inputField(title: "Location", placeholder: "Host-selected private table", text: $locationLabel)
-            inputField(title: "Theme", placeholder: "Premium dinner", text: $theme)
-            inputField(title: "Highlights", placeholder: "Chef menu, Private arrival, Invite-only offers", text: $activityHighlightsText, lineLimit: 2)
-            inputField(title: "Instagram", placeholder: "@yourhandle", text: $instagramHandle)
-            Text("These details travel in the private invite URL so the App Clip can render context without a network round-trip. Keep sensitive address details minimal.").nativeBody(size: 11.5, color: NativeTheme.textTertiary)
-        }
-    }
-
-    private var monetizationFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Ticketing & manual chip-in")
-            inputField(title: "Ticketing", placeholder: "Free, $20 standard ticket, Premium wristband", text: $ticketingLabel)
-            inputField(title: "Chip-in", placeholder: "Required $15 or Pay what you can", text: $chipInLabel)
-            inputField(title: "Payment method", placeholder: "Venmo, Cash App, PayPal, Custom", text: $paymentMethod)
-            inputField(title: "Payment label", placeholder: "Venmo @host", text: $paymentLabel)
-            inputField(title: "Payment link", placeholder: "https://venmo.com/...", text: $paymentURL)
-            inputField(title: "Payment note", placeholder: "Include your name + event title", text: $paymentNote)
-            setupFact(title: "Manual / unverified", subtitle: "Payment links are host-entered metadata. Bytspot does not verify paid status yet.", icon: "exclamationmark.shield.fill")
-        }
-    }
-
-    private var rsvpFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("RSVP & guest controls")
-            setupFact(title: "Quick responses", subtitle: "Guests answer with emoji RSVP: 1 Going, 2 Maybe, 3 Can't Go.", icon: "hand.tap.fill")
-            inputField(title: "RSVP cutoff", placeholder: "Today · 6:00 PM", text: $rsvpCutoff)
-            inputField(title: "Guest questions", placeholder: "Any allergies?; Bringing +1?", text: $customQuestionsText)
-            Toggle("Hide activity timestamps", isOn: $hideActivityTimestamps).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Toggle("Hide guest list from attendees", isOn: $hideGuestList).tint(NativeTheme.emerald).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.78)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
-    private var metadataFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Custom metadata")
-            inputField(title: "Dress code", placeholder: "All black, elevated casual", text: $dressCode)
-            inputField(title: "Food situation", placeholder: "Small bites, full dinner, BYOB", text: $foodSituation)
-            inputField(title: "Parking", placeholder: "Garage entrance, valet, street tips", text: $parkingInstructions)
-            inputField(title: "Accommodation", placeholder: "Nearby hotel or host note", text: $accommodation)
-            inputField(title: "Event notes", placeholder: "Details guests should know", text: $eventNotes, lineLimit: 3)
-            inputField(title: "Optional link", placeholder: "Registry, website, menu, map", text: $linkURL)
-            inputField(title: "Icon", placeholder: "sparkles, music.note, fork.knife", text: $iconName)
-        }
-    }
-
-    private var privacyControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            setupLabel("Privacy & offers")
-            setupFact(title: "Private invite link", subtitle: "Only people with the invite can join.", icon: "lock.fill")
-            Toggle(isOn: $allowNearbyOffers) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Allow nearby offers").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                    Text(NativeGroupEventContract.matchedOfferExplanation).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(NativeTheme.emerald)
-            .padding(13)
-            .background(NativePolish.elevatedSurface.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Toggle(isOn: $requiresApproval) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Require approval to join").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                    Text("Guests request access from the App Clip and stay pending until you approve them.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(NativeTheme.emerald)
-            .padding(13)
-            .background(NativePolish.elevatedSurface.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
-    private var goLiveButton: some View {
-        Button(action: goLive) {
-            Text("Go Live").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(canGoLive ? NativeTheme.emerald : NativeTheme.textTertiary).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(!canGoLive)
-    }
-
-    private func inputField(title: String, placeholder: String, text: Binding<String>, lineLimit: Int = 1) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            setupLabel(title)
-            TextField(placeholder, text: text)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundColor(NativeTheme.textPrimary)
-                .tint(NativeTheme.cyan)
-                .padding(14)
-                .background(NativePolish.elevatedSurface.opacity(0.82))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
-    private func setupChip(_ title: String, active: Bool, locked: Bool) -> some View {
-        HStack(spacing: 6) {
-            if locked { Image(systemName: "lock.fill").font(.system(size: 10, weight: .black)) }
-            Text(title).font(.system(size: 12.5, weight: .black))
-        }
-        .foregroundColor(active ? .black : locked ? NativeTheme.textTertiary : NativeTheme.textPrimary)
-        .frame(maxWidth: .infinity).frame(height: 38)
-        .background(active ? NativeTheme.emerald : NativePolish.elevatedSurface.opacity(0.78))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(locked ? NativePolish.softBorder.opacity(0.5) : NativePolish.softBorder, lineWidth: 1))
-    }
-
-    private func setupFact(title: String, subtitle: String, icon: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 28, height: 28).background(NativeTheme.cyan.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text(subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
-            }
-        }
-        .padding(13)
-        .background(NativePolish.elevatedSurface.opacity(0.78))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func setupLabel(_ title: String) -> some View { Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.0) }
-
-    private func goLive() {
-        guard canGoLive else { return }
-        let highlights = activityHighlightsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let coHosts = coHostsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let questions = customQuestionsText.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let payment = NativePrimaryEventManualPayment.optional(method: paymentMethod, label: paymentLabel.isEmpty ? paymentMethod : paymentLabel, url: paymentURL, note: paymentNote)
-        let record = NativeGroupEventRecord.created(type: selectedType, title: eventName, timing: timing, inviteNote: inviteNote, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, hostName: hostName, tier: tier, privacyStatus: visibility, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, activityHighlights: highlights, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURL, thumbnailURLString: thumbnailURL, videoURLString: videoURL, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: payment, rsvpCutoff: rsvpCutoff, customQuestions: questions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURL, iconName: iconName)
-        onCreate(record)
-        dismiss()
+    private func respond(to invitation: NativeSocialInvitation, response: String) async {
+        isWorking = true; defer { isWorking = false }
+        do { try await api.respondToSocialInvitationViaRpc(id: invitation.id, response: response); invitations = try await api.listSocialInvitationsViaRpc(); statusMessage = response == "accepted" ? "Invitation accepted." : "Invitation declined." } catch { statusMessage = "The invitation response couldn't be saved." }
     }
 }
 
-private enum NativeGroupEventRSVPStyle: String, CaseIterable, Identifiable, Equatable {
-    case emojis, icons, bloom, flirty, hearts, modernDating, sweaty, spooky, turkey, frosty, milkCookies
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .emojis: return "Emojis"
-        case .icons: return "Icons"
-        case .bloom: return "Bloom"
-        case .flirty: return "Flirty"
-        case .hearts: return "Hearts"
-        case .modernDating: return "Modern dating"
-        case .sweaty: return "Sweaty"
-        case .spooky: return "Spooky"
-        case .turkey: return "Turkey"
-        case .frosty: return "Frosty"
-        case .milkCookies: return "Milk & cookies"
-        }
-    }
-    var leadingSymbol: String { goingSymbol }
-    var goingSymbol: String {
-        switch self { case .emojis: return "👍"; case .icons: return "☑️"; case .bloom: return "🌷"; case .flirty: return "💋"; case .hearts: return "❤️"; case .modernDating: return "👻"; case .sweaty: return "🥵"; case .spooky: return "🎃"; case .turkey: return "🦃"; case .frosty: return "☃️"; case .milkCookies: return "🎅" }
-    }
-    var maybeSymbol: String {
-        switch self { case .emojis: return "🤔"; case .icons: return "❔"; case .bloom: return "🌼"; case .flirty: return "😉"; case .hearts: return "💛"; case .modernDating: return "👀"; case .sweaty: return "😅"; case .spooky: return "👻"; case .turkey: return "🥧"; case .frosty: return "❄️"; case .milkCookies: return "🍪" }
-    }
-    var cantGoSymbol: String {
-        switch self { case .emojis: return "😢"; case .icons: return "❌"; case .bloom: return "🥀"; case .flirty: return "🙅"; case .hearts: return "💔"; case .modernDating: return "🚫"; case .sweaty: return "💦"; case .spooky: return "🪦"; case .turkey: return "🍽️"; case .frosty: return "🥶"; case .milkCookies: return "🥛" }
-    }
-}
 
-private enum NativeGroupEventAddOnField: String, CaseIterable, Identifiable, Equatable {
-    case link, playlist, registry, dressCode, foodSituation, parking, accommodation, additionalInfo
-    var id: String { rawValue }
-    var chipTitle: String { displayTitle }
-    var displayTitle: String {
-        switch self {
-        case .link: return "Link"
-        case .playlist: return "Playlist"
-        case .registry: return "Registry"
-        case .dressCode: return "Dress code"
-        case .foodSituation: return "Food Situation"
-        case .parking: return "Parking"
-        case .accommodation: return "Accommodation"
-        case .additionalInfo: return "Additional info"
-        }
-    }
-    var defaultIcon: String {
-        switch self {
-        case .link: return "link"
-        case .playlist: return "music.note"
-        case .registry: return "gift.fill"
-        case .dressCode: return "tshirt.fill"
-        case .foodSituation: return "fork.knife"
-        case .parking: return "car.fill"
-        case .accommodation: return "bed.double.fill"
-        case .additionalInfo: return "info.circle.fill"
-        }
-    }
-    var inputLabel: String {
-        switch self {
-        case .link, .registry: return "Link"
-        case .playlist: return "Playlist link"
-        case .dressCode: return "Dress code"
-        case .foodSituation: return "Food situation"
-        case .parking: return "Parking"
-        case .accommodation: return "Accommodation"
-        case .additionalInfo: return "Additional info"
-        }
-    }
-    var placeholder: String {
-        switch self {
-        case .link: return "https://yourlink.com"
-        case .playlist: return "Spotify / Apple Music link"
-        case .registry: return "Registry, menu, website, map"
-        case .dressCode: return "All black, elevated casual"
-        case .foodSituation: return "Small bites, full dinner, BYOB"
-        case .parking: return "Garage entrance, valet, street tips"
-        case .accommodation: return "Hotel block, nearby stay, host note"
-        case .additionalInfo: return "Anything guests should know"
-        }
-    }
-}
-
-private struct NativeGroupEventHeroImagePicker: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = false
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        let parent: NativeGroupEventHeroImagePicker
-        init(parent: NativeGroupEventHeroImagePicker) { self.parent = parent }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            parent.image = info[.originalImage] as? UIImage
-            parent.dismiss()
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.dismiss()
-        }
-    }
-}
-
-private struct NativeGroupEventRSVPStylePickerSheet: View {
-    @Binding var selectedStyle: NativeGroupEventRSVPStyle
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 8) {
-                Capsule().fill(NativeTheme.textTertiary.opacity(0.35)).frame(width: 54, height: 5).frame(maxWidth: .infinity).padding(.bottom, 12)
-                ForEach(NativeGroupEventRSVPStyle.allCases) { style in
-                    Button(action: { selectedStyle = style; dismiss() }) {
-                        HStack(spacing: 14) {
-                            Text(style.leadingSymbol).font(.system(size: 28))
-                            Text(style.displayName).font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-                            Spacer()
-                            if selectedStyle == style { Image(systemName: "checkmark").font(.system(size: 21, weight: .black)).foregroundColor(NativeTheme.textPrimary) }
-                        }
-                        .padding(.horizontal, 18).frame(height: 58)
-                        .background(selectedStyle == style ? NativePolish.elevatedSurface.opacity(0.92) : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }.buttonStyle(.plain)
-                }
-            }.padding(20)
-        }
-        .background(NativeTheme.background.ignoresSafeArea())
-        .accessibilityIdentifier("native-group-event-rsvp-style-picker")
-    }
-}
-
-private struct NativeGroupEventCustomFieldSheet: View {
-    let field: NativeGroupEventAddOnField
-    let onSave: (String, String, String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var titleText: String
-    @State private var selectedIcon: String
-    @State private var valueText: String
-    private let iconOptions = ["link", "music.note", "gift.fill", "tshirt.fill", "fork.knife", "info.circle.fill", "car.fill", "bed.double.fill"]
-
-    init(field: NativeGroupEventAddOnField, initialTitle: String, initialIcon: String, initialValue: String, onSave: @escaping (String, String, String) -> Void) {
-        self.field = field; self.onSave = onSave
-        _titleText = State(initialValue: initialTitle)
-        _selectedIcon = State(initialValue: initialIcon)
-        _valueText = State(initialValue: initialValue)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack { closeButton; Spacer(); Text("Custom Field").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); saveButton }
-            TextField("Field name", text: $titleText)
-                .font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.emerald)
-                .padding(12).padding(.leading, 25).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(alignment: .leading) { Image(systemName: selectedIcon).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.leading, 10) }.overlay(RoundedRectangle(cornerRadius: 2).stroke(NativeTheme.textPrimary.opacity(0.55), lineWidth: 1))
-            Text("Icon").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(iconOptions, id: \.self) { icon in Button(action: { selectedIcon = icon }) { Image(systemName: icon).font(.system(size: 13, weight: .black)).foregroundColor(.white).frame(width: 34, height: 32).background(selectedIcon == icon ? NativeTheme.emerald : NativePolish.elevatedSurface.opacity(0.88)).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous)) }.buttonStyle(.plain) } } }
-            Text("\(field.inputLabel)*").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
-            TextField(field.placeholder, text: $valueText)
-                .font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.emerald)
-                .padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 2).stroke(NativeTheme.textPrimary.opacity(0.25), lineWidth: 1))
-            Spacer(minLength: 0)
-        }
-        .padding(18)
-        .background(NativeTheme.background.ignoresSafeArea())
-        .accessibilityIdentifier("native-group-event-custom-field-sheet")
-    }
-
-    private var closeButton: some View { Button(action: { dismiss() }) { Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 28, height: 28).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain) }
-    private var saveButton: some View { Button(action: { onSave(titleText, selectedIcon, valueText); dismiss() }) { Text("Save").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 30).background(NativeTheme.emerald).clipShape(Capsule()) }.buttonStyle(.plain) }
-}
-
-private enum NativeGroupEventCostMode: String, CaseIterable, Identifiable { case sellTickets, requestMoney; var id: String { rawValue } }
-
-private struct NativeGroupEventCostPerPersonSheet: View {
-    let onSave: (String, String, String, String, String, String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var mode: NativeGroupEventCostMode = .sellTickets
-    @State private var stripeStarted = false
-    @State private var ticketName = "General wristband"
-    @State private var ticketPrice = ""
-    @State private var ticketQuantity = ""
-    @State private var includeVendorOffers = true
-    @State private var chipInType = "Required amount"
-    @State private var currency = "USD $"
-    @State private var amount = ""
-    @State private var venmo = ""
-    @State private var cashApp = ""
-    @State private var paypal = ""
-    @State private var alternativeMethod = ""
-    @State private var alternativeHandle = ""
-    @State private var paymentInstructions = ""
-
-    init(initialMode: NativeGroupEventCostMode = .sellTickets, ticketingLabel: String, chipInLabel: String, paymentMethod: String, paymentLabel: String, paymentURL: String, paymentNote: String, onSave: @escaping (String, String, String, String, String, String) -> Void) {
-        self.onSave = onSave
-        let cleanMethod = paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanLabel = paymentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanURL = paymentURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let savedHandle = cleanURL.isEmpty ? cleanLabel : cleanURL
-        let savedMethods = Self.paymentMethods(from: paymentNote)
-        let savedAlternative = savedMethods.first { !["Venmo", "Cash App", "PayPal", "Instructions"].contains($0.key) }
-        _mode = State(initialValue: initialMode)
-        _stripeStarted = State(initialValue: cleanMethod == "Stripe Express")
-        _ticketName = State(initialValue: Self.ticketName(from: ticketingLabel))
-        _ticketPrice = State(initialValue: Self.amountFrom(label: ticketingLabel))
-        _ticketQuantity = State(initialValue: Self.quantityFrom(note: paymentNote))
-        _includeVendorOffers = State(initialValue: !paymentNote.localizedCaseInsensitiveContains("No vendor bundle"))
-        _amount = State(initialValue: Self.amountFrom(label: chipInLabel.isEmpty ? ticketingLabel : chipInLabel))
-        _chipInType = State(initialValue: Self.chipInType(from: chipInLabel))
-        _venmo = State(initialValue: savedMethods["Venmo"] ?? (cleanMethod == "Venmo" ? savedHandle : ""))
-        _cashApp = State(initialValue: savedMethods["Cash App"] ?? (cleanMethod == "Cash App" ? savedHandle : ""))
-        _paypal = State(initialValue: savedMethods["PayPal"] ?? (cleanMethod == "PayPal" ? savedHandle : ""))
-        _alternativeMethod = State(initialValue: savedAlternative?.key ?? (Self.isAlternativeMethod(cleanMethod) ? cleanMethod : ""))
-        _alternativeHandle = State(initialValue: savedAlternative?.value ?? (Self.isAlternativeMethod(cleanMethod) ? savedHandle : ""))
-        _paymentInstructions = State(initialValue: Self.instructions(from: paymentNote))
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            costHeader
-            modeTabs
-            Divider().background(NativePolish.softBorder)
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    if mode == .sellTickets { sellTicketsPanel } else { requestMoneyPanel }
-                }
-                .padding(18)
-                .padding(.bottom, 22)
-            }
-        }
-        .background(NativeTheme.background.ignoresSafeArea())
-        .accessibilityIdentifier("native-group-event-cost-per-person-sheet")
-    }
-
-    private var costHeader: some View {
-        HStack {
-            Button(action: { dismiss() }) { Image(systemName: "chevron.left").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 34, height: 34).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
-            Spacer()
-            Text("Cost Per Person").font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Spacer()
-            Button(action: {}) { Image(systemName: "questionmark").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 34, height: 34).background(NativePolish.elevatedSurface).clipShape(Circle()) }.buttonStyle(.plain)
-        }.padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
-    }
-
-    private var modeTabs: some View {
-        HStack(spacing: 0) {
-            costTab(.sellTickets, title: "Sell Tickets", icon: "bolt.fill")
-            costTab(.requestMoney, title: "Request Money", icon: "dollarsign.circle.fill")
-        }.padding(.horizontal, 14)
-    }
-
-    private func costTab(_ tab: NativeGroupEventCostMode, title: String, icon: String) -> some View {
-        Button(action: { mode = tab }) {
-            VStack(spacing: 9) {
-                HStack(spacing: 6) { Image(systemName: icon).font(.system(size: 11, weight: .black)); Text(title).font(.system(size: 13, weight: .black)) }
-                Rectangle().fill(mode == tab ? NativeTheme.cyan : Color.clear).frame(height: 2)
-            }.foregroundColor(mode == tab ? NativeTheme.textPrimary : NativeTheme.textSecondary)
-        }.buttonStyle(.plain)
-    }
-
-    private var sellTicketsPanel: some View {
-        VStack(alignment: .center, spacing: 18) {
-            Spacer(minLength: 20)
-            ZStack {
-                Circle().fill(NativeTheme.cyan.opacity(0.18)).frame(width: 132, height: 132)
-                Image(systemName: "ticket.fill").font(.system(size: 62, weight: .black)).foregroundColor(NativeTheme.cyan).rotationEffect(.degrees(-9))
-            }
-            Text(stripeStarted ? "Stripe Express ticket setup" : "Start selling tickets").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
-            Text(stripeStarted ? "Set the first wristband sale details. Stripe Express handles onboarding, payouts, and hosted checkout when backend wiring is connected." : "Confirm event details to get started. Tickets, wristbands, and vendor offer bundles use Stripe Express for payouts.").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.center)
-            if stripeStarted { sellTicketsFields } else { startStripeButton }
-            Text("Setup usually takes 1–2 minutes").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
-            Spacer(minLength: 20)
-        }.frame(maxWidth: .infinity)
-    }
-
-    private var startStripeButton: some View {
-        Button(action: { stripeStarted = true }) { Text("Get started").font(.system(size: 14, weight: .black)).foregroundColor(.black).padding(.horizontal, 24).frame(height: 42).background(Color.white).clipShape(Capsule()) }.buttonStyle(.plain)
-    }
-
-    private var sellTicketsFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            costInput("Ticket / wristband name", placeholder: "General wristband", text: $ticketName)
-            HStack(spacing: 10) { costInput("Price", placeholder: "25", text: $ticketPrice); costInput("Quantity", placeholder: "50", text: $ticketQuantity) }
-            Toggle("Link wristbands to vendor offer sales", isOn: $includeVendorOffers).tint(NativeTheme.cyan).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            Button(action: saveStripeTicketIntent) { NativeCTA(title: "Save Stripe Express setup", color: NativeTheme.cyan, foreground: .black) }.buttonStyle(.plain)
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var requestMoneyPanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("Chip In").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Menu(chipInType) { Button("Required amount") { chipInType = "Required amount" }; Button("Suggested amount") { chipInType = "Suggested amount" }; Button("Optional chip-in") { chipInType = "Optional chip-in" } }.font(.system(size: 12, weight: .black)) }.padding(14).background(NativePolish.elevatedSurface.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            warningCard
-            Text("Cost Per Person").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            HStack(spacing: 8) { costInput("", placeholder: currency, text: $currency); costInput("", placeholder: "Amount", text: $amount) }
-            Text("Payment Methods").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            paymentRow("Venmo", prefix: "@", text: $venmo)
-            paymentRow("Cash App", prefix: "$", text: $cashApp)
-            paymentRow("PayPal", prefix: "@", text: $paypal)
-            Text("Alternative payment").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            costInput("Method", placeholder: "Zelle, Apple Cash, MTN MoMo", text: $alternativeMethod)
-            costInput("Handle / link", placeholder: "Phone, email, URL, wallet", text: $alternativeHandle)
-            costInput("Instructions", placeholder: "Send with your name + event title", text: $paymentInstructions)
-            Button(action: saveRequestMoney) { NativeCTA(title: "Save request money", color: NativeTheme.emerald, foreground: .black) }.buttonStyle(.plain)
-            Text("Payments are not verified. Guests self-report payment during RSVP.").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary)
-        }
-    }
-
-    private var warningCard: some View {
-        HStack(alignment: .top, spacing: 9) { Image(systemName: "exclamationmark.triangle.fill").foregroundColor(NativeTheme.orange); VStack(alignment: .leading, spacing: 3) { Text("Payments are not verified").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary); Text("Guests self-report payment during RSVP").font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary) } }
-            .padding(13).frame(maxWidth: .infinity, alignment: .leading).background(NativeTheme.orange.opacity(0.13)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func paymentRow(_ label: String, prefix: String, text: Binding<String>) -> some View {
-        HStack(spacing: 12) { Text(label).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(width: 82, alignment: .leading); HStack(spacing: 8) { Text(prefix).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary); TextField(label, text: text).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.cyan) }.padding(12).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)) }
-    }
-
-    private func costInput(_ title: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) { if !title.isEmpty { Text(title).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }; TextField(placeholder, text: text).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary).tint(NativeTheme.cyan).padding(13).background(NativePolish.elevatedSurface.opacity(0.82)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)) }
-    }
-
-    private func saveStripeTicketIntent() {
-        let price = ticketPrice.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = ticketName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Stripe Express wristband" : ticketName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let amountLabel = price.isEmpty ? name : "\(currencyPrefix)\(price) · \(name)"
-        let quantity = ticketQuantity.trimmingCharacters(in: .whitespacesAndNewlines)
-        let vendor = includeVendorOffers ? "Vendor offer sales enabled" : "No vendor bundle"
-        let note = "Stripe Express seller onboarding required. \(vendor).\(quantity.isEmpty ? "" : " Quantity: \(quantity).")"
-        onSave(amountLabel, "Sell tickets · Stripe Express", "Stripe Express", "Wristband checkout", "", note)
-        dismiss()
-    }
-
-    private func saveRequestMoney() {
-        let cleanAmount = amount.trimmingCharacters(in: .whitespacesAndNewlines)
-        let costLabel = cleanAmount.isEmpty ? chipInType : "\(chipInType) · \(currencyPrefix)\(cleanAmount)"
-        let methods = paymentOptions
-        let primary = methods.first ?? ("Alternative", alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines))
-        let cleanInstructions = paymentInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
-        let noteParts = methods.map { "\($0.0): \($0.1)" } + (cleanInstructions.isEmpty ? [] : ["Instructions: \(cleanInstructions)"])
-        onSave(costLabel, costLabel, primary.0, primary.1, primary.1, "Payments are not verified. " + noteParts.joined(separator: " · "))
-        dismiss()
-    }
-
-    private var paymentOptions: [(String, String)] {
-        var out: [(String, String)] = []
-        if !venmo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("Venmo", venmo.trimmingCharacters(in: .whitespacesAndNewlines))) }
-        if !cashApp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("Cash App", cashApp.trimmingCharacters(in: .whitespacesAndNewlines))) }
-        if !paypal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(("PayPal", paypal.trimmingCharacters(in: .whitespacesAndNewlines))) }
-        if !alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append((alternativeMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Alternative" : alternativeMethod.trimmingCharacters(in: .whitespacesAndNewlines), alternativeHandle.trimmingCharacters(in: .whitespacesAndNewlines))) }
-        return out
-    }
-
-    private var currencyPrefix: String { currency.contains("$") ? "$" : "" }
-    private static func amountFrom(label: String) -> String { label.split(separator: "$", maxSplits: 1).dropFirst().first?.split(separator: " ").first.map(String.init) ?? "" }
-    private static func chipInType(from label: String) -> String {
-        let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let type = clean.components(separatedBy: " · ").first ?? clean
-        return ["Required amount", "Suggested amount", "Optional chip-in"].contains(type) ? type : "Required amount"
-    }
-    private static func ticketName(from label: String) -> String {
-        let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return "General wristband" }
-        return clean.components(separatedBy: " · ").last ?? clean
-    }
-    private static func quantityFrom(note: String) -> String {
-        guard let tail = note.components(separatedBy: "Quantity: ").dropFirst().first else { return "" }
-        return tail.components(separatedBy: ".").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-    private static func isAlternativeMethod(_ method: String) -> Bool {
-        let clean = method.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !clean.isEmpty && !["Stripe Express", "Venmo", "Cash App", "PayPal"].contains(clean)
-    }
-    private static func paymentMethods(from note: String) -> [String: String] {
-        let clean = note.replacingOccurrences(of: "Payments are not verified.", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-        var out: [String: String] = [:]
-        for rawPart in clean.components(separatedBy: " · ") {
-            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let separator = part.range(of: ": ") else { continue }
-            let key = String(part[..<separator.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = String(part[separator.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, !value.isEmpty, key != "Instructions" else { continue }
-            out[key] = value
-        }
-        return out
-    }
-    private static func instructions(from note: String) -> String {
-        let clean = note.replacingOccurrences(of: "Payments are not verified.", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-        var loose: [String] = []
-        for rawPart in clean.components(separatedBy: " · ") {
-            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
-            if part.hasPrefix("Instructions: ") { return String(part.dropFirst("Instructions: ".count)).trimmingCharacters(in: .whitespacesAndNewlines) }
-            if part.range(of: ": ") == nil, !part.isEmpty { loose.append(part) }
-        }
-        return loose.joined(separator: " · ")
-    }
-}
-
-enum NativeGroupEventTimingState: String, CaseIterable, Equatable, Codable {
-    case now, today, thisWeek, weekly
-
-    var label: String {
-        switch self {
-        case .now: return "Now"
-        case .today: return "Today"
-        case .thisWeek: return "This Week"
-        case .weekly: return "Weekly"
-        }
-    }
-
-    var bannerEyebrow: String {
-        switch self {
-        case .now: return "LIVE NOW"
-        case .today: return "TODAY"
-        case .thisWeek: return "THIS WEEK"
-        case .weekly: return "WEEKLY"
-        }
-    }
-}
-
-struct NativeGroupEventEntitlement: Equatable {
-    let tier: BytspotTier
-    let activeEventLimit: Int
-    let participantCapacity: Int
-    let liveDurationHours: Int
-    let allowedTimingStates: [NativeGroupEventTimingState]
-    let bannerStyle: String
-    let offerPriority: String
-    let allowsCustomBannerImage: Bool
-
-    static func entitlement(for tier: BytspotTier) -> Self {
-        switch tier {
-        case .green:
-            return Self(tier: tier, activeEventLimit: 1, participantCapacity: 5, liveDurationHours: 2, allowedTimingStates: [.now, .today], bannerStyle: "Bytspot Standard", offerPriority: "Basic matched offers", allowsCustomBannerImage: false)
-        case .platinum:
-            return Self(tier: tier, activeEventLimit: 3, participantCapacity: 25, liveDurationHours: 12, allowedTimingStates: [.now, .today, .thisWeek, .weekly], bannerStyle: "Platinum Premium", offerPriority: "Priority matched offers", allowsCustomBannerImage: true)
-        case .black:
-            return Self(tier: tier, activeEventLimit: 10, participantCapacity: 100, liveDurationHours: 48, allowedTimingStates: NativeGroupEventTimingState.allCases, bannerStyle: "Black Elite", offerPriority: "Exclusive matched offers", allowsCustomBannerImage: true)
-        }
-    }
-}
-
-struct NativeVendorLTOEntitlement: Equatable {
-    let tier: BytspotTier
-    let activeOfferLimit: Int
-    let maxOfferDurationHours: Int
-    let boostAccess: String
-    let analyticsLevel: String
-
-    static func entitlement(for tier: BytspotTier) -> Self {
-        switch tier {
-        case .green: return Self(tier: tier, activeOfferLimit: 1, maxOfferDurationHours: 1, boostAccess: "Trial only", analyticsLevel: "Views + claims")
-        case .platinum: return Self(tier: tier, activeOfferLimit: 5, maxOfferDurationHours: 12, boostAccess: "Priority boosts", analyticsLevel: "Views, claims, redemptions")
-        case .black: return Self(tier: tier, activeOfferLimit: 20, maxOfferDurationHours: 48, boostAccess: "Featured boosts", analyticsLevel: "Campaign insights")
-        }
-    }
-}
-
-enum NativeGroupEventPrivacyStatus: String, Equatable, Codable {
-    case privateInvite
-    case publicDiscovery
-
-    var label: String {
-        switch self {
-        case .privateInvite: return "Private Invite"
-        case .publicDiscovery: return "Public"
-        }
-    }
-}
-
-enum NativeGroupEventPrivateAssociation: String, Equatable, Codable {
-    case none
-    case host
-    case joinedViaInvite
-}
-
-struct NativePrimaryEventManualPayment: Equatable, Codable {
-    static let unverifiedStatus = "manual_unverified"
-    let method: String
-    let label: String
-    let url: String
-    let note: String?
-    let verificationStatus: String
-
-    init(method: String, label: String, url: String, note: String? = nil, verificationStatus: String = Self.unverifiedStatus) {
-        self.method = method.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Custom" : method.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.label = label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? self.method : label.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        self.note = trimmedNote.isEmpty ? nil : trimmedNote
-        self.verificationStatus = verificationStatus
-    }
-
-    static func optional(method: String, label: String, url: String, note: String?) -> Self? {
-        let cleanMethod = method.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let hasRawMetadata = !cleanURL.isEmpty || !cleanNote.isEmpty || (!cleanMethod.isEmpty && cleanMethod != "Venmo") || (!cleanLabel.isEmpty && cleanLabel != cleanMethod)
-        guard hasRawMetadata else { return nil }
-        let payment = Self(method: method, label: label, url: url, note: note)
-        return payment.hasHostMetadata ? payment : nil
-    }
-
-    var hasHostMetadata: Bool {
-        !url.isEmpty || !method.isEmpty || !label.isEmpty || note?.isEmpty == false
-    }
-
-    var payload: [String: Any] {
-        var out: [String: Any] = ["method": method, "label": label, "url": url, "verificationStatus": verificationStatus]
-        if let note { out["note"] = note }
-        return out
-    }
-}
-
-struct NativeGroupEventRecord: Identifiable, Equatable, Codable {
-    let id: String
-    let title: String
-    let groupType: String
-    let hostName: String
-    let tier: BytspotTier
-    let timing: NativeGroupEventTimingState
-    let participantCount: Int
-    let allowNearbyOffers: Bool
-    let requiresApproval: Bool
-    let inviteNote: String?
-    let privacyStatus: NativeGroupEventPrivacyStatus
-    let privateAssociation: NativeGroupEventPrivateAssociation
-    let scheduledDate: String
-    let locationLabel: String
-    let theme: String
-    let guestSummary: String
-    let activityHighlights: [String]
-    let heroImageURLString: String?
-    let thumbnailURLString: String?
-    let videoURLString: String?
-    let instagramHandle: String?
-    let audienceCircle: String
-    let fontStyle: String
-    let coHosts: [String]
-    let playlistURLString: String?
-    let ticketingLabel: String?
-    let chipInLabel: String?
-    let manualPayment: NativePrimaryEventManualPayment?
-    let rsvpCutoff: String?
-    let customQuestions: [String]
-    let hideActivityTimestamps: Bool
-    let hideGuestList: Bool
-    let dressCode: String?
-    let foodSituation: String?
-    let parkingInstructions: String?
-    let accommodation: String?
-    let eventNotes: String?
-    let linkURLString: String?
-    let iconName: String?
-
-    init(id: String, title: String, groupType: String, hostName: String, tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, allowNearbyOffers: Bool, requiresApproval: Bool = false, inviteNote: String?, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, privateAssociation: NativeGroupEventPrivateAssociation = .none, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, guestSummary: String? = nil, activityHighlights: [String]? = nil, heroImageURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) {
-        self.id = id
-        self.title = title
-        self.groupType = groupType
-        self.hostName = hostName
-        self.tier = tier
-        self.timing = timing
-        self.participantCount = participantCount
-        self.allowNearbyOffers = allowNearbyOffers
-        self.requiresApproval = requiresApproval
-        self.inviteNote = inviteNote
-        self.privacyStatus = privacyStatus
-        self.privateAssociation = privateAssociation
-        let fallback = Self.richDefaults(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
-        self.scheduledDate = Self.clean(scheduledDate) ?? fallback.schedule
-        self.locationLabel = Self.clean(locationLabel) ?? fallback.location
-        self.theme = Self.clean(theme) ?? fallback.theme
-        self.guestSummary = Self.clean(guestSummary) ?? fallback.guests
-        self.activityHighlights = (activityHighlights?.filter { !Self.clean($0, maxLength: 64).isNilOrEmpty } ?? []).isEmpty ? fallback.highlights : activityHighlights ?? fallback.highlights
-        self.heroImageURLString = heroImageURLString ?? fallback.hero
-        self.thumbnailURLString = thumbnailURLString ?? fallback.thumbnail
-        self.videoURLString = videoURLString ?? fallback.video
-        self.instagramHandle = Self.clean(instagramHandle, maxLength: 64).map { $0.replacingOccurrences(of: "@", with: "") }
-        self.audienceCircle = Self.clean(audienceCircle, maxLength: 40) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
-        self.fontStyle = Self.clean(fontStyle, maxLength: 40) ?? NativeGroupEventContract.defaultFontStyles[0]
-        self.coHosts = Array((coHosts ?? []).compactMap { Self.clean($0, maxLength: 64) }.prefix(8))
-        self.playlistURLString = Self.clean(playlistURLString, maxLength: 240)
-        self.ticketingLabel = Self.clean(ticketingLabel, maxLength: 80)
-        self.chipInLabel = Self.clean(chipInLabel, maxLength: 80)
-        self.manualPayment = manualPayment?.hasHostMetadata == true ? manualPayment : nil
-        self.rsvpCutoff = Self.clean(rsvpCutoff, maxLength: 80)
-        self.customQuestions = Array((customQuestions ?? []).compactMap { Self.clean($0, maxLength: 100) }.prefix(6))
-        self.hideActivityTimestamps = hideActivityTimestamps
-        self.hideGuestList = hideGuestList
-        self.dressCode = Self.clean(dressCode, maxLength: 100)
-        self.foodSituation = Self.clean(foodSituation, maxLength: 120)
-        self.parkingInstructions = Self.clean(parkingInstructions, maxLength: 160)
-        self.accommodation = Self.clean(accommodation, maxLength: 160)
-        self.eventNotes = Self.clean(eventNotes, maxLength: 260)
-        self.linkURLString = Self.clean(linkURLString, maxLength: 240)
-        self.iconName = Self.clean(iconName, maxLength: 40)
-    }
-
-    static func preview(tier: BytspotTier = .green, timing: NativeGroupEventTimingState = .now) -> Self {
-        Self(id: "family-dinner", title: "Family Dinner", groupType: "Family", hostName: "Bytspot Member", tier: tier, timing: timing, participantCount: tier == .green ? 3 : 12, allowNearbyOffers: true, inviteNote: "Pull up when you can.", privacyStatus: .privateInvite, privateAssociation: .host)
-    }
-
-    /// Cryptographically-random, URL-safe suffix so private invite slugs can't be
-    /// enumerated. `randomElement()` draws from the system CSPRNG; 22 chars over a
-    /// 62-symbol alphabet is ~131 bits of entropy.
-    static func inviteToken(length: Int = 22) -> String {
-        let alphabet = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        return String((0..<length).compactMap { _ in alphabet.randomElement() })
-    }
-
-    static func created(type: String, title: String? = nil, timing: NativeGroupEventTimingState = .now, inviteNote: String = "", allowNearbyOffers: Bool = true, requiresApproval: Bool = false, hostName: String, tier: BytspotTier = .green, privacyStatus: NativeGroupEventPrivacyStatus = .privateInvite, scheduledDate: String? = nil, locationLabel: String? = nil, theme: String? = nil, activityHighlights: [String]? = nil, instagramHandle: String? = nil, audienceCircle: String? = nil, fontStyle: String? = nil, coHosts: [String]? = nil, playlistURLString: String? = nil, thumbnailURLString: String? = nil, videoURLString: String? = nil, ticketingLabel: String? = nil, chipInLabel: String? = nil, manualPayment: NativePrimaryEventManualPayment? = nil, rsvpCutoff: String? = nil, customQuestions: [String]? = nil, hideActivityTimestamps: Bool = false, hideGuestList: Bool = false, dressCode: String? = nil, foodSituation: String? = nil, parkingInstructions: String? = nil, accommodation: String? = nil, eventNotes: String? = nil, linkURLString: String? = nil, iconName: String? = nil) -> Self {
-        let cleanType = type.trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeType = cleanType.isEmpty || cleanType == "Custom" ? "Private Group" : cleanType
-        let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let resolvedTitle = cleanTitle.isEmpty ? (safeType == "Private Group" ? safeType : "\(safeType) Group") : cleanTitle
-        let slug = safeType.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
-        let entitlement = NativeGroupEventContract.entitlement(for: tier)
-        return Self(id: "group-\(slug)-\(Self.inviteToken())", title: resolvedTitle, groupType: safeType, hostName: hostName, tier: tier, timing: timing, participantCount: 1, allowNearbyOffers: allowNearbyOffers, requiresApproval: requiresApproval, inviteNote: inviteNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : inviteNote.trimmingCharacters(in: .whitespacesAndNewlines), privacyStatus: privacyStatus, privateAssociation: .host, scheduledDate: scheduledDate, locationLabel: locationLabel, theme: theme, guestSummary: "1 joined · up to \(entitlement.participantCapacity) guests", activityHighlights: activityHighlights, thumbnailURLString: thumbnailURLString, videoURLString: videoURLString, instagramHandle: instagramHandle, audienceCircle: audienceCircle, fontStyle: fontStyle, coHosts: coHosts, playlistURLString: playlistURLString, ticketingLabel: ticketingLabel, chipInLabel: chipInLabel, manualPayment: manualPayment, rsvpCutoff: rsvpCutoff, customQuestions: customQuestions, hideActivityTimestamps: hideActivityTimestamps, hideGuestList: hideGuestList, dressCode: dressCode, foodSituation: foodSituation, parkingInstructions: parkingInstructions, accommodation: accommodation, eventNotes: eventNotes, linkURLString: linkURLString, iconName: iconName)
-    }
-
-    var isPrivatelyAssociated: Bool { privateAssociation == .host || privateAssociation == .joinedViaInvite }
-
-    /// Wire value for the groupEvents router's `approvalMode` enum ('open' | 'approval').
-    var approvalMode: String { requiresApproval ? "approval" : "open" }
-
-    var requiresPrivateHomepageAssociation: Bool {
-        privacyStatus == .privateInvite || Self.hiddenFromPublicGroupTypes.contains(normalizedGroupType)
-    }
-
-    var isHomepageVisibleToCurrentViewer: Bool {
-        !requiresPrivateHomepageAssociation || isPrivatelyAssociated
-    }
-
-    private var normalizedGroupType: String {
-        groupType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    var primaryEventMetadataPayload: [String: Any] {
-        var out: [String: Any] = ["manualPaymentVerification": NativePrimaryEventManualPayment.unverifiedStatus]
-        if let dressCode { out["dressCode"] = dressCode }
-        if let foodSituation { out["foodSituation"] = foodSituation }
-        if let parkingInstructions { out["parking"] = parkingInstructions }
-        if let accommodation { out["accommodation"] = accommodation }
-        if let eventNotes { out["notes"] = eventNotes }
-        if let linkURLString { out["link"] = linkURLString }
-        if let iconName { out["icon"] = iconName }
-        return out
-    }
-
-    private static let hiddenFromPublicGroupTypes = Set(["dinner", "family"])
-
-    enum CodingKeys: String, CodingKey { case id, title, groupType, hostName, tier, timing, participantCount, allowNearbyOffers, requiresApproval, inviteNote, privacyStatus, privateAssociation, scheduledDate, locationLabel, theme, guestSummary, activityHighlights, heroImageURLString, thumbnailURLString, videoURLString, instagramHandle, audienceCircle, fontStyle, coHosts, playlistURLString, ticketingLabel, chipInLabel, manualPayment, rsvpCutoff, customQuestions, hideActivityTimestamps, hideGuestList, dressCode, foodSituation, parkingInstructions, accommodation, eventNotes, linkURLString, iconName }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        title = try c.decode(String.self, forKey: .title)
-        groupType = try c.decodeIfPresent(String.self, forKey: .groupType) ?? title.replacingOccurrences(of: " Group", with: "")
-        hostName = try c.decode(String.self, forKey: .hostName)
-        tier = try c.decode(BytspotTier.self, forKey: .tier)
-        timing = try c.decode(NativeGroupEventTimingState.self, forKey: .timing)
-        participantCount = try c.decode(Int.self, forKey: .participantCount)
-        allowNearbyOffers = try c.decode(Bool.self, forKey: .allowNearbyOffers)
-        requiresApproval = try c.decodeIfPresent(Bool.self, forKey: .requiresApproval) ?? false
-        inviteNote = try c.decodeIfPresent(String.self, forKey: .inviteNote)
-        privacyStatus = try c.decodeIfPresent(NativeGroupEventPrivacyStatus.self, forKey: .privacyStatus) ?? .privateInvite
-        privateAssociation = try c.decodeIfPresent(NativeGroupEventPrivateAssociation.self, forKey: .privateAssociation) ?? .none
-        let fallback = Self.richDefaults(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
-        scheduledDate = try c.decodeIfPresent(String.self, forKey: .scheduledDate) ?? fallback.schedule
-        locationLabel = try c.decodeIfPresent(String.self, forKey: .locationLabel) ?? fallback.location
-        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? fallback.theme
-        guestSummary = try c.decodeIfPresent(String.self, forKey: .guestSummary) ?? fallback.guests
-        activityHighlights = try c.decodeIfPresent([String].self, forKey: .activityHighlights) ?? fallback.highlights
-        heroImageURLString = try c.decodeIfPresent(String.self, forKey: .heroImageURLString) ?? fallback.hero
-        thumbnailURLString = try c.decodeIfPresent(String.self, forKey: .thumbnailURLString) ?? fallback.thumbnail
-        videoURLString = try c.decodeIfPresent(String.self, forKey: .videoURLString) ?? fallback.video
-        instagramHandle = try c.decodeIfPresent(String.self, forKey: .instagramHandle)
-        audienceCircle = try c.decodeIfPresent(String.self, forKey: .audienceCircle) ?? (privacyStatus == .publicDiscovery ? "Public" : "Close Friends")
-        fontStyle = try c.decodeIfPresent(String.self, forKey: .fontStyle) ?? NativeGroupEventContract.defaultFontStyles[0]
-        coHosts = try c.decodeIfPresent([String].self, forKey: .coHosts) ?? []
-        playlistURLString = try c.decodeIfPresent(String.self, forKey: .playlistURLString)
-        ticketingLabel = try c.decodeIfPresent(String.self, forKey: .ticketingLabel)
-        chipInLabel = try c.decodeIfPresent(String.self, forKey: .chipInLabel)
-        manualPayment = try c.decodeIfPresent(NativePrimaryEventManualPayment.self, forKey: .manualPayment)
-        rsvpCutoff = try c.decodeIfPresent(String.self, forKey: .rsvpCutoff)
-        customQuestions = try c.decodeIfPresent([String].self, forKey: .customQuestions) ?? []
-        hideActivityTimestamps = try c.decodeIfPresent(Bool.self, forKey: .hideActivityTimestamps) ?? false
-        hideGuestList = try c.decodeIfPresent(Bool.self, forKey: .hideGuestList) ?? false
-        dressCode = try c.decodeIfPresent(String.self, forKey: .dressCode)
-        foodSituation = try c.decodeIfPresent(String.self, forKey: .foodSituation)
-        parkingInstructions = try c.decodeIfPresent(String.self, forKey: .parkingInstructions)
-        accommodation = try c.decodeIfPresent(String.self, forKey: .accommodation)
-        eventNotes = try c.decodeIfPresent(String.self, forKey: .eventNotes)
-        linkURLString = try c.decodeIfPresent(String.self, forKey: .linkURLString)
-        iconName = try c.decodeIfPresent(String.self, forKey: .iconName)
-    }
-
-    private static func richDefaults(tier: BytspotTier, timing: NativeGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, location: String, theme: String, guests: String, highlights: [String], hero: String?, thumbnail: String?, video: String?) {
-        let schedule = timing == .now ? "Tonight · live now" : timing.label
-        let guests = "\(participantCount) joined · invite-only"
-        let type = clean(groupType, maxLength: 40) ?? "Private"
-        let hero = "https://bytspot.app/media/app-clip/\(tier.rawValue)-private-group-hero.jpg"
-        let thumbnail = "https://bytspot.app/media/app-clip/\(tier.rawValue)-private-group-poster.jpg"
-        let video: String?
-        #if DEBUG
-        video = tier == .green ? nil : "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8"
-        #else
-        video = nil
-        #endif
-        switch tier {
-        case .black: return (schedule, "Private arrival lounge", "Elite Guarantee · \(type)", guests, ["48h+ live window", "42+ guest capacity", "Concierge verified"], hero, thumbnail, video)
-        case .platinum: return (schedule, "Host-selected private table", "Premium \(type.lowercased())", guests, ["12h live window", "Up to 12 guests", "Host-led arrival"], hero, thumbnail, video)
-        case .green: return (schedule, "Local private spot", "Local \(type.lowercased())", guests, ["2h local window", "Up to 5 guests", "Neighbor verified"], hero, thumbnail, video)
-        }
-    }
-
-    private static func clean(_ value: String?, maxLength: Int = 96) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return String(trimmed.prefix(maxLength))
-    }
-}
-
-private extension Optional where Wrapped == String {
-    var isNilOrEmpty: Bool { self?.isEmpty ?? true }
-}
-
-enum NativeGroupEventStore {
-    static var storageKey: String { NativeGroupEventContract.storageKey }
-
-    static func all() -> [NativeGroupEventRecord] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let records = try? JSONDecoder().decode([NativeGroupEventRecord].self, from: data) else { return [] }
-        return records
-    }
-
-    static func primaryLiveEvent() -> NativeGroupEventRecord? { all().first }
-
-    static func primaryHostedEvent() -> NativeGroupEventRecord? {
-        all().first { $0.privateAssociation == .host }
-    }
-
-    static func primaryHomepageVisibleEvent() -> NativeGroupEventRecord? {
-        all().first { $0.isHomepageVisibleToCurrentViewer }
-    }
-
-    static func upsert(_ record: NativeGroupEventRecord) {
-        var records = all().filter { $0.id != record.id }
-        records.insert(record, at: 0)
-        if let data = try? JSONEncoder().encode(Array(records.prefix(10))) { UserDefaults.standard.set(data, forKey: storageKey) }
-    }
-
-    static func clear() { UserDefaults.standard.removeObject(forKey: storageKey) }
-}
-
-struct NativeGroupEventBannerSnapshot: Equatable {
-    let sectionTitle: String
-    let eyebrow: String
-    let title: String
-    let subtitle: String
-    let tierBadge: String
-    let privacyBadge: String
-    let ctaTitle: String
-    let accentName: String
-}
-
-enum NativeGroupEventContract {
-    static let storageKey = "bytspot_native_group_events"
-    static let homepageSectionTitle = "Live Event Happening Now"
-    static let networkTitle = "Profile Network"
-    static let quickStartCTA = "Start a Private Group"
-    static let inviteCTA = "Share Invite"
-    static let privacyBadge = "Private Group"
-    static let appClipJoinCTA = "Join Instantly"
-    static let matchedOfferExplanation = "Nearby offers can appear in this group without sharing your contacts or member list with vendors."
-    static let defaultEventTypes = ["Dinner", "Family", "Birthday", "Watch Party", "Pickup", "Custom"]
-    static let defaultAudienceCircles = ["Close Friends", "Family", "Crew", "Creators", "Public"]
-    static let defaultFontStyles = ["Bytspot Rounded", "Serif Luxe", "Poster Bold", "Minimal Mono"]
-
-    static func entitlement(for tier: BytspotTier) -> NativeGroupEventEntitlement { .entitlement(for: tier) }
-    static func vendorEntitlement(for tier: BytspotTier) -> NativeVendorLTOEntitlement { .entitlement(for: tier) }
-
-    static func inviteURL(for event: NativeGroupEventRecord) -> URL {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "bytspot.app"
-        components.path = "/group/\(event.id)"
-        components.queryItems = [
-            URLQueryItem(name: "tier", value: event.tier.rawValue),
-            URLQueryItem(name: "timing", value: event.timing.rawValue),
-            URLQueryItem(name: "title", value: event.title),
-            URLQueryItem(name: "type", value: event.groupType),
-            URLQueryItem(name: "participants", value: "\(event.participantCount)"),
-            URLQueryItem(name: "scheduled", value: event.scheduledDate),
-            URLQueryItem(name: "host", value: event.hostName),
-            URLQueryItem(name: "visibility", value: event.privacyStatus.rawValue),
-            URLQueryItem(name: "circle", value: event.audienceCircle),
-            URLQueryItem(name: "font", value: event.fontStyle),
-            URLQueryItem(name: "coHosts", value: event.coHosts.joined(separator: ",")),
-            URLQueryItem(name: "location", value: event.locationLabel),
-            URLQueryItem(name: "theme", value: event.theme),
-            URLQueryItem(name: "playlist", value: event.playlistURLString),
-            URLQueryItem(name: "ticketing", value: event.ticketingLabel),
-            URLQueryItem(name: "chipIn", value: event.chipInLabel),
-            URLQueryItem(name: "paymentMethod", value: event.manualPayment?.method),
-            URLQueryItem(name: "paymentLabel", value: event.manualPayment?.label),
-            URLQueryItem(name: "paymentUrl", value: event.manualPayment?.url),
-            URLQueryItem(name: "rsvpCutoff", value: event.rsvpCutoff),
-            URLQueryItem(name: "questions", value: event.customQuestions.joined(separator: ";")),
-            URLQueryItem(name: "hideActivity", value: event.hideActivityTimestamps ? "1" : "0"),
-            URLQueryItem(name: "hideGuests", value: event.hideGuestList ? "1" : "0"),
-            URLQueryItem(name: "dress", value: event.dressCode),
-            URLQueryItem(name: "food", value: event.foodSituation),
-            URLQueryItem(name: "parking", value: event.parkingInstructions),
-            URLQueryItem(name: "stay", value: event.accommodation),
-            URLQueryItem(name: "notes", value: event.eventNotes),
-            URLQueryItem(name: "link", value: event.linkURLString),
-            URLQueryItem(name: "icon", value: event.iconName),
-            URLQueryItem(name: "guestSummary", value: event.guestSummary),
-            URLQueryItem(name: "activities", value: event.activityHighlights.joined(separator: ",")),
-            URLQueryItem(name: "hero", value: event.heroImageURLString),
-            URLQueryItem(name: "thumbnail", value: event.thumbnailURLString),
-            URLQueryItem(name: "video", value: event.videoURLString),
-            URLQueryItem(name: "instagram", value: event.instagramHandle),
-            URLQueryItem(name: "source", value: "app_clip")
-        ].filter { $0.value?.isEmpty == false }
-        return components.url ?? URL(string: "https://bytspot.app")!
-    }
-
-    static func groupInvite(from url: URL) -> NativeGroupEventRecord? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let parts = components.path.split(separator: "/").map(String.init)
-        guard parts.first?.lowercased() == "group", parts.count >= 2 else { return nil }
-        let query = components.queryItems ?? []
-        let id = parts[1]
-        let title = queryValue(in: query, names: ["title", "event"]) ?? id.replacingOccurrences(of: "-", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
-        let groupType = queryValue(in: query, names: ["type", "groupType"]) ?? title.replacingOccurrences(of: " Group", with: "")
-        let tier = parseTier(queryValue(in: query, names: ["tier"])) ?? .green
-        let timing = parseTiming(queryValue(in: query, names: ["timing", "when"])) ?? .now
-        let participantCount = Int(queryValue(in: query, names: ["participants", "p"]) ?? "1") ?? 1
-        let hostName = queryValue(in: query, names: ["host", "hostName"]) ?? "Private Host"
-        let paymentUrl = queryValue(in: query, names: ["paymentUrl", "paymentLink"])
-        let payment = paymentUrl.map { NativePrimaryEventManualPayment(method: queryValue(in: query, names: ["paymentMethod"]) ?? "Custom", label: queryValue(in: query, names: ["paymentLabel"]) ?? "Manual payment", url: $0) }
-        let questions = queryValue(in: query, names: ["questions", "customQuestions"])?.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return NativeGroupEventRecord(
-            id: id,
-            title: title,
-            groupType: groupType,
-            hostName: hostName,
-            tier: tier,
-            timing: timing,
-            participantCount: participantCount,
-            allowNearbyOffers: true,
-            inviteNote: nil,
-            privacyStatus: parsePrivacy(queryValue(in: query, names: ["visibility", "privacy"])) ?? .privateInvite,
-            privateAssociation: .joinedViaInvite,
-            scheduledDate: queryValue(in: query, names: ["scheduled", "scheduledDate", "date", "startTime"]),
-            locationLabel: queryValue(in: query, names: ["location", "locationLabel", "address"]),
-            theme: queryValue(in: query, names: ["theme", "eventTheme"]),
-            guestSummary: queryValue(in: query, names: ["guestSummary", "guests"]),
-            activityHighlights: queryArray(in: query, names: ["activities", "activityHighlights", "highlights"]),
-            heroImageURLString: queryValue(in: query, names: ["hero", "heroImage", "heroImageUrl", "image"]),
-            thumbnailURLString: queryValue(in: query, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]),
-            videoURLString: queryValue(in: query, names: ["video", "videoUrl", "hls", "hlsUrl"]),
-            instagramHandle: queryValue(in: query, names: ["instagram", "ig", "instagramHandle", "social"]),
-            audienceCircle: queryValue(in: query, names: ["circle", "audienceCircle"]),
-            fontStyle: queryValue(in: query, names: ["font", "fontStyle"]),
-            coHosts: queryArray(in: query, names: ["coHosts", "hosts"]),
-            playlistURLString: queryValue(in: query, names: ["playlist", "playlistUrl"]),
-            ticketingLabel: queryValue(in: query, names: ["ticketing", "ticketingLabel"]),
-            chipInLabel: queryValue(in: query, names: ["chipIn", "chipInLabel"]),
-            manualPayment: payment,
-            rsvpCutoff: queryValue(in: query, names: ["rsvpCutoff", "rsvpDeadline"]),
-            customQuestions: questions,
-            hideActivityTimestamps: queryValue(in: query, names: ["hideActivity"]) == "1",
-            hideGuestList: queryValue(in: query, names: ["hideGuests"]) == "1",
-            dressCode: queryValue(in: query, names: ["dress", "dressCode"]),
-            foodSituation: queryValue(in: query, names: ["food", "foodSituation"]),
-            parkingInstructions: queryValue(in: query, names: ["parking", "parkingInstructions"]),
-            accommodation: queryValue(in: query, names: ["stay", "accommodation"]),
-            eventNotes: queryValue(in: query, names: ["notes", "description"]),
-            linkURLString: queryValue(in: query, names: ["link", "url"]),
-            iconName: queryValue(in: query, names: ["icon"])
-        )
-    }
-
-    private static func queryValue(in items: [URLQueryItem], names: [String]) -> String? {
-        items.first { item in names.contains { $0.caseInsensitiveCompare(item.name) == .orderedSame } }?.value
-    }
-
-    private static func queryArray(in items: [URLQueryItem], names: [String]) -> [String]? {
-        guard let raw = queryValue(in: items, names: names) else { return nil }
-        let values = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return values.isEmpty ? nil : values
-    }
-
-    private static func parseTier(_ raw: String?) -> BytspotTier? {
-        guard let raw else { return nil }
-        return BytspotTier(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-    }
-
-    private static func parseTiming(_ raw: String?) -> NativeGroupEventTimingState? {
-        guard let raw else { return nil }
-        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "-", with: "_").replacingOccurrences(of: " ", with: "_")
-        switch normalized {
-        case "now", "live", "live_now": return .now
-        case "today": return .today
-        case "thisweek", "this_week": return .thisWeek
-        case "weekly", "week": return .weekly
-        default: return NativeGroupEventTimingState(rawValue: raw)
-        }
-    }
-
-    private static func parsePrivacy(_ raw: String?) -> NativeGroupEventPrivacyStatus? {
-        guard let raw else { return nil }
-        return NativeGroupEventPrivacyStatus(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    static func homepageBanner(for event: NativeGroupEventRecord) -> NativeGroupEventBannerSnapshot {
-        let entitlement = entitlement(for: event.tier)
-        return NativeGroupEventBannerSnapshot(
-            sectionTitle: homepageSectionTitle,
-            eyebrow: event.timing.bannerEyebrow,
-            title: event.title,
-            subtitle: "\(event.participantCount) joined · \(entitlement.liveDurationHours)h live window",
-            tierBadge: event.tier.displayName,
-            privacyBadge: privacyBadge,
-            ctaTitle: event.timing == .now ? "Open Group" : appClipJoinCTA,
-            accentName: event.tier.rawValue
-        )
-    }
-}
-
-enum NativeGroupEventProbe {
-    static func entitlementSnapshot(tier: BytspotTier) -> NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: tier) }
-    static func vendorSnapshot(tier: BytspotTier) -> NativeVendorLTOEntitlement { NativeGroupEventContract.vendorEntitlement(for: tier) }
-    static func homepageBanner(tier: BytspotTier, timing: NativeGroupEventTimingState = .now) -> NativeGroupEventBannerSnapshot { NativeGroupEventContract.homepageBanner(for: .preview(tier: tier, timing: timing)) }
-    static func inviteURLString(tier: BytspotTier, timing: NativeGroupEventTimingState = .now) -> String { NativeGroupEventContract.inviteURL(for: .preview(tier: tier, timing: timing)).absoluteString }
-    static func parsedInvite(urlString: String) -> NativeGroupEventRecord? { URL(string: urlString).flatMap(NativeGroupEventContract.groupInvite(from:)) }
-}
-
-enum NativePrimaryEventDraftBuilder {
-    static let surface = "profile_network_card"
-    static let manualPaymentVerification = "manual_unverified"
-
-    static func capacity(for tier: BytspotTier) -> Int { NativeGroupEventContract.entitlement(for: tier).participantCapacity }
-
-    static func input(for record: NativeGroupEventRecord, audienceGroupId: String? = nil) -> [String: Any] {
-        var rsvp: [String: Any] = [
-            "requireGuestApproval": record.requiresApproval,
-            "hideActivityTimestamps": record.hideActivityTimestamps,
-            "hideGuestList": record.hideGuestList,
-            "customQuestions": record.customQuestions,
-            "remindersEnabled": true
-        ]
-        if let cutoff = record.rsvpCutoff, !cutoff.isEmpty { rsvp["cutoffAt"] = cutoff }
-        var metadata = record.primaryEventMetadataPayload
-        metadata["notes"] = record.eventNotes ?? ""
-        var input: [String: Any] = [
-            "id": record.id,
-            "title": record.title,
-            "visibility": record.privacyStatus == .publicDiscovery ? "public" : "private",
-            "hostName": record.hostName,
-            "tier": record.tier.rawValue,
-            "capacityLimit": capacity(for: record.tier),
-            "audienceGroupIds": audienceGroupId.map { [$0] } ?? [],
-            "invitedUserIds": [],
-            "fontStyle": record.fontStyle,
-            "coHosts": record.coHosts.map { ["name": $0, "role": "host"] },
-            "media": ["thumbnailUrl": record.thumbnailURLString ?? "", "videoUrls": record.videoURLString.map { [$0] } ?? []],
-            "rsvp": rsvp,
-            "metadata": metadata,
-            "surface": surface
-        ]
-        if let playlist = record.playlistURLString, !playlist.isEmpty { input["playlistUrl"] = playlist }
-        if let ticketing = record.ticketingLabel, !ticketing.isEmpty { input["ticketingLabel"] = ticketing }
-        if let chipIn = record.chipInLabel, !chipIn.isEmpty { input["chipInLabel"] = chipIn }
-        if let payment = record.manualPayment, !payment.url.isEmpty {
-            input["paymentLinks"] = [["method": payment.method.lowercased().replacingOccurrences(of: " ", with: "_"), "label": payment.label, "url": payment.url, "note": payment.note ?? "", "verification": manualPaymentVerification]]
-        } else {
-            input["paymentLinks"] = []
-        }
-        return input
-    }
-}
 
 private struct NativeParkerBenefitsCard: View {
     var body: some View {
@@ -6174,59 +3261,6 @@ private struct NativeProfileCommandTile: View {
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1.25))
             .shadow(color: NativeTheme.softShadow, radius: 14, x: 0, y: 8)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct NativeProfileReadinessCard: View {
-    let openPanel: (NativeProfilePanel) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ACCOUNT ESSENTIALS").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
-                    Text("Manage the basics people need every day.").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                }
-                Spacer()
-                NativeProfileMicroChip("3 checks", icon: "checkmark.shield.fill", color: NativeTheme.emerald)
-            }
-            VStack(spacing: 8) {
-                NativeProfileReadinessStep(title: "Identity", subtitle: "Name, email, phone, and city", icon: "person.crop.circle.fill", color: NativeTheme.cyan) { openPanel(.personalInformation) }
-                NativeProfileReadinessStep(title: "Payment", subtitle: "Authorized checkout methods", icon: "creditcard.fill", color: NativeTheme.pink) { openPanel(.paymentMethods) }
-                NativeProfileReadinessStep(title: "Vehicle", subtitle: "Cars used for parking and valet", icon: "car.fill", color: NativeTheme.emerald) { openPanel(.vehicles) }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(NativeProfileStyle.cardPadding)
-        .nativeProfileCard(accent: NativeTheme.cyan)
-        .accessibilityIdentifier("native-profile-readiness")
-    }
-}
-
-private struct NativeProfileReadinessStep: View {
-    let title: String
-    let subtitle: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            HStack(spacing: 11) {
-                Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(color).frame(width: 28, height: 28).background(color.opacity(0.12)).clipShape(Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeProfileStyle.title)
-                    Text(subtitle).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted).lineLimit(1)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeProfileStyle.muted)
-            }
-            .padding(11)
-            .background(NativeProfileStyle.nestedSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -7566,7 +4600,6 @@ private struct NativeHomeDashboardView: View {
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDiscoverFilter: (String) -> Void
     let openNativeProfile: () -> Void
-    let openNativeGroupEvent: (NativeGroupEventRecord) -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     @State private var searchText = ""
@@ -7588,7 +4621,6 @@ private struct NativeHomeDashboardView: View {
     @State private var didScheduleAuthenticatedLaunchPicksCollapse = false
     @State private var showValetRideSheet = false
     @State private var didOpenValetPreview = false
-    @State private var liveGroupEvent = NativeGroupEventStore.primaryHomepageVisibleEvent()
     @State private var headerNow = Date()
     @State private var showHomeSearchSheet = false
     @State private var weatherSnapshot = NativeWeatherSnapshot.fallback
@@ -7640,7 +4672,6 @@ private struct NativeHomeDashboardView: View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
-            if let liveGroupEvent { NativeHomeLiveGroupBanner(event: liveGroupEvent, action: { openGroupInvite(liveGroupEvent) }) }
             if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
             if shouldShowLocalEmptyState { noLocalRecommendationsSection }
             if hasTrustedLocalRecommendations { tonightPickCard }
@@ -7654,7 +4685,7 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
-        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }
+        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized() }
         .task { await refreshLiveWeather() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
@@ -7698,8 +4729,6 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func refreshLiveGroupEvent() { liveGroupEvent = NativeGroupEventStore.primaryHomepageVisibleEvent() }
-
     private func refreshLiveWeather() async {
         do {
             let location = locationStore.coordinate
@@ -7707,11 +4736,6 @@ private struct NativeHomeDashboardView: View {
         } catch {
             weatherSnapshot = .fallback
         }
-    }
-
-    private func openGroupInvite(_ event: NativeGroupEventRecord) {
-        nativeImpactLight()
-        openNativeGroupEvent(event)
     }
 
     private var nativeHomeHeader: some View {
@@ -8643,57 +5667,6 @@ private struct NativeHomeSearchSuggestionRow: View {
         case .rideHandoff: return NativeTheme.orange
         case .discoverFilter: return NativeTheme.cyan
         }
-    }
-}
-
-private struct NativeHomeLiveGroupBanner: View {
-    let event: NativeGroupEventRecord
-    let action: () -> Void
-
-    private var snapshot: NativeGroupEventBannerSnapshot { NativeGroupEventContract.homepageBanner(for: event) }
-    private var accent: Color {
-        switch event.tier {
-        case .green: return NativeTheme.emerald
-        case .platinum: return NativeTheme.cyan
-        case .black: return NativeTheme.orange
-        }
-    }
-
-    var body: some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack(spacing: 8) {
-                    Text(snapshot.sectionTitle.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(accent).tracking(1.1)
-                    Spacer()
-                    Text(snapshot.tierBadge).font(.system(size: 10.5, weight: .black)).foregroundColor(.black).padding(.horizontal, 9).padding(.vertical, 5).background(accent).clipShape(Capsule())
-                }
-                HStack(alignment: .center, spacing: 13) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(LinearGradient(colors: [accent.opacity(0.88), NativeTheme.purple.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Image(systemName: "person.3.sequence.fill").font(.system(size: 22, weight: .black)).foregroundColor(.black.opacity(0.82))
-                    }
-                    .frame(width: 58, height: 58)
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 6) {
-                            Text(snapshot.eyebrow).font(.system(size: 10, weight: .black)).foregroundColor(accent).tracking(0.8)
-                            Text(snapshot.privacyBadge).font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textTertiary)
-                        }
-                        Text(snapshot.title).font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
-                        Text(snapshot.subtitle).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textTertiary)
-                }
-                Text(snapshot.ctaTitle).font(.system(size: 13, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 40).background(accent).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .padding(16)
-            .background(LinearGradient(colors: [NativePolish.elevatedSurface, accent.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(accent.opacity(0.30), lineWidth: 1.2))
-            .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
-            .shadow(color: accent.opacity(0.16), radius: 18, x: 0, y: 10)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-home-live-group-banner")
     }
 }
 
@@ -17898,8 +14871,8 @@ private struct NativeConciergeView: View {
         nativeImpactLight()
     }
 
-    /// Calls the production `concierge.chat` tRPC mutation (raw body — the backend
-    /// is transformer-less, matching `NativeGroupEventsAPI.rawMutationBody`).
+    /// Calls the production `concierge.chat` tRPC mutation with the raw body
+    /// expected by the transformer-less backend.
     /// Returns nil on any failure so the caller can fall back to local help.
     private static func fetchLiveResponse(history: [[String: String]], token: String?) async -> ServerResponse? {
         let client = BytspotAPIClient(tokenProvider: { token })
@@ -19619,10 +16592,10 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeProfileNetworkCard.title == NativeGroupEventContract.networkTitle && NativeProfileNetworkCard.actionTitles == ["Create Private Group", "Find friends"], "NativeAccountParitySelfTests: Profile Network must stay fused into one group-management card.")
-        precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited] && NativeProfilePanel.friends.title == "Find Friends", "NativeAccountParitySelfTests: Profile must not reintroduce redundant Social/Friends menu groups.")
-        precondition(NativeSavedPlacesBoardContract.emptyPlanHeadline == "No next visit planned" && NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
-        precondition(NativeSavedPlacesBoardContract.summary.contains("next visit state") && NativeSavedPlacesBoardContract.summary.contains("verification"), "NativeAccountParitySelfTests: Saved Places Board summary copy drifted.")
+        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, and Invitations.")
+        precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: Profile must not reintroduce a redundant Friends panel.")
+        precondition(NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
+        precondition(NativeSavedPlacesBoardContract.summary.contains("venue and access details"), "NativeAccountParitySelfTests: Saved Places details-only copy drifted.")
         precondition(NativeProfileSavedSpot.fallbackFixtureTitles == ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"], "NativeAccountParitySelfTests: Saved Places native fixture contract drifted.")
         precondition(NativeProfileSavedSpot.saved(from: .fallback).map(\.title) == NativeProfileSavedSpot.fallbackFixtureTitles, "NativeAccountParitySelfTests: Saved Places panel must render curated native rows.")
         precondition(NativeProfileSavedSpot.saved(from: .fallback).first?.kindLabel == "Place", "NativeAccountParitySelfTests: Saved Places Board should describe type as text, not rely on large category icons.")
@@ -19640,7 +16613,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations", "Active Job Tracking"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")
-        precondition(NativeFindFriendsCard.guestCopy == "Sign in to match contacts privately.", "NativeAccountParitySelfTests: guest Find Friends copy must stay compact.")
+        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations"], "NativeAccountParitySelfTests: Network segment copy drifted.")
 
         precondition(NativeMigrationConfig.previewSessionEnvironmentKey == "BYT_NATIVE_PREVIEW_SESSION", "NativeAccountParitySelfTests: preview session env key drifted.")
         precondition(NativeMigrationConfig.previewTokenEnvironmentKey == "BYT_NATIVE_PREVIEW_TOKEN", "NativeAccountParitySelfTests: preview token env key drifted.")

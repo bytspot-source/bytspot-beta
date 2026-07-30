@@ -115,7 +115,6 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var walletLedgerStore = NativeWalletLedgerStore()
     @StateObject private var membershipStore = NativeMembershipStore()
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
-    @StateObject private var planStore = NativePlanStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
     @StateObject private var locationStore = NativeLocationStore()
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
@@ -168,7 +167,6 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(walletLedgerStore)
             .environmentObject(membershipStore)
             .environmentObject(contactSyncStore)
-            .environmentObject(planStore)
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
             .onAppear {
@@ -176,7 +174,6 @@ struct BytspotNativeAppRoot: View {
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
-                planStore.refresh(events: NativeGroupEventStore.all())
             }
             .task {
                 await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
@@ -244,9 +241,9 @@ enum NativeAuthLaunchContract {
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
     static let landingSubtitle = "Discover the right place, understand the arrival, and move with confidence."
-    static let landingFeatures = ["Discover places matched to your moment", "See parking, crowd, and arrival context", "Keep plans, access, and reservations together"]
-    static let atlantaLandingSubtitle = "Atlanta plans made easier — from the right spot to the smoothest arrival."
-    static let atlantaLandingFeatures = ["Discover trusted Atlanta places for your moment", "See parking, crowd, and arrival context", "Keep plans, access, and reservations together"]
+    static let landingFeatures = ["Discover places matched to your moment", "See parking, crowd, and arrival context", "Keep access and reservations together"]
+    static let atlantaLandingSubtitle = "Atlanta discovery made easier — from the right spot to the smoothest arrival."
+    static let atlantaLandingFeatures = ["Discover trusted Atlanta places for your moment", "See parking, crowd, and arrival context", "Keep access and reservations together"]
     static let vibeQuestion = "What kind of night are we shaping?"
     static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
     static let walkQuestion = "How far are you comfortable going?"
@@ -348,7 +345,7 @@ enum NativeLaunchLocationContract {
 enum NativeLaunchRecommendationPresentation {
     enum Mode: Equatable { case livePicks, loading, locationNeeded, localSync }
 
-    static let capabilityTitles = ["Discover with context", "Plan the arrival", "Keep everything together"]
+    static let capabilityTitles = ["Discover with context", "Simplify your arrival", "Keep everything together"]
 
     static func mode(location: NativeLocationCoordinate, hasPicks: Bool, hasTrustworthyLiveVenueInventory: Bool, isRefreshing: Bool) -> Mode {
         if hasPicks && hasTrustworthyLiveVenueInventory { return .livePicks }
@@ -1174,7 +1171,7 @@ private struct NativeLaunchReadyScreen: View {
             VStack(spacing: 10) {
                 if presentation == .loading { HStack(spacing: 9) { ProgressView().tint(theme.primary); Text("Syncing nearby recommendations…").font(.system(size: 12.5, weight: .black)).foregroundColor(theme.primary) }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4) }
                 readinessRow(icon: "sparkles", title: "Discover with context", subtitle: "Places shaped around your mood, timing, and distance.", theme: theme)
-                readinessRow(icon: "car.side.fill", title: "Plan the arrival", subtitle: "Parking, routing, and access details in the same flow.", theme: theme)
+                readinessRow(icon: "car.side.fill", title: "Simplify your arrival", subtitle: "Parking, routing, and access details in the same flow.", theme: theme)
                 readinessRow(icon: "square.stack.3d.up.fill", title: "Keep everything together", subtitle: "Save places, passes, reservations, and preferences.", theme: theme)
             }
         }

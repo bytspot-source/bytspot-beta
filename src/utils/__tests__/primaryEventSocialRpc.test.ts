@@ -2,60 +2,61 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PRIMARY_EVENT_SOCIAL_RPC_CONTRACT,
-  buildPrimaryEventDraftInput,
-  capacityForTier,
-  createPrimaryEventDraftViaRpc,
+  NETWORK_SOCIAL_RPC_CONTRACT,
+  addPersonToCircleViaRpc,
+  createSocialCircleViaRpc,
   listSocialCirclesViaRpc,
-  normalizeEventDrafts,
+  listSocialInvitationsViaRpc,
   normalizeSocialCircles,
+  normalizeSocialInvitations,
+  respondToSocialInvitationViaRpc,
+  sendSocialInvitationViaRpc,
 } from '../primaryEventSocialRpc.ts';
 
-test('primary event social contract extends existing Network card routes', () => {
-  assert.equal(PRIMARY_EVENT_SOCIAL_RPC_CONTRACT.routes.groupsList, 'social.groups.list');
-  assert.equal(PRIMARY_EVENT_SOCIAL_RPC_CONTRACT.routes.invitesCreate, 'social.invites.create');
-  assert.equal(PRIMARY_EVENT_SOCIAL_RPC_CONTRACT.routes.draftsCreate, 'events.drafts.create');
-  assert.equal(PRIMARY_EVENT_SOCIAL_RPC_CONTRACT.routes.publish, 'events.publish');
-  assert.equal(PRIMARY_EVENT_SOCIAL_RPC_CONTRACT.manualPaymentVerification, 'manual_unverified');
+test('Network contract contains only people, circles, and invitation routes', () => {
+  assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.groupsList, 'social.groups.list');
+  assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.groupsMembersAdd, 'social.groups.members.add');
+  assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.invitesCreate, 'social.invites.create');
+  assert.deepEqual(NETWORK_SOCIAL_RPC_CONTRACT.flow, ['Find a Person', 'Add to Circle', 'Send Invite']);
+  assert.equal('draftsCreate' in NETWORK_SOCIAL_RPC_CONTRACT.routes, false);
 });
 
-test('capacityForTier locks host spot limits by Bytspot tier', () => {
-  assert.equal(capacityForTier('green'), 5);
-  assert.equal(capacityForTier('platinum'), 25);
-  assert.equal(capacityForTier('black'), 100);
+test('normalizers retain only circle membership and invitation identity', () => {
+  const groups = normalizeSocialCircles({ groups: [{ groupId: 'g1', title: 'Weekend Crew', memberCount: 3, memberIds: ['u1'], role: 'owner' }] });
+  const invites = normalizeSocialInvitations({ invites: [{ inviteId: 'i1', direction: 'incoming', status: 'pending', sender: { userId: 'u2', name: 'Nia' }, groupId: 'g1', groupName: 'Weekend Crew' }] });
+
+  assert.equal(groups[0].name, 'Weekend Crew');
+  assert.deepEqual(groups[0].memberIds, ['u1']);
+  assert.equal(invites[0].person.name, 'Nia');
+  assert.equal(invites[0].person.relationshipStatus, 'invite_received');
 });
 
-test('buildPrimaryEventDraftInput clamps capacity and marks manual payments unverified', () => {
-  const draft = buildPrimaryEventDraftInput({
-    id: 'draft-1', title: 'Private Dinner', visibility: 'private', hostName: 'Ama', tier: 'green', capacityLimit: 999,
-    audienceGroupIds: ['family'], invitedUserIds: [], fontStyle: 'serif-luxe', coHosts: [], media: {}, playlistUrl: 'https://music.example/playlist',
-    paymentLinks: [{ method: 'venmo', label: 'Venmo Ama', url: 'https://venmo.example/ama', verification: 'manual_unverified' }],
-    rsvp: { requireGuestApproval: true, hideActivityTimestamps: true, hideGuestList: true, customQuestions: ['Any allergies?'], remindersEnabled: true },
-    metadata: { links: ['https://example.com'], dressCode: 'All black', parking: 'Use rear garage' },
-  });
-
-  assert.equal(draft.capacityLimit, 5);
-  assert.equal(draft.paymentLinks[0].verification, 'manual_unverified');
-  assert.equal(draft.rsvp.hideGuestList, true);
-});
-
-test('normalizers accept social circles and rich event drafts', () => {
-  const groups = normalizeSocialCircles({ groups: [{ groupId: 'g1', title: 'Close Friends', memberCount: 8, privacy: 'private', role: 'owner' }] });
-  const drafts = normalizeEventDrafts({ drafts: [{ eventId: 'e1', title: 'Listening Party', visibility: 'public', tier: 'platinum', capacityLimit: 40, hostName: 'DJ Kojo', coHosts: [{ name: 'DJ Kojo', role: 'dj' }], rsvp: { hideGuestList: true }, metadata: { foodSituation: 'Small bites' } }] });
-
-  assert.equal(groups[0].name, 'Close Friends');
-  assert.equal(drafts[0].capacityLimit, 25);
-  assert.equal(drafts[0].coHosts[0].role, 'dj');
-  assert.equal(drafts[0].metadata.foodSituation, 'Small bites');
-});
-
-test('RPC helpers prefer backend and safely fall back', async () => {
-  const groups = await listSocialCirclesViaRpc({ social: { groups: { list: { query: async () => ({ groups: [{ id: 'g2', name: 'Crew', memberCount: 3 }] }) } } } });
-  const fallback = await listSocialCirclesViaRpc({}, [{ id: 'fb', name: 'Fallback Circle', memberCount: 1, privacy: 'invite_only' }]);
-  const draft = buildPrimaryEventDraftInput({ id: 'e2', title: 'Brunch', visibility: 'private', hostName: 'Nia', tier: 'green', audienceGroupIds: [], invitedUserIds: [], fontStyle: 'bytspot-rounded', coHosts: [], media: {}, paymentLinks: [], rsvp: { requireGuestApproval: false, hideActivityTimestamps: false, hideGuestList: false, customQuestions: [], remindersEnabled: true }, metadata: { links: [] } });
-  const created = await createPrimaryEventDraftViaRpc({ events: { drafts: { create: { mutate: async () => ({ draftId: 'e2', title: 'Brunch', tier: 'green', hostName: 'Nia' }) } } } }, draft);
+test('RPC helpers implement circle then invite without event payloads', async () => {
+  const calls: unknown[] = [];
+  const client = { social: {
+    groups: {
+      list: { query: async () => ({ groups: [{ id: 'g2', name: 'Crew', memberCount: 3 }] }) },
+      create: { mutate: async (input: unknown) => { calls.push(input); return { id: 'g3', name: 'Work Friends', memberCount: 0, role: 'owner' }; } },
+      members: { add: { mutate: async (input: unknown) => { calls.push(input); return { ok: true }; } } },
+    },
+    invites: {
+      list: { query: async () => ({ invites: [{ id: 'i1', direction: 'outgoing', recipient: { userId: 'u1', name: 'Ama' } }] }) },
+      create: { mutate: async (input: unknown) => { calls.push(input); return { id: 'i2', direction: 'outgoing', recipient: { userId: 'u1', name: 'Ama' }, groupId: 'g3' }; } },
+      respond: { mutate: async (input: unknown) => { calls.push(input); return { ok: true }; } },
+    },
+  } };
+  const groups = await listSocialCirclesViaRpc(client);
+  const fallback = await listSocialCirclesViaRpc({}, [{ id: 'fb', name: 'Fallback Circle', memberCount: 1, memberIds: [], role: 'member' }]);
+  const circle = await createSocialCircleViaRpc(client, 'Work Friends');
+  await addPersonToCircleViaRpc(client, 'g3', 'u1');
+  const invite = await sendSocialInvitationViaRpc(client, 'u1', 'g3');
+  const invitations = await listSocialInvitationsViaRpc(client);
+  await respondToSocialInvitationViaRpc(client, 'i1', 'accepted');
 
   assert.equal(groups.source, 'backend');
   assert.equal(fallback.source, 'fallback');
-  assert.equal(created.drafts[0].id, 'e2');
+  assert.equal(circle?.name, 'Work Friends');
+  assert.equal(invite?.circleId, 'g3');
+  assert.equal(invitations[0].person.name, 'Ama');
+  assert.equal(calls.length, 4);
 });

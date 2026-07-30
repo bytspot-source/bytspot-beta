@@ -2,11 +2,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, Award, TrendingUp, Zap, Gift,
   ChevronRight, Lock, Check, Trophy, Crown, Sparkles,
-  Clock, Calendar, Target, Users, MapPin, Camera, UserPlus, UserCheck
+  Clock, Calendar, Target, Users, MapPin, Camera
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
-import { isFollowing, followUser, unfollowUser, getFollowedUsers } from '../utils/social';
 import {
   getUserPoints,
   getUserTier,
@@ -530,22 +529,6 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
     </div>
   );
 
-  const [followedIds, setFollowedIds] = useState<Set<string>>(
-    () => new Set(getFollowedUsers().map((u) => u.userId))
-  );
-
-  const handleToggleFollow = (userId: string, name: string, tier: string) => {
-    if (isFollowing(userId)) {
-      unfollowUser(userId);
-      setFollowedIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
-      toast(`Unfollowed ${name}`);
-    } else {
-      followUser(userId, name, tier);
-      setFollowedIds((prev) => new Set([...prev, userId]));
-      toast.success(`Following ${name} — their check-ins now show in your Friends feed`);
-    }
-  };
-
   const renderLeaderboard = () => {
     const { entries, userRank, userPoints: myPoints } = getLeaderboard();
     const medalColors: Record<number, string> = { 1: 'text-yellow-400', 2: 'text-gray-300', 3: 'text-amber-600' };
@@ -576,7 +559,6 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
             <p className="text-[13px] text-white/60" style={{ fontWeight: 700 }}>🏆 TOP 10 THIS WEEK</p>
           </div>
           {entries.map((entry, i) => {
-            const followed = followedIds.has(entry.userId);
             return (
               <motion.div
                 key={entry.userId}
@@ -604,21 +586,6 @@ export function BytspotPoints({ isDarkMode, onBack }: BytspotPointsProps) {
                 <p className="text-[14px] text-white/80 w-14 text-right" style={{ fontWeight: 700 }}>
                   {entry.points.toLocaleString()}
                 </p>
-                {/* Follow button — skip for current user */}
-                {!entry.isCurrentUser && (
-                  <motion.button
-                    onClick={() => handleToggleFollow(entry.userId, entry.name, entry.tier)}
-                    className={`ml-1 w-8 h-8 rounded-full flex items-center justify-center border-2 tap-target ${followed ? 'bg-purple-500/30 border-purple-400/60' : 'bg-white/10 border-white/20'}`}
-                    whileTap={{ scale: 0.88 }}
-                    transition={springConfig}
-                    title={followed ? `Unfollow ${entry.name}` : `Follow ${entry.name}`}
-                  >
-                    {followed
-                      ? <UserCheck className="w-4 h-4 text-purple-300" strokeWidth={2.5} />
-                      : <UserPlus className="w-4 h-4 text-white/60" strokeWidth={2.5} />
-                    }
-                  </motion.button>
-                )}
               </motion.div>
             );
           })}

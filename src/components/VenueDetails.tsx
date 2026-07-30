@@ -7,7 +7,6 @@ import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
-import { broadcastOwnCheckin } from '../utils/social';
 import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
 import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
@@ -234,7 +233,6 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
           crowdLabel: finalLabel,
           pointsEarned: 10,
         });
-        broadcastOwnCheckin(venue.name, venueId, finalLevel, finalLabel);
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
           description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
           duration: 3000,
@@ -249,11 +247,9 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
           crowdLabel: currentLabel,
           pointsEarned: 10,
         });
-        broadcastOwnCheckin(venue.name, venueId, currentLevel, currentLabel);
         toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
       }
     } catch {
-      broadcastOwnCheckin(venue.name, venue.id, currentLevel, currentLabel);
       toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
     }
   };

@@ -20,7 +20,8 @@ import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
 import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
-import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type SocialFeedEvent, type FollowedUser, type FriendSuggestion } from '../utils/social';
+import { getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type FriendSuggestion } from '../utils/social';
+import { addPersonToCircleViaRpc, createSocialCircleViaRpc, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
@@ -184,8 +185,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
   const [referralCount, setReferralCount] = useState<number | null>(null);
-  // Following count — start with localStorage, upgrade via API
-  const [followingCount, setFollowingCount] = useState(getFollowedUsers().length);
   const [membership, setMembership] = useState(() => getInsiderMembership());
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
@@ -197,6 +196,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [suggestions, setSuggestions] = useState<FriendSuggestion[]>([]);
   const [contactSyncPhase, setContactSyncPhase] = useState<'idle' | 'syncing' | 'done' | 'unsupported'>('idle');
   const [contactSyncSummary, setContactSyncSummary] = useState<string | null>(null);
+  const [socialCircles, setSocialCircles] = useState<SocialCircle[]>([]);
+  const [socialInvitations, setSocialInvitations] = useState<SocialInvitation[]>([]);
+  const [selectedCircleId, setSelectedCircleId] = useState('');
+  const [newCircleName, setNewCircleName] = useState('');
+  const [networkStatus, setNetworkStatus] = useState('');
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'guest_session';
@@ -231,7 +235,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     // Upgrade from API (fire all in parallel)
     getUserPointsAsync().then(setUserPoints).catch(() => {});
     getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
-    getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
     trpc.auth.me.query().then((data: { referralCount?: number | null } | null | undefined) => {
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
@@ -285,11 +288,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     setVirtualPatchContext(readVirtualPatchContext());
   }, [currentScreen]);
 
-  // Load contact-graph friend suggestions whenever the Friends screen mounts.
+  // Network loads only people, circles, and invitations.
   useEffect(() => {
     if (currentScreen !== 'friends') return;
     let mounted = true;
-    getSuggestions().then((items) => { if (mounted) setSuggestions(items); }).catch(() => {});
+    Promise.all([getSuggestions(), listSocialCirclesViaRpc(trpc), listSocialInvitationsViaRpc(trpc)])
+      .then(([people, circles, invitations]) => {
+        if (!mounted) return;
+        setSuggestions(people);
+        setSocialCircles(circles.source === 'backend' ? circles.groups : []);
+        setSelectedCircleId((current) => current || circles.groups[0]?.id || '');
+        setSocialInvitations(invitations);
+      }).catch(() => { if (mounted) setNetworkStatus('Network could not refresh.'); });
     return () => { mounted = false; };
   }, [currentScreen]);
 
@@ -314,6 +324,45 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       setContactSyncPhase('idle');
       toast.error('Couldn\'t sync contacts. Try again in a moment.');
     }
+  };
+
+  const handleCreateCircle = async () => {
+    if (!newCircleName.trim()) return;
+    try {
+      const circle = await createSocialCircleViaRpc(trpc, newCircleName);
+      if (!circle) throw new Error('Circle was not returned');
+      setSocialCircles((current) => [circle, ...current]);
+      setSelectedCircleId(circle.id);
+      setNewCircleName('');
+      setNetworkStatus(`${circle.name} created.`);
+    } catch { setNetworkStatus('Circle could not be created.'); }
+  };
+
+  const handleAddToCircle = async (person: FriendSuggestion) => {
+    if (!selectedCircleId) { setNetworkStatus('Create or select a circle first.'); return; }
+    try {
+      await addPersonToCircleViaRpc(trpc, selectedCircleId, person.userId);
+      setSuggestions((current) => current.map((item) => item.userId === person.userId ? { ...item, circleIds: [...new Set([...item.circleIds, selectedCircleId])] } : item));
+      setSocialCircles((current) => current.map((circle) => circle.id === selectedCircleId ? { ...circle, memberCount: circle.memberCount + 1, memberIds: [...new Set([...circle.memberIds, person.userId])] } : circle));
+      setNetworkStatus(`${person.name} added to ${socialCircles.find((circle) => circle.id === selectedCircleId)?.name ?? 'circle'}.`);
+    } catch { setNetworkStatus(`${person.name} could not be added.`); }
+  };
+
+  const handleSendNetworkInvite = async (person: FriendSuggestion) => {
+    if (!selectedCircleId || !person.circleIds.includes(selectedCircleId)) { setNetworkStatus('Add this person to the selected circle first.'); return; }
+    try {
+      const invite = await sendSocialInvitationViaRpc(trpc, person.userId, selectedCircleId || undefined);
+      if (invite) setSocialInvitations((current) => [invite, ...current.filter((item) => item.id !== invite.id)]);
+      setSuggestions((current) => current.map((item) => item.userId === person.userId ? { ...item, relationshipStatus: 'invite_sent' } : item));
+      setNetworkStatus(`Invite sent to ${person.name}.`);
+    } catch { setNetworkStatus(`Invite to ${person.name} could not be sent.`); }
+  };
+
+  const handleInvitationResponse = async (inviteId: string, response: 'accepted' | 'declined') => {
+    try {
+      await respondToSocialInvitationViaRpc(trpc, inviteId, response);
+      setSocialInvitations((current) => current.map((item) => item.id === inviteId ? { ...item, status: response } : item));
+    } catch { setNetworkStatus('Invitation response could not be saved.'); }
   };
 
   const springConfig = {
@@ -419,7 +468,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
-        { icon: <Users className="w-5 h-5" />, label: 'Friends', badge: (() => { const f = getFollowedUsers().length; return f > 0 ? f.toString() : null; })(), screen: 'friends' as ProfileScreen },
+        { icon: <Users className="w-5 h-5" />, label: 'Network', badge: null, screen: 'friends' as ProfileScreen },
       ],
     },
     {
@@ -1110,24 +1159,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   }
 
   if (currentScreen === 'friends') {
-    // Start with sync localStorage values — FriendsView below upgrades via API
-    const followed = getFollowedUsers();
-    const feed = getSocialFeed();
-    const crowdColor = (lvl: number) =>
-      lvl === 1 ? 'text-cyan-300' : lvl === 2 ? 'text-purple-300' : lvl === 3 ? 'text-orange-400' : 'text-pink-400';
-    const crowdEmoji = (lvl: number) => lvl === 1 ? '🔵' : lvl === 2 ? '🟣' : lvl === 3 ? '🟠' : '🔴';
-    const formatTime = (iso: string) => {
-      const diff = Date.now() - new Date(iso).getTime();
-      const m = Math.floor(diff / 60000);
-      if (m < 60) return `${m}m ago`;
-      const h = Math.floor(m / 60);
-      if (h < 24) return `${h}h ago`;
-      return `${Math.floor(h / 24)}d ago`;
-    };
-    // Filter feed to only show followed users + own check-ins
-    const followedIds = new Set(followed.map((u: FollowedUser) => u.userId));
-    const myId = (() => { try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}')?.id || 'me'; } catch { return 'me'; } })();
-    const visibleFeed = feed.filter((e: SocialFeedEvent) => followedIds.has(e.userId) || e.userId === myId);
     return (
       <div className="h-full flex flex-col">
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
@@ -1135,11 +1166,20 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
             <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
           </motion.button>
-          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Friends</h2>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Network</h2>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
-          {/* Find friends — privacy-first contact graph (WS-Social Phase 1) */}
+          <div className="grid grid-cols-3 gap-2">
+            {['People', 'Social Circles', 'Invitations'].map((label, index) => (
+              <div key={label} className="rounded-[16px] border border-slate-700 bg-slate-950 p-3 text-center">
+                <p className="text-[18px] text-white" style={{ fontWeight: 800 }}>{[suggestions.length, socialCircles.length, socialInvitations.filter((item) => item.status === 'pending').length][index]}</p>
+                <p className="text-[10px] text-slate-300 uppercase" style={{ fontWeight: 800 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* People — privacy-first contact graph */}
           <motion.div
             className="rounded-[24px] p-5 border-2 border-purple-500/60 bg-slate-950 shadow-xl relative overflow-hidden"
             initial={{ opacity: 0, y: 10 }}
@@ -1152,8 +1192,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <UserPlus className="w-5 h-5 text-white" strokeWidth={2.5} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>CONTACTS</p>
-                <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find friends</p>
+                <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>PEOPLE</p>
+                <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find a person</p>
                 <p className="text-[12px] text-slate-300 mt-0.5" style={{ fontWeight: 500 }}>
                   Bytspot matches your contacts on-device using salted hashes. Your address book is never uploaded or stored.
                 </p>
@@ -1190,16 +1230,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <div className="mt-4 space-y-2">
                 {suggestions.slice(0, 8).map((s: FriendSuggestion) => (
                   <div key={s.userId} className="flex items-center gap-3 px-3 py-2.5 rounded-[16px] bg-black/40 border border-slate-700/60">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.mutual ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
-                      {s.mutual ? <Users className="w-4 h-4" strokeWidth={2.5} /> : <User className="w-4 h-4" strokeWidth={2.5} />}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.relationshipStatus === 'connected' ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                      {s.relationshipStatus === 'connected' ? <Users className="w-4 h-4" strokeWidth={2.5} /> : <User className="w-4 h-4" strokeWidth={2.5} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[14px] text-white truncate" style={{ fontWeight: 650 }}>{s.name}</p>
                       <p className="text-[12px] text-slate-300 truncate" style={{ fontWeight: 500 }}>{suggestionReason(s)}</p>
                     </div>
-                    {s.mutual && (
-                      <span className="shrink-0 text-[10px] text-white bg-purple-500 rounded-full px-2 py-1" style={{ fontWeight: 800 }}>MUTUAL</span>
-                    )}
+                    <div className="flex gap-1.5">
+                      <button onClick={() => handleAddToCircle(s)} disabled={!selectedCircleId || s.circleIds.includes(selectedCircleId)} className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] text-purple-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                        {s.circleIds.includes(selectedCircleId) ? 'IN CIRCLE' : 'ADD TO CIRCLE'}
+                      </button>
+                      <button onClick={() => handleSendNetworkInvite(s)} disabled={!selectedCircleId || !s.circleIds.includes(selectedCircleId) || s.relationshipStatus === 'invite_sent'} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                        {s.relationshipStatus === 'invite_sent' ? 'SENT' : 'INVITE'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1211,49 +1256,41 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             )}
           </motion.div>
 
-          {/* Following list */}
-          {followed.length > 0 && (
-            <div>
-              <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FOLLOWING ({followed.length})</p>
-              <div className="flex flex-wrap gap-2">
-                {followed.map((u: FollowedUser) => (
-                  <div key={u.userId} className="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-950 border border-slate-700">
-                    <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>{u.userName}</span>
-                    <motion.button onClick={() => { unfollowUser(u.userId); setCurrentScreen('main'); setTimeout(() => setCurrentScreen('friends'), 10); }}
-                      className="text-slate-300 hover:text-red-300 text-[11px]" whileTap={{ scale: 0.88 }}>✕</motion.button>
-                  </div>
-                ))}
-              </div>
+          <div className="rounded-[24px] border border-cyan-500/40 bg-slate-950 p-5">
+            <p className="text-[11px] text-cyan-300 tracking-wider" style={{ fontWeight: 800 }}>SOCIAL CIRCLES</p>
+            <p className="mt-1 text-[13px] text-slate-300">Save groups such as Work Friends or Weekend Crew once, then invite everyone without selecting people again.</p>
+            <div className="mt-3 flex gap-2">
+              <input value={newCircleName} onChange={(event) => setNewCircleName(event.target.value)} placeholder="New circle name" className="min-w-0 flex-1 rounded-[14px] border border-slate-700 bg-black px-3 text-[13px] text-white" />
+              <button onClick={handleCreateCircle} className="rounded-[14px] bg-cyan-500 px-4 py-2 text-[12px] text-black" style={{ fontWeight: 800 }}>Create</button>
             </div>
-          )}
-          {/* Activity feed */}
-          <div>
-            <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FRIEND ACTIVITY</p>
-            {visibleFeed.length === 0 ? (
-              <div className="text-center py-12 text-slate-300">
-                <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-[15px]" style={{ fontWeight: 600 }}>No activity yet</p>
-                <p className="text-[13px] mt-1">Follow people on the Leaderboard to see where they're going</p>
-              </div>
-            ) : visibleFeed.map((event: SocialFeedEvent) => (
-              <motion.div key={event.id} className="rounded-[16px] p-4 bg-slate-950 border border-slate-700 mb-3"
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="text-[14px] text-slate-200" style={{ fontWeight: 650 }}>
-                      <span className="text-white">{event.userId === myId ? 'You' : event.userName}</span>
-                      {' '}checked in at{' '}
-                      <span className="text-purple-300">{event.venueName}</span>
-                    </p>
-                    <p className={`text-[13px] mt-1 ${crowdColor(event.crowdLevel)}`} style={{ fontWeight: 500 }}>
-                      {crowdEmoji(event.crowdLevel)} {event.crowdLabel}
-                    </p>
-                  </div>
-                  <span className="text-[12px] text-slate-400 ml-3 shrink-0">{formatTime(event.timestamp)}</span>
-                </div>
-              </motion.div>
-            ))}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {socialCircles.map((circle) => (
+                <button key={circle.id} onClick={() => setSelectedCircleId(circle.id)} className={`rounded-full border px-3 py-2 text-[12px] ${selectedCircleId === circle.id ? 'border-cyan-300 bg-cyan-500/20 text-cyan-200' : 'border-slate-700 text-slate-300'}`} style={{ fontWeight: 700 }}>
+                  {circle.name} · {circle.memberCount}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div className="rounded-[24px] border border-purple-500/40 bg-slate-950 p-5">
+            <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>INVITATIONS</p>
+            <div className="mt-3 space-y-2">
+              {socialInvitations.length === 0 && <p className="text-[13px] text-slate-400">No incoming or outgoing invitations.</p>}
+              {socialInvitations.map((invite) => (
+                <div key={invite.id} className="flex items-center gap-3 rounded-[16px] border border-slate-700 bg-black/40 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-white" style={{ fontWeight: 700 }}>{invite.person.name}</p>
+                    <p className="text-[11px] text-slate-400">{invite.direction} · {invite.circleName ?? 'Direct invite'} · {invite.status}</p>
+                  </div>
+                  {invite.direction === 'incoming' && invite.status === 'pending' && <div className="flex gap-1">
+                    <button onClick={() => handleInvitationResponse(invite.id, 'accepted')} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200">Accept</button>
+                    <button onClick={() => handleInvitationResponse(invite.id, 'declined')} className="rounded-full bg-slate-800 px-2 py-1 text-[10px] text-slate-300">Decline</button>
+                  </div>}
+                </div>
+              ))}
+            </div>
+          </div>
+          {networkStatus && <p className="text-[12px] text-cyan-300" style={{ fontWeight: 600 }}>{networkStatus}</p>}
         </div>
       </div>
     );
@@ -1359,10 +1396,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-700">
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {followingCount}
+                {suggestions.length}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
-                Following
+                Network
               </p>
             </div>
             <div className="text-center">

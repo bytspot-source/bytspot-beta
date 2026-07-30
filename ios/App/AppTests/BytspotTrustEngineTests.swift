@@ -32,6 +32,18 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(BytspotNativeShellView.requiresLocationForNearbyContent(.profile))
     }
 
+    @MainActor
+    func testDeepLinkedNearbyTabsUseTheLocationResolutionPolicy() throws {
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "bytspot://discover"))))
+        XCTAssertEqual(coordinator.requestedTab, .discover)
+        XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(try XCTUnwrap(coordinator.requestedTab)))
+
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "bytspot://map"))))
+        XCTAssertEqual(coordinator.requestedTab, .map)
+        XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(try XCTUnwrap(coordinator.requestedTab)))
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,

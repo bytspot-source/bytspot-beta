@@ -344,10 +344,10 @@ struct BytspotNativeShellView: View {
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }
         }
-        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedTab = nil; return }; selectedTab = tab }
+        .onReceive(bridgeStore.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedTab = nil; return }; applyRequestedTab(tab) }
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { route in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedHybridRoute = nil; return }; handleRequestedHybridRoute(route) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
-        .onReceive(navigation.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { navigation.requestedTab = nil; return }; selectedTab = tab }
+        .onReceive(navigation.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { navigation.requestedTab = nil; return }; applyRequestedTab(tab) }
         .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
@@ -619,6 +619,11 @@ struct BytspotNativeShellView: View {
     private func requestLocationForNearbyContentIfNeeded(_ tab: BytspotNativeTab) {
         guard Self.requiresLocationForNearbyContent(tab) else { return }
         locationStore.requestWhenInUseIfNeeded()
+    }
+
+    private func applyRequestedTab(_ tab: BytspotNativeTab) {
+        requestLocationForNearbyContentIfNeeded(tab)
+        selectedTab = tab
     }
 
     private var hasExplicitMapHandoff: Bool {

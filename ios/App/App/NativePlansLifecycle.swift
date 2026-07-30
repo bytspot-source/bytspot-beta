@@ -1,13 +1,12 @@
 import Foundation
 import SwiftUI
-import CryptoKit
 
 struct NativePlanAccountScope: Codable, Equatable {
     let identifier: String
 
-    static func authenticated(token: String?) -> NativePlanAccountScope? {
-        guard let token, !token.isEmpty, token != "guest_session" else { return nil }
-        let identifier = SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+    static func authenticated(userID: String?) -> NativePlanAccountScope? {
+        let identifier = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !identifier.isEmpty else { return nil }
         return NativePlanAccountScope(identifier: identifier)
     }
 }
@@ -81,14 +80,13 @@ enum NativePlanMarketPolicy {
     static let coHostManagementAvailable = false
 
     static func canPresentHostTools(_ lifecycle: NativePlanLifecycleRecord?, accountScope: NativePlanAccountScope?) -> Bool {
-        guard lifecycle?.viewerRole == .owner else { return false }
-        guard let ownerAccountID = lifecycle?.ownerAccountID else { return true }
-        return ownerAccountID == accountScope?.identifier
+        guard let accountScope, lifecycle?.viewerRole == .owner else { return false }
+        return lifecycle?.ownerAccountID == accountScope.identifier
     }
 
     static func canPublish(_ lifecycle: NativePlanLifecycleRecord?, accountScope: NativePlanAccountScope?) -> Bool {
         guard let accountScope, canPresentHostTools(lifecycle, accountScope: accountScope) else { return false }
-        return lifecycle?.ownerAccountID == nil || lifecycle?.ownerAccountID == accountScope.identifier
+        return lifecycle?.ownerAccountID == accountScope.identifier
     }
 
     static func isPublished(_ lifecycle: NativePlanLifecycleRecord?, accountScope: NativePlanAccountScope?) -> Bool {
@@ -116,7 +114,9 @@ enum NativePlanMarketPolicy {
         switch lifecycle.rsvpSync {
         case .synced: return lifecycle.rsvpChoice.title
         case .syncing: return "\(lifecycle.rsvpChoice.title) · syncing"
-        default: return "\(lifecycle.rsvpChoice.title) · on this iPhone"
+        case .localOnly: return "\(lifecycle.rsvpChoice.title) · on this iPhone"
+        case .failed: return "\(lifecycle.rsvpChoice.title) · not sent"
+        case .unsupported: return "\(lifecycle.rsvpChoice.title) · sync unavailable"
         }
     }
 }

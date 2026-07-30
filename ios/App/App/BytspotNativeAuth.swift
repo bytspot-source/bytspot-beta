@@ -33,6 +33,7 @@ enum NativeAuthIntent: Equatable {
 struct NativeAuthAdapterResult: Equatable {
     let provider: NativeAuthProvider
     let token: String
+    let userID: String?
     let displayName: String?
 }
 
@@ -83,6 +84,7 @@ enum NativeAuthStatus: Equatable {
 @MainActor
 protocol NativeAuthSessionStoring: AnyObject {
     @discardableResult func updateToken(_ newToken: String?) -> Bool
+    @discardableResult func updateSession(token: String?, userID: String?) -> Bool
     func continueAsGuest()
     func signOut()
 }
@@ -139,7 +141,7 @@ final class NativeAuthCoordinator: ObservableObject {
             case .apple: result = try await appleAdapter.signIn()
             case .google: result = try await googleAdapter.signIn()
             }
-            if sessionStore.updateToken(result.token) {
+            if sessionStore.updateSession(token: result.token, userID: result.userID) {
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
                 status = .failed(message: "We couldn't save your sign-in. Please try again.")
@@ -180,7 +182,7 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
         guard let token = response.token, !token.isEmpty else {
             throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
         }
-        return NativeAuthAdapterResult(provider: .google, token: token, displayName: response.user?.name ?? user.profile?.name)
+        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name)
     }
 
     private static func configureIfNeeded() throws {
@@ -269,7 +271,7 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
                 let api = NativeAuthDataAPI(client: BytspotAPIClient())
                 let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
                 guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.requiresLegacyFallback(provider: .apple) }
-                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
+                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
             } catch {
                 finish(.failure(error))
             }
@@ -302,7 +304,7 @@ private struct DebugMockAppleAuthAdapter: AppleAuthAdapter {
 
     func signIn() async throws -> NativeAuthAdapterResult {
         if mode == "apple_error" || mode == "error" { throw NativeAuthAdapterError.mockedFailure(provider: .apple) }
-        return NativeAuthAdapterResult(provider: .apple, token: "debug_apple_native_auth_token", displayName: "Apple Preview")
+        return NativeAuthAdapterResult(provider: .apple, token: "debug_apple_native_auth_token", userID: "debug-apple-user", displayName: "Apple Preview")
     }
 }
 
@@ -311,7 +313,7 @@ private struct DebugMockGoogleAuthAdapter: GoogleAuthAdapter {
 
     func signIn() async throws -> NativeAuthAdapterResult {
         if mode == "google_error" || mode == "error" { throw NativeAuthAdapterError.mockedFailure(provider: .google) }
-        return NativeAuthAdapterResult(provider: .google, token: "debug_google_native_auth_token", displayName: "Google Preview")
+        return NativeAuthAdapterResult(provider: .google, token: "debug_google_native_auth_token", userID: "debug-google-user", displayName: "Google Preview")
     }
 }
 #endif

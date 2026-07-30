@@ -497,20 +497,28 @@ private extension NativeVirtualPatchSavedServiceRequest {
 @MainActor
 final class BytspotSessionStore: ObservableObject {
     @Published private(set) var token: String?
+    @Published private(set) var authenticatedUserID: String?
     private let account: String
+    private let identityAccount: String
     private let service: String
 
     init(account: String = "bytspot_auth_token", service: String = Bundle.main.bundleIdentifier ?? "com.bytspot.app") {
         self.account = account
+        self.identityAccount = "\(account)_user_id"
         self.service = service
-        token = readToken()
+        token = nil
+        authenticatedUserID = nil
+        token = readValue(for: account)
+        authenticatedUserID = readValue(for: identityAccount)
+        if token == nil || token == "guest_session" { authenticatedUserID = nil }
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         switch ProcessInfo.processInfo.environment[NativeMigrationConfig.previewSessionEnvironmentKey]?.lowercased() {
-        case "signed_out": token = nil
-        case "guest": token = "guest_session"
+        case "signed_out": token = nil; authenticatedUserID = nil
+        case "guest": token = "guest_session"; authenticatedUserID = nil
         default:
             if let previewToken = ProcessInfo.processInfo.environment[NativeMigrationConfig.previewTokenEnvironmentKey], !previewToken.isEmpty {
                 token = previewToken
+                authenticatedUserID = nil
             }
         }
     }
@@ -541,27 +549,49 @@ final class BytspotSessionStore: ObservableObject {
     }
 
     func reloadFromKeychain() {
-        token = readToken()
+        token = readValue(for: account)
+        authenticatedUserID = token == nil || token == "guest_session" ? nil : readValue(for: identityAccount)
     }
 
     @discardableResult
     func updateToken(_ newToken: String?) -> Bool {
+        updateSession(token: newToken, userID: nil)
+    }
+
+    @discardableResult
+    func updateSession(token newToken: String?, userID: String?) -> Bool {
         if let newToken, !newToken.isEmpty {
-            guard saveToken(newToken) else { return false }
+            guard saveValue(newToken, for: account) else { return false }
+            let normalizedUserID = userID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let normalizedUserID, !normalizedUserID.isEmpty {
+                guard saveValue(normalizedUserID, for: identityAccount) else {
+                    clearValue(for: account)
+                    clearValue(for: identityAccount)
+                    token = nil
+                    authenticatedUserID = nil
+                    return false
+                }
+                authenticatedUserID = normalizedUserID
+            } else {
+                clearValue(for: identityAccount)
+                authenticatedUserID = nil
+            }
             token = newToken
             return true
         } else {
-            clearToken()
+            clearValue(for: account)
+            clearValue(for: identityAccount)
             token = nil
+            authenticatedUserID = nil
             return true
         }
     }
 
-    private func readToken() -> String? {
+    private func readValue(for keychainAccount: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -571,23 +601,23 @@ final class BytspotSessionStore: ObservableObject {
         return String(data: data, encoding: .utf8)
     }
 
-    private func saveToken(_ token: String) -> Bool {
-        clearToken()
+    private func saveValue(_ value: String, for keychainAccount: String) -> Bool {
+        clearValue(for: keychainAccount)
         let item: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: keychainAccount,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecValueData as String: Data(token.utf8)
+            kSecValueData as String: Data(value.utf8)
         ]
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
-    private func clearToken() {
+    private func clearValue(for keychainAccount: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: keychainAccount
         ]
         SecItemDelete(query as CFDictionary)
     }

@@ -1469,13 +1469,13 @@ final class NativeProfileDataAPITests: XCTestCase {
 final class NativeAuthLaunchInputTests: XCTestCase {
     private struct KeychainAppleAdapter: AppleAuthAdapter {
         func signIn() async throws -> NativeAuthAdapterResult {
-            NativeAuthAdapterResult(provider: .apple, token: "keychain_apple_test_token", displayName: "Apple Test")
+            NativeAuthAdapterResult(provider: .apple, token: "keychain_apple_test_token", userID: "apple-user-id", displayName: "Apple Test")
         }
     }
 
     private struct KeychainGoogleAdapter: GoogleAuthAdapter {
         func signIn() async throws -> NativeAuthAdapterResult {
-            NativeAuthAdapterResult(provider: .google, token: "keychain_google_test_token", displayName: "Google Test")
+            NativeAuthAdapterResult(provider: .google, token: "keychain_google_test_token", userID: "google-user-id", displayName: "Google Test")
         }
     }
 
@@ -1596,6 +1596,12 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let restoredApple = BytspotSessionStore(account: account, service: service)
         restoredApple.reloadFromKeychain()
         XCTAssertEqual(restoredApple.token, "keychain_apple_test_token")
+        XCTAssertEqual(restoredApple.authenticatedUserID, "apple-user-id")
+
+        XCTAssertTrue(store.updateSession(token: "refreshed_apple_test_token", userID: "apple-user-id"))
+        let refreshedApple = BytspotSessionStore(account: account, service: service)
+        XCTAssertEqual(refreshedApple.token, "refreshed_apple_test_token")
+        XCTAssertEqual(refreshedApple.authenticatedUserID, "apple-user-id")
 
         store.signOut()
         let google = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: KeychainGoogleAdapter())
@@ -1605,6 +1611,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let restoredGoogle = BytspotSessionStore(account: account, service: service)
         restoredGoogle.reloadFromKeychain()
         XCTAssertEqual(restoredGoogle.token, "keychain_google_test_token")
+        XCTAssertEqual(restoredGoogle.authenticatedUserID, "google-user-id")
     }
 
     @MainActor
@@ -1766,9 +1773,9 @@ final class NativeGroupEventContractTests: XCTestCase {
     }
 
     func testInviteActionFeedbackKeepsButtonsResponsiveForDraftAndPublishedStates() {
-        XCTAssertEqual(NativeGroupInviteActionKind.copy.draftStatus, "Draft invite link copied.")
-        XCTAssertEqual(NativeGroupInviteActionKind.qr.draftStatus, "QR invite preview opened and link copied.")
-        XCTAssertEqual(NativeGroupInviteActionKind.nfc.draftStatus, "NFC invite preview opened and link copied.")
+        XCTAssertTrue(NativeGroupInviteActionKind.copy.draftStatus.contains("copy becomes available"))
+        XCTAssertTrue(NativeGroupInviteActionKind.qr.draftStatus.contains("QR becomes available"))
+        XCTAssertTrue(NativeGroupInviteActionKind.nfc.draftStatus.contains("NFC becomes available"))
         XCTAssertTrue(NativeGroupInviteActionKind.copy.publishedStatus.contains("Invite link copied"))
         XCTAssertTrue(NativeGroupInviteActionKind.qr.publishedStatus.contains("QR invite opened"))
         XCTAssertTrue(NativeGroupInviteActionKind.nfc.publishedStatus.contains("NFC invite opened"))
@@ -1781,7 +1788,10 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.noticeBody.contains("Sign in and publish"))
         XCTAssertTrue(NativeGroupInvitePublishState.draftAuthenticated.qrDetail.contains("after this group publishes"))
         XCTAssertTrue(NativeGroupInvitePublishState.publishing.nfcInstruction.contains("Wait for publish"))
-        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.copiedStatus.contains("Draft invite link copied"))
+        XCTAssertTrue(NativeGroupInvitePublishState.draftSignedOut.copiedStatus.contains("unavailable"))
+        XCTAssertFalse(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: true, publishState: .draftAuthenticated))
+        XCTAssertFalse(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: false, publishState: .published))
+        XCTAssertTrue(NativeGroupInviteExposurePolicy.canExpose(isAuthorizedHost: true, publishState: .published))
     }
 
     func testSilentPublishCanBeUpgradedToAnnouncedByUserAction() {
@@ -1981,6 +1991,17 @@ final class NativeGroupEventContractTests: XCTestCase {
         XCTAssertEqual(legacy.approvalMode, "open")
     }
 
+    func testLegacyGroupRecordWithoutViewerAssociationFailsClosed() throws {
+        let hosted = NativeGroupEventRecord(id: "legacy-host", title: "Legacy Dinner", groupType: "Dinner", hostName: "Host", tier: .green, timing: .today, participantCount: 4, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try JSONEncoder().encode(hosted)) as? [String: Any])
+        object.removeValue(forKey: "privateAssociation")
+
+        let decoded = try JSONDecoder().decode(NativeGroupEventRecord.self, from: JSONSerialization.data(withJSONObject: object))
+
+        XCTAssertEqual(decoded.privateAssociation, .none)
+        XCTAssertFalse(decoded.isHomepageVisibleToCurrentViewer)
+    }
+
     func testGroupEventDataAPIUsesRawTRPCWireFormat() throws {
         // Mutation body is the raw input dictionary — NOT the {"json":…} envelope.
         let body = try NativeGroupEventDataAPI.rawMutationBody(["id": "family-dinner", "approvalMode": "approval"])
@@ -2076,12 +2097,16 @@ final class NativeGroupEventContractTests: XCTestCase {
         let store = NativePlanStore(defaults: defaults)
         store.refresh(events: [hosted])
 
-        let accountA = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "account-a-token"))
-        let accountB = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "account-b-token"))
+        let accountA = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-a"))
+        let refreshedAccountA = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-a"))
+        let accountB = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "account-b"))
         XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
+        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountA), "Unbound legacy records must fail closed")
+        XCTAssertTrue(store.bindOwner(for: hosted.id, accountScope: accountA))
         XCTAssertTrue(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountA))
         XCTAssertTrue(store.setPublication(.published, for: hosted.id, accountScope: accountA))
         XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
+        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: refreshedAccountA), "A refreshed token must not change stable user authority")
         XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountB))
         XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: nil))
         XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountB))
@@ -2106,10 +2131,11 @@ final class NativeGroupEventContractTests: XCTestCase {
         let hosted = NativeGroupEventRecord(id: "hosted", title: "Hosted", groupType: "Dinner", hostName: "Me", tier: .green, timing: .today, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
         let store = NativePlanStore(defaults: defaults)
         store.refresh(events: [attendee, hosted])
-        let account = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "host-token"))
+        let account = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: "host-user"))
 
         XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: attendee.id), accountScope: account))
         XCTAssertFalse(store.setPublication(.published, for: attendee.id, accountScope: account))
+        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: account), "Unbound host records must not be claimable through publish")
         NativeGroupEventStore.clear()
         NativeGroupEventStore.upsert(hosted)
         NativeGroupEventStore.upsert(attendee)

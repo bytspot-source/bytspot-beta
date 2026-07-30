@@ -14103,6 +14103,20 @@ enum NativeMapInteractionContract {
     static let functionSheetMaxHeightFraction: CGFloat = 0.78
 }
 
+enum NativeMapSearchRoutePolicy {
+    static func routeVenue(for suggestion: NativeSearchSuggestion, snapshot: NativeTabContentSnapshot, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        if let card = snapshot.discoverCards.first(where: { $0.title.caseInsensitiveCompare(suggestion.title) == .orderedSame }),
+           let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
+            return venue
+        }
+        if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: suggestion.title, mode: "Route", venues: venues), venue.hasKnownCoordinates {
+            return venue
+        }
+        guard case .map(let destination, let mode) = suggestion.route else { return nil }
+        return NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues).flatMap { $0.hasKnownCoordinates ? $0 : nil }
+    }
+}
+
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -14690,7 +14704,7 @@ private struct NativeMapExploreView: View {
             subtitle: mapFocusSubtitle.isEmpty ? (kind == .parking ? "Parking" : "Selected destination") : mapFocusSubtitle,
             distance: "Selected",
             coordinate: coordinate,
-            color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink,
+            color: kind.mapColor,
             kind: kind,
             crowdLevel: kind == .parking ? 1 : nil
         )
@@ -14879,25 +14893,15 @@ private struct NativeMapExploreView: View {
         showMapSearchSheet = false
         mapSearchText = suggestion.title
         let snapshot = tabContentStore.snapshot(for: locationStore.coordinate)
-        if let card = snapshot.discoverCards.first(where: { $0.title.caseInsensitiveCompare(suggestion.title) == .orderedSame }),
-           let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
-            focusMapSearchVenue(venue)
-            return
-        }
-        if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: suggestion.title, mode: "Route", venues: venues),
-           venue.hasKnownCoordinates {
+        if let venue = NativeMapSearchRoutePolicy.routeVenue(for: suggestion, snapshot: snapshot, venues: venues) {
             focusMapSearchVenue(venue)
             return
         }
         switch suggestion.route {
-        case .map(let destination, let mode):
-            if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues),
-               venue.hasKnownCoordinates {
-                focusMapSearchVenue(venue)
-            } else {
-                openSystemDirections(to: destination)
-                mapStatusMessage = "Opened directions for \(destination)."
-            }
+        case .map:
+            didOpenMapContext = true
+            showFunctionSheet = true
+            mapStatusMessage = "No route-ready destination found. Try an exact place with a verified location."
         case .discoverFilter(let filter):
             UserDefaults.standard.set(filter, forKey: NativeDiscoverView.filterDefaultsKey)
             openNativeTab(.discover)
@@ -14909,20 +14913,14 @@ private struct NativeMapExploreView: View {
 
     private func focusMapSearchVenue(_ venue: NativeVenueSummary) {
         let existing = pins.first(where: { $0.id == venue.id })
-        let kind: NativeMapPinKind = venue.discoverType == "parking" ? .parking : venue.verifiedPatchId == nil ? .venue : .partner
-        let pin = existing ?? NativeMapPin(id: venue.id, title: venue.name, subtitle: venue.address, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink, kind: kind, crowdLevel: venue.crowd?.level)
+        let kind = NativeMapPinKind.forVenue(venue)
+        let pin = existing ?? NativeMapPin(id: venue.id, title: venue.name, subtitle: venue.address, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
         focusedHandoffPin = pin
         focusedHandoffOrigin = locationStore.coordinate
         focusedHandoffIsLocationScoped = true
         showFunctionSheet = false
         selectRoute(to: pin)
         mapStatusMessage = "Route ready for \(pin.title)."
-    }
-
-    private func openSystemDirections(to destination: String) {
-        var components = URLComponents(string: "https://maps.apple.com/")
-        components?.queryItems = [URLQueryItem(name: "daddr", value: destination), URLQueryItem(name: "dirflg", value: "d")]
-        if let url = components?.url { UIApplication.shared.open(url) }
     }
 
     private func openServiceHere() {
@@ -18667,7 +18665,13 @@ private struct NativeChatBubble: View {
     var body: some View { Text(text).font(.system(size: 14, weight: .bold)).foregroundColor(isUser ? .black : .white).padding(13).frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading).background(isUser ? NativeTheme.cyan : NativeTheme.panel).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }
 }
 
-private enum NativeMapPinKind { case partner, parking, access, venue
+enum NativeMapPinKind: Equatable { case partner, parking, access, venue
+    static func forVenue(_ venue: NativeVenueSummary) -> NativeMapPinKind {
+        if venue.verifiedPatchId != nil { return .partner }
+        if venue.discoverType == "parking" || venue.parking.totalAvailable > 0 { return .parking }
+        return .venue
+    }
+    var mapColor: Color { self == .parking ? NativeTheme.emerald : self == .partner ? NativeTheme.cyan : self == .access ? NativeTheme.pink : NativeTheme.orange }
     var icon: String { self == .partner ? "checkmark.seal.fill" : self == .parking ? "parkingsign.circle.fill" : self == .access ? "key.fill" : "mappin.circle.fill" }
     var emoji: String { self == .partner ? "⚡" : self == .parking ? "P" : self == .access ? "🛍" : "●" }
 }
@@ -18685,10 +18689,9 @@ private struct NativeMapPin: Identifiable {
     }
 
     init(venue: NativeVenueSummary) {
-        let isParking = venue.discoverType == "parking" || venue.parking.totalAvailable > 0 && venue.verifiedPatchId == nil
-        let kind: NativeMapPinKind = venue.verifiedPatchId != nil ? .partner : isParking ? .parking : .access
-        let subtitle = venue.verifiedPatchId != nil ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)"
-        self.init(id: venue.id, title: venue.name, subtitle: subtitle, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink, kind: kind, crowdLevel: venue.crowd?.level)
+        let kind = NativeMapPinKind.forVenue(venue)
+        let subtitle = kind == .partner ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : kind == .parking ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address
+        self.init(id: venue.id, title: venue.name, subtitle: subtitle, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
     }
 }
 

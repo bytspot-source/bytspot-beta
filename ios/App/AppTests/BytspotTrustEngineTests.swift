@@ -926,6 +926,17 @@ final class BytspotTrustEngineTests: XCTestCase {
         NativeMapFocusHandoff.store(venue: venue, defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.kindKey), "venue")
+        XCTAssertEqual(NativeMapPinKind.forVenue(venue), .venue)
+        XCTAssertNotEqual(NativeMapPinKind.forVenue(venue), .access)
+        XCTAssertEqual(NativeMapPinKind.forVenue(NativeVenueSummary(id: "verified", name: "Verified", category: "coffee", address: "3 Route St", distance: "0.4 mi", rating: nil, latitude: 33.7871, longitude: -84.3831, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: "BYT-VERIFIED", imageUrl: nil)), .partner)
+        XCTAssertEqual(NativeMapPinKind.forVenue(NativeVenueSummary(id: "parking", name: "Parking", category: "parking", address: "4 Route St", distance: "0.5 mi", rating: nil, latitude: 33.7872, longitude: -84.3832, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"), verifiedPatchId: nil, imageUrl: nil)), .parking)
+    }
+
+    func testMapSearchRoutePolicyFailsClosedForUnresolvedTextDestination() {
+        let snapshot = NativeTabContentSnapshot(venues: [], discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil)
+        let suggestion = NativeSearchSuggestion(id: "parking-near-me", title: "Parking near me", subtitle: "Search nearby", address: "Parking near me", icon: "parkingsign", actionLabel: "Route", badge: "Map", score: 100, route: .map(destination: "Parking near me", mode: "Route"))
+
+        XCTAssertNil(NativeMapSearchRoutePolicy.routeVenue(for: suggestion, snapshot: snapshot, venues: []))
     }
 
     func testMapFunctionSheetUsesAViewportBoundedScrollableHeight() {

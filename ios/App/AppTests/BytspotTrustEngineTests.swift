@@ -1615,6 +1615,53 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     @MainActor
+    func testEmailAuthSessionPersistsStableIdentityAndEnablesHostPublication() throws {
+        let account = "native_email_auth_persistence_\(UUID().uuidString)"
+        let service = "com.bytspot.native-email-auth-persistence-tests"
+        let suite = "NativeEmailAuthHostAuthorityTests.\(UUID().uuidString)"
+        let sessionStore = BytspotSessionStore(account: account, service: service)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            sessionStore.signOut()
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let response = NativeAuthResponse(token: "email_session_token", user: NativeAuthUserRecord(id: "email-user-id", email: "member@example.com", name: "Member"), isNewUser: false)
+        XCTAssertTrue(NativeEmailAuthSessionPersistence.persist(response, in: sessionStore))
+
+        let restoredSession = BytspotSessionStore(account: account, service: service)
+        XCTAssertEqual(restoredSession.token, "email_session_token")
+        XCTAssertEqual(restoredSession.authenticatedUserID, "email-user-id")
+
+        let hosted = NativeGroupEventRecord(id: "email-host-plan", title: "Member Dinner", groupType: "Dinner", hostName: "Member", tier: .green, timing: .today, participantCount: 1, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
+        let planStore = NativePlanStore(defaults: defaults)
+        planStore.refresh(events: [hosted])
+        let accountScope = try XCTUnwrap(NativePlanAccountScope.authenticated(userID: restoredSession.authenticatedUserID))
+        XCTAssertTrue(planStore.bindOwner(for: hosted.id, accountScope: accountScope))
+        XCTAssertTrue(NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: hosted.id), accountScope: accountScope))
+        XCTAssertTrue(planStore.setPublication(.published, for: hosted.id, accountScope: accountScope))
+        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: hosted.id), accountScope: accountScope))
+    }
+
+    @MainActor
+    func testEmailAuthSessionFailsClosedWithoutStableUserIdentity() {
+        let account = "native_email_auth_missing_identity_\(UUID().uuidString)"
+        let service = "com.bytspot.native-email-auth-missing-identity-tests"
+        let sessionStore = BytspotSessionStore(account: account, service: service)
+        defer { sessionStore.signOut() }
+        XCTAssertTrue(sessionStore.updateSession(token: "old_token", userID: "old-user"))
+
+        let missingIdentity = NativeAuthResponse(token: "new_token", user: NativeAuthUserRecord(id: nil, email: "member@example.com", name: "Member"), isNewUser: false)
+        XCTAssertFalse(NativeEmailAuthSessionPersistence.persist(missingIdentity, in: sessionStore))
+        XCTAssertNil(sessionStore.token)
+        XCTAssertNil(sessionStore.authenticatedUserID)
+
+        let restoredSession = BytspotSessionStore(account: account, service: service)
+        XCTAssertNil(restoredSession.token)
+        XCTAssertNil(restoredSession.authenticatedUserID)
+    }
+
+    @MainActor
     private func waitForToken(_ expected: String, in store: BytspotSessionStore) async {
         for _ in 0..<40 {
             if store.token == expected { return }

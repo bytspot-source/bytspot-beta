@@ -1263,6 +1263,18 @@ private struct NativeLaunchPickRow: View {
     var body: some View { HStack(spacing: 12) { Text(medal).font(.system(size: 20)).accessibilityHidden(true); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(.white).lineLimit(1); Text(address).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.36)).lineLimit(1) }; Spacer(); Text(label).font(.system(size: 12, weight: .black)).foregroundColor(color).padding(.horizontal, 10).padding(.vertical, 5).background(color.opacity(0.16)).overlay(Capsule().stroke(color.opacity(0.34), lineWidth: 1)).clipShape(Capsule()) }.padding(14).nativeLaunchTransparentCard(radius: 16, fillOpacity: 0.065).accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(address), \(label)") }
 }
 
+@MainActor enum NativeEmailAuthSessionPersistence {
+    static func persist(_ response: NativeAuthResponse, in sessionStore: BytspotSessionStore) -> Bool {
+        let token = response.token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userID = response.user?.id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !token.isEmpty, !userID.isEmpty else {
+            sessionStore.signOut()
+            return false
+        }
+        return sessionStore.updateSession(token: token, userID: userID)
+    }
+}
+
 struct NativeAuthenticationScreen: View {
     let mode: NativeAuthMode
     @ObservedObject var sessionStore: BytspotSessionStore
@@ -1360,7 +1372,7 @@ struct NativeAuthenticationScreen: View {
                     ? try await api.signup(email: email, password: password, name: name, ref: inviteCode.isEmpty ? nil : inviteCode)
                     : try await api.login(email: email, password: password)
                 await MainActor.run {
-                    if let token = response.token, !token.isEmpty, sessionStore.updateToken(token) {
+                    if NativeEmailAuthSessionPersistence.persist(response, in: sessionStore) {
                         completeAuthIfReady()
                     } else {
                         error = "We couldn't save your sign-in. Please try again."

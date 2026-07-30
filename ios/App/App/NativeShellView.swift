@@ -7009,6 +7009,7 @@ enum NativeHomeRegionPresentation {
 
     static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
         if canPresentLaunchPicks(in: snapshot) { return true }
+        if snapshot.hasTrustworthyLiveEventInventory { return true }
         return snapshot.discoverCards.contains(where: isTrustedLocalPlaceCard)
     }
 
@@ -7016,22 +7017,46 @@ enum NativeHomeRegionPresentation {
         snapshot.hasTrustworthyLiveVenueInventory
     }
 
-    static func venueSafeSnapshot(_ snapshot: NativeTabContentSnapshot) -> NativeTabContentSnapshot {
+    static func trustedProviderCards(in snapshot: NativeTabContentSnapshot) -> [NativeDiscoverSummary] {
+        snapshot.discoverCards.filter(isTrustedLocalPlaceCard)
+    }
+
+    static func trustedHomeCards(in snapshot: NativeTabContentSnapshot) -> [NativeDiscoverSummary] {
         let venues = snapshot.trustworthyLiveVenues
+        let events = snapshot.trustworthyLiveEvents
+        return snapshot.discoverCards.filter { card in
+            if isTrustedLocalPlaceCard(card) { return true }
+            if venues.contains(where: { venue in
+                card.id == "venue-\(venue.id)"
+                    || card.id == "companion-\(card.type)-\(venue.id)"
+                    || card.id.hasSuffix("-venue-\(venue.id)")
+            }) { return true }
+            return events.contains { card.id.hasSuffix("event-\($0.id)") }
+        }
+    }
+
+    static func homeSafeSnapshot(_ snapshot: NativeTabContentSnapshot) -> NativeTabContentSnapshot {
+        let venues = snapshot.trustworthyLiveVenues
+        let events = snapshot.trustworthyLiveEvents
         return NativeTabContentSnapshot(
             venues: venues,
-            discoverCards: snapshot.discoverCards,
-            events: snapshot.events,
+            discoverCards: trustedHomeCards(in: snapshot),
+            events: events,
             source: snapshot.source,
             lastUpdated: snapshot.lastUpdated,
             errorMessage: snapshot.errorMessage,
             bestValueOptions: snapshot.bestValueOptions,
-            hasLiveVenueInventory: !venues.isEmpty
+            hasLiveVenueInventory: !venues.isEmpty,
+            hasLiveEventInventory: !events.isEmpty
         )
     }
 
     static func venueRailVenues(in snapshot: NativeTabContentSnapshot) -> [NativeVenueSummary] {
         snapshot.trustworthyLiveVenues
+    }
+
+    static func eventRailEvents(in snapshot: NativeTabContentSnapshot) -> [NativeEventSummary] {
+        snapshot.trustworthyLiveEvents
     }
 
     static func isTrustedLocalPlaceCard(_ card: NativeDiscoverSummary) -> Bool {
@@ -7204,7 +7229,7 @@ private struct NativeHomeDashboardView: View {
     static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     private var regionalSnapshot: NativeTabContentSnapshot {
-        NativeHomeRegionPresentation.venueSafeSnapshot(tabContentStore.snapshot(for: locationStore.coordinate))
+        NativeHomeRegionPresentation.homeSafeSnapshot(tabContentStore.snapshot(for: locationStore.coordinate))
     }
 
     private var launchRecommendationPicks: [LaunchRecommendationPick] {
@@ -7230,14 +7255,12 @@ private struct NativeHomeDashboardView: View {
             quickActionsSection
             weatherSmartCard
             categoryQuickSearchSection
-            if hasTrustedLocalRecommendations {
-                availableTonightSection
-                recommendationsSection
-                tonightEventsSection
-                rightNowSection
-                trendingNowSection
-                nearbySection
-            }
+            availableTonightSection
+            recommendationsSection
+            tonightEventsSection
+            rightNowSection
+            trendingNowSection
+            nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); refreshLiveGroupEvent(); locationStore.startIfAuthorized() }

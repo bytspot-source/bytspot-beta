@@ -8157,6 +8157,8 @@ private struct NativeHomeSearchSheet: View {
     let location: NativeLocationCoordinate
     let onSubmit: () -> Void
     let onSelect: (NativeSearchSuggestion) -> Void
+    var contextTitle = "Home Search"
+    var contextSubtitle: String? = nil
 
     private var suggestions: [NativeSearchSuggestion] {
         NativeSearchRouter.suggestions(query: query, snapshot: snapshot, location: location, limit: 8)
@@ -8165,10 +8167,10 @@ private struct NativeHomeSearchSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Home Search")
+                Text(contextTitle)
                     .font(.system(size: 24, weight: .black, design: .rounded))
                     .foregroundColor(NativeTheme.textPrimary)
-                Text("Find places, vendors, routes, and Discover categories near \(location.displayName).")
+                Text(contextSubtitle ?? "Find places, vendors, routes, and Discover categories near \(location.displayName).")
                     .font(.system(size: 12.5, weight: .bold))
                     .foregroundColor(NativeTheme.textSecondary)
             }
@@ -8205,7 +8207,7 @@ private struct NativeHomeSearchSheet: View {
         }
         .padding(20)
         .background(NativeTheme.background.ignoresSafeArea())
-        .accessibilityIdentifier("native-home-search-sheet")
+        .accessibilityIdentifier(contextTitle == "Home Search" ? "native-home-search-sheet" : "native-map-search-sheet")
     }
 
     private var quickChips: some View {
@@ -9617,7 +9619,7 @@ enum NativeMapFocusHandoff {
         defaults.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
         defaults.set(venue.latitude, forKey: latitudeKey)
         defaults.set(venue.longitude, forKey: longitudeKey)
-        defaults.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "access", forKey: kindKey)
+        defaults.set(isParking ? "parking" : venue.verifiedPatchId != nil ? "partner" : "venue", forKey: kindKey)
         defaults.set(modeOverride ?? (isParking ? "Smart Parking" : "Route"), forKey: modeKey)
         defaults.set(locationScopeOrigin != nil, forKey: locationScopedKey)
         if let locationScopeOrigin {
@@ -11621,6 +11623,8 @@ private struct NativeDiscoverView: View {
         let vibeScore: Int
         let availability: String
         let membershipRequired: Bool
+        let latitude: Double?
+        let longitude: Double?
     }
 
     static let categoryLabels = ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"]
@@ -11815,12 +11819,14 @@ private struct NativeDiscoverView: View {
                 NativeRow(title: "No spots match this filter", subtitle: "Try All or Services to see dining, passes, and local help.", icon: "arrow.clockwise") { selectedFilter = nil; entryFilter = "all"; savedOnly = false }
             } else {
                 ForEach(rankedCards) { card in
+                    let routeVenue = locationStore.coordinate.isFallback ? nil : Self.routeVenue(for: card, venues: NativeLocationAwareUIContent.venues(in: regionalSnapshot))
                     NativeDiscoverFeatureCard(
                         card: card,
                         isSaved: savedCardIDs.contains(card.id),
                         primaryCTATitle: primaryTitle(for: card),
                         openDetails: { detailVenue = venueForDetail(card) },
                         primaryAction: { handlePrimaryCTA(card) },
+                        routeAction: routeVenue.map { venue in { openRoute(to: venue) } },
                         toggleFavorite: { toggleSaved(card.id) },
                         skipCard: { skip(card.id) }
                     )
@@ -11936,7 +11942,7 @@ private struct NativeDiscoverView: View {
     }
 
     private static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
-        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, latitude: card.latitude, longitude: card.longitude)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
@@ -11955,6 +11961,12 @@ private struct NativeDiscoverView: View {
         } else {
             detailVenue = venue
         }
+    }
+
+    private func openRoute(to venue: NativeVenueSummary) {
+        nativeImpactLight()
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route", locationScopeOrigin: locationStore.coordinate)
+        openNativeTab(.map)
     }
 
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
@@ -12028,8 +12040,12 @@ private struct NativeDiscoverView: View {
     }
 
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
-        if let direct = candidates.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
+        if let direct = NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.subtitle, type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: candidates) { return direct }
         return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
+    }
+
+    fileprivate static func routeVenue(for card: DiscoverCardSpec, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.subtitle, type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: venues)
     }
 
     private static func filterValue(for label: String) -> String? {
@@ -12205,6 +12221,7 @@ private struct NativeDiscoverFeatureCard: View {
     var primaryCTATitle: String? = nil
     let openDetails: () -> Void
     let primaryAction: () -> Void
+    var routeAction: (() -> Void)? = nil
     let toggleFavorite: () -> Void
     let skipCard: () -> Void
     @State private var dragOffset: CGFloat = 0
@@ -12301,23 +12318,39 @@ private struct NativeDiscoverFeatureCard: View {
                     Spacer(minLength: 0)
                 }
 
-                Button(action: triggerPrimaryAction) {
-                    HStack(spacing: 8) {
-                        Spacer(minLength: 0)
-                        Text(primaryCTATitle ?? card.cta)
-                            .font(.system(size: 14, weight: .black))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .black))
-                        Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    Button(action: triggerPrimaryAction) {
+                        HStack(spacing: 8) {
+                            Spacer(minLength: 0)
+                            Text(primaryCTATitle ?? card.cta)
+                                .font(.system(size: 14, weight: .black))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .black))
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(LinearGradient(colors: [NativeTheme.cyan, Color(hex: 0x38BDF8)], startPoint: .leading, endPoint: .trailing))
+                    .clipShape(Capsule())
+                    .shadow(color: NativeTheme.cyan.opacity(0.24), radius: 12, x: 0, y: 7)
+                    .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
+                    if let routeAction {
+                        Button(action: { nativeImpactLight(); routeAction() }) {
+                            Label("Route", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                                .font(.system(size: 13, weight: .black))
+                                .padding(.horizontal, 14)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(NativeTheme.cyan)
+                        .frame(minHeight: 44)
+                        .background(NativeTheme.selectedControlSurface)
+                        .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.56), lineWidth: 1.2))
+                        .clipShape(Capsule())
+                        .accessibilityIdentifier("native-discover-route-cta-\(card.id)")
                     }
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(.black)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(LinearGradient(colors: [NativeTheme.cyan, Color(hex: 0x38BDF8)], startPoint: .leading, endPoint: .trailing))
-                .clipShape(Capsule())
-                .shadow(color: NativeTheme.cyan.opacity(0.24), radius: 12, x: 0, y: 7)
-                .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -14032,6 +14065,44 @@ enum NativeMapRegionPresentation {
     }
 }
 
+enum NativeMapSavedRoutes {
+    static let storageKey = "bytspot_native_saved_map_route_ids"
+
+    static func ids(from rawValue: String) -> Set<String> {
+        Set(rawValue.split(separator: "\n").map(String.init).filter { !$0.isEmpty })
+    }
+
+    static func rawValue(for ids: Set<String>) -> String {
+        ids.sorted().joined(separator: "\n")
+    }
+}
+
+enum NativeDiscoverRouteResolver {
+    static func matchingVenue(cardID: String, title: String, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        venues.first {
+            $0.id == cardID
+                || "venue-\($0.id)" == cardID
+                || cardID.hasSuffix("-\($0.id)")
+                || $0.name.caseInsensitiveCompare(title) == .orderedSame
+                || title.lowercased().hasSuffix($0.name.lowercased())
+        }
+    }
+
+    static func routeVenue(for card: NativeDiscoverSummary, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        routeVenue(cardID: card.id, title: card.title, subtitle: card.subtitle, type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: venues)
+    }
+
+    static func routeVenue(cardID: String, title: String, subtitle: String, type: String, distance: String, imageURL: URL?, latitude: Double?, longitude: Double?, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        if let venue = matchingVenue(cardID: cardID, title: title, venues: venues), venue.hasKnownCoordinates { return venue }
+        guard let latitude, let longitude, NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
+        return NativeVenueSummary(id: cardID, name: title, category: type, address: subtitle, distance: distance, rating: nil, latitude: latitude, longitude: longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: imageURL)
+    }
+}
+
+enum NativeMapInteractionContract {
+    static let functionSheetMaxHeightFraction: CGFloat = 0.78
+}
+
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -14058,6 +14129,10 @@ private struct NativeMapExploreView: View {
     @State private var detailVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var showFunctionSheet = Self.previewShowsFunctionSheet
+    @State private var showMapSearchSheet = false
+    @State private var mapSearchText = ""
+    @State private var showLayerControls = false
+    @State private var mapStatusMessage: String?
     @State private var showParking = true
     @State private var showVenues = true
     @State private var showTapZones = true
@@ -14080,6 +14155,7 @@ private struct NativeMapExploreView: View {
     @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
     @State private var guestMapPromptCTA = "Sign in to save"
     @State private var gateLatched = false
+    @AppStorage(NativeMapSavedRoutes.storageKey) private var savedRouteIDsRaw = ""
     @StateObject private var headingProvider = NativeMapHeadingProvider()
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -14378,7 +14454,7 @@ private struct NativeMapExploreView: View {
                     .padding(.top, NativePolish.mapActionTopInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 if shouldShowSpatialSheet {
-                    spatialSheet
+                    spatialSheet(maxHeight: proxy.size.height * NativeMapInteractionContract.functionSheetMaxHeightFraction)
                         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.985, anchor: .bottom)), removal: .move(edge: .bottom).combined(with: .opacity)))
                 }
             }
@@ -14390,6 +14466,22 @@ private struct NativeMapExploreView: View {
                 sheet
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+            } else {
+                sheet
+            }
+        }
+        .sheet(isPresented: $showMapSearchSheet) {
+            let sheet = NativeHomeSearchSheet(
+                query: $mapSearchText,
+                snapshot: tabContentStore.snapshot(for: locationStore.coordinate),
+                location: locationStore.coordinate,
+                onSubmit: submitMapSearch,
+                onSelect: handleMapSearchSuggestion,
+                contextTitle: "Map Search",
+                contextSubtitle: "Find a destination, parking, service, or route near \(locationStore.coordinate.displayName)."
+            )
+            if #available(iOS 16.0, *) {
+                sheet.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             } else {
                 sheet
             }
@@ -14591,7 +14683,7 @@ private struct NativeMapExploreView: View {
         let existing = pins.first { pin in
             pin.id.lowercased() == lowerID || (!lowerTitle.isEmpty && (pin.title.lowercased().contains(lowerTitle) || lowerTitle.contains(pin.title.lowercased())))
         }
-        let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : .access
+        let kind: NativeMapPinKind = mapFocusKind == "parking" ? .parking : mapFocusKind == "partner" ? .partner : mapFocusKind == "access" ? .access : .venue
         let focused = existing ?? NativeMapPin(
             id: id.isEmpty ? "focus-\(Int(Date().timeIntervalSince1970))" : id,
             title: title.isEmpty ? "Selected destination" : title,
@@ -14741,7 +14833,7 @@ private struct NativeMapExploreView: View {
     }
 
     private var topSearchOverlay: some View {
-        Button(action: { didOpenMapContext = true; showFunctionSheet = true; nativeImpactLight() }) {
+        Button(action: openMapSearch) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 19, weight: .black))
@@ -14766,6 +14858,73 @@ private struct NativeMapExploreView: View {
         .buttonStyle(.plain)
     }
 
+    private func openMapSearch() {
+        nativeImpactLight()
+        showMapSearchSheet = true
+    }
+
+    private func submitMapSearch() {
+        let snapshot = tabContentStore.snapshot(for: locationStore.coordinate)
+        if let suggestion = NativeSearchRouter.suggestions(query: mapSearchText, snapshot: snapshot, location: locationStore.coordinate, limit: 1).first {
+            handleMapSearchSuggestion(suggestion)
+        } else {
+            showMapSearchSheet = false
+            didOpenMapContext = true
+            showFunctionSheet = true
+            mapStatusMessage = "No matching destination found. Try a place name, address, or category."
+        }
+    }
+
+    private func handleMapSearchSuggestion(_ suggestion: NativeSearchSuggestion) {
+        showMapSearchSheet = false
+        mapSearchText = suggestion.title
+        let snapshot = tabContentStore.snapshot(for: locationStore.coordinate)
+        if let card = snapshot.discoverCards.first(where: { $0.title.caseInsensitiveCompare(suggestion.title) == .orderedSame }),
+           let venue = NativeDiscoverRouteResolver.routeVenue(for: card, venues: venues) {
+            focusMapSearchVenue(venue)
+            return
+        }
+        if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: suggestion.title, mode: "Route", venues: venues),
+           venue.hasKnownCoordinates {
+            focusMapSearchVenue(venue)
+            return
+        }
+        switch suggestion.route {
+        case .map(let destination, let mode):
+            if let venue = NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues),
+               venue.hasKnownCoordinates {
+                focusMapSearchVenue(venue)
+            } else {
+                openSystemDirections(to: destination)
+                mapStatusMessage = "Opened directions for \(destination)."
+            }
+        case .discoverFilter(let filter):
+            UserDefaults.standard.set(filter, forKey: NativeDiscoverView.filterDefaultsKey)
+            openNativeTab(.discover)
+        case .rideHandoff:
+            UserDefaults.standard.set("mobility", forKey: NativeDiscoverView.filterDefaultsKey)
+            openNativeTab(.discover)
+        }
+    }
+
+    private func focusMapSearchVenue(_ venue: NativeVenueSummary) {
+        let existing = pins.first(where: { $0.id == venue.id })
+        let kind: NativeMapPinKind = venue.discoverType == "parking" ? .parking : venue.verifiedPatchId == nil ? .venue : .partner
+        let pin = existing ?? NativeMapPin(id: venue.id, title: venue.name, subtitle: venue.address, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind == .parking ? NativeTheme.emerald : kind == .partner ? NativeTheme.cyan : NativeTheme.pink, kind: kind, crowdLevel: venue.crowd?.level)
+        focusedHandoffPin = pin
+        focusedHandoffOrigin = locationStore.coordinate
+        focusedHandoffIsLocationScoped = true
+        showFunctionSheet = false
+        selectRoute(to: pin)
+        mapStatusMessage = "Route ready for \(pin.title)."
+    }
+
+    private func openSystemDirections(to destination: String) {
+        var components = URLComponents(string: "https://maps.apple.com/")
+        components?.queryItems = [URLQueryItem(name: "daddr", value: destination), URLQueryItem(name: "dirflg", value: "d")]
+        if let url = components?.url { UIApplication.shared.open(url) }
+    }
+
     private func openServiceHere() {
         didOpenMapContext = true
         showFunctionSheet = false
@@ -14779,11 +14938,12 @@ private struct NativeMapExploreView: View {
     private var serviceHereContext: NativeServiceHereContext {
         let parkingPin = selectedPin?.kind == .parking ? selectedPin : pins.first { $0.kind == .parking }
         let partnerPin = selectedPin.map(isPartnerPin) == true ? selectedPin : pins.first { isPartnerPin($0) }
-        let selectedKind: NativeServiceHerePinKind? = selectedPin.map { pin in
+        let selectedKind: NativeServiceHerePinKind? = selectedPin.flatMap { pin -> NativeServiceHerePinKind? in
             switch pin.kind {
             case .parking: return .parking
             case .partner: return .partner
             case .access: return .access
+            case .venue: return nil
             }
         }
         return NativeServiceHereContext(
@@ -14887,9 +15047,17 @@ private struct NativeMapExploreView: View {
     }
 
     private func openTrafficIntel() {
+        guard let candidate = trafficIntelCandidate else {
+            showTrafficIntel = false
+            didOpenMapContext = true
+            showFunctionSheet = true
+            mapStatusMessage = "Traffic Intel needs a nearby route-ready venue."
+            nativeImpactLight()
+            return
+        }
         showTrafficIntel = true
         showFunctionSheet = false
-        trafficIntelVenue = trafficIntelCandidate
+        trafficIntelVenue = candidate
         nativeImpactLight()
     }
 
@@ -14942,55 +15110,51 @@ private struct NativeMapExploreView: View {
         }
     }
 
-    private var spatialSheet: some View {
+    private func spatialSheet(maxHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: NativePolish.mapSheetContentSpacing) {
             sheetHeader
-            if isFunctionSheetDefault {
-                functionQuickGrid
-                if let option = bestValueOption { bestValueMapPanel(option) }
-                functionFeatureRows
-            } else if let pin = selectedPin, isPartnerPin(pin) {
-                partnerPeekCard(for: pin)
-            } else if let pin = selectedPin {
-                nonPartnerPeekCard(for: pin)
-            } else if showVerifiedOnly || selectedMode == "Tap Zones" {
-                if filteredPins.isEmpty {
-                    emptyTapZoneState
-                } else {
-                    ForEach(Array(filteredPins.prefix(3))) { pin in
-                        Button(action: { didOpenMapContext = true; selectedPin = pin; nativeImpactLight() }) { mapResultRow(pin) }.buttonStyle(.plain)
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: NativePolish.mapSheetContentSpacing) {
+                    if let mapStatusMessage { mapStatusBanner(mapStatusMessage) }
+                    if isFunctionSheetDefault {
+                        functionQuickGrid
+                        if showLayerControls {
+                            intelligenceFilters
+                            layerSummary
+                        }
+                        if let option = bestValueOption { bestValueMapPanel(option) }
+                        functionFeatureRows
+                    } else if let pin = selectedPin, isPartnerPin(pin) {
+                        partnerPeekCard(for: pin)
+                    } else if let pin = selectedPin {
+                        nonPartnerPeekCard(for: pin)
+                    } else if showVerifiedOnly || selectedMode == "Tap Zones" {
+                        if filteredPins.isEmpty {
+                            emptyTapZoneState
+                        } else {
+                            ForEach(Array(filteredPins.prefix(3))) { pin in
+                                Button(action: { didOpenMapContext = true; selectedPin = pin; nativeImpactLight() }) { mapResultRow(pin) }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !isFunctionSheetDefault && !isSimplexPinSelected && (selectedMode == "Smart Parking" || showFunctionSheet) { smartParkingRail }
+                    if !isFunctionSheetDefault && !isSimplexPinSelected && (showFunctionSheet || selectedPin != nil) {
+                        scannerAccessRow
+                        verifiedZonePanel
+                        intelligenceFilters
+                        layerSummary
+                    }
+                    if !isSimplexPinSelected && (showFunctionSheet || selectedPin != nil || showVerifiedOnly) {
+                        HStack(spacing: NativePolish.mapSheetActionGap) {
+                            NativeMapSheetActionButton(title: Self.tapScanTitle, subtitle: tapScanSubtitleForProximity, icon: can(.initiateDirectScan) ? "qrcode.viewfinder" : "location.circle", accent: NativeTheme.cyan, isPrimary: true, isEnabled: can(.initiateDirectScan), action: { performDirectScan() })
+                            NativeMapSheetActionButton(title: "Ask Concierge", subtitle: "Assisted routing", icon: "sparkles", accent: NativeTheme.purple, isPrimary: false, action: { openNativeTab(.concierge) })
+                        }
                     }
                 }
-            }
-            if !isFunctionSheetDefault && !isSimplexPinSelected && (selectedMode == "Smart Parking" || showFunctionSheet) { smartParkingRail }
-            if !isFunctionSheetDefault && !isSimplexPinSelected && (showFunctionSheet || selectedPin != nil) {
-                scannerAccessRow
-                verifiedZonePanel
-                intelligenceFilters
-                layerSummary
-            }
-            if !isSimplexPinSelected && (showFunctionSheet || selectedPin != nil || showVerifiedOnly) {
-                HStack(spacing: NativePolish.mapSheetActionGap) {
-                    NativeMapSheetActionButton(
-                        title: Self.tapScanTitle,
-                        subtitle: tapScanSubtitleForProximity,
-                        icon: can(.initiateDirectScan) ? "qrcode.viewfinder" : "location.circle",
-                        accent: NativeTheme.cyan,
-                        isPrimary: true,
-                        isEnabled: can(.initiateDirectScan),
-                        action: { performDirectScan() }
-                    )
-                    NativeMapSheetActionButton(
-                        title: "Ask Concierge",
-                        subtitle: "Assisted routing",
-                        icon: "sparkles",
-                        accent: NativeTheme.purple,
-                        isPrimary: false,
-                        action: { openNativeTab(.concierge) }
-                    )
-                }
+                .padding(.bottom, 4)
             }
         }
+        .frame(maxHeight: maxHeight)
         .padding(.horizontal, NativePolish.mapSheetInnerHorizontalPadding)
         .padding(.top, NativePolish.mapSheetInnerTopPadding)
         .padding(.bottom, NativePolish.mapSheetInnerBottomPadding)
@@ -15006,6 +15170,18 @@ private struct NativeMapExploreView: View {
     }
 
     private var isFunctionSheetDefault: Bool { showFunctionSheet && selectedPin == nil }
+
+    private func mapStatusBanner(_ message: String) -> some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.system(size: 12, weight: .black))
+            .foregroundColor(NativeTheme.textPrimary)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .background(NativeTheme.emerald.opacity(0.14))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativeTheme.emerald.opacity(0.32), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .accessibilityIdentifier("native-map-status-message")
+    }
 
     private var bestValueOption: NativeLiveValueOption? {
         guard hasResolvedDeviceLocation else { return nil }
@@ -15130,7 +15306,7 @@ private struct NativeMapExploreView: View {
                     Button(action: { handleNonPartnerSecondary(label, for: pin) }) {
                         HStack(spacing: 6) {
                             Image(systemName: secondaryIcon(for: label)).font(.system(size: 11, weight: .black))
-                            Text(label).font(.system(size: 12, weight: .black))
+                            Text(secondaryTitle(for: label, pin: pin)).font(.system(size: 12, weight: .black))
                         }
                         .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
                         .frame(maxWidth: .infinity)
@@ -15201,12 +15377,26 @@ private struct NativeMapExploreView: View {
         }
     }
 
+    private var savedRouteIDs: Set<String> { NativeMapSavedRoutes.ids(from: savedRouteIDsRaw) }
+
+    private func secondaryTitle(for label: String, pin: NativeMapPin) -> String {
+        label == "Save" && savedRouteIDs.contains(pin.id) ? "Saved" : label
+    }
+
+    private func saveRoute(to pin: NativeMapPin) {
+        var ids = savedRouteIDs
+        ids.insert(pin.id)
+        savedRouteIDsRaw = NativeMapSavedRoutes.rawValue(for: ids)
+        selectRoute(to: pin)
+        mapStatusMessage = "Route to \(pin.title) saved on this device."
+    }
+
     private func handleNonPartnerSecondary(_ label: String, for pin: NativeMapPin) {
         nativeImpactLight()
         switch label {
         case "Concierge": openNativeTab(.concierge)
         case "Save":
-            if sessionStore.isAuthenticated { selectedPin = pin }
+            if sessionStore.isAuthenticated { saveRoute(to: pin) }
             else { presentGuestMapPrompt(title: "Save \(pin.title)?", subtitle: "Sign in to keep this map pick, route, and parking context synced.", cta: "Sign in to save") }
         case "Details": detailVenue = venueForDetail(pin)
         default: openNativeTab(.discover)
@@ -15432,9 +15622,12 @@ private struct NativeMapExploreView: View {
     private var functionQuickGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: NativePolish.mapFunctionGridGap) {
             mapFunctionButton(icon: "mappin.circle", title: "Service\nHere") { openServiceHere() }
-            mapFunctionButton(icon: "magnifyingglass", title: "Search") { nativeImpactLight() }
-            mapFunctionButton(icon: "square.3.layers.3d.top.filled", title: "Layers") { didOpenMapContext = true; showFunctionSheet = true }
-            mapFunctionButton(icon: "bookmark", title: "Routes") { selectMode("Route") }
+            mapFunctionButton(icon: "magnifyingglass", title: "Search") { openMapSearch() }
+            mapFunctionButton(icon: "square.3.layers.3d.top.filled", title: "Layers") {
+                withAnimation { showLayerControls.toggle() }
+                mapStatusMessage = showLayerControls ? "Layer controls ready." : nil
+            }
+            mapFunctionButton(icon: "bookmark", title: "Routes") { openRoutes() }
         }
         .padding(NativePolish.mapFunctionGridPadding)
         .background(NativePolish.mapPanelSurface.opacity(0.74))
@@ -15473,13 +15666,24 @@ private struct NativeMapExploreView: View {
                 showFunctionSheet = false
             }
             functionFeatureRow(icon: "arrow.up.right", title: "Trending Hotspots", subtitle: "Real-time crowd momentum & arrivals", colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
-                showTrafficIntel = true
-                showFunctionSheet = false
+                openTrafficIntel()
             }
             premiumFunctionsHeader
             ForEach(BytspotMapFunctionCatalog.premiumFunctions) { function in
                 premiumFunctionRow(function)
             }
+        }
+    }
+
+    private func openRoutes() {
+        if let saved = pins.first(where: { savedRouteIDs.contains($0.id) }) {
+            selectRoute(to: saved)
+            mapStatusMessage = "Opened saved route to \(saved.title)."
+        } else if let first = pins.first {
+            selectRoute(to: first)
+            mapStatusMessage = "Choose Save to keep this route on this device."
+        } else {
+            mapStatusMessage = "No route-ready destinations are available nearby."
         }
     }
 
@@ -15882,6 +16086,7 @@ private struct NativeMapExploreView: View {
         if pin.kind == .parking && !showParking { return false }
         if pin.kind == .partner && !showTapZones { return false }
         if pin.kind == .access && !showTapZones { return false }
+        if pin.kind == .venue && !showVenues { return false }
         if showVerifiedOnly && !(pin.kind == .partner || pin.kind == .access) { return false }
         return vibeFilter == nil || pin.crowdLevel == vibeFilter
     }
@@ -18462,9 +18667,9 @@ private struct NativeChatBubble: View {
     var body: some View { Text(text).font(.system(size: 14, weight: .bold)).foregroundColor(isUser ? .black : .white).padding(13).frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading).background(isUser ? NativeTheme.cyan : NativeTheme.panel).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }
 }
 
-private enum NativeMapPinKind { case partner, parking, access
-    var icon: String { self == .partner ? "checkmark.seal.fill" : self == .parking ? "parkingsign.circle.fill" : "key.fill" }
-    var emoji: String { self == .partner ? "⚡" : self == .parking ? "P" : "🛍" }
+private enum NativeMapPinKind { case partner, parking, access, venue
+    var icon: String { self == .partner ? "checkmark.seal.fill" : self == .parking ? "parkingsign.circle.fill" : self == .access ? "key.fill" : "mappin.circle.fill" }
+    var emoji: String { self == .partner ? "⚡" : self == .parking ? "P" : self == .access ? "🛍" : "●" }
 }
 
 private struct NativeMapPin: Identifiable {

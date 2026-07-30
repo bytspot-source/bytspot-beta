@@ -1248,6 +1248,36 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let vibeScore: Int
     let availability: String
     let membershipRequired: Bool
+    let latitude: Double?
+    let longitude: Double?
+
+    init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, latitude: Double? = nil, longitude: Double? = nil) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.subtitle = subtitle
+        self.distance = distance
+        self.rating = rating
+        self.icon = icon
+        self.verified = verified
+        self.entryType = entryType
+        self.cta = cta
+        self.imageUrl = imageUrl
+        self.categoryLabel = categoryLabel
+        self.badgeText = badgeText
+        self.metadataLine = metadataLine
+        self.features = features
+        self.vibeScore = vibeScore
+        self.availability = availability
+        self.membershipRequired = membershipRequired
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+
+    var hasKnownCoordinates: Bool {
+        guard let latitude, let longitude else { return false }
+        return NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude)
+    }
 }
 
 struct NativeLocationCoordinate: Equatable, Sendable {
@@ -1904,7 +1934,7 @@ final class NativeTabContentStore: ObservableObject {
         let prefixes = ["Best", "Nearby", "For you", "Tonight", "Popular", "Local", "Worth it", "Quick pick"]
         let prefix = prefixes[(index - 1) % prefixes.count]
         let live = template.badgeText.localizedCaseInsensitiveContains("LIVE") || template.metadataLine.localizedCaseInsensitiveContains("API")
-        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired)
+        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired, latitude: template.latitude, longitude: template.longitude)
     }
 
     private static func categoryStarterCard(type: String, index: Int) -> NativeDiscoverSummary? {
@@ -1961,7 +1991,9 @@ final class NativeTabContentStore: ObservableObject {
                 features: venueFeatureChips(venue),
                 vibeScore: vibe,
                 availability: venue.crowd?.label ?? "Open",
-                membershipRequired: false
+                membershipRequired: false,
+                latitude: venue.latitude,
+                longitude: venue.longitude
             )
         }
     }
@@ -1987,7 +2019,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             let cardType = type == "venue" ? "parking" : type
             let meta = venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) parking spots nearby" : (venue.crowd?.label ?? "Live API venue")
-            return NativeDiscoverSummary(id: "companion-\(cardType)-\(venue.id)", type: cardType, title: "\(prefix): \(venue.name)", subtitle: venue.address.isEmpty ? "Live API venue" : venue.address, distance: venue.distance, rating: venue.rating.map { String(format: "%.1f", $0) } ?? "Live", icon: icon(for: cardType), verified: venue.verifiedPatchId != nil, entryType: cardType == "parking" ? "paid" : "free", cta: cta, imageUrl: venue.imageUrl, categoryLabel: label(for: cardType), badgeText: "LIVE API", metadataLine: meta, features: [label(for: cardType), meta, "API powered"], vibeScore: max(5, min(10, (venue.crowd?.level ?? 2) * 2 + 2)), availability: venue.crowd?.label ?? "Open", membershipRequired: false)
+            return NativeDiscoverSummary(id: "companion-\(cardType)-\(venue.id)", type: cardType, title: "\(prefix): \(venue.name)", subtitle: venue.address.isEmpty ? "Live API venue" : venue.address, distance: venue.distance, rating: venue.rating.map { String(format: "%.1f", $0) } ?? "Live", icon: icon(for: cardType), verified: venue.verifiedPatchId != nil, entryType: cardType == "parking" ? "paid" : "free", cta: cta, imageUrl: venue.imageUrl, categoryLabel: label(for: cardType), badgeText: "LIVE API", metadataLine: meta, features: [label(for: cardType), meta, "API powered"], vibeScore: max(5, min(10, (venue.crowd?.level ?? 2) * 2 + 2)), availability: venue.crowd?.label ?? "Open", membershipRequired: false, latitude: venue.latitude, longitude: venue.longitude)
         }
     }
 
@@ -2085,7 +2117,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, latitude: card.latitude, longitude: card.longitude)
         }
     }
 
@@ -2131,7 +2163,9 @@ final class NativeTabContentStore: ObservableObject {
             features: Array([label(for: type), distance, index < 3 ? "Nearby" : "Explore"].prefix(3)),
             vibeScore: max(4, min(8, Int((place.rating ?? 4.3).rounded() + 2))),
             availability: "Live place",
-            membershipRequired: false
+            membershipRequired: false,
+            latitude: place.latitude,
+            longitude: place.longitude
         )
     }
 
@@ -2170,7 +2204,9 @@ final class NativeTabContentStore: ObservableObject {
             features: Array((features.isEmpty ? [rawCategory.capitalized, "Trusted provider", "Member pricing"] : features).prefix(4)),
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
             availability: string(item, ["availability"]) ?? "Available now",
-            membershipRequired: true
+            membershipRequired: true,
+            latitude: double(item, ["lat", "latitude"]) ?? double(vendor, ["lat", "latitude"]),
+            longitude: double(item, ["lng", "longitude"]) ?? double(vendor, ["lng", "longitude"])
         )
     }
 
@@ -2194,7 +2230,9 @@ final class NativeTabContentStore: ObservableObject {
             features: arrayOfStrings(item["features"]) ?? arrayOfStrings(item["includedHighlights"]) ?? [label(for: type), "Bytspot verified"],
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
             availability: string(item, ["availability"]) ?? "Available now",
-            membershipRequired: bool(item, ["membershipRequired", "requiresMembership"]) ?? false
+            membershipRequired: bool(item, ["membershipRequired", "requiresMembership"]) ?? false,
+            latitude: double(item, ["lat", "latitude"]),
+            longitude: double(item, ["lng", "longitude"])
         )
     }
 

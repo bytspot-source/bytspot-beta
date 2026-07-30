@@ -890,6 +890,49 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: NativeMapFocusHandoff.longitudeKey))
     }
 
+    @MainActor
+    func testDiscoverRouteEligibilityResolvesGeneratedVenueCardsAndFailsClosedWithoutCoordinates() throws {
+        let parking = NativeParkingSummary(totalAvailable: 12, priceLabel: "$8/hr")
+        let venue = NativeVenueSummary(id: "route-deck", name: "Route Deck", category: "parking", address: "1 Route St", distance: "0.2 mi", rating: 4.7, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: parking, verifiedPatchId: nil, imageUrl: nil)
+        let generated = NativeTabContentStore.homeDiscoverCards(venues: [venue], events: [])
+        let venueCard = try XCTUnwrap(generated.first { $0.id == "venue-\(venue.id)" })
+        let companionCard = try XCTUnwrap(generated.first { $0.id.hasPrefix("companion-") })
+        let providerCard = NativeDiscoverSummary(id: "place-provider-cafe", type: "coffee", title: "Provider Cafe", subtitle: "2 Route St", distance: "0.3 mi", rating: "4.8", icon: "cup.and.saucer", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "APPLE MAPS", metadataLine: "Live place", features: [], vibeScore: 7, availability: "Live place", membershipRequired: false, latitude: 33.7870, longitude: -84.3830)
+        let unresolved = NativeDiscoverSummary(id: "unresolved", type: "parking", title: "Unknown Deck", subtitle: "Address pending", distance: "Nearby", rating: "Explore", icon: "parkingsign", verified: false, entryType: "free", cta: "Explore", imageUrl: nil, categoryLabel: "Parking", badgeText: "CURATED", metadataLine: "Check nearby", features: [], vibeScore: 1, availability: "Check nearby", membershipRequired: false)
+        let localProviderCards = NativeTabContentStore.locationAwareCards([providerCard], sourceVenues: [], location: .verifiedMidtown)
+
+        XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: venueCard, venues: [venue])?.id, venue.id)
+        XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: companionCard, venues: [venue])?.id, venue.id)
+        XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: providerCard, venues: [])?.id, providerCard.id)
+        XCTAssertEqual(localProviderCards.first?.latitude, providerCard.latitude)
+        XCTAssertEqual(localProviderCards.first?.longitude, providerCard.longitude)
+        XCTAssertNil(NativeDiscoverRouteResolver.routeVenue(for: unresolved, venues: [venue]))
+    }
+
+    func testSavedMapRouteCodecIsDeterministicAndIgnoresBlankRows() {
+        let raw = NativeMapSavedRoutes.rawValue(for: ["route-b", "route-a"])
+
+        XCTAssertEqual(raw, "route-a\nroute-b")
+        XCTAssertEqual(NativeMapSavedRoutes.ids(from: "\n\(raw)\n\n"), ["route-a", "route-b"])
+        XCTAssertEqual(NativeMapSavedRoutes.storageKey, "bytspot_native_saved_map_route_ids")
+    }
+
+    func testOrdinaryMapHandoffDoesNotImplyPartnerOrAccessVerification() {
+        let suiteName = "NativeOrdinaryMapHandoffTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let venue = NativeVenueSummary(id: "provider-cafe", name: "Provider Cafe", category: "coffee", address: "2 Route St", distance: "0.3 mi", rating: 4.8, latitude: 33.7870, longitude: -84.3830, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+
+        NativeMapFocusHandoff.store(venue: venue, defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.kindKey), "venue")
+    }
+
+    func testMapFunctionSheetUsesAViewportBoundedScrollableHeight() {
+        XCTAssertGreaterThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 0.5)
+        XCTAssertLessThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 1.0)
+    }
+
     func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
         let suiteName = "NativeRegionalMapFocusHandoffTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }

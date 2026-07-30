@@ -793,7 +793,8 @@ private struct NativeContextualDestinationView: View {
 private struct NativeGroupEventAppClipFallbackView: View {
     let event: NativeGroupEventRecord
     @Environment(\.dismiss) private var dismiss
-    @State private var joined = false
+    @EnvironmentObject private var planStore: NativePlanStore
+    @State private var selectedRSVP: NativePlanRSVPChoice = .none
     @State private var statusMessage = ""
 
     private var accent: Color {
@@ -813,15 +814,20 @@ private struct NativeGroupEventAppClipFallbackView: View {
                     appClipMiniRow(title: event.locationLabel, subtitle: event.privacyStatus == .privateInvite ? "Shared after joining" : "Location", icon: "mappin.and.ellipse")
                     appClipMiniRow(title: event.guestSummary, subtitle: event.hideGuestList ? "Guest list hidden" : "Group capacity", icon: "person.2.fill")
                 }
-                appClipInfo(title: "Hosted by \(event.hostName)", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.crop.circle.badge.checkmark")
+                appClipInfo(title: event.coHosts.isEmpty ? "Hosted by \(event.hostName)" : "Hosted by \(event.hostName) + \(event.coHosts.count) co-host\(event.coHosts.count == 1 ? "" : "s")", subtitle: event.inviteNote ?? event.theme, icon: event.iconName ?? "person.crop.circle.badge.checkmark")
+                if !event.coHosts.isEmpty { coHostTeam }
                 rsvpPreview
                 appClipInfo(title: "Privacy protected", subtitle: "Your invite, RSVP, and circle stay separate from your phone contacts unless you choose to match.", icon: "lock.shield.fill")
-                Button(action: joinGroup) { Text(joined ? "Joined" : (event.requiresApproval ? "Request Access" : "Join Instantly")).font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain)
+                Button(action: saveRSVP) { Text(selectedRSVP == .none ? "Choose a response" : "Save response").font(.system(size: 15, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 50).background(selectedRSVP == .none ? NativeTheme.textTertiary : accent).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous)) }.buttonStyle(.plain).disabled(selectedRSVP == .none).accessibilityIdentifier("native-group-event-save-rsvp")
                 Button(action: { dismiss() }) { Text("Back to Home").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).frame(maxWidth: .infinity).frame(height: 46).background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
-                if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).frame(maxWidth: .infinity).multilineTextAlignment(.center) }
+                if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 12, weight: .bold)).foregroundColor(accent).frame(maxWidth: .infinity).multilineTextAlignment(.center).accessibilityIdentifier("native-group-event-rsvp-status") }
             }
         }
         .accessibilityIdentifier("native-group-event-app-clip-fallback")
+        .onAppear {
+            planStore.refresh(events: NativeGroupEventStore.all() + [event])
+            selectedRSVP = planStore.lifecycle(for: event.id)?.rsvpChoice ?? .none
+        }
     }
 
     private var appClipHero: some View {
@@ -840,8 +846,9 @@ private struct NativeGroupEventAppClipFallbackView: View {
 
     private var rsvpPreview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("RSVP").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Text(event.rsvpCutoff ?? "Open now").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
-            HStack(spacing: 10) { rsvpOption("👍", "Going"); rsvpOption("🤔", "Maybe"); rsvpOption("😢", "Can't Go") }
+            HStack { Text("Your response").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Text(event.rsvpCutoff ?? "Open now").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
+            HStack(spacing: 10) { rsvpOption(.going); rsvpOption(.maybe); rsvpOption(.notGoing) }
+            Text(NativePlanMarketPolicy.remoteRSVPAvailable ? "Your response will sync with the host." : "Saved on this iPhone. Server RSVP confirmation is not available yet.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(NativePolish.elevatedSurface.opacity(0.92))
@@ -849,9 +856,38 @@ private struct NativeGroupEventAppClipFallbackView: View {
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
     }
 
-    private func rsvpOption(_ emoji: String, _ label: String) -> some View {
-        VStack(spacing: 5) { Text(emoji).font(.system(size: 24)); Text(label).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
-            .frame(maxWidth: .infinity).frame(height: 76).background(accent.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    private func rsvpOption(_ choice: NativePlanRSVPChoice) -> some View {
+        Button(action: { nativeImpactLight(); selectedRSVP = choice; statusMessage = "" }) {
+            VStack(spacing: 7) {
+                Image(systemName: choice.icon).font(.system(size: 23, weight: .bold))
+                Text(choice.title).font(.system(size: 11, weight: .black))
+            }
+            .foregroundColor(selectedRSVP == choice ? .black : NativeTheme.textSecondary)
+            .frame(maxWidth: .infinity).frame(height: 76)
+            .background(selectedRSVP == choice ? accent : accent.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(selectedRSVP == choice ? accent : NativePolish.softBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-group-event-rsvp-\(choice.rawValue)")
+        .accessibilityAddTraits(selectedRSVP == choice ? .isSelected : [])
+    }
+
+    private var coHostTeam: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("EVENT TEAM").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary).tracking(0.9)
+            ForEach(Array(event.coHosts.enumerated()), id: \.offset) { _, name in
+                HStack(spacing: 10) {
+                    Image(systemName: "person.crop.circle.badge.checkmark").font(.system(size: 17, weight: .bold)).foregroundColor(accent)
+                    Text(name).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Text("Co-host").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                }
+            }
+            Text("Co-hosts are shown on this invitation. Management access requires separate verification.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+        }
+        .padding(14).background(NativePolish.elevatedSurface.opacity(0.9)).clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityIdentifier("native-group-event-cohosts")
     }
 
     private func appClipMiniRow(title: String, subtitle: String, icon: String) -> some View {
@@ -877,11 +913,18 @@ private struct NativeGroupEventAppClipFallbackView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    private func joinGroup() {
+    private func saveRSVP() {
+        guard selectedRSVP != .none else { return }
         nativeImpactLight()
         NativeGroupEventStore.upsert(event)
-        joined = true
-        statusMessage = "You're in. Group updates and matched offers will appear here."
+        planStore.refresh(events: NativeGroupEventStore.all())
+        guard planStore.setRSVP(selectedRSVP, for: event.id) else {
+            statusMessage = "Your response couldn't be saved. Please try again."
+            return
+        }
+        statusMessage = NativePlanMarketPolicy.remoteRSVPAvailable
+            ? "Your response is syncing with the host."
+            : "\(selectedRSVP.title) saved on this iPhone. It has not been sent to the host."
     }
 }
 
@@ -1058,7 +1101,9 @@ private struct NativeProfileAccountView: View {
     let consumeInitialPanel: () -> Void
     let activeTier: BytspotTier
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var planStore: NativePlanStore
     @State private var activePanel: NativeProfilePanel?
+    @State private var showNetworkHub = false
     @State private var socialCircleSnapshot: NativeSocialCircleSnapshot = .empty
     @State private var didConsumeInitialPanel = false
     @State private var didConsumeDirectSmokePanel = false
@@ -1068,13 +1113,15 @@ private struct NativeProfileAccountView: View {
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
+            NativeProfileIAHeader(title: "Your Plans", subtitle: "Invitations, RSVPs, hosting, and co-host activity in one place.")
+            NativeProfileYourPlansCard(openNetwork: { showNetworkHub = true })
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
             NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
-            NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
-            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot)
+            NativeProfileNetworkOverviewCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot, openNetwork: { showNetworkHub = true })
+            NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
             NativeProfileMenuGroup(section: .appSettings, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Safety & Legal", subtitle: "Sensitive account actions are separated from everyday controls.")
             NativeProfileMenuGroup(section: .safetyLegal, openPanel: { activePanel = $0 })
@@ -1083,6 +1130,7 @@ private struct NativeProfileAccountView: View {
         }
         .accessibilityIdentifier("native-profile-account")
         .onAppear {
+            planStore.refresh(events: NativeGroupEventStore.all())
             openInitialPanelIfNeeded()
             openDirectSmokePanelIfRequested()
         }
@@ -1096,6 +1144,10 @@ private struct NativeProfileAccountView: View {
             } else {
                 sheet
             }
+        }
+        .sheet(isPresented: $showNetworkHub, onDismiss: { planStore.refresh(events: NativeGroupEventStore.all()) }) {
+            let hub = NativeNetworkHubView(activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot)
+            if #available(iOS 16.0, *) { hub.presentationDetents([.large]).presentationDragIndicator(.visible) } else { hub }
         }
     }
 
@@ -3244,12 +3296,227 @@ private enum NativeDebugAutoSheetPreviewGate {
     }
 }
 
+private enum NativeNetworkSegment: String, CaseIterable, Identifiable {
+    case plans = "Plans"
+    case circles = "Circles"
+    case people = "People"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .plans: return "calendar.badge.clock"
+        case .circles: return "person.3.fill"
+        case .people: return "person.2.fill"
+        }
+    }
+}
+
+private struct NativeProfileYourPlansCard: View {
+    @EnvironmentObject private var planStore: NativePlanStore
+    let openNetwork: () -> Void
+
+    private var plans: [NativeGroupEventRecord] {
+        NativeGroupEventStore.all().filter { $0.privateAssociation != .none }.sorted {
+            (planStore.lifecycle(for: $0.id)?.updatedAt ?? .distantPast) > (planStore.lifecycle(for: $1.id)?.updatedAt ?? .distantPast)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Your Plans", systemImage: "calendar.badge.clock").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Spacer()
+                Button("See all", action: openNetwork).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+            }
+            if plans.isEmpty {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "calendar.badge.plus").font(.system(size: 20, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 42, height: 42).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No plans yet").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                        Text("Create a private plan or open an invitation. Nothing is shown as live until Bytspot confirms it.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeProfileStyle.body).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(plans.prefix(3)) { planRow($0) }
+                }
+            }
+            Button(action: openNetwork) {
+                HStack { Text(plans.isEmpty ? "Open Network" : "Manage plans & RSVPs").font(.system(size: 14, weight: .black)); Spacer(); Image(systemName: "arrow.right").font(.system(size: 13, weight: .black)) }
+                    .foregroundColor(.black).padding(.horizontal, 15).frame(height: 44).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }.buttonStyle(.plain)
+        }
+        .padding(NativeProfileStyle.cardPadding).nativeProfileCard(accent: NativeTheme.cyan)
+        .accessibilityIdentifier("native-profile-your-plans")
+    }
+
+    private func planRow(_ event: NativeGroupEventRecord) -> some View {
+        let lifecycle = planStore.lifecycle(for: event.id)
+        let isOwner = lifecycle?.viewerRole == .owner
+        let state = isOwner ? publicationLabel(lifecycle?.publication) : (lifecycle?.rsvpChoice.title ?? "Respond")
+        return HStack(spacing: 12) {
+            Image(systemName: event.iconName ?? "calendar").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 38, height: 38).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                Text("\(event.scheduledDate) · \(isOwner ? "Hosting" : "Invited")").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Text(state).font(.system(size: 10.5, weight: .black)).foregroundColor(isOwner ? NativeTheme.orange : NativeTheme.cyan).padding(.horizontal, 9).padding(.vertical, 6).background((isOwner ? NativeTheme.orange : NativeTheme.cyan).opacity(0.10)).clipShape(Capsule())
+        }
+        .padding(11).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func publicationLabel(_ state: NativePlanPublicationState?) -> String {
+        switch state {
+        case .published: return "Live"
+        case .publishing: return "Publishing"
+        case .failed: return "Needs attention"
+        default: return "Draft"
+        }
+    }
+}
+
+private struct NativeProfileNetworkOverviewCard: View {
+    @EnvironmentObject private var planStore: NativePlanStore
+    let sessionStore: BytspotSessionStore
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
+    let openNetwork: () -> Void
+
+    private var liveGroups: [NativeSocialCircle] { NativePlanMarketPolicy.liveCircles(from: socialCircleSnapshot) }
+    private var planCount: Int { NativeGroupEventStore.all().filter { $0.privateAssociation != .none }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.3.fill").font(.system(size: 19, weight: .black)).foregroundColor(NativeTheme.purple).frame(width: 46, height: 46).background(NativeTheme.purple.opacity(0.11)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Network").font(.system(size: 19, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                    Text("Plans, private circles, and trusted connections.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                }
+            }
+            HStack(spacing: 0) {
+                NativeProfileStat(value: "\(planCount)", label: "Plans")
+                Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 25)
+                NativeProfileStat(value: "\(liveGroups.count)", label: "Circles")
+                Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 25)
+                NativeProfileStat(value: sessionStore.isAuthenticated ? "\(liveGroups.reduce(0) { $0 + $1.memberCount })" : "0", label: "People")
+            }
+            Text(socialCircleSnapshot.source == .backend ? "Private network synced with Bytspot." : "No live circles loaded. Starter ideas are never counted as your network.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+            Button(action: openNetwork) {
+                HStack { Text("Open Network").font(.system(size: 14, weight: .black)); Spacer(); Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .black)) }.foregroundColor(NativeProfileStyle.title).padding(.horizontal, 15).frame(height: 44).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }.buttonStyle(.plain)
+        }
+        .padding(NativeProfileStyle.cardPadding).nativeProfileCard(accent: NativeTheme.purple)
+        .accessibilityIdentifier("native-profile-network-overview")
+    }
+}
+
+private struct NativeNetworkHubView: View {
+    let activeTier: BytspotTier
+    let socialCircleSnapshot: NativeSocialCircleSnapshot
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var planStore: NativePlanStore
+    @State private var segment: NativeNetworkSegment = .plans
+    @State private var selectedEvent: NativeGroupEventRecord?
+
+    private var plans: [NativeGroupEventRecord] { NativeGroupEventStore.all().filter { $0.privateAssociation != .none } }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) { Text("NETWORK").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.purple).tracking(1.2); Text("Plans & people").font(.system(size: 24, weight: .black)).foregroundColor(NativeProfileStyle.title) }
+                Spacer()
+                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 25, weight: .bold)).foregroundColor(NativeProfileStyle.body) }.buttonStyle(.plain)
+            }.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
+            segmentControl.padding(.horizontal, 20).padding(.bottom, 12)
+            ScrollView(showsIndicators: false) {
+                Group {
+                    switch segment {
+                    case .plans: plansContent
+                    case .circles: circlesContent
+                    case .people: NativeProfileFriendsPanel()
+                    }
+                }
+                .padding(.horizontal, 20).padding(.bottom, 30)
+            }
+        }
+        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .accessibilityIdentifier("native-network-hub")
+        .onAppear { planStore.refresh(events: NativeGroupEventStore.all()) }
+        .sheet(item: $selectedEvent) { NativeGroupEventAppClipFallbackView(event: $0) }
+    }
+
+    private var segmentControl: some View {
+        HStack(spacing: 5) {
+            ForEach(NativeNetworkSegment.allCases) { item in
+                Button(action: { nativeImpactLight(); segment = item }) {
+                    HStack(spacing: 5) { Image(systemName: item.icon); Text(item.rawValue) }.font(.system(size: 12, weight: .black)).foregroundColor(segment == item ? .black : NativeProfileStyle.body).frame(maxWidth: .infinity).frame(height: 38).background(segment == item ? NativeTheme.cyan : NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                }.buttonStyle(.plain).accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased())")
+            }
+        }
+    }
+
+    private var plansContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !plans.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("YOUR PLANS").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1)
+                    ForEach(plans) { event in planCard(event) }
+                }
+            }
+            NativeProfileNetworkCard(sessionStore: sessionStore, activeTier: activeTier, socialCircleSnapshot: socialCircleSnapshot, includesPeople: false)
+        }
+    }
+
+    private func planCard(_ event: NativeGroupEventRecord) -> some View {
+        let lifecycle = planStore.lifecycle(for: event.id)
+        let owner = lifecycle?.viewerRole == .owner
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: event.iconName ?? "calendar").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 40, height: 40).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) { Text(event.title).font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title); Text("\(event.scheduledDate) · \(event.locationLabel)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2) }
+                Spacer()
+                NativeProfileMicroChip(owner ? "HOSTING" : (lifecycle?.rsvpChoice.title.uppercased() ?? "RESPOND"), icon: owner ? "crown.fill" : lifecycle?.rsvpChoice.icon, color: owner ? NativeTheme.orange : NativeTheme.cyan)
+            }
+            if !event.coHosts.isEmpty { Text("With \(event.coHosts.joined(separator: ", ")) · Co-host access is presentation-only until verified.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
+            if !owner { Button("Review RSVP") { selectedEvent = event }.font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan) }
+        }
+        .padding(14).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var circlesContent: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            if socialCircleSnapshot.source == .backend, !socialCircleSnapshot.groups.isEmpty {
+                Text("SYNCED CIRCLES").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(1)
+                ForEach(socialCircleSnapshot.groups) { circle in circleRow(circle, isStarter: false) }
+            } else {
+                Text("No synced circles yet").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                Text(sessionStore.isAuthenticated ? "Create a private circle for the people you plan with most. Starter ideas below are examples, not account data." : "Sign in to load private circles and trusted connections.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                Text("STARTER IDEAS · NOT SYNCED").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.orange).tracking(1).padding(.top, 5)
+                ForEach(NativeSocialCircle.fallbackStarter) { circle in circleRow(circle, isStarter: true) }
+            }
+        }
+    }
+
+    private func circleRow(_ circle: NativeSocialCircle, isStarter: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: isStarter ? "person.3.sequence.fill" : "person.3.fill").font(.system(size: 16, weight: .black)).foregroundColor(isStarter ? NativeTheme.orange : NativeTheme.emerald).frame(width: 40, height: 40).background((isStarter ? NativeTheme.orange : NativeTheme.emerald).opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) { Text(circle.name).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title); Text(isStarter ? "Starter circle idea" : "\(circle.memberCount) connection\(circle.memberCount == 1 ? "" : "s") · Private").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
+            Spacer()
+            Image(systemName: isStarter ? "lightbulb.fill" : "lock.fill").foregroundColor(isStarter ? NativeTheme.orange : NativeTheme.emerald)
+        }
+        .padding(13).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+    }
+}
+
 private struct NativeProfileNetworkCard: View {
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
+    @EnvironmentObject private var planStore: NativePlanStore
     let sessionStore: BytspotSessionStore
     let activeTier: BytspotTier
     let socialCircleSnapshot: NativeSocialCircleSnapshot
+    var includesPeople: Bool = true
     @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
     @State private var activeGroup = NativeGroupEventStore.primaryLiveEvent()
     @State private var networkStatus: String?
@@ -3260,17 +3527,13 @@ private struct NativeProfileNetworkCard: View {
     @State private var didRunGroupSetupPreviewCheck = false
     @State private var publishingGroupEventIDs: Set<String> = []
     @State private var announcedPublishingGroupEventIDs: Set<String> = []
-    // Invite ids confirmed to exist on the server (groupEvents.create succeeded).
-    // Buttons can still preview/copy a draft link immediately, but this lets the UI
-    // truthfully distinguish published join-ready invites from local draft previews.
-    @State private var publishedGroupEventIDs: Set<String> = []
 
     static let title = "Profile Network"
     static let actionTitles = ["Create Private Group", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
     private var currentTier: BytspotTier { activeGroup?.tier ?? .green }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
-    private var circlesForDisplay: [NativeSocialCircle] { socialCircleSnapshot.groups.isEmpty ? NativeSocialCircle.fallbackStarter : socialCircleSnapshot.groups }
+    private var circlesForDisplay: [NativeSocialCircle] { NativePlanMarketPolicy.liveCircles(from: socialCircleSnapshot) }
     private var circleNamesForGroupSetup: [String] {
         var names: [String] = []
         for name in circlesForDisplay.map(\.name) where !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !names.contains(name) { names.append(name) }
@@ -3286,8 +3549,7 @@ private struct NativeProfileNetworkCard: View {
                 activeGroupBlock(activeGroup)
                 if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
                 inviteBlock
-                networkDivider
-                findFriendsBlock
+                if includesPeople { networkDivider; findFriendsBlock }
             } else {
                 preActiveNetworkContent
             }
@@ -3317,6 +3579,7 @@ private struct NativeProfileNetworkCard: View {
             }
         }
         .onAppear {
+            planStore.refresh(events: NativeGroupEventStore.all())
             openGroupSetupPreviewIfRequested()
             openInviteAccessPreviewIfRequested()
             reconcileActiveGroupPublishState()
@@ -3344,7 +3607,7 @@ private struct NativeProfileNetworkCard: View {
             startGroupBlock
             if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
             compactInviteBlock
-            compactFindFriendsBlock
+            if includesPeople { compactFindFriendsBlock }
             Text("Contacts stay private unless you choose to match.").nativeBody(size: 11, color: NativeProfileStyle.muted)
         }
     }
@@ -3420,14 +3683,14 @@ private struct NativeProfileNetworkCard: View {
             Button(action: { openHostDashboard(group) }) {
                 HStack(spacing: 7) {
                     Image(systemName: "person.2.badge.gearshape.fill").font(.system(size: 13, weight: .black))
-                    Text(group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests").font(.system(size: 13, weight: .black))
+                    Text(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) ? (group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests") : "Publish to manage guests").font(.system(size: 13, weight: .black))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }.buttonStyle(.plain)
+            }.buttonStyle(.plain).disabled(!NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id))).opacity(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) ? 1 : 0.58)
             matchedOfferPreview
             Text(NativeGroupEventContract.matchedOfferExplanation).nativeBody(size: 11.5, color: NativeProfileStyle.muted)
         }
@@ -3443,6 +3706,7 @@ private struct NativeProfileNetworkCard: View {
                 NativeProfileMicroChip(group.fontStyle, icon: "textformat", color: NativeTheme.purple)
                 if group.hideGuestList { NativeProfileMicroChip("Guest list hidden", icon: "eye.slash.fill", color: NativeTheme.orange) }
                 if let chipIn = group.chipInLabel, !chipIn.isEmpty { NativeProfileMicroChip(chipIn, icon: "dollarsign.circle.fill", color: NativeTheme.emerald) }
+                ForEach(group.coHosts.prefix(2), id: \.self) { NativeProfileMicroChip($0, icon: "person.crop.circle.badge.checkmark", color: NativeTheme.cyan) }
             }
         }
     }
@@ -3631,6 +3895,7 @@ private struct NativeProfileNetworkCard: View {
     private func createPrivateGroup(_ record: NativeGroupEventRecord) {
         nativeImpactLight()
         NativeGroupEventStore.upsert(record)
+        planStore.refresh(events: NativeGroupEventStore.all())
         activeGroup = record
         selectedGroupType = record.title.replacingOccurrences(of: " Group", with: "")
         // A host must be signed in for the server to accept the event; until then
@@ -3660,6 +3925,7 @@ private struct NativeProfileNetworkCard: View {
             return
         }
         publishingGroupEventIDs.insert(record.id)
+        _ = planStore.setPublication(.publishing, for: record.id)
         announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         var input: [String: Any] = [
@@ -3698,7 +3964,7 @@ private struct NativeProfileNetworkCard: View {
                 let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
                 publishingGroupEventIDs.remove(record.id)
                 announcedPublishingGroupEventIDs.remove(record.id)
-                publishedGroupEventIDs.insert(record.id)
+                _ = planStore.setPublication(.published, for: record.id)
                 if shouldAnnounce {
                     networkStatus = record.requiresApproval
                         ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
@@ -3708,7 +3974,7 @@ private struct NativeProfileNetworkCard: View {
                 let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
                 publishingGroupEventIDs.remove(record.id)
                 announcedPublishingGroupEventIDs.remove(record.id)
-                publishedGroupEventIDs.remove(record.id)
+                _ = planStore.setPublication(.failed, for: record.id)
                 if shouldAnnounce {
                     networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
                 }
@@ -3717,12 +3983,12 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func isPublished(_ group: NativeGroupEventRecord) -> Bool {
-        publishedGroupEventIDs.contains(group.id)
+        planStore.lifecycle(for: group.id)?.publication == .published
     }
 
     private func invitePublishState(for group: NativeGroupEventRecord) -> NativeGroupInvitePublishState {
         if isPublished(group) { return .published }
-        if publishingGroupEventIDs.contains(group.id) { return .publishing }
+        if publishingGroupEventIDs.contains(group.id) || planStore.lifecycle(for: group.id)?.publication == .publishing { return .publishing }
         return sessionStore.isAuthenticated ? .draftAuthenticated : .draftSignedOut
     }
 
@@ -3762,6 +4028,10 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func openHostDashboard(_ group: NativeGroupEventRecord) {
+        guard NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) else {
+            networkStatus = "Publish this plan before opening guest management. Co-host access requires separate server verification."
+            return
+        }
         nativeImpactLight()
         showHostDashboard = true
     }

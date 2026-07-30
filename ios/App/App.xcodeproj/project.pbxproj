@@ -14,6 +14,7 @@
 		6E3B8A112D20000000000011 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 6E3B8A102D20000000000010 /* GoogleSignIn */; };
 		7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
 		A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00002C0FF00100000001 /* NativeShellView.swift */; };
+		A13F0D012D0000000000D001 /* NativePlansLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativePlansLifecycle.swift */; };
 		A13F01062C0FF00100000016 /* ClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01012C0FF00100000011 /* ClipApp.swift */; };
 		A13F01072C0FF00100000017 /* ClipContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01022C0FF00100000012 /* ClipContentView.swift */; };
 		A13F01082C0FF00100000018 /* ClipPatchVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */; };
@@ -84,6 +85,7 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BytspotTrustEngineTests.swift; sourceTree = "<group>"; };
 		A13F00002C0FF00100000001 /* NativeShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellView.swift; sourceTree = "<group>"; };
+		A13F0D002D0000000000D000 /* NativePlansLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlansLifecycle.swift; sourceTree = "<group>"; };
 		A13F01002C0FF00100000010 /* Clip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A13F01012C0FF00100000011 /* ClipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipApp.swift; sourceTree = "<group>"; };
 		A13F01022C0FF00100000012 /* ClipContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipContentView.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 			children = (
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A13F00002C0FF00100000001 /* NativeShellView.swift */,
+				A13F0D002D0000000000D000 /* NativePlansLifecycle.swift */,
 				A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */,
 				A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
@@ -374,6 +377,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */,
+				A13F0D012D0000000000D001 /* NativePlansLifecycle.swift in Sources */,
 				A13F03052C0FF00100000055 /* BytspotNativeAppRoot.swift in Sources */,
 				A13F03012C0FF00100000051 /* NativeMigrationCore.swift in Sources */,
 				A13F03032C0FF00100000053 /* BytspotAPIClient.swift in Sources */,

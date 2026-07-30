@@ -2023,6 +2023,70 @@ final class NativeGroupEventContractTests: XCTestCase {
         let tokens = Set((0..<200).map { _ in NativeGroupEventRecord.inviteToken() })
         XCTAssertEqual(tokens.count, 200)
     }
+
+    @MainActor
+    func testPlanLifecycleRefreshMigratesViewerRoleAndPresentationOnlyCoHosts() throws {
+        let suite = "NativePlanLifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = NativePlanStore(defaults: defaults, clock: { now })
+        let invite = NativeGroupEventRecord(id: "shared-plan", title: "Dinner", groupType: "Dinner", hostName: "Ama", tier: .green, timing: .today, participantCount: 3, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite, coHosts: ["Kojo", "Esi"])
+
+        store.refresh(events: [invite])
+
+        let attendee = try XCTUnwrap(store.lifecycle(for: invite.id))
+        XCTAssertEqual(attendee.viewerRole, .attendee)
+        XCTAssertEqual(attendee.publication, .localDraft)
+        XCTAssertEqual(attendee.collaborators.map(\.displayName), ["Kojo", "Esi"])
+        XCTAssertTrue(attendee.collaborators.allSatisfy { $0.authority == .presentationOnly })
+
+        let hosted = NativeGroupEventRecord(id: invite.id, title: invite.title, groupType: invite.groupType, hostName: invite.hostName, tier: invite.tier, timing: invite.timing, participantCount: invite.participantCount, allowNearbyOffers: invite.allowNearbyOffers, inviteNote: invite.inviteNote, privateAssociation: .host, coHosts: ["Kojo"])
+        store.refresh(events: [hosted])
+        XCTAssertEqual(store.lifecycle(for: invite.id)?.viewerRole, .owner)
+        XCTAssertEqual(store.lifecycle(for: invite.id)?.collaborators.map(\.displayName), ["Kojo"])
+    }
+
+    @MainActor
+    func testPlanRSVPPersistsLocallyWithoutClaimingRemoteConfirmation() throws {
+        let suite = "NativePlanRSVPPersistenceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let invite = NativeGroupEventRecord(id: "rsvp-plan", title: "Listening Party", groupType: "Party", hostName: "Host", tier: .platinum, timing: .thisWeek, participantCount: 8, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite)
+        let store = NativePlanStore(defaults: defaults)
+        store.refresh(events: [invite])
+
+        XCTAssertTrue(store.setRSVP(.going, for: invite.id))
+        XCTAssertEqual(store.lifecycle(for: invite.id)?.rsvpChoice, .going)
+        XCTAssertEqual(store.lifecycle(for: invite.id)?.rsvpSync, .localOnly)
+
+        let relaunchedStore = NativePlanStore(defaults: defaults)
+        XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpChoice, .going)
+        XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpSync, .localOnly)
+        XCTAssertFalse(NativePlanMarketPolicy.remoteRSVPAvailable)
+    }
+
+    @MainActor
+    func testPlanManagementAndSocialDataPoliciesFailClosed() throws {
+        let suite = "NativePlanMarketPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let hosted = NativeGroupEventRecord(id: "host-plan", title: "Private Dinner", groupType: "Dinner", hostName: "Host", tier: .black, timing: .today, participantCount: 12, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
+        let store = NativePlanStore(defaults: defaults)
+        store.refresh(events: [hosted])
+
+        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id)))
+        XCTAssertTrue(store.setPublication(.published, for: hosted.id))
+        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id)))
+
+        let verifiedCoHost = NativePlanCollaborator(id: "verified", displayName: "Esi", role: "Co-host", authority: .serverVerified)
+        XCTAssertFalse(NativePlanMarketPolicy.canManageAsCoHost(verifiedCoHost))
+        XCTAssertFalse(NativePlanMarketPolicy.coHostManagementAvailable)
+
+        let liveCircle = NativeSocialCircle(id: "friends", name: "Friends", ownerUserId: "owner", memberCount: 4, privacy: "private", role: "owner")
+        XCTAssertTrue(NativePlanMarketPolicy.liveCircles(from: .starter).isEmpty)
+        XCTAssertEqual(NativePlanMarketPolicy.liveCircles(from: NativeSocialCircleSnapshot(source: .backend, groups: [liveCircle])), [liveCircle])
+    }
 }
 
 /// CI-runnable promotion of the launch-time `NativeMenuParitySelfTests` order +

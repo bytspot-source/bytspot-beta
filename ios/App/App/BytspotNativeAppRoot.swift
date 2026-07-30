@@ -115,6 +115,7 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var walletLedgerStore = NativeWalletLedgerStore()
     @StateObject private var membershipStore = NativeMembershipStore()
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
+    @StateObject private var planStore = NativePlanStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
     @StateObject private var locationStore = NativeLocationStore()
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
@@ -167,6 +168,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(walletLedgerStore)
             .environmentObject(membershipStore)
             .environmentObject(contactSyncStore)
+            .environmentObject(planStore)
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
             .onAppear {
@@ -174,6 +176,7 @@ struct BytspotNativeAppRoot: View {
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
+                planStore.refresh(events: NativeGroupEventStore.all())
             }
             .task {
                 await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)

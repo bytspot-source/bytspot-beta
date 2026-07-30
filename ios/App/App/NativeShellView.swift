@@ -14149,6 +14149,12 @@ struct NativeMapFocusPinCandidate {
     let longitude: Double
 }
 
+enum NativeMapFocusPinMergeAction: Equatable {
+    case append
+    case keepExisting(index: Int)
+    case replaceExisting(indices: [Int])
+}
+
 enum NativeMapFocusPinResolutionPolicy {
     static func matchingIndex(handoffID: String, handoffTitle: String, latitude: Double, longitude: Double, candidates: [NativeMapFocusPinCandidate]) -> Int? {
         guard NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
@@ -14165,6 +14171,23 @@ enum NativeMapFocusPinResolutionPolicy {
         guard !normalizedTitle.isEmpty else { return nil }
         let titleMatches = coordinateMatches.filter { NativeSearchRouter.normalized($0.element.title) == normalizedTitle }
         return titleMatches.count == 1 ? titleMatches[0].offset : nil
+    }
+
+    static func mergeAction(focused: NativeMapFocusPinCandidate, candidates: [NativeMapFocusPinCandidate]) -> NativeMapFocusPinMergeAction {
+        let focusedID = focused.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !focusedID.isEmpty else { return .append }
+        let sameIDIndices = candidates.indices.filter {
+            candidates[$0].id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == focusedID
+        }
+        guard !sameIDIndices.isEmpty else { return .append }
+        if sameIDIndices.count == 1 {
+            let index = sameIDIndices[0]
+            let candidate = candidates[index]
+            if NativeMapCoordinateTrustPolicy.agrees(latitude: focused.latitude, longitude: focused.longitude, candidateLatitude: candidate.latitude, candidateLongitude: candidate.longitude) {
+                return .keepExisting(index: index)
+            }
+        }
+        return .replaceExisting(indices: sameIDIndices)
     }
 }
 
@@ -14301,7 +14324,20 @@ private struct NativeMapExploreView: View {
     private var pins: [NativeMapPin] {
         let livePins = venues.map(NativeMapPin.init(venue:))
         var resolved = livePins
-        if let focusedHandoffPin, !resolved.contains(where: { $0.id == focusedHandoffPin.id }) { resolved.append(focusedHandoffPin) }
+        if let focusedHandoffPin {
+            let focusedCandidate = NativeMapFocusPinCandidate(id: focusedHandoffPin.id, title: focusedHandoffPin.title, latitude: focusedHandoffPin.coordinate.latitude, longitude: focusedHandoffPin.coordinate.longitude)
+            let candidates = resolved.map { NativeMapFocusPinCandidate(id: $0.id, title: $0.title, latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }
+            switch NativeMapFocusPinResolutionPolicy.mergeAction(focused: focusedCandidate, candidates: candidates) {
+            case .append:
+                resolved.append(focusedHandoffPin)
+            case .keepExisting:
+                break
+            case .replaceExisting(let indices):
+                let insertionIndex = indices.min() ?? resolved.endIndex
+                for index in indices.sorted(by: >) { resolved.remove(at: index) }
+                resolved.insert(focusedHandoffPin, at: min(insertionIndex, resolved.endIndex))
+            }
+        }
         return resolved
     }
 

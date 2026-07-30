@@ -902,6 +902,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: "different-provider", handoffTitle: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude, candidates: candidates))
         let coordinateConsistent = NativeMapFocusPinCandidate(id: "native-provider", title: "Provider Cafe", latitude: handoffLatitude + 0.00001, longitude: handoffLongitude)
         XCTAssertEqual(NativeMapFocusPinResolutionPolicy.matchingIndex(handoffID: "place-provider-cafe", handoffTitle: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude, candidates: [coordinateConsistent]), 0)
+        let focused = NativeMapFocusPinCandidate(id: "place-provider-cafe", title: "Provider Cafe", latitude: handoffLatitude, longitude: handoffLongitude)
+        let sameIDElsewhere = NativeMapFocusPinCandidate(id: focused.id, title: focused.title, latitude: 33.8070, longitude: -84.4030)
+        XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [sameIDElsewhere]), .replaceExisting(indices: [0]))
+        XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [coordinateConsistent]), .append)
+        let sameIDNearby = NativeMapFocusPinCandidate(id: focused.id, title: focused.title, latitude: handoffLatitude + 0.00001, longitude: handoffLongitude)
+        XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [sameIDNearby]), .keepExisting(index: 0))
     }
 
     @MainActor
@@ -936,8 +942,14 @@ final class BytspotTrustEngineTests: XCTestCase {
             XCTAssertEqual(resolved.latitude, providerCard.latitude)
             XCTAssertEqual(resolved.longitude, providerCard.longitude)
             NativeMapFocusHandoff.store(venue: resolved, defaults: defaults)
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.idKey), providerCard.id)
             XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.latitudeKey), providerLatitude)
             XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.longitudeKey), providerLongitude)
+            if candidate.id == providerCard.id {
+                let focused = NativeMapFocusPinCandidate(id: resolved.id, title: resolved.name, latitude: resolved.latitude, longitude: resolved.longitude)
+                let live = NativeMapFocusPinCandidate(id: candidate.id, title: candidate.name, latitude: candidate.latitude, longitude: candidate.longitude)
+                XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [live]), .replaceExisting(indices: [0]))
+            }
         }
     }
 

@@ -1521,8 +1521,22 @@ struct NativeTabContentSnapshot: Equatable {
     var bestValueOptions: [NativeLiveValueOption] = []
     var hasLiveVenueInventory = false
 
+    var trustworthyLiveVenues: [NativeVenueSummary] {
+        guard hasLiveVenueInventory, source != .fallback, errorMessage == nil else { return [] }
+        return venues.filter { !Self.isFallbackVenueFixture($0) }
+    }
+
     var hasTrustworthyLiveVenueInventory: Bool {
-        hasLiveVenueInventory && source != .fallback && errorMessage == nil && !venues.isEmpty
+        !trustworthyLiveVenues.isEmpty
+    }
+
+    static func isFallbackVenueFixture(_ venue: NativeVenueSummary) -> Bool {
+        fallbackVenues.contains { fixture in
+            venue.id.caseInsensitiveCompare(fixture.id) == .orderedSame
+                || (venue.name.caseInsensitiveCompare(fixture.name) == .orderedSame
+                    && abs(venue.latitude - fixture.latitude) < 0.000_001
+                    && abs(venue.longitude - fixture.longitude) < 0.000_001)
+        }
     }
 
     var statusLabel: String {
@@ -1591,12 +1605,13 @@ final class NativeTabContentStore: ObservableObject {
                 let events = nearbyEvents.isEmpty && location.isFallback ? localized.events : nearbyEvents
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
-                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: localized.venues, events: events, services: services, placeCards: places, valueOptions: valueOptions, location: location)
+                let trustedVenues = localized.trustworthyLiveVenues
+                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: trustedVenues, events: events, services: services, placeCards: places, valueOptions: valueOptions, location: location)
                 let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
                 guard generation == refreshGeneration else { return }
                 snapshotOrigin = location
                 bestValueOrigin = valueOptions.isEmpty ? nil : location
-                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? Self.fallbackVenues(for: location) : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions, hasLiveVenueInventory: localized.hasTrustworthyLiveVenueInventory)
+                snapshot = NativeTabContentSnapshot(venues: trustedVenues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions, hasLiveVenueInventory: !trustedVenues.isEmpty)
                 return
             }
 
@@ -1605,7 +1620,7 @@ final class NativeTabContentStore: ObservableObject {
             async let vendorServices = fetchVendorServices(client: client)
             async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
             async let bestValue = fetchBestValue(client: client, location: location)
-            let liveVenues = Self.locationAwareVenues(try await venues, location: location)
+            let liveVenues = Self.locationAwareVenues(try await venues, location: location).filter { !NativeTabContentSnapshot.isFallbackVenueFixture($0) }
             let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? []
@@ -1615,7 +1630,7 @@ final class NativeTabContentStore: ObservableObject {
             snapshotOrigin = location
             bestValueOrigin = valueOptions.isEmpty ? nil : location
             snapshot = NativeTabContentSnapshot(
-                venues: liveVenues.isEmpty ? Self.fallbackVenues(for: location) : liveVenues,
+                venues: liveVenues,
                 discoverCards: cards,
                 events: Self.visibleEvents(liveEvents, location: location),
                 source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
@@ -1629,7 +1644,7 @@ final class NativeTabContentStore: ObservableObject {
             snapshotOrigin = location
             bestValueOrigin = nil
             let fallback = Self.locationAwareSnapshot(.fallback, location: location)
-            snapshot = NativeTabContentSnapshot(venues: fallback.venues, discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Fresh picks aren't available right now. Showing saved suggestions.")
+            snapshot = NativeTabContentSnapshot(venues: [], discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Fresh picks aren't available right now. Showing saved suggestions.")
         }
     }
 
@@ -1648,8 +1663,12 @@ final class NativeTabContentStore: ObservableObject {
         let events: [NativeEventSummary] = eventRows.enumerated().compactMap(Self.event(from:))
         guard !venues.isEmpty || !cards.isEmpty || !events.isEmpty else { return nil }
 
-        let sourceRaw = Self.string(content, ["source"]) ?? Self.string(root?["freshness"] as? [String: Any], ["publicContentSource"])
+        let freshness = root?["freshness"] as? [String: Any]
+        let sourceRaw = Self.string(content, ["source"]) ?? Self.string(freshness, ["publicContentSource"])
         let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty && cards.isEmpty && events.isEmpty ? .fallback : .live)
+        let hasExplicitLiveVenueInventory = Self.bool(content, ["hasLiveVenueInventory"])
+            ?? Self.bool(freshness, ["hasLiveVenueInventory"])
+            ?? false
         return NativeTabContentSnapshot(
             venues: venues,
             discoverCards: cards,
@@ -1657,7 +1676,7 @@ final class NativeTabContentStore: ObservableObject {
             source: source,
             lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
             errorMessage: nil,
-            hasLiveVenueInventory: source != .fallback && !venues.isEmpty
+            hasLiveVenueInventory: hasExplicitLiveVenueInventory && source != .fallback && !venues.isEmpty
         )
     }
 

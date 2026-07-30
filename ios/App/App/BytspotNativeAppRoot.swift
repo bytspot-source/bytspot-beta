@@ -1189,7 +1189,7 @@ private struct NativeLaunchReadyScreen: View {
 
     static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeLaunchPick] {
         guard snapshot.hasTrustworthyLiveVenueInventory else { return [] }
-        let candidates = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
+        let candidates = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.trustworthyLiveVenues)
         return candidates.sorted { first, second in
             let firstScore = score(first, location: location, intent: intent, walk: walk, crew: crew)
             let secondScore = score(second, location: location, intent: intent, walk: walk, crew: crew)

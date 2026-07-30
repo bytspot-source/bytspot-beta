@@ -162,7 +162,14 @@ tap_launch_journey() {
   echo "tapthrough-main luma=$luma" | tee "$OUT/tapthrough-main.luma.txt"
   swift "$SMOKE_TMP/ocr.swift" "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
   ! grep -Eiq "Back to native" "$OUT/tapthrough-main.ocr.txt"
-  grep -Eiq "YOUR BYTSPOT IS READY|YOUR PICKS ARE READY|Start Exploring|Home" "$OUT/tapthrough-main.ocr.txt"
+  expect_ocr tapthrough-main "Home"
+  expect_ocr tapthrough-main "Local picks are updating"
+  expect_ocr tapthrough-main "Open Discover"
+  expect_ocr tapthrough-main "Map near me"
+  if grep -Eiq "YOUR BYTSPOT IS READY|YOUR PICKS ARE READY|Start Exploring" "$OUT/tapthrough-main.ocr.txt"; then
+    echo "Autorun remained on a Ready screen instead of reaching Home" >&2
+    exit 1
+  fi
 }
 
 run_launch_visual_captures() {
@@ -219,11 +226,19 @@ run_launch_visual_captures() {
 
   capture native-auth-signup SIMCTL_CHILD_BYT_NATIVE_PREVIEW_AUTH=signup
   ocr native-auth-signup
-  expect_ocr native-auth-signup "Welcome to Bytspot|Sign Up|Continue with Apple|Invite code"
+  expect_ocr native-auth-signup "Welcome"
+  expect_ocr native-auth-signup "to Bytspot"
+  expect_ocr native-auth-signup "Sign Up"
+  expect_ocr native-auth-signup "Continue with Apple"
+  expect_ocr native-auth-signup "Invite code"
 
   capture native-auth-login SIMCTL_CHILD_BYT_NATIVE_PREVIEW_AUTH=login
   ocr native-auth-login
-  expect_ocr native-auth-login "Welcome to Bytspot|Log In|Forgot password|Continue with Google"
+  expect_ocr native-auth-login "Welcome"
+  expect_ocr native-auth-login "to Bytspot"
+  expect_ocr native-auth-login "Log In"
+  expect_ocr native-auth-login "Forgot password"
+  expect_ocr native-auth-login "Continue with Google"
 }
 
 source_guards
@@ -251,7 +266,9 @@ expect_ocr profile "ACCOUNT CENTER|Quick actions|Wallet"
 
 capture home SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=home
 ocr home
-expect_ocr home "YOUR PICKS ARE READY|Book Ride|Home"
+expect_ocr home "Home"
+expect_ocr home "Start here"
+expect_ocr home "Coffee"
 capture discover SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=discover
 ocr discover
 expect_ocr discover "Places, stays, rides, services, and parking|Discover"

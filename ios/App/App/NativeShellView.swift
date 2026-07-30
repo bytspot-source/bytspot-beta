@@ -7016,6 +7016,24 @@ enum NativeHomeRegionPresentation {
         snapshot.hasTrustworthyLiveVenueInventory
     }
 
+    static func venueSafeSnapshot(_ snapshot: NativeTabContentSnapshot) -> NativeTabContentSnapshot {
+        let venues = snapshot.trustworthyLiveVenues
+        return NativeTabContentSnapshot(
+            venues: venues,
+            discoverCards: snapshot.discoverCards,
+            events: snapshot.events,
+            source: snapshot.source,
+            lastUpdated: snapshot.lastUpdated,
+            errorMessage: snapshot.errorMessage,
+            bestValueOptions: snapshot.bestValueOptions,
+            hasLiveVenueInventory: !venues.isEmpty
+        )
+    }
+
+    static func venueRailVenues(in snapshot: NativeTabContentSnapshot) -> [NativeVenueSummary] {
+        snapshot.trustworthyLiveVenues
+    }
+
     static func isTrustedLocalPlaceCard(_ card: NativeDiscoverSummary) -> Bool {
         let hasProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS")
             || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
@@ -7186,7 +7204,7 @@ private struct NativeHomeDashboardView: View {
     static let visibleHomeSurfaceLabels = ["Today's Pick", "Start here", "Available Tonight", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     private var regionalSnapshot: NativeTabContentSnapshot {
-        tabContentStore.snapshot(for: locationStore.coordinate)
+        NativeHomeRegionPresentation.venueSafeSnapshot(tabContentStore.snapshot(for: locationStore.coordinate))
     }
 
     private var launchRecommendationPicks: [LaunchRecommendationPick] {
@@ -7606,7 +7624,7 @@ private struct NativeHomeDashboardView: View {
 
     static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [LaunchRecommendationPick] {
         guard NativeHomeRegionPresentation.canPresentLaunchPicks(in: snapshot) else { return [] }
-        let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
+        let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.trustworthyLiveVenues)
         let ranked = venues.sorted { first, second in
             let firstScore = launchVenueScore(first, location: location, intent: intent, walk: walk, crew: crew)
             let secondScore = launchVenueScore(second, location: location, intent: intent, walk: walk, crew: crew)
@@ -7880,7 +7898,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var rightNowSection: some View {
-        let venues = Array(regionalSnapshot.venues.filter { $0.crowd != nil }.prefix(6))
+        let venues = Array(NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).filter { $0.crowd != nil }.prefix(6))
         if !venues.isEmpty {
             NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
                 ForEach(venues) { venue in
@@ -7892,9 +7910,10 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var trendingNowSection: some View {
-        if !regionalSnapshot.venues.isEmpty {
+        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot)
+        if !venues.isEmpty {
             NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
-                ForEach(Array(regionalSnapshot.venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
+                ForEach(Array(venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
                     NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
                 }
             }
@@ -7925,9 +7944,10 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var nearbySection: some View {
-        if !regionalSnapshot.venues.isEmpty {
+        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot)
+        if !venues.isEmpty {
             NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
-                ForEach(Array(regionalSnapshot.venues.prefix(6))) { venue in
+                ForEach(Array(venues.prefix(6))) { venue in
                     NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
                 }
             }
@@ -18571,15 +18591,17 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
         precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
         precondition(NativeHomeDashboardView.rankedLaunchPicks(from: .fallback, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe").isEmpty, "NativePostAuthIntentSelfTests: fallback fixture venues must never become personalized Home picks.")
-        let trustedSnapshot = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
+        let liveParking = NativeVenueSummary(id: "live-midtown-parking", name: "Live Midtown Parking", category: "parking", address: "1200 Peachtree St NE", distance: "0.3 mi", rating: 4.7, latitude: 33.7865, longitude: -84.3830, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: "LIVE-PARKING", imageUrl: nil)
+        let liveDining = NativeVenueSummary(id: "live-midtown-kitchen", name: "Live Midtown Kitchen", category: "dining", address: "1210 Peachtree St NE", distance: "0.4 mi", rating: 4.8, latitude: 33.7870, longitude: -84.3831, crowd: NativeCrowdSummary(level: 2, label: "Active", waitMins: 4), parking: NativeParkingSummary(totalAvailable: 6, priceLabel: "$8/hr"), verifiedPatchId: "LIVE-DINING", imageUrl: nil)
+        let trustedSnapshot = NativeTabContentSnapshot(venues: [liveParking, liveDining], discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
         let parkingPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: trustedSnapshot, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe")
-        precondition(parkingPick?.id == "midtown-smart-parking", "NativePostAuthIntentSelfTests: parking onboarding picks must target the live venue-ranked parking option, not a static restaurant.")
+        precondition(parkingPick?.id == "live-midtown-parking", "NativePostAuthIntentSelfTests: parking onboarding picks must target the live venue-ranked parking option, not a static restaurant.")
         let foodPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: trustedSnapshot, location: .verifiedMidtown, intent: "food", walk: "close", crew: "solo")
-        precondition(foodPick?.id == "colony-square", "NativePostAuthIntentSelfTests: onboarding picks must be computed from snapshot venues, not the legacy hardcoded launch rail.")
+        precondition(foodPick?.id == "live-midtown-kitchen", "NativePostAuthIntentSelfTests: onboarding picks must be computed from snapshot venues, not the legacy hardcoded launch rail.")
         let staleLegacyVenue = NativeVenueSummary(id: "stale-livingston", name: " livingston ", category: "parking", address: "659 Peachtree St NE", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: 1, label: "Chill", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil)
-        let staleSnapshot = NativeTabContentSnapshot(venues: [staleLegacyVenue] + NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
+        let staleSnapshot = NativeTabContentSnapshot(venues: [staleLegacyVenue, liveParking] + NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
         let rankedNames = NativeHomeDashboardView.rankedLaunchPicks(from: staleSnapshot, location: .midtown, intent: "parking", walk: "close", crew: "safe").map(\.title)
-        precondition(!rankedNames.contains { NativeAuthLaunchContract.isLegacyAtlantaPickName($0) } && rankedNames.first == "Midtown Smart Parking", "NativePostAuthIntentSelfTests: Home launch picks must filter stale legacy live venue variants before ranking.")
+        precondition(!rankedNames.contains { NativeAuthLaunchContract.isLegacyAtlantaPickName($0) } && rankedNames.first == "Live Midtown Parking", "NativePostAuthIntentSelfTests: Home launch picks must filter stale legacy and fallback fixture variants before ranking.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.access), "NativePostAuthIntentSelfTests: access hybrid route must be intercepted in native root.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.map) && BytspotNativeShellView.shouldRouteHybridRequestNatively(.discover), "NativePostAuthIntentSelfTests: browse routes must resolve to native tabs — the React hybrid overlay is retired.")

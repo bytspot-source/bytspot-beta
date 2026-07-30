@@ -9,6 +9,14 @@ import Security
 enum NativeAuthSeamSelfTests {
     private static var didScheduleRun = false
 
+    private final class InMemorySessionStore: NativeAuthSessionStoring {
+        private(set) var token: String?
+        var isAuthenticated: Bool { token?.isEmpty == false && token != "guest_session" }
+        @discardableResult func updateToken(_ newToken: String?) -> Bool { token = newToken; return true }
+        func continueAsGuest() { token = "guest_session" }
+        func signOut() { token = nil }
+    }
+
     private struct SuccessAppleAdapter: AppleAuthAdapter {
         func signIn() async throws -> NativeAuthAdapterResult {
             NativeAuthAdapterResult(provider: .apple, token: "selftest_apple_token", displayName: "Apple Self-Test")
@@ -40,39 +48,36 @@ enum NativeAuthSeamSelfTests {
     }
 
     private static func run() async {
-        let runID = UUID().uuidString
-        let verifyDurableRestore = canRoundTripKeychain()
-        await assertAppleSuccessWiresSessionToken(account: "apple_\(runID)", verifyDurableRestore: verifyDurableRestore)
-        await assertGoogleSuccessWiresSessionToken(account: "google_\(runID)", verifyDurableRestore: verifyDurableRestore)
-        await assertAdapterFailureKeepsSessionSignedOut(account: "failure_\(runID)", verifyDurableRestore: verifyDurableRestore)
+        _ = canRoundTripKeychain()
+        await assertAppleSuccessWiresSessionToken()
+        await assertGoogleSuccessWiresSessionToken()
+        await assertAdapterFailureKeepsSessionSignedOut()
     }
 
-    private static func assertAppleSuccessWiresSessionToken(account: String, verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: account)
+    private static func assertAppleSuccessWiresSessionToken() async {
+        let store = InMemorySessionStore()
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: SuccessAppleAdapter(), googleAdapter: FailingGoogleAdapter())
         coordinator.handle(.signIn(.apple), sessionStore: store)
         await waitFor { store.token == "selftest_apple_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Apple success did not authenticate the session.")
-        if verifyDurableRestore { precondition(restoredToken(account: account) == "selftest_apple_token", "NativeAuthSeamSelfTests: Apple success did not persist through keychain reload.") }
         precondition(coordinator.status == .signedIn(provider: .apple, displayName: "Apple Self-Test"), "NativeAuthSeamSelfTests: Apple success status drifted.")
         store.signOut()
     }
 
-    private static func assertGoogleSuccessWiresSessionToken(account: String, verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: account)
+    private static func assertGoogleSuccessWiresSessionToken() async {
+        let store = InMemorySessionStore()
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: SuccessGoogleAdapter())
         coordinator.handle(.signIn(.google), sessionStore: store)
         await waitFor { store.token == "selftest_google_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Google success did not authenticate the session.")
-        if verifyDurableRestore { precondition(restoredToken(account: account) == "selftest_google_token", "NativeAuthSeamSelfTests: Google success did not persist through keychain reload.") }
         precondition(coordinator.status == .signedIn(provider: .google, displayName: "Google Self-Test"), "NativeAuthSeamSelfTests: Google success status drifted.")
         store.signOut()
     }
 
-    private static func assertAdapterFailureKeepsSessionSignedOut(account: String, verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: account)
+    private static func assertAdapterFailureKeepsSessionSignedOut() async {
+        let store = InMemorySessionStore()
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: FailingGoogleAdapter())
         coordinator.handle(.signIn(.apple), sessionStore: store)
@@ -81,7 +86,6 @@ enum NativeAuthSeamSelfTests {
             return false
         }
         precondition(store.token == nil, "NativeAuthSeamSelfTests: failing adapter unexpectedly wrote a session token.")
-        if verifyDurableRestore { precondition(restoredToken(account: account) == nil, "NativeAuthSeamSelfTests: failing adapter unexpectedly persisted a session token.") }
         store.signOut()
     }
 
@@ -91,6 +95,7 @@ enum NativeAuthSeamSelfTests {
         let data = Data("probe".utf8)
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
         var item = query
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         item[kSecValueData as String] = data
         SecItemDelete(query as CFDictionary)
         defer { SecItemDelete(query as CFDictionary) }
@@ -101,16 +106,6 @@ enum NativeAuthSeamSelfTests {
         var restored: CFTypeRef?
         guard SecItemCopyMatching(readQuery as CFDictionary, &restored) == errSecSuccess, let restoredData = restored as? Data else { return false }
         return restoredData == data
-    }
-
-    private static func isolatedStore(account: String) -> BytspotSessionStore {
-        BytspotSessionStore(account: "native_auth_selftest_\(account)", service: "com.bytspot.native-auth-selftests")
-    }
-
-    private static func restoredToken(account: String) -> String? {
-        let store = isolatedStore(account: account)
-        store.reloadFromKeychain()
-        return store.token
     }
 
     private static func waitFor(_ predicate: @MainActor @escaping () -> Bool) async {

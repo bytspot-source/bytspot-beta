@@ -81,6 +81,15 @@ enum NativeAuthStatus: Equatable {
 }
 
 @MainActor
+protocol NativeAuthSessionStoring: AnyObject {
+    @discardableResult func updateToken(_ newToken: String?) -> Bool
+    func continueAsGuest()
+    func signOut()
+}
+
+extension BytspotSessionStore: NativeAuthSessionStoring {}
+
+@MainActor
 final class NativeAuthCoordinator: ObservableObject {
     @Published private(set) var status: NativeAuthStatus = .ready
     private let appleAdapter: any AppleAuthAdapter
@@ -99,7 +108,7 @@ final class NativeAuthCoordinator: ObservableObject {
         self.googleAdapter = googleAdapter
     }
 
-    func handle(_ intent: NativeAuthIntent, sessionStore: BytspotSessionStore) {
+    func handle(_ intent: NativeAuthIntent, sessionStore: any NativeAuthSessionStoring) {
         switch intent {
         case .signIn(let provider):
             status = .authenticating(provider: provider)
@@ -114,7 +123,7 @@ final class NativeAuthCoordinator: ObservableObject {
     }
 
     #if DEBUG
-    func runDebugAutorunIfRequested(sessionStore: BytspotSessionStore) {
+    func runDebugAutorunIfRequested(sessionStore: any NativeAuthSessionStoring) {
         guard !didRunDebugAutorun, NativeMigrationConfig.isNativeRootEnabled else { return }
         guard let rawProvider = ProcessInfo.processInfo.environment[NativeMigrationConfig.authAutorunEnvironmentKey]?.lowercased(),
               let provider = NativeAuthProvider(rawValue: rawProvider) else { return }
@@ -123,7 +132,7 @@ final class NativeAuthCoordinator: ObservableObject {
     }
     #endif
 
-    private func signIn(provider: NativeAuthProvider, sessionStore: BytspotSessionStore) async {
+    private func signIn(provider: NativeAuthProvider, sessionStore: any NativeAuthSessionStoring) async {
         do {
             let result: NativeAuthAdapterResult
             switch provider {

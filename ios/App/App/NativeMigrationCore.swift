@@ -577,7 +577,7 @@ final class BytspotSessionStore: ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: Data(token.utf8)
         ]
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess

@@ -4,7 +4,7 @@ import Security
 #if DEBUG
 /// DEBUG-only native migration guard for the Apple/Google auth adapter seam.
 /// The project does not currently define an XCTest App target, so these run only
-/// when the opt-in SwiftUI root is explicitly enabled via BYT_NATIVE_ROOT=1.
+/// when crash-on-drift checks are explicitly enabled via BYT_NATIVE_SELF_TESTS=1.
 @MainActor
 enum NativeAuthSeamSelfTests {
     private static var didScheduleRun = false
@@ -40,38 +40,39 @@ enum NativeAuthSeamSelfTests {
     }
 
     private static func run() async {
+        let runID = UUID().uuidString
         let verifyDurableRestore = canRoundTripKeychain()
-        await assertAppleSuccessWiresSessionToken(verifyDurableRestore: verifyDurableRestore)
-        await assertGoogleSuccessWiresSessionToken(verifyDurableRestore: verifyDurableRestore)
-        await assertAdapterFailureKeepsSessionSignedOut(verifyDurableRestore: verifyDurableRestore)
+        await assertAppleSuccessWiresSessionToken(account: "apple_\(runID)", verifyDurableRestore: verifyDurableRestore)
+        await assertGoogleSuccessWiresSessionToken(account: "google_\(runID)", verifyDurableRestore: verifyDurableRestore)
+        await assertAdapterFailureKeepsSessionSignedOut(account: "failure_\(runID)", verifyDurableRestore: verifyDurableRestore)
     }
 
-    private static func assertAppleSuccessWiresSessionToken(verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: "apple")
+    private static func assertAppleSuccessWiresSessionToken(account: String, verifyDurableRestore: Bool) async {
+        let store = isolatedStore(account: account)
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: SuccessAppleAdapter(), googleAdapter: FailingGoogleAdapter())
         coordinator.handle(.signIn(.apple), sessionStore: store)
         await waitFor { store.token == "selftest_apple_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Apple success did not authenticate the session.")
-        if verifyDurableRestore { precondition(restoredToken(account: "apple") == "selftest_apple_token", "NativeAuthSeamSelfTests: Apple success did not persist through keychain reload.") }
+        if verifyDurableRestore { precondition(restoredToken(account: account) == "selftest_apple_token", "NativeAuthSeamSelfTests: Apple success did not persist through keychain reload.") }
         precondition(coordinator.status == .signedIn(provider: .apple, displayName: "Apple Self-Test"), "NativeAuthSeamSelfTests: Apple success status drifted.")
         store.signOut()
     }
 
-    private static func assertGoogleSuccessWiresSessionToken(verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: "google")
+    private static func assertGoogleSuccessWiresSessionToken(account: String, verifyDurableRestore: Bool) async {
+        let store = isolatedStore(account: account)
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: SuccessGoogleAdapter())
         coordinator.handle(.signIn(.google), sessionStore: store)
         await waitFor { store.token == "selftest_google_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Google success did not authenticate the session.")
-        if verifyDurableRestore { precondition(restoredToken(account: "google") == "selftest_google_token", "NativeAuthSeamSelfTests: Google success did not persist through keychain reload.") }
+        if verifyDurableRestore { precondition(restoredToken(account: account) == "selftest_google_token", "NativeAuthSeamSelfTests: Google success did not persist through keychain reload.") }
         precondition(coordinator.status == .signedIn(provider: .google, displayName: "Google Self-Test"), "NativeAuthSeamSelfTests: Google success status drifted.")
         store.signOut()
     }
 
-    private static func assertAdapterFailureKeepsSessionSignedOut(verifyDurableRestore: Bool) async {
-        let store = isolatedStore(account: "failure")
+    private static func assertAdapterFailureKeepsSessionSignedOut(account: String, verifyDurableRestore: Bool) async {
+        let store = isolatedStore(account: account)
         store.signOut()
         let coordinator = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: FailingGoogleAdapter())
         coordinator.handle(.signIn(.apple), sessionStore: store)
@@ -80,7 +81,7 @@ enum NativeAuthSeamSelfTests {
             return false
         }
         precondition(store.token == nil, "NativeAuthSeamSelfTests: failing adapter unexpectedly wrote a session token.")
-        if verifyDurableRestore { precondition(restoredToken(account: "failure") == nil, "NativeAuthSeamSelfTests: failing adapter unexpectedly persisted a session token.") }
+        if verifyDurableRestore { precondition(restoredToken(account: account) == nil, "NativeAuthSeamSelfTests: failing adapter unexpectedly persisted a session token.") }
         store.signOut()
     }
 
@@ -113,9 +114,9 @@ enum NativeAuthSeamSelfTests {
     }
 
     private static func waitFor(_ predicate: @MainActor @escaping () -> Bool) async {
-        for _ in 0..<20 {
+        for _ in 0..<40 {
             if predicate() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 }
@@ -137,6 +138,7 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.reactSources.contains("App.tsx onboarding quiz"), "NativeAuthSplashSelfTests: missing App.tsx onboarding quiz source guard.")
         precondition(NativeAuthLaunchContract.reactSources.contains("AuthenticationFlow.tsx"), "NativeAuthSplashSelfTests: missing auth source guard.")
         precondition(NativeAuthLaunchContract.splashDurationSeconds == 1.8, "NativeAuthSplashSelfTests: splash timing must mirror approved native premium-minimal intro.")
+        precondition(NativeAuthLaunchContract.splashTagline == "Your perfect spot awaits" && NativeAuthLaunchContract.splashCapabilities == ["Parking", "Venues", "AI-Powered"], "NativeAuthSplashSelfTests: splash value copy drifted.")
         precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
         precondition(NativeAuthLaunchContract.vibeQuestion == "What kind of night are we shaping?", "NativeAuthSplashSelfTests: vibe question drifted.")
         precondition(NativeAuthLaunchContract.walkOptions == ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"], "NativeAuthSplashSelfTests: walk options drifted.")

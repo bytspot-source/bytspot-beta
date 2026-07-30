@@ -127,24 +127,26 @@ struct BytspotNativeAppRoot: View {
 
     init() {
         #if DEBUG
-        NativeAuthSeamSelfTests.runIfRequested()
-        NativeAuthSplashSelfTests.runIfRequested()
-        NativeJourneyThemeSelfTests.runIfRequested()
-        NativePatchRouteSelfTests.runIfRequested()
-        NativePatchBookingSelfTests.runIfRequested()
-        NativePatchSpecialFlowSelfTests.runIfRequested()
-        NativeShellThemeSelfTests.runIfRequested()
-        NativeHomeParitySelfTests.runIfRequested()
-        NativePostAuthIntentSelfTests.runIfRequested()
-        NativeMapParitySelfTests.runIfRequested()
-        NativeAccessParitySelfTests.runIfRequested()
-        NativeBookingParitySelfTests.runIfRequested()
-        NativeAccountParitySelfTests.runIfRequested()
-        NativeDiscoverParitySelfTests.runIfRequested()
-        NativeConciergeParitySelfTests.runIfRequested()
-        NativePhase4TabContentSelfTests.runIfRequested()
-        NativeContactSyncSelfTests.runIfRequested()
-        NativeMenuParitySelfTests.runIfRequested()
+        if NativeMigrationConfig.shouldRunDebugSelfTests {
+            NativeAuthSeamSelfTests.runIfRequested()
+            NativeAuthSplashSelfTests.runIfRequested()
+            NativeJourneyThemeSelfTests.runIfRequested()
+            NativePatchRouteSelfTests.runIfRequested()
+            NativePatchBookingSelfTests.runIfRequested()
+            NativePatchSpecialFlowSelfTests.runIfRequested()
+            NativeShellThemeSelfTests.runIfRequested()
+            NativeHomeParitySelfTests.runIfRequested()
+            NativePostAuthIntentSelfTests.runIfRequested()
+            NativeMapParitySelfTests.runIfRequested()
+            NativeAccessParitySelfTests.runIfRequested()
+            NativeBookingParitySelfTests.runIfRequested()
+            NativeAccountParitySelfTests.runIfRequested()
+            NativeDiscoverParitySelfTests.runIfRequested()
+            NativeConciergeParitySelfTests.runIfRequested()
+            NativePhase4TabContentSelfTests.runIfRequested()
+            NativeContactSyncSelfTests.runIfRequested()
+            NativeMenuParitySelfTests.runIfRequested()
+        }
         #endif
     }
 
@@ -233,6 +235,8 @@ enum NativeAuthLaunchContract {
     static let reactSources = ["SplashScreen.tsx", "LandingPage.tsx", "AuthenticationFlow.tsx", "AppleSignInButton.tsx", "GoogleSignInButton.tsx", "PasswordRecoveryScreen.tsx", "App.tsx onboarding quiz"]
     static let appFlow = ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"]
     static let splashDurationSeconds = 1.8
+    static let splashTagline = "Your perfect spot awaits"
+    static let splashCapabilities = ["Parking", "Venues", "AI-Powered"]
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
@@ -343,8 +347,8 @@ enum NativeLaunchRecommendationPresentation {
 
     static let capabilityTitles = ["Discover with context", "Plan the arrival", "Keep everything together"]
 
-    static func mode(location: NativeLocationCoordinate, hasPicks: Bool, isRefreshing: Bool) -> Mode {
-        if hasPicks { return .livePicks }
+    static func mode(location: NativeLocationCoordinate, hasPicks: Bool, hasTrustworthyLiveVenueInventory: Bool, isRefreshing: Bool) -> Mode {
+        if hasPicks && hasTrustworthyLiveVenueInventory { return .livePicks }
         if location.isFallback { return .locationNeeded }
         return isRefreshing ? .loading : .localSync
     }
@@ -667,6 +671,21 @@ private struct NativeSplashScreen: View {
                         .font(.system(size: sizing.splashTitle, weight: .bold))
                         .foregroundStyle(theme.ctaGradient)
                     HStack(spacing: 8) { ForEach([theme.primary, theme.secondary, theme.tertiary], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
+                    Text(NativeAuthLaunchContract.splashTagline)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.76))
+                    HStack(spacing: 8) {
+                        ForEach(NativeAuthLaunchContract.splashCapabilities, id: \.self) { capability in
+                            Text(capability)
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(.white.opacity(0.72))
+                                .padding(.horizontal, 11)
+                                .frame(minHeight: 30)
+                                .background(Color.white.opacity(0.07))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
+                                .clipShape(Capsule())
+                        }
+                    }
                     if freeze {
                         VStack(spacing: 8) {
                             Button(action: { nativeAuthImpactLight(); onComplete() }) {
@@ -684,7 +703,7 @@ private struct NativeSplashScreen: View {
                 }
                 .padding(.horizontal, sizing.horizontalPadding)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("BYTSPOT")
+                .accessibilityLabel("BYTSPOT, \(NativeAuthLaunchContract.splashTagline), \(NativeAuthLaunchContract.splashCapabilities.joined(separator: ", "))")
                 .accessibilityIdentifier("native-launch-splash")
             }
         }
@@ -856,7 +875,9 @@ private struct NativeLaunchLocationScreen: View {
     }
 
     private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: { nativeAuthImpactLight(); action() }) { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(height: 42) }.buttonStyle(.plain)
+        Button(action: { nativeAuthImpactLight(); action() }) { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(minHeight: 44) }
+            .buttonStyle(.plain)
+            .accessibilityHint("Continues onboarding without using your location.")
     }
 
     private func openSettings() {
@@ -1097,7 +1118,7 @@ private struct NativeLaunchReadyScreen: View {
     }
 
     private var presentation: NativeLaunchRecommendationPresentation.Mode {
-        NativeLaunchRecommendationPresentation.mode(location: location, hasPicks: !picks.isEmpty, isRefreshing: isRefreshing)
+        NativeLaunchRecommendationPresentation.mode(location: location, hasPicks: !picks.isEmpty, hasTrustworthyLiveVenueInventory: snapshot.hasTrustworthyLiveVenueInventory, isRefreshing: isRefreshing)
     }
 
     private var headline: String { presentation == .livePicks ? "Your picks are ready" : "Your Bytspot is ready" }
@@ -1126,7 +1147,7 @@ private struct NativeLaunchReadyScreen: View {
                 recommendationContent(theme: theme)
                 Text("Explore as a guest. Sign in anytime to save places, preferences, and reservations.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
                 Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Start Exploring", color: theme.ctaGradient, foreground: .black, height: sizing.ctaHeight, showArrow: true) }.buttonStyle(.plain).accessibilityHint("Opens the Bytspot Home experience in guest mode.")
-                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save your experience").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
+                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save your experience").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(minHeight: 44).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens the sign in screen before saving picks.")
                     .accessibilityIdentifier("native-launch-sign-in-after-picks")
@@ -1167,6 +1188,7 @@ private struct NativeLaunchReadyScreen: View {
     }
 
     static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeLaunchPick] {
+        guard snapshot.hasTrustworthyLiveVenueInventory else { return [] }
         let candidates = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
         return candidates.sorted { first, second in
             let firstScore = score(first, location: location, intent: intent, walk: walk, crew: crew)

@@ -227,37 +227,39 @@ React source of truth:
 
 | Native surface | React source | Locked copy / contract |
 | --- | --- | --- |
-| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 3-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
-| Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, Midtown crowd/parking/ride subtitle, `Let's Go`, Terms & Privacy footer. |
-| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Value-first location explanation, then a short context-aware quiz and a complete ready screen with live verified picks or capability previews. |
+| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 1.8-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
+| Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, location-safe product value, `Get Started`, Terms & Privacy footer. |
+| Location | Native value-first permission seam | Explain nearby recommendations, arrival context, and privacy before offering `Use My Location` or `Not Now`. |
+| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Short context-aware Vibe → Walk → Crew quiz followed by a complete ready screen with verified live picks or capability previews. |
 | Auth | `src/components/AuthenticationFlow.tsx`, `AppleSignInButton.tsx`, `GoogleSignInButton.tsx` | Sign Up / Log In toggle, Apple/Google buttons, email form, full name + optional invite code for signup, forgot password for login. |
 
 Native frontend/API boundary:
 
 - Native auth route contracts are `auth.signup`, `auth.login`, `auth.googleSignIn`, and `auth.appleSignIn`; no backend route changes are part of P1.
 - Native signup uses the shared 6-character account minimum enforced by the current authentication contract.
-- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_LOCATION=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|atlanta`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
+- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_LOCATION=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|recommendations`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
+- Crash-on-drift DEBUG contract self-tests are opt-in via `BYT_NATIVE_SELF_TESTS=1`; ordinary simulator, XCTest, and visual-smoke launches rely on their dedicated assertions without risking a pre-UI process exit.
 - `BYT_NATIVE_LAUNCH_AUTORUN=1` is DEBUG smoke-only and auto-advances Landing → Location → Vibe → Walk → Crew → Recommendations → Main using the same state actions because this Xcode simulator runtime does not expose a `simctl io tap` operation.
 - Existing Profile/tab smoke hooks bypass the launch journey so account-panel validation stays deterministic.
 - Signed-out launch CTA path is frontend-only: Splash → Landing → Location → personalization → Recommendations → Main as a guest session. Auth remains available through the native auth screen/entry seams without adding backend routes.
-- The ready screen uses verified live picks when available and capability previews otherwise; it never substitutes unlabeled fixture inventory for unresolved users. Its secondary action is `Sign in to save your experience`.
+- The ready screen uses picks only when venue-specific provenance confirms live inventory with no refresh error. Fallback, mixed-with-fallback, loading, and unresolved snapshots use capability previews instead. Its secondary action is `Sign in to save your experience`.
 - Personalization selections persist locally under `bytspot_native_launch_vibe`, `bytspot_native_launch_walk`, `bytspot_native_launch_crew`, and `bytspot_native_launch_completed` so the main shell can later consume them without backend work.
-- Atlanta picks includes a secondary `Sign in to save these picks` action that routes to native auth without losing the frontend-only boundary.
+- The ready screen's sign-in action routes to native auth without losing the frontend-only boundary.
 - Password recovery is a native shell that mirrors route intent without logging credentials or accepting token flags.
 
 Auth P2 polish contract:
 
 - Email validation copy mirrors React: `Enter a valid email address.`
-- Native signup password copy uses stricter backend-safe parity: `Use at least 8 characters.`
-- Invalid signup submit copy is `Please enter your name, a valid email address, and a password with at least 8 characters.`
+- Native signup password copy is `Use at least 6 characters.`
+- Invalid signup submit copy is `Enter your name, a valid email address, and a password with at least 6 characters.`
 - Native auth fields use keyboard submit progression, focus restoration on mode switch, VoiceOver labels/hints, Dynamic Type-aware spacing, and a reduced-motion-safe launch stage transition.
 
 Launch Visual QA contract:
 
-- Launch and auth surfaces must use geometry-aware sizing rather than single-device fixed hero sizes, with compact-height spacing for small phones and scroll-safe cards for Landing, Atlanta picks, and Auth.
-- VoiceOver read-through must keep the launch order clear: brand impression, landing CTA, personalization progress/question/options, Atlanta picks, then auth mode/provider/email controls.
+- Launch and auth surfaces must use geometry-aware sizing rather than single-device fixed hero sizes, with compact-height spacing for small phones and scroll-safe cards for Landing, Recommendations, and Auth.
+- VoiceOver read-through must keep the launch order clear: brand impression, landing CTA, location value/actions, personalization progress/question/options, Recommendations, then auth mode/provider/email controls.
 - Apple/Google native buttons must clearly expose provider-ready/connecting state and keep email sign-in available when production provider setup is unavailable on the current build.
-- Multi-device visual smoke may run the launch-only capture path with `LAUNCH_VISUAL_ONLY=1` and an overridden `UDID`/`OUT` directory, reusing the same Splash → Landing → Personalization → Atlanta → Main autorun guard.
+- Multi-device visual smoke may run the launch-only capture path with `LAUNCH_VISUAL_ONLY=1` and an overridden `UDID`/`OUT` directory, reusing the same Splash → Landing → Location → Vibe → Walk → Crew → Recommendations → Main autorun guard.
 
 ## Native Fallback Audit
 

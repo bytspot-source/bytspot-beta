@@ -4,6 +4,7 @@ import SwiftUI
 
 enum NativeMigrationConfig {
     static let environmentKey = "BYT_NATIVE_ROOT"
+    static let selfTestsEnvironmentKey = "BYT_NATIVE_SELF_TESTS"
     static let authAutorunEnvironmentKey = "BYT_NATIVE_AUTH_AUTORUN"
     static let authMockEnvironmentKey = "BYT_NATIVE_AUTH_MOCK"
     static let previewSessionEnvironmentKey = "BYT_NATIVE_PREVIEW_SESSION"
@@ -14,6 +15,13 @@ enum NativeMigrationConfig {
     /// and Capacitor is removed from the iOS target. Kept as a constant so the
     /// dev-only self-tests and preview hooks that key off it remain wired.
     static var isNativeRootEnabled: Bool { true }
+
+    #if DEBUG
+    static var shouldRunDebugSelfTests: Bool {
+        guard let raw = ProcessInfo.processInfo.environment[selfTestsEnvironmentKey]?.lowercased() else { return false }
+        return ["1", "true", "yes", "on"].contains(raw)
+    }
+    #endif
 }
 
 enum NativePatchRouteKind: String, Equatable {

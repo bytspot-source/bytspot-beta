@@ -7008,8 +7008,12 @@ enum NativeHomeRegionPresentation {
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
     static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
-        if !snapshot.venues.isEmpty { return true }
+        if canPresentLaunchPicks(in: snapshot) { return true }
         return snapshot.discoverCards.contains(where: isTrustedLocalPlaceCard)
+    }
+
+    static func canPresentLaunchPicks(in snapshot: NativeTabContentSnapshot) -> Bool {
+        snapshot.hasTrustworthyLiveVenueInventory
     }
 
     static func isTrustedLocalPlaceCard(_ card: NativeDiscoverSummary) -> Bool {
@@ -7601,6 +7605,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [LaunchRecommendationPick] {
+        guard NativeHomeRegionPresentation.canPresentLaunchPicks(in: snapshot) else { return [] }
         let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
         let ranked = venues.sorted { first, second in
             let firstScore = launchVenueScore(first, location: location, intent: intent, walk: walk, crew: crew)
@@ -18565,12 +18570,14 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
         precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
-        let parkingPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: .fallback, location: .midtown, intent: "parking", walk: "close", crew: "safe")
+        precondition(NativeHomeDashboardView.rankedLaunchPicks(from: .fallback, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe").isEmpty, "NativePostAuthIntentSelfTests: fallback fixture venues must never become personalized Home picks.")
+        let trustedSnapshot = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
+        let parkingPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: trustedSnapshot, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe")
         precondition(parkingPick?.id == "midtown-smart-parking", "NativePostAuthIntentSelfTests: parking onboarding picks must target the live venue-ranked parking option, not a static restaurant.")
-        let foodPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: .fallback, location: .midtown, intent: "food", walk: "close", crew: "solo")
+        let foodPick = NativeHomeDashboardView.topLaunchRecommendationVenue(snapshot: trustedSnapshot, location: .verifiedMidtown, intent: "food", walk: "close", crew: "solo")
         precondition(foodPick?.id == "colony-square", "NativePostAuthIntentSelfTests: onboarding picks must be computed from snapshot venues, not the legacy hardcoded launch rail.")
         let staleLegacyVenue = NativeVenueSummary(id: "stale-livingston", name: " livingston ", category: "parking", address: "659 Peachtree St NE", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: 1, label: "Chill", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil)
-        let staleSnapshot = NativeTabContentSnapshot(venues: [staleLegacyVenue] + NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil)
+        let staleSnapshot = NativeTabContentSnapshot(venues: [staleLegacyVenue] + NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
         let rankedNames = NativeHomeDashboardView.rankedLaunchPicks(from: staleSnapshot, location: .midtown, intent: "parking", walk: "close", crew: "safe").map(\.title)
         precondition(!rankedNames.contains { NativeAuthLaunchContract.isLegacyAtlantaPickName($0) } && rankedNames.first == "Midtown Smart Parking", "NativePostAuthIntentSelfTests: Home launch picks must filter stale legacy live venue variants before ranking.")
         precondition(BytspotNativeShellView.shouldRouteHybridRequestNatively(.profile), "NativePostAuthIntentSelfTests: profile hybrid route must be intercepted in native root.")

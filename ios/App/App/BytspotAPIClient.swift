@@ -1519,6 +1519,11 @@ struct NativeTabContentSnapshot: Equatable {
     let lastUpdated: Date?
     let errorMessage: String?
     var bestValueOptions: [NativeLiveValueOption] = []
+    var hasLiveVenueInventory = false
+
+    var hasTrustworthyLiveVenueInventory: Bool {
+        hasLiveVenueInventory && source != .fallback && errorMessage == nil && !venues.isEmpty
+    }
 
     var statusLabel: String {
         switch source {
@@ -1591,7 +1596,7 @@ final class NativeTabContentStore: ObservableObject {
                 guard generation == refreshGeneration else { return }
                 snapshotOrigin = location
                 bestValueOrigin = valueOptions.isEmpty ? nil : location
-                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? Self.fallbackVenues(for: location) : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions)
+                snapshot = NativeTabContentSnapshot(venues: localized.venues.isEmpty ? Self.fallbackVenues(for: location) : localized.venues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions, hasLiveVenueInventory: localized.hasTrustworthyLiveVenueInventory)
                 return
             }
 
@@ -1616,7 +1621,8 @@ final class NativeTabContentStore: ObservableObject {
                 source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
                 lastUpdated: Date(),
                 errorMessage: nil,
-                bestValueOptions: valueOptions
+                bestValueOptions: valueOptions,
+                hasLiveVenueInventory: !liveVenues.isEmpty
             )
         } catch {
             guard generation == refreshGeneration else { return }
@@ -1650,7 +1656,8 @@ final class NativeTabContentStore: ObservableObject {
             events: events,
             source: source,
             lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
-            errorMessage: nil
+            errorMessage: nil,
+            hasLiveVenueInventory: source != .fallback && !venues.isEmpty
         )
     }
 
@@ -1701,7 +1708,7 @@ final class NativeTabContentStore: ObservableObject {
             !$0.id.hasPrefix("best-value-") && !$0.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
         }
         guard cards.count != snapshot.discoverCards.count || !snapshot.bestValueOptions.isEmpty else { return snapshot }
-        return NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: cards, events: snapshot.events, source: source(forVisibleDeck: cards, hasLiveInputs: false), lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage)
+        return NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: cards, events: snapshot.events, source: source(forVisibleDeck: cards, hasLiveInputs: false), lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, hasLiveVenueInventory: snapshot.hasLiveVenueInventory)
     }
 
     nonisolated static func localValueOptions(_ options: [NativeLiveValueOption]) -> [NativeLiveValueOption] {
@@ -1938,7 +1945,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func enrichedSnapshot(_ snapshot: NativeTabContentSnapshot, valueOptions: [NativeLiveValueOption]) -> NativeTabContentSnapshot {
-        NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: mergeBestValueCards(valueOptions, into: snapshot.discoverCards), events: snapshot.events, source: valueOptions.isEmpty ? snapshot.source : .mixed, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: valueOptions)
+        NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: mergeBestValueCards(valueOptions, into: snapshot.discoverCards), events: snapshot.events, source: valueOptions.isEmpty ? snapshot.source : .mixed, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: valueOptions, hasLiveVenueInventory: snapshot.hasLiveVenueInventory)
     }
 
     private static func mergeBestValueCards(_ options: [NativeLiveValueOption], into cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
@@ -1960,7 +1967,7 @@ final class NativeTabContentStore: ObservableObject {
     private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
         let venues = snapshot.source == .fallback ? fallbackVenues(for: location) : locationAwareVenues(snapshot.venues, location: location)
         let cards = locationAwareCards(snapshot.discoverCards, sourceVenues: snapshot.venues, location: location)
-        return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: visibleEvents(snapshot.events, location: location), source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: location.isFallback ? [] : snapshot.bestValueOptions)
+        return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: visibleEvents(snapshot.events, location: location), source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: location.isFallback ? [] : snapshot.bestValueOptions, hasLiveVenueInventory: snapshot.hasLiveVenueInventory)
     }
 
     static func fallbackVenues(for location: NativeLocationCoordinate) -> [NativeVenueSummary] {

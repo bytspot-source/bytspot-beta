@@ -9,9 +9,10 @@ CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA="${DERIVED_DATA:-ios/App/build/NativeRootSmoke}"
 APP="$PWD/$DERIVED_DATA/Build/Products/$CONFIGURATION-iphonesimulator/App.app"
 OUT="${OUT:-$PWD/.dev-screenshots/native-root-smoke}"
-mkdir -p "$OUT"
+SMOKE_TMP="${TMPDIR:?TMPDIR must be set}/bytspot-native-root-smoke"
+mkdir -p "$OUT" "$SMOKE_TMP"
 
-cat >/tmp/bytspot_native_root_ocr.swift <<'SWIFT'
+cat >"$SMOKE_TMP/ocr.swift" <<'SWIFT'
 import Foundation
 import Vision
 import AppKit
@@ -25,7 +26,7 @@ try VNImageRequestHandler(cgImage: cg, options: [:]).perform([request])
 print((request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n"))
 SWIFT
 
-cat >/tmp/bytspot_native_root_luma.swift <<'SWIFT'
+cat >"$SMOKE_TMP/luma.swift" <<'SWIFT'
 import Foundation
 import AppKit
 let path = CommandLine.arguments[1]
@@ -62,12 +63,14 @@ source_guards() {
   grep -q "App.tsx onboarding quiz" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
   grep -q "AuthenticationFlow.tsx" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
   grep -q "auth.signup" ios/App/App/BytspotAPIClient.swift ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
-  grep -q "BYT_NATIVE_PREVIEW_AUTH" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
-  grep -q "BYT_NATIVE_PREVIEW_PERSONALIZATION" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
-  grep -q "BYT_NATIVE_LAUNCH_AUTORUN" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
+  grep -q "BYT_NATIVE_PREVIEW_AUTH" ios/App/App/BytspotNativeAppRoot.swift && grep -q "BYT_NATIVE_PREVIEW_AUTH" scripts/native-root-smoke.sh && grep -q "BYT_NATIVE_PREVIEW_AUTH" docs/native-profile-product-wireframe-contract.md
+  grep -q "BYT_NATIVE_PREVIEW_LOCATION" ios/App/App/BytspotNativeAppRoot.swift && grep -q "BYT_NATIVE_PREVIEW_LOCATION" scripts/native-root-smoke.sh && grep -q "BYT_NATIVE_PREVIEW_LOCATION" docs/native-profile-product-wireframe-contract.md
+  grep -q "BYT_NATIVE_PREVIEW_PERSONALIZATION" ios/App/App/BytspotNativeAppRoot.swift && grep -q "BYT_NATIVE_PREVIEW_PERSONALIZATION" scripts/native-root-smoke.sh && grep -q "BYT_NATIVE_PREVIEW_PERSONALIZATION" docs/native-profile-product-wireframe-contract.md
+  grep -q "BYT_NATIVE_LAUNCH_AUTORUN" ios/App/App/BytspotNativeAppRoot.swift && grep -q "BYT_NATIVE_LAUNCH_AUTORUN" scripts/native-root-smoke.sh && grep -q "BYT_NATIVE_LAUNCH_AUTORUN" docs/native-profile-product-wireframe-contract.md
   grep -q "bytspot_native_launch_vibe" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
-  grep -q "Sign in to save your experience" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
-  grep -q "at least 6 characters" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
+  grep -q "Sign in to save your experience" ios/App/App/BytspotNativeAppRoot.swift && grep -q "Sign in to save your experience" scripts/native-root-smoke.sh && grep -q "Sign in to save your experience" docs/native-profile-product-wireframe-contract.md
+  grep -q "at least 6 characters" ios/App/App/BytspotNativeAppRoot.swift && grep -q "at least 6 characters" ios/App/App/NativeAuthSeamSelfTests.swift && grep -q "at least 6 characters" docs/native-profile-product-wireframe-contract.md
+  ! grep -Eq "Let's Go|Sign in to save these picks|at least 8 characters|Atlanta picks|Personalization → Atlanta" docs/native-profile-product-wireframe-contract.md
   grep -q "Native Fallback Audit" docs/native-profile-product-wireframe-contract.md
   grep -q "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT" ios/App/App/NativeShellView.swift scripts/native-root-smoke.sh
   grep -q "bytspot_saved_spots_planned_ids" ios/App/App/NativeShellView.swift
@@ -88,13 +91,13 @@ capture() {
   local shot="$OUT/$name.png"
   xcrun simctl io "$UDID" screenshot "$shot" >/dev/null
   local luma
-  luma=$(swift /tmp/bytspot_native_root_luma.swift "$shot")
+  luma=$(swift "$SMOKE_TMP/luma.swift" "$shot")
   echo "$name luma=$luma" | tee "$OUT/$name.luma.txt"
 }
 
 ocr() {
   local name="$1"
-  swift /tmp/bytspot_native_root_ocr.swift "$OUT/$name.png" | tee "$OUT/$name.ocr.txt"
+  swift "$SMOKE_TMP/ocr.swift" "$OUT/$name.png" | tee "$OUT/$name.ocr.txt"
 }
 
 expect_ocr() {
@@ -155,9 +158,9 @@ tap_launch_journey() {
   sleep "${SMOKE_TAP_SLEEP:-12}"
   xcrun simctl io "$UDID" screenshot "$OUT/tapthrough-main.png" >/dev/null
   local luma
-  luma=$(swift /tmp/bytspot_native_root_luma.swift "$OUT/tapthrough-main.png")
+  luma=$(swift "$SMOKE_TMP/luma.swift" "$OUT/tapthrough-main.png")
   echo "tapthrough-main luma=$luma" | tee "$OUT/tapthrough-main.luma.txt"
-  swift /tmp/bytspot_native_root_ocr.swift "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
+  swift "$SMOKE_TMP/ocr.swift" "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
   ! grep -Eiq "Back to native" "$OUT/tapthrough-main.ocr.txt"
   grep -Eiq "YOUR BYTSPOT IS READY|YOUR PICKS ARE READY|Start Exploring|Home" "$OUT/tapthrough-main.ocr.txt"
 }
@@ -165,27 +168,52 @@ tap_launch_journey() {
 run_launch_visual_captures() {
   capture native-splash SIMCTL_CHILD_BYT_NATIVE_PREVIEW_SPLASH=1
   ocr native-splash
-  expect_ocr native-splash "BYTSPOT|Your perfect spot awaits|AI-Powered"
+  expect_ocr native-splash "BYTSPOT"
+  expect_ocr native-splash "Your perfect spot awaits"
+  expect_ocr native-splash "A(I|l)-Powered"
 
   capture native-landing SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LANDING=1
   ocr native-landing
-  expect_ocr native-landing "Know Before You Go|Get Started|Terms & Privacy"
+  expect_ocr native-landing "Know Before You Go"
+  expect_ocr native-landing "Get Started"
+  expect_ocr native-landing "Terms & Privacy"
 
+  xcrun simctl privacy "$UDID" reset location "$BUNDLE_ID" >/dev/null 2>&1 || true
   capture native-location SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LOCATION=1
   ocr native-location
-  expect_ocr native-location "Find what fits|Use My Location|Not Now"
+  expect_ocr native-location "Find what fits"
+  expect_ocr native-location "Use My Location"
+  expect_ocr native-location "Not Now"
 
   capture native-personalization-vibe SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe
   ocr native-personalization-vibe
-  expect_ocr native-personalization-vibe "What would make|What kind of night|coffee|meal|arrival"
+  expect_ocr native-personalization-vibe "What would make|What kind of night"
+  expect_ocr native-personalization-vibe "coffee|Dinner|Keep the night"
+  expect_ocr native-personalization-vibe "meal|good drink|Something goo"
+  expect_ocr native-personalization-vibe "quiet place|happening|comfortable"
+  expect_ocr native-personalization-vibe "Easy arrival|Date-night|smooth ride"
 
   capture native-personalization-walk SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=walk
   ocr native-personalization-walk
-  expect_ocr native-personalization-walk "How far are you comfortable|Right nearby|short walk|Easy arrival"
+  expect_ocr native-personalization-walk "comfortable going"
+  expect_ocr native-personalization-walk "Right nearby"
+  expect_ocr native-personalization-walk "short walk"
+  expect_ocr native-personalization-walk "Easy arrival"
 
-  capture native-personalization-atlanta SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=atlanta
-  ocr native-personalization-atlanta
-  expect_ocr native-personalization-atlanta "Your Bytspot is ready|Discover with context|Plan the arrival|Start Exploring"
+  capture native-personalization-crew SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=crew
+  ocr native-personalization-crew
+  expect_ocr native-personalization-crew "Who.?s coming"
+  expect_ocr native-personalization-crew "Just me"
+  expect_ocr native-personalization-crew "A group"
+  expect_ocr native-personalization-crew "Work or client"
+
+  capture native-personalization-ready SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=recommendations
+  ocr native-personalization-ready
+  expect_ocr native-personalization-ready "Your Bytspot is ready"
+  expect_ocr native-personalization-ready "Discover with context"
+  expect_ocr native-personalization-ready "Plan the arrival"
+  expect_ocr native-personalization-ready "Start Exploring"
+  expect_ocr native-personalization-ready "Sign in to save your experience"
 
   tap_launch_journey
 

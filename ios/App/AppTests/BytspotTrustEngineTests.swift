@@ -1384,6 +1384,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
+        XCTAssertEqual(NativeMigrationConfig.selfTestsEnvironmentKey, "BYT_NATIVE_SELF_TESTS")
+        XCTAssertEqual(NativeAuthLaunchContract.splashTagline, "Your perfect spot awaits")
+        XCTAssertEqual(NativeAuthLaunchContract.splashCapabilities, ["Parking", "Venues", "AI-Powered"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
@@ -1404,11 +1407,23 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .unavailable, hasResolvedLocation: false), .unavailable)
     }
 
-    func testLaunchRecommendationsNeverCollapseIntoAnEmptyPresentation() {
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .midtown, hasPicks: false, isRefreshing: false), .locationNeeded)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, isRefreshing: true), .loading)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, isRefreshing: false), .localSync)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, isRefreshing: false), .livePicks)
+    @MainActor
+    func testLaunchRecommendationsRequireTrustworthyLiveVenueProvenance() {
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .midtown, hasPicks: false, hasTrustworthyLiveVenueInventory: false, isRefreshing: false), .locationNeeded)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, hasTrustworthyLiveVenueInventory: false, isRefreshing: true), .loading)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, hasTrustworthyLiveVenueInventory: false, isRefreshing: false), .localSync)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, hasTrustworthyLiveVenueInventory: true, isRefreshing: false), .livePicks)
+
+        let mixedFallback = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [], events: [], source: .mixed, lastUpdated: Date(), errorMessage: nil)
+        let erroredLive = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: "Refresh failed", hasLiveVenueInventory: true)
+        let trustedLive = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
+        XCTAssertFalse(mixedFallback.hasTrustworthyLiveVenueInventory)
+        XCTAssertFalse(erroredLive.hasTrustworthyLiveVenueInventory)
+        XCTAssertTrue(trustedLive.hasTrustworthyLiveVenueInventory)
+        XCTAssertFalse(NativeHomeRegionPresentation.canPresentLaunchPicks(in: mixedFallback))
+        XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: mixedFallback))
+        XCTAssertTrue(NativeHomeRegionPresentation.canPresentLaunchPicks(in: trustedLive))
+        XCTAssertTrue(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: trustedLive))
         XCTAssertEqual(NativeLaunchRecommendationPresentation.capabilityTitles.count, 3)
     }
 }

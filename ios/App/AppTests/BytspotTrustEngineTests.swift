@@ -1387,11 +1387,29 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
-        XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "vibe", "walk", "crew", "recommendations", "main"])
+        XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
         XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "discover", "map", "concierge", "profile"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")
+    }
+
+    @MainActor
+    func testLaunchLocationPresentationFollowsAuthorizationAndResolution() {
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .notDetermined, hasResolvedLocation: false), .request)
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .allowed, hasResolvedLocation: false), .locating)
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .allowed, hasResolvedLocation: true), .ready)
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .denied, hasResolvedLocation: false), .settings)
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .restricted, hasResolvedLocation: false), .settings)
+        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .unavailable, hasResolvedLocation: false), .unavailable)
+    }
+
+    func testLaunchRecommendationsNeverCollapseIntoAnEmptyPresentation() {
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .midtown, hasPicks: false, isRefreshing: false), .locationNeeded)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, isRefreshing: true), .loading)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, isRefreshing: false), .localSync)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, isRefreshing: false), .livePicks)
+        XCTAssertEqual(NativeLaunchRecommendationPresentation.capabilityTitles.count, 3)
     }
 }
 

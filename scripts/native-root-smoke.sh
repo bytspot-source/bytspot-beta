@@ -66,8 +66,8 @@ source_guards() {
   grep -q "BYT_NATIVE_PREVIEW_PERSONALIZATION" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
   grep -q "BYT_NATIVE_LAUNCH_AUTORUN" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
   grep -q "bytspot_native_launch_vibe" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
-  grep -q "Sign in to save these picks" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
-  grep -q "at least 8 characters" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
+  grep -q "Sign in to save your experience" ios/App/App/BytspotNativeAppRoot.swift scripts/native-root-smoke.sh docs/native-profile-product-wireframe-contract.md
+  grep -q "at least 6 characters" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
   grep -q "Native Fallback Audit" docs/native-profile-product-wireframe-contract.md
   grep -q "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT" ios/App/App/NativeShellView.swift scripts/native-root-smoke.sh
   grep -q "bytspot_saved_spots_planned_ids" ios/App/App/NativeShellView.swift
@@ -159,7 +159,7 @@ tap_launch_journey() {
   echo "tapthrough-main luma=$luma" | tee "$OUT/tapthrough-main.luma.txt"
   swift /tmp/bytspot_native_root_ocr.swift "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
   ! grep -Eiq "Back to native" "$OUT/tapthrough-main.ocr.txt"
-  grep -Eiq "YOUR PICKS ARE READY|Home|Recommended for you|Explore These Spots" "$OUT/tapthrough-main.ocr.txt"
+  grep -Eiq "YOUR BYTSPOT IS READY|YOUR PICKS ARE READY|Start Exploring|Home" "$OUT/tapthrough-main.ocr.txt"
 }
 
 run_launch_visual_captures() {
@@ -169,19 +169,23 @@ run_launch_visual_captures() {
 
   capture native-landing SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LANDING=1
   ocr native-landing
-  expect_ocr native-landing "Know Before You Go|Let's Go|Terms & Privacy"
+  expect_ocr native-landing "Know Before You Go|Get Started|Terms & Privacy"
+
+  capture native-location SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LOCATION=1
+  ocr native-location
+  expect_ocr native-location "Find what fits|Use My Location|Not Now"
 
   capture native-personalization-vibe SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe
   ocr native-personalization-vibe
-  expect_ocr native-personalization-vibe "What are you looking|Coffee|Food|Parking"
+  expect_ocr native-personalization-vibe "What would make|What kind of night|coffee|meal|arrival"
 
   capture native-personalization-walk SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=walk
   ocr native-personalization-walk
-  expect_ocr native-personalization-walk "What kind of stay|Boutique hotel|Apartment stay|Short stay"
+  expect_ocr native-personalization-walk "How far are you comfortable|Right nearby|short walk|Easy arrival"
 
   capture native-personalization-atlanta SIMCTL_CHILD_BYT_NATIVE_PREVIEW_PERSONALIZATION=atlanta
   ocr native-personalization-atlanta
-  expect_ocr native-personalization-atlanta "Recommended for you|Midtown Smart Parking|Colony Square|Arts Center Access|Sign in to save these picks"
+  expect_ocr native-personalization-atlanta "Your Bytspot is ready|Discover with context|Plan the arrival|Start Exploring"
 
   tap_launch_journey
 

@@ -231,24 +231,21 @@ struct BytspotNativeAppRoot: View {
 
 enum NativeAuthLaunchContract {
     static let reactSources = ["SplashScreen.tsx", "LandingPage.tsx", "AuthenticationFlow.tsx", "AppleSignInButton.tsx", "GoogleSignInButton.tsx", "PasswordRecoveryScreen.tsx", "App.tsx onboarding quiz"]
-    static let appFlow = ["splash", "landing", "vibe", "walk", "crew", "recommendations", "main"]
+    static let appFlow = ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"]
     static let splashDurationSeconds = 1.8
     static let splashStartTitle = "Start your walkthrough"
     static let splashStartSubtitle = "Tap to follow the journey from Splash to picks."
     static let landingHeadline = "Know Before You Go."
-    static let landingSubtitle = "Live crowds, easy arrivals, and ride timing near you — all in one place."
-    static let landingFeatures = ["Live crowd levels at nearby venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
-    static let atlantaLandingSubtitle = "Live crowds, easy arrivals, and ride timing for Atlanta Midtown — all in one place."
-    static let atlantaLandingFeatures = ["Live crowd levels at Midtown venues", "Easy arrivals with live parking context", "Ride timing and valet options nearby"]
+    static let landingSubtitle = "Discover the right place, understand the arrival, and move with confidence."
+    static let landingFeatures = ["Discover places matched to your moment", "See parking, crowd, and arrival context", "Keep plans, access, and reservations together"]
+    static let atlantaLandingSubtitle = "Atlanta plans made easier — from the right spot to the smoothest arrival."
+    static let atlantaLandingFeatures = ["Discover trusted Atlanta places for your moment", "See parking, crowd, and arrival context", "Keep plans, access, and reservations together"]
     static let vibeQuestion = "What kind of night are we shaping?"
     static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
     static let walkQuestion = "How far are you comfortable going?"
     static let walkOptions = ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"]
     static let crewQuestion = "Who's coming with you?"
     static let crewOptions = ["🙋 Just me", "💕 Date-night ready", "👥 A group", "💼 Work or client"]
-    static let atlantaHeadline = "Your Bytspot picks"
-    static let atlantaSubtitle = "Based on your vibe, location, and what is live now"
-    static let atlantaPicks = ["Midtown Smart Parking", "Colony Square", "Arts Center Access"]
     static let legacyAtlantaPickNames = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
     static let legacyAtlantaPickNameTokens = legacyAtlantaPickNames.map(normalizedAtlantaPickName)
     static let authRoutes = NativeAuthRouteContract.routes
@@ -265,12 +262,13 @@ enum NativeAuthLaunchContract {
         let env = ProcessInfo.processInfo.environment
         if truthy(env["BYT_NATIVE_PREVIEW_SPLASH"]) { return .splash }
         if truthy(env["BYT_NATIVE_PREVIEW_LANDING"]) { return .landing }
+        if truthy(env["BYT_NATIVE_PREVIEW_LOCATION"]) { return .location }
         if env["BYT_NATIVE_PREVIEW_AUTH"] != nil { return .auth }
         switch env["BYT_NATIVE_PREVIEW_PERSONALIZATION"]?.lowercased() {
         case "vibe", "1", "true": return .vibe
         case "walk": return .walk
         case "crew": return .crew
-        case "atlanta", "recommendations", "picks": return .atlanta
+        case "atlanta", "recommendations", "picks": return .recommendations
         default: return nil
         }
     }
@@ -315,8 +313,42 @@ enum NativeAuthLaunchContract {
     private static func truthy(_ raw: String?) -> Bool { ["1", "true", "yes"].contains(raw?.lowercased() ?? "") }
 }
 
-enum NativeLaunchStage { case splash, landing, vibe, walk, crew, atlanta, auth }
+enum NativeLaunchStage { case splash, landing, location, vibe, walk, crew, recommendations, auth }
 enum NativeAuthMode: String, CaseIterable { case signup, login }
+
+enum NativeLaunchLocationContract {
+    enum Phase: Equatable { case request, locating, ready, settings, unavailable }
+
+    static let eyebrow = "MAKE IT LOCAL"
+    static let headline = "Find what fits, right where you are."
+    static let subtitle = "Location keeps recommendations close, makes arrival details useful, and prevents far-away results."
+    static let benefits = [
+        "Nearby discovery that follows you",
+        "Relevant parking and arrival context",
+        "Location only while you use Bytspot"
+    ]
+
+    static func phase(authorization: NativeLocationStore.AuthorizationState, hasResolvedLocation: Bool) -> Phase {
+        switch authorization {
+        case .notDetermined: return .request
+        case .allowed: return hasResolvedLocation ? .ready : .locating
+        case .denied, .restricted: return .settings
+        case .unavailable: return .unavailable
+        }
+    }
+}
+
+enum NativeLaunchRecommendationPresentation {
+    enum Mode: Equatable { case livePicks, loading, locationNeeded, localSync }
+
+    static let capabilityTitles = ["Discover with context", "Plan the arrival", "Keep everything together"]
+
+    static func mode(location: NativeLocationCoordinate, hasPicks: Bool, isRefreshing: Bool) -> Mode {
+        if hasPicks { return .livePicks }
+        if location.isFallback { return .locationNeeded }
+        return isRefreshing ? .loading : .localSync
+    }
+}
 
 enum NativeLaunchPersonalizationStorage {
     static let atmosphereKey = "bytspot_native_launch_atmosphere"
@@ -526,15 +558,17 @@ private struct NativeLaunchFlowView: View {
             case .splash:
                 NativeSplashScreen(freeze: NativeAuthLaunchContract.freezesSplash) { advance(to: .landing) }
             case .landing:
-                NativeLandingScreen(location: locationStore.coordinate, onGetStarted: { advance(to: .vibe) }, onContinueGuest: completeAsGuest)
+                NativeLandingScreen(location: locationStore.coordinate, onGetStarted: { advance(to: .location) })
+            case .location:
+                NativeLaunchLocationScreen(onContinue: { advance(to: .vibe) }, onSkip: { advance(to: .vibe) })
             case .vibe:
-                NativePersonalizationScreen(step: .vibe, location: locationStore.coordinate, onSelect: { selectedVibe = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .walk) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .vibe, location: locationStore.coordinate, onSelect: { selectedVibe = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .walk) }, onSkip: finishPersonalization)
             case .walk:
-                NativePersonalizationScreen(step: .walk, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: completeAsGuest)
+                NativePersonalizationScreen(step: .walk, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedWalk = NativeLaunchPersonalizationStorage.token(for: $0); advance(to: .crew) }, onSkip: finishPersonalization)
             case .crew:
-                NativePersonalizationScreen(step: .crew, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); completedPersonalization = true; advance(to: .atlanta) }, onSkip: completeAsGuest)
-            case .atlanta:
-                NativeAtlantaPicksScreen(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
+                NativePersonalizationScreen(step: .crew, location: locationStore.coordinate, selectedIntent: selectedVibe, onSelect: { selectedCrew = NativeLaunchPersonalizationStorage.token(for: $0); finishPersonalization() }, onSkip: finishPersonalization)
+            case .recommendations:
+                NativeLaunchReadyScreen(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, isRefreshing: tabContentStore.isRefreshing, onContinue: completeAsGuest, onSignIn: { advance(to: .auth) })
             case .auth:
                 NativeAuthenticationScreen(mode: NativeAuthLaunchContract.requestedAuthMode, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: onComplete, onBack: { advance(to: .landing) })
             }
@@ -560,14 +594,20 @@ private struct NativeLaunchFlowView: View {
         onComplete()
     }
 
+    private func finishPersonalization() {
+        completedPersonalization = true
+        advance(to: .recommendations)
+    }
+
     private func scheduleAutorunIfNeeded() {
         guard NativeAuthLaunchContract.autoRunsLaunchJourney, !didScheduleAutorun else { return }
         didScheduleAutorun = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { advance(to: .vibe) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { selectedVibe = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.vibe.options(context: NativeLaunchQuizContext.current, selectedIntent: "")[0]); advance(to: .walk) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { selectedWalk = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.walk.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); advance(to: .crew) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { selectedCrew = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.crew.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); completedPersonalization = true; advance(to: .atlanta) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.4) { completeAsGuest() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { advance(to: .location) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { advance(to: .vibe) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { selectedVibe = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.vibe.options(context: NativeLaunchQuizContext.current, selectedIntent: "")[0]); advance(to: .walk) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { selectedWalk = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.walk.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); advance(to: .crew) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { selectedCrew = NativeLaunchPersonalizationStorage.token(for: NativePersonalizationStep.crew.options(context: NativeLaunchQuizContext.current, selectedIntent: selectedVibe)[0]); finishPersonalization() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) { completeAsGuest() }
     }
 }
 
@@ -671,7 +711,6 @@ private struct NativeSplashScreen: View {
 private struct NativeLandingScreen: View {
     let location: NativeLocationCoordinate
     let onGetStarted: () -> Void
-    let onContinueGuest: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -700,11 +739,11 @@ private struct NativeLandingScreen: View {
                 VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures(for: location).enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
                     .frame(width: contentWidth)
                     .position(x: centerX, y: featureY)
-                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Let's Go", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
+                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Get Started", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
                     .buttonStyle(.plain)
                     .frame(width: contentWidth)
                     .position(x: centerX, y: ctaY)
-                    .accessibilityHint("Starts the launch personalization questions. You can still skip from the personalization steps.")
+                    .accessibilityHint("Explains location benefits before starting personalization.")
                 Text("By continuing, you agree to our Terms & Privacy").font(.system(size: 12, weight: .regular)).foregroundColor(.white.opacity(0.30))
                     .position(x: centerX, y: proxy.size.height * 0.938)
             }
@@ -720,6 +759,115 @@ private struct NativeLandingScreen: View {
             ], center: .center, startRadius: 0, endRadius: size * 0.5))
             .frame(width: size, height: size)
             .position(x: x, y: y)
+    }
+}
+
+private struct NativeLaunchLocationScreen: View {
+    let onContinue: () -> Void
+    let onSkip: () -> Void
+    @EnvironmentObject private var locationStore: NativeLocationStore
+    @Environment(\.openURL) private var openURL
+    @State private var didScheduleAdvance = false
+
+    private var phase: NativeLaunchLocationContract.Phase {
+        NativeLaunchLocationContract.phase(authorization: locationStore.authorizationState, hasResolvedLocation: locationStore.lastLocation != nil)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let sizing = NativeLaunchSizing(size: proxy.size)
+            let theme = NativeJourneyTheme.current()
+            ZStack {
+                theme.background.ignoresSafeArea()
+                Circle().fill(theme.primary.opacity(theme.glowOpacity * 0.76)).frame(width: 420, height: 420).blur(radius: 110).offset(x: -130, y: -250)
+                Circle().fill(theme.secondary.opacity(theme.glowOpacity * 0.58)).frame(width: 360, height: 360).blur(radius: 110).offset(x: 150, y: 260)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: sizing.compactHeight ? 16 : 20) {
+                        HStack {
+                            Text(NativeLaunchLocationContract.eyebrow).font(.system(size: 11, weight: .black)).tracking(1.5).foregroundColor(theme.primary)
+                            Spacer()
+                            Text("1 OF 4").font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.34))
+                        }
+                        locationMark(theme: theme)
+                        VStack(spacing: 10) {
+                            Text(NativeLaunchLocationContract.headline).font(.system(size: sizing.questionTitle + 2, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
+                            Text(NativeLaunchLocationContract.subtitle).font(.system(size: 15, weight: .semibold)).foregroundColor(.white.opacity(0.58)).multilineTextAlignment(.center).lineSpacing(4)
+                        }
+                        VStack(spacing: 10) {
+                            ForEach(Array(NativeLaunchLocationContract.benefits.enumerated()), id: \.offset) { index, benefit in
+                                locationBenefit(index: index, title: benefit, theme: theme)
+                            }
+                        }
+                        locationActions(theme: theme, sizing: sizing)
+                        Text("You stay in control. Change location access anytime in iOS Settings.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.34)).multilineTextAlignment(.center)
+                    }
+                    .padding(sizing.cardPadding)
+                    .frame(maxWidth: sizing.landingMaxWidth)
+                    .nativeLaunchGlass(radius: 30, borderOpacity: 0.14)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, sizing.sheetHorizontalInset)
+                    .padding(.vertical, sizing.compactHeight ? 12 : 28)
+                }
+            }
+        }
+        .accessibilityIdentifier("native-launch-location")
+        .onAppear { if phase == .locating { locationStore.requestWhenInUseIfNeeded() }; scheduleAdvanceIfReady() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in scheduleAdvanceIfReady() }
+    }
+
+    private func locationMark(theme: NativeJourneyTheme) -> some View {
+        ZStack {
+            Circle().fill(theme.primary.opacity(0.12)).frame(width: 92, height: 92)
+            Circle().stroke(theme.primary.opacity(0.28), lineWidth: 1).frame(width: 92, height: 92)
+            Image(systemName: phase == .ready ? "location.fill.viewfinder" : "location.viewfinder").font(.system(size: 38, weight: .semibold)).foregroundStyle(theme.ctaGradient)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func locationBenefit(index: Int, title: String, theme: NativeJourneyTheme) -> some View {
+        let icons = ["sparkles", "car.side.fill", "hand.raised.fill"]
+        return HStack(spacing: 12) {
+            Image(systemName: icons[index]).font(.system(size: 15, weight: .bold)).foregroundColor(theme.primary).frame(width: 32, height: 32).background(theme.primary.opacity(0.10)).clipShape(Circle())
+            Text(title).font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.82))
+            Spacer(minLength: 0)
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .black)).foregroundColor(NativeLaunchTheme.emerald)
+        }
+        .padding(.horizontal, 14).frame(minHeight: 52).nativeLaunchTransparentCard(radius: 15)
+        .accessibilityElement(children: .combine).accessibilityLabel(title)
+    }
+
+    @ViewBuilder private func locationActions(theme: NativeJourneyTheme, sizing: NativeLaunchSizing) -> some View {
+        switch phase {
+        case .request:
+            Button(action: { nativeAuthImpactLight(); locationStore.requestWhenInUseIfNeeded() }) { NativeLaunchCTA(title: "Use My Location", color: theme.ctaGradient, foreground: .white, height: sizing.ctaHeight, showArrow: true) }.buttonStyle(.plain).accessibilityHint("Opens the iOS location permission request.")
+            secondaryButton("Not Now", action: onSkip)
+        case .locating:
+            HStack(spacing: 10) { ProgressView().tint(theme.primary); Text("Finding your location…").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.78)) }.frame(maxWidth: .infinity).frame(height: sizing.ctaHeight).nativeLaunchTransparentCard(radius: 16)
+            secondaryButton("Continue Without Location", action: onSkip)
+        case .ready:
+            Button(action: onContinue) { NativeLaunchCTA(title: "Location Ready", color: theme.ctaGradient, foreground: .white, height: sizing.ctaHeight, showArrow: true) }.buttonStyle(.plain)
+        case .settings:
+            Button(action: openSettings) { NativeLaunchCTA(title: "Open Location Settings", color: theme.ctaGradient, foreground: .white, height: sizing.ctaHeight, showArrow: true) }.buttonStyle(.plain)
+            secondaryButton("Continue Without Location", action: onSkip)
+        case .unavailable:
+            Text("Location services are unavailable right now. You can still explore Bytspot.").font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.58)).multilineTextAlignment(.center)
+            secondaryButton("Continue Without Location", action: onSkip)
+        }
+    }
+
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: { nativeAuthImpactLight(); action() }) { Text(title).font(.system(size: 14, weight: .black)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(height: 42) }.buttonStyle(.plain)
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
+    }
+
+    private func scheduleAdvanceIfReady() {
+        guard phase == .ready, !didScheduleAdvance else { return }
+        didScheduleAdvance = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { onContinue() }
     }
 }
 
@@ -890,9 +1038,9 @@ private struct NativePersonalizationScreen: View {
                 Circle().fill(theme.secondary.opacity(theme.glowOpacity * 0.78)).frame(width: 340, height: 340).blur(radius: 100).offset(x: 130, y: -20)
                 VStack(spacing: sizing.compactHeight ? 18 : 22) {
                 HStack {
-                    NativePersonalizationProgress(step: step.index, total: 3)
+                    NativePersonalizationProgress(step: step.index + 1, total: 4)
                     Spacer()
-                    Button(action: { nativeAuthImpactLight(); onSkip() }) { Text("Skip").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.36)).padding(.horizontal, 15).frame(height: 40).overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)) }.buttonStyle(.plain).accessibilityLabel("Skip personalization").accessibilityHint("Opens Bytspot in guest mode.")
+                    Button(action: { nativeAuthImpactLight(); onSkip() }) { Text("Skip").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.36)).padding(.horizontal, 15).frame(height: 40).overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)) }.buttonStyle(.plain).accessibilityLabel("Skip personalization").accessibilityHint("Moves to your Bytspot ready screen.")
                 }
                 Text(emoji).font(.system(size: sizing.compactHeight ? 24 : 28)).accessibilityHidden(true)
                 if let contextLine = step.contextLine(context: context, location: location) { Text(contextLine).font(.system(size: 11, weight: .bold)).foregroundColor(theme.primary.opacity(0.88)).multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 7).background(theme.primary.opacity(0.10)).overlay(Capsule().stroke(theme.primary.opacity(0.20), lineWidth: 1)).clipShape(Capsule()) }
@@ -934,17 +1082,33 @@ private struct NativePersonalizationProgress: View {
     }
 }
 
-private struct NativeAtlantaPicksScreen: View {
+private struct NativeLaunchReadyScreen: View {
     let snapshot: NativeTabContentSnapshot
     let location: NativeLocationCoordinate
+    let isRefreshing: Bool
     let onContinue: () -> Void
     let onSignIn: () -> Void
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var selectedVibe = ""
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var selectedWalk = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var selectedCrew = ""
 
-    private var picks: [NativeAtlantaPick] {
+    private var picks: [NativeLaunchPick] {
         Self.rankedPicks(snapshot: snapshot, location: location, intent: selectedVibe, walk: selectedWalk, crew: selectedCrew)
+    }
+
+    private var presentation: NativeLaunchRecommendationPresentation.Mode {
+        NativeLaunchRecommendationPresentation.mode(location: location, hasPicks: !picks.isEmpty, isRefreshing: isRefreshing)
+    }
+
+    private var headline: String { presentation == .livePicks ? "Your picks are ready" : "Your Bytspot is ready" }
+
+    private var subtitle: String {
+        switch presentation {
+        case .livePicks: return "Matched to your preferences, location, and what is available now."
+        case .loading: return "Building your nearby shortlist. You can start exploring while live matches finish loading."
+        case .locationNeeded: return "Explore the full experience now. Turn on location anytime to unlock verified nearby picks."
+        case .localSync: return "Your preferences are saved. Nearby recommendations will keep updating as local inventory becomes available."
+        }
     }
 
     var body: some View {
@@ -957,12 +1121,12 @@ private struct NativeAtlantaPicksScreen: View {
                 Circle().fill(theme.secondary.opacity(theme.glowOpacity * 0.52)).frame(width: 320, height: 320).blur(radius: 100).offset(x: 120, y: 190)
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: sizing.compactHeight ? 13 : 16) {
-                HStack { NativePersonalizationProgress(step: 3, total: 3, color: theme.primary).overlay(Image(systemName: "checkmark").font(.system(size: 18, weight: .black)).foregroundColor(theme.primary)); Spacer() }
-                VStack(spacing: 8) { Text("🗺️").font(.system(size: sizing.compactHeight ? 28 : 34)).accessibilityHidden(true); Text(NativeAuthLaunchContract.atlantaHeadline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(NativeAuthLaunchContract.atlantaSubtitle).font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.50)).multilineTextAlignment(.center) }
-                VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in NativeAtlantaPickRow(medal: ["🥇", "🥈", "🥉"][index], title: pick.title, address: pick.subtitle, label: pick.label, color: pick.color) } }
-                Text("You can explore now. Sign in anytime to save favorites and sync your picks.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
-                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Explore These Spots", color: theme.ctaGradient, foreground: .black, height: sizing.ctaHeight) }.buttonStyle(.plain).accessibilityHint("Opens Bytspot in guest mode with these picks.")
-                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save these picks").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
+                HStack { Label("PERSONALIZED FOR YOU", systemImage: "checkmark.seal.fill").font(.system(size: 11, weight: .black)).foregroundColor(theme.primary); Spacer() }
+                VStack(spacing: 8) { Image(systemName: presentation == .livePicks ? "sparkles" : "checkmark.circle.fill").font(.system(size: sizing.compactHeight ? 28 : 34, weight: .bold)).foregroundStyle(theme.ctaGradient).accessibilityHidden(true); Text(headline).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white); Text(subtitle).font(.system(size: 14.5, weight: .bold)).foregroundColor(.white.opacity(0.54)).multilineTextAlignment(.center).lineSpacing(3) }
+                recommendationContent(theme: theme)
+                Text("Explore as a guest. Sign in anytime to save places, preferences, and reservations.").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.38)).multilineTextAlignment(.center)
+                Button(action: { nativeAuthImpactLight(); onContinue() }) { NativeLaunchCTA(title: "Start Exploring", color: theme.ctaGradient, foreground: .black, height: sizing.ctaHeight, showArrow: true) }.buttonStyle(.plain).accessibilityHint("Opens the Bytspot Home experience in guest mode.")
+                Button(action: { nativeAuthImpactLight(); onSignIn() }) { Text("Sign in to save your experience").font(.system(size: 14, weight: .black)).foregroundColor(theme.primary).frame(maxWidth: .infinity).frame(height: 42).overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.primary.opacity(0.28), lineWidth: 1)) }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens the sign in screen before saving picks.")
                     .accessibilityIdentifier("native-launch-sign-in-after-picks")
@@ -974,12 +1138,35 @@ private struct NativeAtlantaPicksScreen: View {
                 .nativeLaunchGlass(radius: 30, borderOpacity: 0.14)
                 .padding(.horizontal, sizing.sheetHorizontalInset)
                 .padding(.bottom, 10)
-                .accessibilityIdentifier("native-launch-atlanta-picks")
+                .accessibilityIdentifier("native-launch-ready")
             }
         }
     }
 
-    static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeAtlantaPick] {
+    @ViewBuilder private func recommendationContent(theme: NativeJourneyTheme) -> some View {
+        if presentation == .livePicks {
+            VStack(spacing: 10) { ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in NativeLaunchPickRow(medal: ["1", "2", "3"][index], title: pick.title, address: pick.subtitle, label: pick.label, color: pick.color) } }
+        } else {
+            VStack(spacing: 10) {
+                if presentation == .loading { HStack(spacing: 9) { ProgressView().tint(theme.primary); Text("Syncing nearby recommendations…").font(.system(size: 12.5, weight: .black)).foregroundColor(theme.primary) }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4) }
+                readinessRow(icon: "sparkles", title: "Discover with context", subtitle: "Places shaped around your mood, timing, and distance.", theme: theme)
+                readinessRow(icon: "car.side.fill", title: "Plan the arrival", subtitle: "Parking, routing, and access details in the same flow.", theme: theme)
+                readinessRow(icon: "square.stack.3d.up.fill", title: "Keep everything together", subtitle: "Save places, passes, reservations, and preferences.", theme: theme)
+            }
+        }
+    }
+
+    private func readinessRow(icon: String, title: String, subtitle: String, theme: NativeJourneyTheme) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 15, weight: .bold)).foregroundColor(theme.primary).frame(width: 34, height: 34).background(theme.primary.opacity(0.10)).clipShape(Circle()).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 14.5, weight: .black)).foregroundColor(.white); Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.42)).lineLimit(2) }
+            Spacer(minLength: 0)
+        }
+        .padding(13).nativeLaunchTransparentCard(radius: 16, fillOpacity: 0.065)
+        .accessibilityElement(children: .combine).accessibilityLabel("\(title). \(subtitle)")
+    }
+
+    static func rankedPicks(snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [NativeLaunchPick] {
         let candidates = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.venues)
         return candidates.sorted { first, second in
             let firstScore = score(first, location: location, intent: intent, walk: walk, crew: crew)
@@ -988,7 +1175,7 @@ private struct NativeAtlantaPicksScreen: View {
             let firstDistance = location.distanceMiles(toLatitude: first.latitude, longitude: first.longitude) ?? .greatestFiniteMagnitude
             let secondDistance = location.distanceMiles(toLatitude: second.latitude, longitude: second.longitude) ?? .greatestFiniteMagnitude
             return firstDistance == secondDistance ? first.name < second.name : firstDistance < secondDistance
-        }.prefix(limit).map { NativeAtlantaPick(venue: $0, location: location) }
+        }.prefix(limit).map { NativeLaunchPick(venue: $0, location: location) }
     }
 
     private static func score(_ venue: NativeVenueSummary, location: NativeLocationCoordinate, intent: String, walk: String, crew: String) -> Double {
@@ -1033,7 +1220,7 @@ private struct NativeAtlantaPicksScreen: View {
     }
 }
 
-private struct NativeAtlantaPick: Identifiable {
+private struct NativeLaunchPick: Identifiable {
     let id: String; let title: String; let subtitle: String; let label: String; let color: Color
 
     init(venue: NativeVenueSummary, location: NativeLocationCoordinate) {
@@ -1046,7 +1233,7 @@ private struct NativeAtlantaPick: Identifiable {
     }
 }
 
-private struct NativeAtlantaPickRow: View {
+private struct NativeLaunchPickRow: View {
     let medal: String; let title: String; let address: String; let label: String; let color: Color
     var body: some View { HStack(spacing: 12) { Text(medal).font(.system(size: 20)).accessibilityHidden(true); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 17, weight: .black)).foregroundColor(.white).lineLimit(1); Text(address).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.36)).lineLimit(1) }; Spacer(); Text(label).font(.system(size: 12, weight: .black)).foregroundColor(color).padding(.horizontal, 10).padding(.vertical, 5).background(color.opacity(0.16)).overlay(Capsule().stroke(color.opacity(0.34), lineWidth: 1)).clipShape(Capsule()) }.padding(14).nativeLaunchTransparentCard(radius: 16, fillOpacity: 0.065).accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(address), \(label)") }
 }

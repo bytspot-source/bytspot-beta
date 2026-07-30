@@ -229,17 +229,18 @@ React source of truth:
 | --- | --- | --- |
 | Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 3-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
 | Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, Midtown crowd/parking/ride subtitle, `Let's Go`, Terms & Privacy footer. |
-| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Bottom-sheet quiz: `What's your vibe tonight?`, `How far will you walk?`, `Solo or with crew?`, then `Here's your Atlanta` recommendations. |
+| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Value-first location explanation, then a short context-aware quiz and a complete ready screen with live verified picks or capability previews. |
 | Auth | `src/components/AuthenticationFlow.tsx`, `AppleSignInButton.tsx`, `GoogleSignInButton.tsx` | Sign Up / Log In toggle, Apple/Google buttons, email form, full name + optional invite code for signup, forgot password for login. |
 
 Native frontend/API boundary:
 
 - Native auth route contracts are `auth.signup`, `auth.login`, `auth.googleSignIn`, and `auth.appleSignIn`; no backend route changes are part of P1.
-- Native signup uses the stricter 8-character password minimum even though the React frontend currently allows 6; this matches backend safety.
-- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|atlanta`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
-- `BYT_NATIVE_LAUNCH_AUTORUN=1` is DEBUG smoke-only and auto-advances Landing → Vibe → Walk → Crew → Atlanta → Main using the same state actions because this Xcode simulator runtime does not expose a `simctl io tap` operation.
+- Native signup uses the shared 6-character account minimum enforced by the current authentication contract.
+- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_LOCATION=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|atlanta`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
+- `BYT_NATIVE_LAUNCH_AUTORUN=1` is DEBUG smoke-only and auto-advances Landing → Location → Vibe → Walk → Crew → Recommendations → Main using the same state actions because this Xcode simulator runtime does not expose a `simctl io tap` operation.
 - Existing Profile/tab smoke hooks bypass the launch journey so account-panel validation stays deterministic.
-- Signed-out launch CTA path is frontend-only: Splash → Landing → personalization → Atlanta picks → Main as a guest session. Auth remains available through the native auth screen/entry seams without adding backend routes.
+- Signed-out launch CTA path is frontend-only: Splash → Landing → Location → personalization → Recommendations → Main as a guest session. Auth remains available through the native auth screen/entry seams without adding backend routes.
+- The ready screen uses verified live picks when available and capability previews otherwise; it never substitutes unlabeled fixture inventory for unresolved users. Its secondary action is `Sign in to save your experience`.
 - Personalization selections persist locally under `bytspot_native_launch_vibe`, `bytspot_native_launch_walk`, `bytspot_native_launch_crew`, and `bytspot_native_launch_completed` so the main shell can later consume them without backend work.
 - Atlanta picks includes a secondary `Sign in to save these picks` action that routes to native auth without losing the frontend-only boundary.
 - Password recovery is a native shell that mirrors route intent without logging credentials or accepting token flags.

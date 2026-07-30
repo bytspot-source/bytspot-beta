@@ -5,6 +5,7 @@ import {
   NETWORK_SOCIAL_RPC_CONTRACT,
   addPersonToCircleViaRpc,
   createSocialCircleViaRpc,
+  hasCircleMembership,
   listSocialCirclesViaRpc,
   listSocialInvitationsViaRpc,
   normalizeSocialCircles,
@@ -29,6 +30,17 @@ test('normalizers retain only circle membership and invitation identity', () => 
   assert.deepEqual(groups[0].memberIds, ['u1']);
   assert.equal(invites[0].person.name, 'Nia');
   assert.equal(invites[0].person.relationshipStatus, 'invite_received');
+});
+
+test('normalizers accept enum casing and membership uses either server source', () => {
+  const invite = normalizeSocialInvitations({ invites: [{ id: 'i2', direction: 'INCOMING', status: 'ACCEPTED', sender: { userId: 'u2', name: 'Nia', relationshipStatus: 'CONNECTED' } }] })[0];
+  const circle = { id: 'crew', name: 'Crew', memberCount: 1, memberIds: ['u1'], role: 'owner' as const };
+  assert.equal(invite.direction, 'incoming');
+  assert.equal(invite.status, 'accepted');
+  assert.equal(invite.person.relationshipStatus, 'connected');
+  assert.equal(hasCircleMembership({ userId: 'u1', circleIds: [] }, circle), true);
+  assert.equal(hasCircleMembership({ userId: 'u2', circleIds: ['crew'] }, circle), true);
+  assert.equal(hasCircleMembership({ userId: 'u3', circleIds: [] }, circle), false);
 });
 
 test('RPC helpers implement circle then invite without event payloads', async () => {

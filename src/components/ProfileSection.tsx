@@ -21,7 +21,7 @@ import { impactLight } from '../utils/haptics';
 import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type FriendSuggestion } from '../utils/social';
-import { addPersonToCircleViaRpc, createSocialCircleViaRpc, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
+import { addPersonToCircleViaRpc, createSocialCircleViaRpc, hasCircleMembership, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
 import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
 import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
@@ -201,6 +201,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [selectedCircleId, setSelectedCircleId] = useState('');
   const [newCircleName, setNewCircleName] = useState('');
   const [networkStatus, setNetworkStatus] = useState('');
+  const [pendingCircleAdds, setPendingCircleAdds] = useState<Set<string>>(() => new Set());
   const hasRealInsiderCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'guest_session';
@@ -292,13 +293,17 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   useEffect(() => {
     if (currentScreen !== 'friends') return;
     let mounted = true;
-    Promise.all([getSuggestions(), listSocialCirclesViaRpc(trpc), listSocialInvitationsViaRpc(trpc)])
-      .then(([people, circles, invitations]) => {
+    const invitations = listSocialInvitationsViaRpc(trpc)
+      .then((items) => ({ items, failed: false }))
+      .catch(() => ({ items: [] as SocialInvitation[], failed: true }));
+    Promise.all([getSuggestions(), listSocialCirclesViaRpc(trpc), invitations])
+      .then(([people, circles, invitationResult]) => {
         if (!mounted) return;
         setSuggestions(people);
         setSocialCircles(circles.source === 'backend' ? circles.groups : []);
         setSelectedCircleId((current) => current || circles.groups[0]?.id || '');
-        setSocialInvitations(invitations);
+        setSocialInvitations(invitationResult.items);
+        if (invitationResult.failed) setNetworkStatus('People and circles loaded. Invitations could not refresh.');
       }).catch(() => { if (mounted) setNetworkStatus('Network could not refresh.'); });
     return () => { mounted = false; };
   }, [currentScreen]);
@@ -340,16 +345,25 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
   const handleAddToCircle = async (person: FriendSuggestion) => {
     if (!selectedCircleId) { setNetworkStatus('Create or select a circle first.'); return; }
+    const key = `${selectedCircleId}:${person.userId}`;
+    const selectedCircle = socialCircles.find((circle) => circle.id === selectedCircleId);
+    if (pendingCircleAdds.has(key) || hasCircleMembership(person, selectedCircle)) return;
+    setPendingCircleAdds((current) => new Set(current).add(key));
     try {
       await addPersonToCircleViaRpc(trpc, selectedCircleId, person.userId);
       setSuggestions((current) => current.map((item) => item.userId === person.userId ? { ...item, circleIds: [...new Set([...item.circleIds, selectedCircleId])] } : item));
-      setSocialCircles((current) => current.map((circle) => circle.id === selectedCircleId ? { ...circle, memberCount: circle.memberCount + 1, memberIds: [...new Set([...circle.memberIds, person.userId])] } : circle));
+      setSocialCircles((current) => current.map((circle) => {
+        if (circle.id !== selectedCircleId || circle.memberIds.includes(person.userId)) return circle;
+        return { ...circle, memberCount: circle.memberCount + 1, memberIds: [...circle.memberIds, person.userId] };
+      }));
       setNetworkStatus(`${person.name} added to ${socialCircles.find((circle) => circle.id === selectedCircleId)?.name ?? 'circle'}.`);
     } catch { setNetworkStatus(`${person.name} could not be added.`); }
+    finally { setPendingCircleAdds((current) => { const next = new Set(current); next.delete(key); return next; }); }
   };
 
   const handleSendNetworkInvite = async (person: FriendSuggestion) => {
-    if (!selectedCircleId || !person.circleIds.includes(selectedCircleId)) { setNetworkStatus('Add this person to the selected circle first.'); return; }
+    const selectedCircle = socialCircles.find((circle) => circle.id === selectedCircleId);
+    if (!hasCircleMembership(person, selectedCircle)) { setNetworkStatus('Add this person to the selected circle first.'); return; }
     try {
       const invite = await sendSocialInvitationViaRpc(trpc, person.userId, selectedCircleId || undefined);
       if (invite) setSocialInvitations((current) => [invite, ...current.filter((item) => item.id !== invite.id)]);
@@ -1238,10 +1252,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                       <p className="text-[12px] text-slate-300 truncate" style={{ fontWeight: 500 }}>{suggestionReason(s)}</p>
                     </div>
                     <div className="flex gap-1.5">
-                      <button onClick={() => handleAddToCircle(s)} disabled={!selectedCircleId || s.circleIds.includes(selectedCircleId)} className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] text-purple-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
-                        {s.circleIds.includes(selectedCircleId) ? 'IN CIRCLE' : 'ADD TO CIRCLE'}
+                      <button onClick={() => handleAddToCircle(s)} disabled={!selectedCircleId || hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) || pendingCircleAdds.has(`${selectedCircleId}:${s.userId}`)} className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] text-purple-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                        {pendingCircleAdds.has(`${selectedCircleId}:${s.userId}`) ? 'ADDING…' : hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) ? 'IN CIRCLE' : 'ADD TO CIRCLE'}
                       </button>
-                      <button onClick={() => handleSendNetworkInvite(s)} disabled={!selectedCircleId || !s.circleIds.includes(selectedCircleId) || s.relationshipStatus === 'invite_sent'} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                      <button onClick={() => handleSendNetworkInvite(s)} disabled={!hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) || s.relationshipStatus === 'invite_sent'} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
                         {s.relationshipStatus === 'invite_sent' ? 'SENT' : 'INVITE'}
                       </button>
                     </div>

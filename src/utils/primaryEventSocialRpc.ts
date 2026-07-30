@@ -28,7 +28,7 @@ export function normalizeSocialIdentity(value: unknown, fallbackStatus: Relation
   if (!isRecord(value)) return null;
   const userId = clean(value.userId ?? value.id);
   if (!userId) return null;
-  const rawStatus = clean(value.relationshipStatus ?? value.relationship);
+  const rawStatus = clean(value.relationshipStatus ?? value.relationship)?.toLowerCase();
   const relationshipStatus = ['suggested', 'connected', 'invite_sent', 'invite_received'].includes(rawStatus ?? '') ? rawStatus as RelationshipStatus : fallbackStatus;
   return { userId, name: clean(value.name ?? value.displayName) ?? 'Bytspot member', ...(clean(value.profileImage ?? value.avatarUrl) ? { profileImage: clean(value.profileImage ?? value.avatarUrl)! } : {}), relationshipStatus };
 }
@@ -46,17 +46,22 @@ export function normalizeSocialCircle(value: unknown): SocialCircle | null {
 export function normalizeSocialInvitation(value: unknown): SocialInvitation | null {
   if (!isRecord(value)) return null;
   const id = clean(value.id ?? value.inviteId);
-  const direction: InvitationDirection = clean(value.direction) === 'incoming' || value.incoming === true ? 'incoming' : 'outgoing';
+  const direction: InvitationDirection = clean(value.direction)?.toLowerCase() === 'incoming' || value.incoming === true ? 'incoming' : 'outgoing';
   const personValue = isRecord(value.person) ? value.person : direction === 'incoming' && isRecord(value.sender) ? value.sender : isRecord(value.recipient) ? value.recipient : value;
   const person = normalizeSocialIdentity(personValue, direction === 'incoming' ? 'invite_received' : 'invite_sent');
   if (!id || !person) return null;
-  const rawStatus = clean(value.status);
+  const rawStatus = clean(value.status)?.toLowerCase();
   const status: InvitationStatus = ['accepted', 'declined', 'expired'].includes(rawStatus ?? '') ? rawStatus as InvitationStatus : 'pending';
   return { id, direction, status, person, ...(clean(value.groupId ?? value.circleId) ? { circleId: clean(value.groupId ?? value.circleId)! } : {}), ...(clean(value.groupName ?? value.circleName) ? { circleName: clean(value.groupName ?? value.circleName)! } : {}), ...(clean(value.createdAt) ? { createdAt: clean(value.createdAt)! } : {}) };
 }
 
 export const normalizeSocialCircles = (response: unknown): SocialCircle[] => rowsFrom(response, ['groups', 'circles', 'items']).map(normalizeSocialCircle).filter((row): row is SocialCircle => Boolean(row));
 export const normalizeSocialInvitations = (response: unknown): SocialInvitation[] => rowsFrom(response, ['invites', 'invitations', 'items']).map(normalizeSocialInvitation).filter((row): row is SocialInvitation => Boolean(row));
+
+export function hasCircleMembership(person: Pick<SocialIdentity, 'userId'> & { circleIds?: string[] }, circle?: Pick<SocialCircle, 'id' | 'memberIds'>): boolean {
+  if (!circle) return false;
+  return circle.memberIds.includes(person.userId) || person.circleIds?.includes(circle.id) === true;
+}
 
 export async function listSocialCirclesViaRpc(trpcClient: SocialTrpcLike, fallback: SocialCircle[] = []) { try { return { source: 'backend' as const, groups: normalizeSocialCircles(await call(trpcClient.social?.groups?.list, { surface: 'network' })) }; } catch { return { source: 'fallback' as const, groups: fallback }; } }
 export async function createSocialCircleViaRpc(trpcClient: SocialTrpcLike, name: string) { const response = await call(trpcClient.social?.groups?.create, { name: name.trim(), privacy: 'private', surface: 'network' }); return normalizeSocialCircle(response) ?? normalizeSocialCircles(response)[0] ?? null; }

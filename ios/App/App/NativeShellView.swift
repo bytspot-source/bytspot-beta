@@ -7010,7 +7010,7 @@ enum NativeHomeRegionPresentation {
     static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
         if canPresentLaunchPicks(in: snapshot) { return true }
         if snapshot.hasTrustworthyLiveEventInventory { return true }
-        return snapshot.discoverCards.contains(where: isTrustedLocalPlaceCard)
+        return false
     }
 
     static func canPresentLaunchPicks(in snapshot: NativeTabContentSnapshot) -> Bool {
@@ -7021,20 +7021,14 @@ enum NativeHomeRegionPresentation {
         snapshot.discoverCards.filter(isTrustedLocalPlaceCard)
     }
 
+    @MainActor
     static func trustedHomeCards(in snapshot: NativeTabContentSnapshot) -> [NativeDiscoverSummary] {
         let venues = snapshot.trustworthyLiveVenues
         let events = snapshot.trustworthyLiveEvents
-        return snapshot.discoverCards.filter { card in
-            if isTrustedLocalPlaceCard(card) { return true }
-            if venues.contains(where: { venue in
-                card.id == "venue-\(venue.id)"
-                    || card.id == "companion-\(card.type)-\(venue.id)"
-                    || card.id.hasSuffix("-venue-\(venue.id)")
-            }) { return true }
-            return events.contains { card.id.hasSuffix("event-\($0.id)") }
-        }
+        return NativeTabContentStore.homeDiscoverCards(venues: venues, events: events)
     }
 
+    @MainActor
     static func homeSafeSnapshot(_ snapshot: NativeTabContentSnapshot) -> NativeTabContentSnapshot {
         let venues = snapshot.trustworthyLiveVenues
         let events = snapshot.trustworthyLiveEvents
@@ -7255,7 +7249,6 @@ private struct NativeHomeDashboardView: View {
             quickActionsSection
             weatherSmartCard
             categoryQuickSearchSection
-            availableTonightSection
             recommendationsSection
             tonightEventsSection
             rightNowSection
@@ -8022,17 +8015,6 @@ private struct NativeHomeDashboardView: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder private var availableTonightSection: some View {
-        if let card = availableTonightCard {
-            NativeHomeAvailableTonightCard(card: card) { perform(.discoverFilter(card.type)) }
-                .accessibilityIdentifier("native-home-available-tonight")
-        }
-    }
-
-    private var availableTonightCard: NativeDiscoverSummary? {
-        NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: "boutique_apartment").first
     }
 
     @ViewBuilder private var recommendationsSection: some View {
@@ -11468,37 +11450,6 @@ private struct NativeValetDriverVendorCard: View {
         .background(accent.opacity(0.10))
         .overlay(Capsule().stroke(accent.opacity(0.20), lineWidth: 1))
         .clipShape(Capsule())
-    }
-}
-
-private struct NativeHomeAvailableTonightCard: View {
-    let card: NativeDiscoverSummary
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 13) {
-                Text("🏡").font(.system(size: 30))
-                    .frame(width: 82, height: 82)
-                    .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.24), NativeTheme.cyan.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("AVAILABLE TONIGHT").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(0.9)
-                    Text(card.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
-                    Text(card.metadataLine).font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
-                    Text(card.features.prefix(2).joined(separator: " • ")).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
-                    Text("\(card.cta) →").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textTertiary)
-            }
-            .padding(14)
-            .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativeTheme.purple.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativeTheme.purple.opacity(0.24), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous))
-            .shadow(color: NativeTheme.softShadow, radius: 18, x: 0, y: 10)
-        }
-        .buttonStyle(.plain)
     }
 }
 

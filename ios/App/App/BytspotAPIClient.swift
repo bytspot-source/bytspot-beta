@@ -1821,6 +1821,15 @@ final class NativeTabContentStore: ObservableObject {
         return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
     }
 
+    static func homeDiscoverCards(venues: [NativeVenueSummary], events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
+        var cards: [NativeDiscoverSummary] = []
+        appendUnique(venueDiscoverCards(from: venues), to: &cards)
+        appendUnique(categoryCompanionCards(from: venues), to: &cards)
+        appendUnique(eventDiscoverCards(from: events), to: &cards)
+        appendUnique(nightlifeEventDiscoverCards(from: events), to: &cards)
+        return cards
+    }
+
     static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
         guard !location.isFallback else {
             return locationAwareCards(NativeTabContentSnapshot.unresolved.discoverCards, sourceVenues: [], location: location)

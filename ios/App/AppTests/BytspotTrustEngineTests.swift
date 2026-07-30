@@ -689,7 +689,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: eventOnlySnapshot, launchPicksCompleted: false, launchPickCount: 0))
         XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: valueOnlySnapshot, launchPicksCompleted: false, launchPickCount: 0))
         XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: unmeasuredSnapshot, launchPicksCompleted: false, launchPickCount: 0))
-        XCTAssertFalse(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: localSnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: localSnapshot, launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertEqual(NativeHomeRegionPresentation.trustedProviderCards(in: localSnapshot).map(\.id), ["local-place"])
     }
 
     @MainActor
@@ -1340,6 +1341,30 @@ final class NativeProfileDataAPITests: XCTestCase {
 }
 
 final class NativeAuthLaunchInputTests: XCTestCase {
+    private struct KeychainAppleAdapter: AppleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            NativeAuthAdapterResult(provider: .apple, token: "keychain_apple_test_token", displayName: "Apple Test")
+        }
+    }
+
+    private struct KeychainGoogleAdapter: GoogleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            NativeAuthAdapterResult(provider: .google, token: "keychain_google_test_token", displayName: "Google Test")
+        }
+    }
+
+    private struct FailingAppleAdapter: AppleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            throw NativeAuthAdapterError.mockedFailure(provider: .apple)
+        }
+    }
+
+    private struct FailingGoogleAdapter: GoogleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            throw NativeAuthAdapterError.mockedFailure(provider: .google)
+        }
+    }
+
     func testSignupValidationMatchesTheSixCharacterAccountRule() {
         XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345"))
         XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "123456"))
@@ -1383,6 +1408,51 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
     }
 
+    func testGoogleNativeOAuthAudienceConfigurationIsResolved() throws {
+        let serverClientID = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") as? String)
+        XCTAssertFalse(serverClientID.isEmpty)
+        XCTAssertFalse(serverClientID.hasPrefix("$("))
+
+        let serviceURL = try XCTUnwrap(Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"))
+        let service = try XCTUnwrap(NSDictionary(contentsOf: serviceURL) as? [String: Any])
+        let iosClientID = try XCTUnwrap(service["CLIENT_ID"] as? String)
+        XCTAssertNotEqual(serverClientID, iosClientID)
+    }
+
+    @MainActor
+    func testAppleAndGoogleProviderSessionsPersistThroughKeychain() async {
+        let account = "native_auth_persistence_\(UUID().uuidString)"
+        let service = "com.bytspot.native-auth-persistence-tests"
+        let store = BytspotSessionStore(account: account, service: service)
+        defer { store.signOut() }
+
+        let apple = NativeAuthCoordinator(appleAdapter: KeychainAppleAdapter(), googleAdapter: FailingGoogleAdapter())
+        apple.handle(.signIn(.apple), sessionStore: store)
+        await waitForToken("keychain_apple_test_token", in: store)
+        XCTAssertEqual(apple.status, .signedIn(provider: .apple, displayName: "Apple Test"))
+        let restoredApple = BytspotSessionStore(account: account, service: service)
+        restoredApple.reloadFromKeychain()
+        XCTAssertEqual(restoredApple.token, "keychain_apple_test_token")
+
+        store.signOut()
+        let google = NativeAuthCoordinator(appleAdapter: FailingAppleAdapter(), googleAdapter: KeychainGoogleAdapter())
+        google.handle(.signIn(.google), sessionStore: store)
+        await waitForToken("keychain_google_test_token", in: store)
+        XCTAssertEqual(google.status, .signedIn(provider: .google, displayName: "Google Test"))
+        let restoredGoogle = BytspotSessionStore(account: account, service: service)
+        restoredGoogle.reloadFromKeychain()
+        XCTAssertEqual(restoredGoogle.token, "keychain_google_test_token")
+    }
+
+    @MainActor
+    private func waitForToken(_ expected: String, in store: BytspotSessionStore) async {
+        for _ in 0..<40 {
+            if store.token == expected { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for the provider session token to reach Keychain storage.")
+    }
+
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
         XCTAssertEqual(NativeMigrationConfig.selfTestsEnvironmentKey, "BYT_NATIVE_SELF_TESTS")
         XCTAssertEqual(NativeAuthLaunchContract.splashTagline, "Your perfect spot awaits")
@@ -1422,19 +1492,21 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let venueCard = NativeDiscoverSummary(id: "venue-live-midtown-parking", type: "parking", title: "Live Midtown Parking", subtitle: "Live venue", distance: "0.3 mi", rating: "4.7", icon: "parkingsign.circle.fill", verified: true, entryType: "free", cta: "Route", imageUrl: nil, categoryLabel: "Parking", badgeText: "LIVE API", metadataLine: "18 spots", features: [], vibeScore: 8, availability: "Open", membershipRequired: false)
         let liveEvent = NativeEventSummary(id: "live-midtown-event", title: "Live Midtown Event", venue: "Live Hall", time: "Tonight", price: "Free", emoji: "🎟️", imageUrl: nil)
         let liveEventCard = NativeDiscoverSummary(id: "event-live-midtown-event", type: "entertainment", title: "Live Midtown Event", subtitle: "Live Hall", distance: "Tonight", rating: "Live", icon: "ticket.fill", verified: true, entryType: "free", cta: "View Event", imageUrl: nil, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "Tonight", features: [], vibeScore: 8, availability: "Tonight", membershipRequired: false)
+        let opaqueIDSpoof = NativeDiscoverSummary(id: "promo-venue-live-midtown-parking", type: "service", title: "Unproven Promotion", subtitle: "Opaque API card", distance: "0.1 mi", rating: "Live", icon: "sparkles", verified: true, entryType: "paid", cta: "Book", imageUrl: nil, categoryLabel: "Service", badgeText: "LIVE API", metadataLine: "Available now", features: [], vibeScore: 10, availability: "Available now", membershipRequired: false)
         let eventOnlyLive = NativeTabContentSnapshot(venues: [], discoverCards: [liveEventCard], events: [liveEvent], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveEventInventory: true)
-        let trustedLive = NativeTabContentSnapshot(venues: [liveVenue], discoverCards: [venueCard, liveEventCard] + NativeTabContentSnapshot.fallback.discoverCards, events: [liveEvent] + NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true, hasLiveEventInventory: true)
+        let trustedLive = NativeTabContentSnapshot(venues: [liveVenue], discoverCards: [venueCard, liveEventCard, opaqueIDSpoof] + NativeTabContentSnapshot.fallback.discoverCards, events: [liveEvent] + NativeTabContentSnapshot.fallback.events, source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true, hasLiveEventInventory: true)
         XCTAssertFalse(mixedFallback.hasTrustworthyLiveVenueInventory)
         XCTAssertFalse(erroredLive.hasTrustworthyLiveVenueInventory)
         XCTAssertFalse(spoofedFallback.hasTrustworthyLiveVenueInventory)
         XCTAssertTrue(spoofedFallback.trustworthyLiveVenues.isEmpty)
         XCTAssertTrue(trustedLive.hasTrustworthyLiveVenueInventory)
         XCTAssertFalse(NativeHomeRegionPresentation.canPresentLaunchPicks(in: mixedFallback))
-        XCTAssertTrue(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: mixedFallback))
+        XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: mixedFallback))
+        XCTAssertEqual(NativeHomeRegionPresentation.trustedProviderCards(in: mixedFallback).map(\.id), ["provider-local-cafe"])
         XCTAssertTrue(NativeHomeRegionPresentation.venueRailVenues(in: mixedFallback).isEmpty)
         let providerOnlyHome = NativeHomeRegionPresentation.homeSafeSnapshot(mixedFallback)
         XCTAssertTrue(providerOnlyHome.venues.isEmpty)
-        XCTAssertEqual(providerOnlyHome.discoverCards.map(\.id), ["provider-local-cafe"])
+        XCTAssertTrue(providerOnlyHome.discoverCards.isEmpty)
         XCTAssertTrue(providerOnlyHome.events.isEmpty)
         XCTAssertTrue(NativeHomeRegionPresentation.eventRailEvents(in: mixedFallback).isEmpty)
         XCTAssertTrue(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: eventOnlyLive))
@@ -1443,7 +1515,10 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertTrue(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: trustedLive))
         XCTAssertEqual(NativeHomeRegionPresentation.venueRailVenues(in: trustedLive).map(\.id), ["live-midtown-parking"])
         XCTAssertEqual(NativeHomeRegionPresentation.eventRailEvents(in: trustedLive).map(\.id), ["live-midtown-event"])
-        XCTAssertEqual(NativeHomeRegionPresentation.homeSafeSnapshot(trustedLive).discoverCards.map(\.id), ["venue-live-midtown-parking", "event-live-midtown-event"])
+        let trustedHomeIDs = NativeHomeRegionPresentation.homeSafeSnapshot(trustedLive).discoverCards.map(\.id)
+        XCTAssertTrue(trustedHomeIDs.contains("venue-live-midtown-parking"))
+        XCTAssertTrue(trustedHomeIDs.contains("event-live-midtown-event"))
+        XCTAssertFalse(trustedHomeIDs.contains("promo-venue-live-midtown-parking"))
         XCTAssertEqual(NativeLaunchRecommendationPresentation.capabilityTitles.count, 3)
     }
 }

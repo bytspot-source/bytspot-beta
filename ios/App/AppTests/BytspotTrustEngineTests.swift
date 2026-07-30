@@ -1419,10 +1419,28 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertNotEqual(serverClientID, iosClientID)
     }
 
+    @MainActor
     func testHomeVisibleCopyAvoidsUnprovenAvailabilityClaims() {
-        let visibleCopy = [NativeHomeCopyContract.boutiqueStayQuickActionSubtitle] + NativeHomeCopyContract.visibleSurfaceLabels
+        let lateNightHeader = NativeHomeRegionPresentation.contextualEyebrow(hour: 23, location: .verifiedMidtown)
+        let visibleCopy = [NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, lateNightHeader.0, lateNightHeader.1] + NativeHomeCopyContract.visibleSurfaceLabels
         XCTAssertFalse(NativeHomeCopyContract.containsUnprovenAvailabilityClaim(visibleCopy))
         XCTAssertEqual(NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, "Browse stays")
+
+        let unproven = NativeVenueSummary(id: "unproven", name: "Unproven Venue", category: "venue", address: "100 Neutral St", distance: "0.4 mi", rating: nil, latitude: 33.7865, longitude: -84.3830, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let proven = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
+        XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: unproven), "100 Neutral St")
+        XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: proven), "18 spots · Open")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven]).value, "1")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven]).label, "local place")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven]).value, "18")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven]).label, "spots nearby")
+
+        let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
+        XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")
+        XCTAssertEqual(fallbackWeather.headerTemperature, "—")
+
+        let decodedMissingCrowdLabel = NativeTabContentStore.venue(from: ["id": "missing-crowd-label", "name": "Missing Crowd Label", "lat": 33.7867, "lng": -84.3832, "crowd": ["level": 1]])
+        XCTAssertNil(decodedMissingCrowdLabel?.crowd)
     }
 
     @MainActor

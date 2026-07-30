@@ -7000,11 +7000,27 @@ enum NativeSearchRouter {
 }
 
 enum NativeHomeCopyContract {
+    struct WeatherPresentation: Equatable {
+        let icon: String
+        let headline: String
+        let detail: String
+        let badge: String
+        let headerTemperature: String
+    }
+
     static let boutiqueStayQuickActionSubtitle = "Browse stays"
     static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     static func containsUnprovenAvailabilityClaim(_ values: [String]) -> Bool {
-        values.contains { $0.localizedCaseInsensitiveContains("available tonight") }
+        let prohibitedClaims = ["available tonight", "open spots"]
+        return values.contains { value in prohibitedClaims.contains { value.localizedCaseInsensitiveContains($0) } }
+    }
+
+    static func weatherPresentation(for snapshot: NativeWeatherSnapshot) -> WeatherPresentation {
+        guard snapshot.source != .fallback else {
+            return WeatherPresentation(icon: "☁️", headline: "Weather update unavailable", detail: "Check local conditions before parking or walking.", badge: "WEATHER", headerTemperature: "—")
+        }
+        return WeatherPresentation(icon: snapshot.emoji, headline: "\(snapshot.temperatureF)° \(snapshot.conditionLabel)", detail: snapshot.parkingTip, badge: snapshot.source == .live ? "LIVE" : "RECENT", headerTemperature: "\(snapshot.temperatureF)°")
     }
 }
 
@@ -7083,8 +7099,31 @@ enum NativeHomeRegionPresentation {
         case 5..<11: return ("Morning \(place)", isAtlanta(location) ? "Fresh starts in Midtown ☀️" : "Fresh starts around your area ☀️")
         case 11..<17: return ("Afternoon \(place)", "Coffee, parking, and local plans ☕️")
         case 17..<22: return ("Evening \(place)", "Dinner, access, and routes nearby 🌆")
-        default: return ("Late night \(place)", "Open spots and safer routes nearby 🌙")
+        default: return ("Late night \(place)", "Local plans and safer routes nearby 🌙")
         }
+    }
+
+    static func nearbySubtitle(for venue: NativeVenueSummary) -> String {
+        var liveDetails: [String] = []
+        if venue.parking.totalAvailable > 0 {
+            liveDetails.append("\(venue.parking.totalAvailable) spots")
+        }
+        if let rawLabel = venue.crowd?.label {
+            let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !label.isEmpty { liveDetails.append(label) }
+        }
+        if !liveDetails.isEmpty { return liveDetails.joined(separator: " · ") }
+
+        let address = venue.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        return address.isEmpty ? "View location details" : address
+    }
+
+    static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String) {
+        let explicitAvailableSpots = venues.reduce(0) { total, venue in
+            total + max(venue.parking.totalAvailable, 0)
+        }
+        if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots nearby") }
+        return ("\(venues.count)", venues.count == 1 ? "local place" : "local places")
     }
 
     static func launchTitle(intent: String, location: NativeLocationCoordinate) -> String {
@@ -7327,7 +7366,8 @@ private struct NativeHomeDashboardView: View {
 
     private var nativeHomeHeader: some View {
         let snapshot = regionalSnapshot
-        let spotsNearby = snapshot.venues.reduce(0) { $0 + $1.parking.totalAvailable }
+        let inventoryStat = NativeHomeRegionPresentation.headerInventoryStat(for: snapshot.venues)
+        let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
         let forYou = snapshot.discoverCards.count
         let liveVenues = snapshot.venues.filter { $0.crowd != nil }.count
         let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate)
@@ -7337,7 +7377,7 @@ private struct NativeHomeDashboardView: View {
                     HStack(spacing: 6) {
                         HStack(spacing: 4) {
                             Image(systemName: "cloud.fill").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.cyan)
-                            Text("\(weatherSnapshot.temperatureF)°")
+                            Text(weather.headerTemperature)
                                 .font(.system(size: 12, weight: .black, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundColor(NativeTheme.textPrimary)
@@ -7405,7 +7445,7 @@ private struct NativeHomeDashboardView: View {
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 HStack(spacing: 0) {
-                    statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: "\(spotsNearby)", label: "spots nearby")
+                    statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: inventoryStat.value, label: inventoryStat.label)
                     Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
                     statStripItem(icon: "chart.line.uptrend.xyaxis", iconColor: NativeTheme.orange, value: nil, label: "Peak hours", valueColor: NativeTheme.orange)
                     Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
@@ -7935,7 +7975,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var trendingNowSection: some View {
-        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot)
+        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).filter { $0.crowd != nil }
         if !venues.isEmpty {
             NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
                 ForEach(Array(venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
@@ -7973,7 +8013,7 @@ private struct NativeHomeDashboardView: View {
         if !venues.isEmpty {
             NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
                 ForEach(Array(venues.prefix(6))) { venue in
-                    NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: "\(venue.parking.totalAvailable) spots · \(venue.crowd?.label ?? "Open")", iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
+                    NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: NativeHomeRegionPresentation.nearbySubtitle(for: venue), iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
                 }
             }
             .accessibilityIdentifier("native-home-nearby")
@@ -7997,17 +8037,18 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var weatherSmartCard: some View {
-        HStack(spacing: 11) {
-            Text(weatherSnapshot.emoji).font(.system(size: 22))
+        let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
+        return HStack(spacing: 11) {
+            Text(weather.icon).font(.system(size: 22))
                 .frame(width: 42, height: 42)
                 .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.22), NativeTheme.purple.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(weatherSnapshot.temperatureF)° \(weatherSnapshot.conditionLabel)").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                Text(weatherSnapshot.parkingTip).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
+                Text(weather.headline).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text(weather.detail).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
             Spacer()
-            Text(weatherSnapshot.source == .live ? "LIVE" : "WEATHER").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
+            Text(weather.badge).font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
         }
         .padding(12)
         .nativePanel()

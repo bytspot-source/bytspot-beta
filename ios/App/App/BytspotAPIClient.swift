@@ -2303,7 +2303,12 @@ final class NativeTabContentStore: ObservableObject {
         let firstSpot = (parkingDict?["spots"] as? [[String: Any]])?.first
         let price = int(firstSpot, ["pricePerHr"]).map { "$\($0)/hr" } ?? string(item, ["price", "entryPrice"]) ?? "—"
         let crowdDict = item["crowd"] as? [String: Any]
-        let crowd = crowdDict.map { NativeCrowdSummary(level: int($0, ["level"]) ?? 1, label: string($0, ["label"]) ?? "Chill", waitMins: int($0, ["waitMins"])) }
+        let crowd = crowdDict.flatMap { value -> NativeCrowdSummary? in
+            guard let rawLabel = string(value, ["label"]) else { return nil }
+            let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else { return nil }
+            return NativeCrowdSummary(level: int(value, ["level"]) ?? 1, label: label, waitMins: int(value, ["waitMins"]))
+        }
         let patch = (item["hardwarePatch"] as? [String: Any]).flatMap { string($0, ["id", "patchId"]) }
         return NativeVenueSummary(
             id: id,

@@ -848,7 +848,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Text("Your response").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary); Spacer(); Text(event.rsvpCutoff ?? "Open now").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary) }
             HStack(spacing: 10) { rsvpOption(.going); rsvpOption(.maybe); rsvpOption(.notGoing) }
-            Text(NativePlanMarketPolicy.remoteRSVPAvailable ? "Your response will sync with the host." : "Saved on this iPhone. Server RSVP confirmation is not available yet.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Text(NativePlanMarketPolicy.remoteRSVPAvailable ? "Your response will sync with the host." : "Responses are saved only on this iPhone. Server RSVP confirmation is not available yet.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(NativePolish.elevatedSurface.opacity(0.92))
@@ -881,7 +881,7 @@ private struct NativeGroupEventAppClipFallbackView: View {
                     Image(systemName: "person.crop.circle.badge.checkmark").font(.system(size: 17, weight: .bold)).foregroundColor(accent)
                     Text(name).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
                     Spacer()
-                    Text("Co-host").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                    Text("Pending access").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
                 }
             }
             Text("Co-hosts are shown on this invitation. Management access requires separate verification.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
@@ -3352,7 +3352,7 @@ private struct NativeProfileYourPlansCard: View {
     private func planRow(_ event: NativeGroupEventRecord) -> some View {
         let lifecycle = planStore.lifecycle(for: event.id)
         let isOwner = lifecycle?.viewerRole == .owner
-        let state = isOwner ? publicationLabel(lifecycle?.publication) : (lifecycle?.rsvpChoice.title ?? "Respond")
+        let state = isOwner ? publicationLabel(lifecycle?.publication) : NativePlanMarketPolicy.rsvpSummary(lifecycle)
         return HStack(spacing: 12) {
             Image(systemName: event.iconName ?? "calendar").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 38, height: 38).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
@@ -3476,7 +3476,7 @@ private struct NativeNetworkHubView: View {
                 Image(systemName: event.iconName ?? "calendar").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 40, height: 40).background(NativeTheme.cyan.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) { Text(event.title).font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title); Text("\(event.scheduledDate) · \(event.locationLabel)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2) }
                 Spacer()
-                NativeProfileMicroChip(owner ? "HOSTING" : (lifecycle?.rsvpChoice.title.uppercased() ?? "RESPOND"), icon: owner ? "crown.fill" : lifecycle?.rsvpChoice.icon, color: owner ? NativeTheme.orange : NativeTheme.cyan)
+                NativeProfileMicroChip(owner ? "HOSTING" : NativePlanMarketPolicy.rsvpSummary(lifecycle).uppercased(), icon: owner ? "crown.fill" : lifecycle?.rsvpChoice.icon, color: owner ? NativeTheme.orange : NativeTheme.cyan)
             }
             if !event.coHosts.isEmpty { Text("With \(event.coHosts.joined(separator: ", ")) · Co-host access is presentation-only until verified.").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
             if !owner { Button("Review RSVP") { selectedEvent = event }.font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan) }
@@ -3518,7 +3518,7 @@ private struct NativeProfileNetworkCard: View {
     let socialCircleSnapshot: NativeSocialCircleSnapshot
     var includesPeople: Bool = true
     @State private var selectedGroupType = NativeGroupEventContract.defaultEventTypes[0]
-    @State private var activeGroup = NativeGroupEventStore.primaryLiveEvent()
+    @State private var activeGroup = NativeGroupEventStore.primaryHostedEvent()
     @State private var networkStatus: String?
     @State private var showGroupSetup = false
     @State private var showInviteAccess = false
@@ -3531,7 +3531,12 @@ private struct NativeProfileNetworkCard: View {
     static let title = "Profile Network"
     static let actionTitles = ["Create Private Group", "Find friends"]
     private let referralUrl = "https://bytspot.app?ref=guest"
-    private var currentTier: BytspotTier { activeGroup?.tier ?? .green }
+    private var currentAccountScope: NativePlanAccountScope? { NativePlanAccountScope.authenticated(token: sessionStore.token) }
+    private var presentedActiveGroup: NativeGroupEventRecord? {
+        guard let activeGroup, NativePlanMarketPolicy.canPresentHostTools(planStore.lifecycle(for: activeGroup.id), accountScope: currentAccountScope) else { return nil }
+        return activeGroup
+    }
+    private var currentTier: BytspotTier { presentedActiveGroup?.tier ?? .green }
     private var entitlement: NativeGroupEventEntitlement { NativeGroupEventContract.entitlement(for: currentTier) }
     private var circlesForDisplay: [NativeSocialCircle] { NativePlanMarketPolicy.liveCircles(from: socialCircleSnapshot) }
     private var circleNamesForGroupSetup: [String] {
@@ -3545,7 +3550,7 @@ private struct NativeProfileNetworkCard: View {
         VStack(alignment: .leading, spacing: 14) {
             networkHeader
 
-            if let activeGroup {
+            if let activeGroup = presentedActiveGroup {
                 activeGroupBlock(activeGroup)
                 if let networkStatus { Text(networkStatus).nativeBody(size: 11.5, color: NativeTheme.cyan) }
                 inviteBlock
@@ -3567,19 +3572,20 @@ private struct NativeProfileNetworkCard: View {
             }
         }
         .sheet(isPresented: $showInviteAccess) {
-            if let activeGroup {
+            if let activeGroup = presentedActiveGroup {
                 let sheet = NativeGroupInviteAccessSheet(event: activeGroup, initialMode: inviteAccessMode, publishState: invitePublishState(for: activeGroup))
                 if #available(iOS 16.0, *) { sheet.presentationDetents([.large]).presentationDragIndicator(.visible) } else { sheet }
             }
         }
         .sheet(isPresented: $showHostDashboard) {
-            if let activeGroup {
+            if let activeGroup = presentedActiveGroup {
                 let dashboard = NativeGroupEventHostDashboardView(event: activeGroup, sessionStore: sessionStore)
                 if #available(iOS 16.0, *) { dashboard.presentationDetents([.large]).presentationDragIndicator(.visible) } else { dashboard }
             }
         }
         .onAppear {
             planStore.refresh(events: NativeGroupEventStore.all())
+            activeGroup = NativeGroupEventStore.primaryHostedEvent()
             openGroupSetupPreviewIfRequested()
             openInviteAccessPreviewIfRequested()
             reconcileActiveGroupPublishState()
@@ -3661,6 +3667,7 @@ private struct NativeProfileNetworkCard: View {
 
     private func activeGroupBlock(_ group: NativeGroupEventRecord) -> some View {
         let banner = NativeGroupEventContract.homepageBanner(for: group)
+        let canManage = NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: currentAccountScope)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles").font(.system(size: 14, weight: .black)).foregroundColor(.black).frame(width: 34, height: 34).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -3683,14 +3690,14 @@ private struct NativeProfileNetworkCard: View {
             Button(action: { openHostDashboard(group) }) {
                 HStack(spacing: 7) {
                     Image(systemName: "person.2.badge.gearshape.fill").font(.system(size: 13, weight: .black))
-                    Text(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) ? (group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests") : "Publish to manage guests").font(.system(size: 13, weight: .black))
+                    Text(canManage ? (group.requiresApproval ? "Manage Guests & Requests" : "Manage Guests") : (sessionStore.isAuthenticated ? "Publish to manage guests" : "Sign in to manage guests")).font(.system(size: 13, weight: .black))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }.buttonStyle(.plain).disabled(!NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id))).opacity(NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) ? 1 : 0.58)
+            }.buttonStyle(.plain).disabled(!canManage).opacity(canManage ? 1 : 0.58)
             matchedOfferPreview
             Text(NativeGroupEventContract.matchedOfferExplanation).nativeBody(size: 11.5, color: NativeProfileStyle.muted)
         }
@@ -3896,6 +3903,7 @@ private struct NativeProfileNetworkCard: View {
         nativeImpactLight()
         NativeGroupEventStore.upsert(record)
         planStore.refresh(events: NativeGroupEventStore.all())
+        if let currentAccountScope { _ = planStore.bindOwner(for: record.id, accountScope: currentAccountScope) }
         activeGroup = record
         selectedGroupType = record.title.replacingOccurrences(of: " Group", with: "")
         // A host must be signed in for the server to accept the event; until then
@@ -3919,13 +3927,18 @@ private struct NativeProfileNetworkCard: View {
     // shareable (publishedGroupEventIDs). `announce` controls whether we surface a
     // status message (silent on background reconciliation).
     private func publishGroupEvent(_ record: NativeGroupEventRecord, announce: Bool = true) {
-        guard sessionStore.isAuthenticated else { return }
+        guard sessionStore.isAuthenticated,
+              let accountScope = currentAccountScope,
+              NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: record.id), accountScope: accountScope) else {
+            if announce { networkStatus = "Only the signed-in host account can publish this plan." }
+            return
+        }
         guard !publishingGroupEventIDs.contains(record.id) else {
             announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedInFlightIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
             return
         }
         publishingGroupEventIDs.insert(record.id)
-        _ = planStore.setPublication(.publishing, for: record.id)
+        _ = planStore.setPublication(.publishing, for: record.id, accountScope: accountScope)
         announcedPublishingGroupEventIDs = NativeGroupInvitePublishAnnouncement.updatedIDs(announcedPublishingGroupEventIDs, eventID: record.id, announce: announce)
         let token = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         var input: [String: Any] = [
@@ -3964,8 +3977,8 @@ private struct NativeProfileNetworkCard: View {
                 let shouldAnnounce = NativeGroupInvitePublishAnnouncement.shouldAnnounceCompletion(eventID: record.id, announcedIDs: announcedPublishingGroupEventIDs)
                 publishingGroupEventIDs.remove(record.id)
                 announcedPublishingGroupEventIDs.remove(record.id)
-                _ = planStore.setPublication(.published, for: record.id)
-                if shouldAnnounce {
+                _ = planStore.setPublication(.published, for: record.id, accountScope: accountScope)
+                if shouldAnnounce, currentAccountScope == accountScope {
                     networkStatus = record.requiresApproval
                         ? "\(record.title) is live. Guests request access and you approve them in Manage guests."
                         : "\(record.title) is live. Share the invite for instant App Clip join."
@@ -3975,7 +3988,7 @@ private struct NativeProfileNetworkCard: View {
                 publishingGroupEventIDs.remove(record.id)
                 announcedPublishingGroupEventIDs.remove(record.id)
                 _ = planStore.setPublication(.failed, for: record.id)
-                if shouldAnnounce {
+                if shouldAnnounce, currentAccountScope == accountScope {
                     networkStatus = "\(record.title) couldn't sync yet — guests can't join until it publishes. It'll retry when you reopen this or reconnect."
                 }
             }
@@ -3983,7 +3996,7 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func isPublished(_ group: NativeGroupEventRecord) -> Bool {
-        planStore.lifecycle(for: group.id)?.publication == .published
+        NativePlanMarketPolicy.isPublished(planStore.lifecycle(for: group.id), accountScope: currentAccountScope)
     }
 
     private func invitePublishState(for group: NativeGroupEventRecord) -> NativeGroupInvitePublishState {
@@ -3993,6 +4006,10 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func prepareInviteAction(_ group: NativeGroupEventRecord, action: NativeGroupInviteActionKind) {
+        guard NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: group.id), accountScope: currentAccountScope) else {
+            networkStatus = sessionStore.isAuthenticated ? "Only the host account can publish or share this plan." : "Sign in as the host to publish this plan."
+            return
+        }
         if isPublished(group) {
             networkStatus = action.publishedStatus
             return
@@ -4009,7 +4026,9 @@ private struct NativeProfileNetworkCard: View {
     // draft created offline/pre-auth becomes shareable once it syncs. create is an
     // idempotent host-owned upsert, so re-calling it is safe.
     private func reconcileActiveGroupPublishState() {
-        guard let group = activeGroup, sessionStore.isAuthenticated, !isPublished(group) else { return }
+        guard let group = presentedActiveGroup,
+              NativePlanMarketPolicy.canPublish(planStore.lifecycle(for: group.id), accountScope: currentAccountScope),
+              !isPublished(group) else { return }
         publishGroupEvent(group, announce: false)
     }
 
@@ -4028,7 +4047,7 @@ private struct NativeProfileNetworkCard: View {
     }
 
     private func openHostDashboard(_ group: NativeGroupEventRecord) {
-        guard NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id)) else {
+        guard NativePlanMarketPolicy.canManageGuests(planStore.lifecycle(for: group.id), accountScope: currentAccountScope) else {
             networkStatus = "Publish this plan before opening guest management. Co-host access requires separate server verification."
             return
         }
@@ -5698,6 +5717,10 @@ enum NativeGroupEventStore {
     }
 
     static func primaryLiveEvent() -> NativeGroupEventRecord? { all().first }
+
+    static func primaryHostedEvent() -> NativeGroupEventRecord? {
+        all().first { $0.privateAssociation == .host }
+    }
 
     static func primaryHomepageVisibleEvent() -> NativeGroupEventRecord? {
         all().first { $0.isHomepageVisibleToCurrentViewer }

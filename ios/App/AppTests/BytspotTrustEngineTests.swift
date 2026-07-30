@@ -2063,6 +2063,7 @@ final class NativeGroupEventContractTests: XCTestCase {
         let relaunchedStore = NativePlanStore(defaults: defaults)
         XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpChoice, .going)
         XCTAssertEqual(relaunchedStore.lifecycle(for: invite.id)?.rsvpSync, .localOnly)
+        XCTAssertEqual(NativePlanMarketPolicy.rsvpSummary(relaunchedStore.lifecycle(for: invite.id)), "Going · on this iPhone")
         XCTAssertFalse(NativePlanMarketPolicy.remoteRSVPAvailable)
     }
 
@@ -2075,9 +2076,17 @@ final class NativeGroupEventContractTests: XCTestCase {
         let store = NativePlanStore(defaults: defaults)
         store.refresh(events: [hosted])
 
-        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id)))
-        XCTAssertTrue(store.setPublication(.published, for: hosted.id))
-        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id)))
+        let accountA = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "account-a-token"))
+        let accountB = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "account-b-token"))
+        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
+        XCTAssertTrue(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountA))
+        XCTAssertTrue(store.setPublication(.published, for: hosted.id, accountScope: accountA))
+        XCTAssertTrue(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountA))
+        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: accountB))
+        XCTAssertFalse(NativePlanMarketPolicy.canManageGuests(store.lifecycle(for: hosted.id), accountScope: nil))
+        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: hosted.id), accountScope: accountB))
+        XCTAssertFalse(NativePlanMarketPolicy.canPresentHostTools(store.lifecycle(for: hosted.id), accountScope: accountB))
+        XCTAssertFalse(NativePlanMarketPolicy.canPresentHostTools(store.lifecycle(for: hosted.id), accountScope: nil))
 
         let verifiedCoHost = NativePlanCollaborator(id: "verified", displayName: "Esi", role: "Co-host", authority: .serverVerified)
         XCTAssertFalse(NativePlanMarketPolicy.canManageAsCoHost(verifiedCoHost))
@@ -2086,6 +2095,41 @@ final class NativeGroupEventContractTests: XCTestCase {
         let liveCircle = NativeSocialCircle(id: "friends", name: "Friends", ownerUserId: "owner", memberCount: 4, privacy: "private", role: "owner")
         XCTAssertTrue(NativePlanMarketPolicy.liveCircles(from: .starter).isEmpty)
         XCTAssertEqual(NativePlanMarketPolicy.liveCircles(from: NativeSocialCircleSnapshot(source: .backend, groups: [liveCircle])), [liveCircle])
+    }
+
+    @MainActor
+    func testAttendeePlansCannotPublishAndHostedSelectionExcludesInvites() throws {
+        let suite = "NativePlanAttendeeAuthorityTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); NativeGroupEventStore.clear() }
+        let attendee = NativeGroupEventRecord(id: "attendee", title: "Invite", groupType: "Dinner", hostName: "Host", tier: .green, timing: .today, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .joinedViaInvite)
+        let hosted = NativeGroupEventRecord(id: "hosted", title: "Hosted", groupType: "Dinner", hostName: "Me", tier: .green, timing: .today, participantCount: 2, allowNearbyOffers: true, inviteNote: nil, privateAssociation: .host)
+        let store = NativePlanStore(defaults: defaults)
+        store.refresh(events: [attendee, hosted])
+        let account = try XCTUnwrap(NativePlanAccountScope.authenticated(token: "host-token"))
+
+        XCTAssertFalse(NativePlanMarketPolicy.canPublish(store.lifecycle(for: attendee.id), accountScope: account))
+        XCTAssertFalse(store.setPublication(.published, for: attendee.id, accountScope: account))
+        NativeGroupEventStore.clear()
+        NativeGroupEventStore.upsert(hosted)
+        NativeGroupEventStore.upsert(attendee)
+        XCTAssertEqual(NativeGroupEventStore.primaryLiveEvent()?.id, attendee.id)
+        XCTAssertEqual(NativeGroupEventStore.primaryHostedEvent()?.id, hosted.id)
+    }
+
+    @MainActor
+    func testPlanLifecycleLoadKeepsNewestDuplicateRecord() throws {
+        let suite = "NativePlanDuplicateLoadTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let older = NativePlanLifecycleRecord(version: 1, eventID: "duplicate", viewerRole: .attendee, rsvpChoice: .maybe, rsvpSync: .localOnly, publication: .localDraft, collaborators: [], updatedAt: Date(timeIntervalSince1970: 10))
+        let newer = NativePlanLifecycleRecord(version: 2, eventID: "duplicate", viewerRole: .attendee, rsvpChoice: .going, rsvpSync: .localOnly, publication: .localDraft, collaborators: [], updatedAt: Date(timeIntervalSince1970: 20))
+        defaults.set(try JSONEncoder().encode([older, newer]), forKey: NativePlanStore.storageKey)
+
+        let store = NativePlanStore(defaults: defaults)
+
+        XCTAssertEqual(store.lifecycle(for: "duplicate")?.rsvpChoice, .going)
+        XCTAssertEqual(store.lifecycle(for: "duplicate")?.version, 2)
     }
 }
 

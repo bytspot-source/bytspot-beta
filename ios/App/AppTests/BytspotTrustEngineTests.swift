@@ -347,13 +347,14 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(free.isDisjoint(with: premium), "A map function must not be both free and premium.")
     }
 
-    func testPremiumEntitlementPlanMatchesContract() {
-        XCTAssertEqual(BytspotMapFunctionCatalog.premiumEntitlementPlan, "insider-premium")
+    func testPremiumFunctionsRequirePlatinumMembership() {
+        XCTAssertEqual(BytspotMapFunctionCatalog.requiredMembershipTier, .platinum)
     }
 
-    func testMembershipIsPremiumFlag() {
-        XCTAssertFalse(BytspotMembership.free.isPremium)
-        XCTAssertTrue(BytspotMembership.premium.isPremium)
+    func testCanonicalMembershipAccess() {
+        XCTAssertFalse(BytspotTier.green.hasPlatinumAccess)
+        XCTAssertTrue(BytspotTier.platinum.hasPlatinumAccess)
+        XCTAssertTrue(BytspotTier.black.hasPlatinumAccess)
     }
 
     func testNativeTabContentFallbackStartsWithoutBestValueOverlay() {
@@ -1252,8 +1253,9 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     func testPremiumFunctionsLockedWithoutEntitlement() {
         for function in BytspotPremiumMapFunction.allCases {
-            XCTAssertFalse(BytspotMapFunctionCatalog.isUnlocked(function, for: .free), "\(function.rawValue) must stay locked for a free membership.")
-            XCTAssertTrue(BytspotMapFunctionCatalog.isUnlocked(function, for: .premium), "\(function.rawValue) must unlock for a premium membership.")
+            XCTAssertFalse(BytspotMapFunctionCatalog.isUnlocked(function, for: .green), "\(function.rawValue) must stay locked for Green membership.")
+            XCTAssertTrue(BytspotMapFunctionCatalog.isUnlocked(function, for: .platinum), "\(function.rawValue) must unlock for Platinum membership.")
+            XCTAssertTrue(BytspotMapFunctionCatalog.isUnlocked(function, for: .black), "\(function.rawValue) must unlock for Black membership.")
         }
     }
 
@@ -1280,26 +1282,25 @@ final class BytspotTrustEngineTests: XCTestCase {
             bestValueTitle: bestValueTitle,
             bestValueSummary: bestValueSummary,
             isWithinVerifiedZone: isWithinVerifiedZone,
-            isAuthenticated: false,
-            isPremium: false
+            isAuthenticated: false
         )
     }
 
-    // MARK: - Live membership decode (NativeMembershipStore tRPC parity)
+    // MARK: - Live membership decode (NativeMembershipTierStore tRPC parity)
 
     func testMembershipDecodeToleratesPlainTRPCEnvelope() {
         let payload: [String: Any] = ["result": ["data": ["isPremium": true, "isVendorPremium": false]]]
-        XCTAssertEqual(NativeMembershipStore.findBool(named: "isPremium", in: payload), true)
+        XCTAssertEqual(NativeMembershipTierStore.findBool(named: "isPremium", in: payload), true)
     }
 
     func testMembershipDecodeToleratesSuperjsonTRPCEnvelope() {
         let payload: [String: Any] = ["result": ["data": ["json": ["isPremium": false]]]]
-        XCTAssertEqual(NativeMembershipStore.findBool(named: "isPremium", in: payload), false)
+        XCTAssertEqual(NativeMembershipTierStore.findBool(named: "isPremium", in: payload), false)
     }
 
     func testMembershipDecodeFailsSafeWhenKeyMissing() {
         let payload: [String: Any] = ["result": ["data": ["isVendorPremium": true]]]
-        XCTAssertNil(NativeMembershipStore.findBool(named: "isPremium", in: payload))
+        XCTAssertNil(NativeMembershipTierStore.findBool(named: "isPremium", in: payload))
     }
 }
 

@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
@@ -18,15 +18,14 @@ import { TermsOfService } from './TermsOfService';
 import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
-import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
+import { getUserPointsLocal, getUserPointsAsync } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type FriendSuggestion } from '../utils/social';
 import { addPersonToCircleViaRpc, createSocialCircleViaRpc, hasCircleMembership, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
-import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
+import { BYTSPOT_COMMERCE_EVENT, getAccessPasses, getBytspotMembership, hasPlatinumAccess, PLATINUM_PERKS, PLATINUM_SUBSCRIPTION_PLAN, replaceAccessPassesFromServer, syncBytspotMembershipFromSubscription } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
-import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
+import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { saveVirtualPatchContext, type VirtualPatchContext, type VirtualPatchSavedServiceRequest, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
-import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
 import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
 
 const DEMO_VENUE_SERVICES = [
@@ -58,7 +57,7 @@ type ProfileMenuSection = {
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
-type NativeProfilePanel = 'reservations' | 'access' | 'rewards';
+type NativeProfilePanel = 'reservations' | 'access' | 'points';
 
 function postNativeProfilePanel(panel: NativeProfilePanel): boolean {
   try {
@@ -177,18 +176,16 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     } catch { return 'Guest'; }
   })();
 
-  // Async state: points, checkins, achievements — start with sync localStorage values, upgrade via API
+  // Async state: points and check-ins — start local, then upgrade from the API.
   const [userPoints, setUserPoints] = useState(getUserPointsLocal());
   const [checkinHistory, setCheckinHistory] = useState<CheckInRecord[]>(getCheckinHistory());
-  const userTier = getUserTier(userPoints.total);
-  const achievementStats = getAchievementStats();
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
   const [referralCount, setReferralCount] = useState<number | null>(null);
-  const [membership, setMembership] = useState(() => getInsiderMembership());
+  const [membership, setMembership] = useState(() => getBytspotMembership());
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
-  const [insiderLoading, setInsiderLoading] = useState(false);
+  const [platinumLoading, setPlatinumLoading] = useState(false);
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
@@ -202,32 +199,14 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [newCircleName, setNewCircleName] = useState('');
   const [networkStatus, setNetworkStatus] = useState('');
   const [pendingCircleAdds, setPendingCircleAdds] = useState<Set<string>>(() => new Set());
-  const hasRealInsiderCheckout = (() => {
+  const hasRealPlatinumCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'guest_session';
   })();
-  const subscriptionStateLabel = membership.isActive
-    ? membership.source === 'premium'
-      ? 'ACTIVE'
-      : 'ACTIVE'
-    : 'AVAILABLE';
-  const consumerBookingCount = walletPasses.length + parkingReservations.length;
-  const consumerExperienceTier = deriveConsumerExperienceTier({
-    bookingCount: consumerBookingCount,
-    activityPoints: userPoints.total,
-    checkinCount: checkinHistory.length,
-    hasInsiderMembership: membership.isActive,
-  });
-  const consumerExperienceProfile = TIERED_EXPERIENCE_PROFILES[consumerExperienceTier];
-  const consumerExperienceProgress = getConsumerTierProgress({
-    bookingCount: consumerBookingCount,
-    activityPoints: userPoints.total,
-    checkinCount: checkinHistory.length,
-    hasInsiderMembership: membership.isActive,
-  });
+  const subscriptionStateLabel = hasPlatinumAccess(membership) ? 'ACTIVE' : 'AVAILABLE';
   useEffect(() => {
     const syncCommerce = () => {
-      setMembership(getInsiderMembership());
+      setMembership(getBytspotMembership());
       setWalletPasses(getAccessPasses());
       setParkingReservations(getParkingReservations());
       setVirtualPatchContext(readVirtualPatchContext());
@@ -240,20 +219,16 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
     trpc.subscription.status.query().then((data: SubscriptionStatus) => {
-      if (data?.isPremium) {
-        setMembership(syncInsiderMembershipFromPremium(true));
-      } else {
-        syncCommerce();
-      }
+      setMembership(syncBytspotMembershipFromSubscription(Boolean(data?.isPremium)));
     }).catch(() => {});
 
-    if (hasRealInsiderCheckout) {
+    if (hasRealPlatinumCheckout) {
       trpc.user.accessPasses.list.query().then((passes: AccessPassList) => {
         replaceAccessPassesFromServer(passes || []);
       }).catch(() => {});
     }
 
-    window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+    window.addEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
     window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
@@ -263,10 +238,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }
 
     return () => {
-      window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+      window.removeEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
-  }, [hasRealInsiderCheckout]);
+  }, [hasRealPlatinumCheckout]);
 
   useEffect(() => {
     if (currentScreen !== 'main') return;
@@ -386,29 +361,29 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     mass: 0.8,
   };
 
-  const handleInsiderAction = async () => {
-    if (insiderLoading) return;
+  const handlePlatinumAction = async () => {
+    if (platinumLoading) return;
 
-    if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-      if (membership.isActive) {
+    if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
+      if (hasPlatinumAccess(membership)) {
         if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       }
       return;
     }
 
-    if (membership.isActive) {
+    if (hasPlatinumAccess(membership)) {
       if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       return;
     }
 
     impactLight();
-    setInsiderLoading(true);
+    setPlatinumLoading(true);
     let redirectingToCheckout = false;
 
     try {
-      if (hasRealInsiderCheckout) {
+      if (hasRealPlatinumCheckout) {
         const result = await trpc.subscription.createCheckout.mutate({
-          plan: 'insider-premium',
+          plan: PLATINUM_SUBSCRIPTION_PLAN,
         });
 
         const checkoutUrl = getCheckoutRedirectUrl(result);
@@ -419,22 +394,22 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         }
 
         if (result?.message === 'Already premium') {
-          setMembership(syncInsiderMembershipFromPremium(true));
+          setMembership(syncBytspotMembershipFromSubscription(true));
           setCurrentScreen('tickets');
-          toast.success('Insider already active', { description: 'Your access wallet is ready in Profile.' });
+          toast.success('Platinum already active', { description: 'Your access wallet is ready in Profile.' });
           return;
         }
 
-        toast.error('Unable to start Insider checkout', { description: result?.message || 'Checkout did not return a Stripe URL.' });
+        toast.error('Unable to start Platinum checkout', { description: result?.message || 'Checkout did not return a Stripe URL.' });
         return;
       } else {
-        toast('Sign in to start Insider checkout', { description: 'Insider activation requires a signed-in account and Stripe checkout.' });
+        toast('Sign in to start Platinum checkout', { description: 'Platinum activation requires a signed-in account and Stripe checkout.' });
         return;
       }
     } catch (error: unknown) {
-      toast.error('Unable to start Insider checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
+      toast.error('Unable to start Platinum checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
     } finally {
-      if (!redirectingToCheckout) setInsiderLoading(false);
+      if (!redirectingToCheckout) setPlatinumLoading(false);
     }
   };
 
@@ -812,13 +787,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
                 <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{totalAccessItems} saved</h3>
                 <p className="text-[13px] text-slate-200 mt-2" style={{ fontWeight: 650 }}>
-                  {membership.isActive
-                    ? 'Verified patches, access passes, and saved service requests appear here.'
-                    : 'Scan a patch or request venue services to build your access list.'}
+                  Verified patches, access passes, and saved service requests appear here.
                 </p>
               </div>
               <div className="px-3 py-1.5 rounded-full border border-cyan-300 bg-black text-[11px] text-white" style={{ fontWeight: 800 }}>
-                {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'ACCESS' : membership.label}
+                {APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP ? 'ACCESS' : membership.label.toUpperCase()}
               </div>
             </div>
           </div>
@@ -1376,13 +1349,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         <div className="rounded-[24px] p-6 border-2 border-slate-700 bg-slate-950 shadow-xl">
           <div className="flex items-center gap-4">
             {/* Avatar */}
-            <div className="relative">
+            <div>
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                 <User className="w-10 h-10 text-white" strokeWidth={2} />
-              </div>
-              {/* Membership Badge */}
-              <div className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-gradient-to-br ${userTier.gradient} border-2 border-white flex items-center justify-center shadow-lg`}>
-                <span className="text-[16px]">{userTier.icon}</span>
               </div>
             </div>
 
@@ -1392,16 +1361,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <h2 className="text-[22px] text-white" style={{ fontWeight: 700 }}>
                   {userName}
                 </h2>
-                {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && membership.isActive && (
+                {!APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP && (
                   <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-600 via-purple-600 to-fuchsia-600 border border-fuchsia-100 shadow-sm shadow-fuchsia-950/30">
-                    <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>Insider ✨</span>
+                    <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{membership.label}</span>
                   </div>
                 )}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-slate-950 border-2 border-cyan-300/60`} style={{ fontWeight: 700 }}>
-                  <span className="text-white">{userTier.icon} {userTier.name} Member</span>
-                </div>
               </div>
             </div>
           </div>
@@ -1426,58 +1390,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {achievementStats.unlocked}
+                {checkinHistory.length}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
-                Badges
+                Check-ins
               </p>
             </div>
           </div>
         </div>
       </motion.div>
 
-      <motion.div
-        className="px-4 mb-6"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.06 }}
-        data-testid="profile-tier-benefits-summary"
-      >
-        <div className={`rounded-[24px] border-2 border-slate-700 bg-slate-950 p-5 shadow-xl`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Your Bytspot benefits</h3>
-              <p className="mt-2 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{consumerExperienceProfile.accessLevel}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-500 bg-slate-950 px-3 py-2 text-right">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-slate-300" style={{ fontWeight: 800 }}>Bookings</p>
-              <p className="text-[20px] leading-6 text-white" style={{ fontWeight: 850 }}>{consumerBookingCount}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[18px] border border-slate-500 bg-slate-950 p-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[12px] text-slate-200" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
-              <span className="text-[11px] text-slate-300" style={{ fontWeight: 750 }}>{consumerExperienceProgress.progressPercent}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-              <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-fuchsia-300 to-amber-200" style={{ width: `${consumerExperienceProgress.progressPercent}%` }} />
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-2">
-            {consumerExperienceProfile.benefits.map((benefit) => (
-              <div key={benefit} className="flex items-center gap-2 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
-                <CheckCircle2 className="h-4 w-4 text-cyan-200" strokeWidth={2.4} />
-                <span>{benefit}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Insider quick access */}
-      {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && (
+      {/* Platinum membership access */}
+      {!APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP && (
         <motion.div
           className="px-4 mb-6"
           initial={{ opacity: 0, y: 10 }}
@@ -1488,21 +1412,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Insider</p>
-                <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{membership.isActive ? 'Insider active' : '$9.99/month'}</p>
+                <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Bytspot Platinum</p>
+                <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{hasPlatinumAccess(membership) ? 'Platinum active' : '$9.99/month'}</p>
                 <p className="mt-2 text-[13px] leading-5 text-slate-300" style={{ fontWeight: 600 }}>
-                  {membership.isActive
-                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Premium checkout is ready.`
-                    : 'Premium checkout, priority support, and member-only entry flow.'}
+                  {hasPlatinumAccess(membership)
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your Platinum access is ready.`
+                    : 'Priority access, participation, and elevated entry under the canonical Bytspot membership.'}
                 </p>
               </div>
-              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-cyan-600 border-cyan-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${hasPlatinumAccess(membership) ? 'bg-cyan-600 border-cyan-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
 
             <div className="relative mt-4 grid gap-2">
-              {INSIDER_PERKS.slice(0, 3).map((perk) => (
+              {PLATINUM_PERKS.slice(0, 3).map((perk) => (
                 <div key={perk} className="flex items-center gap-2 text-[12px] text-slate-200" style={{ fontWeight: 650 }}>
                   <Sparkles className="h-4 w-4 text-cyan-300" strokeWidth={2.3} />
                   <span>{perk}</span>
@@ -1520,15 +1444,15 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
 
             <motion.button
-              onClick={handleInsiderAction}
-              disabled={insiderLoading}
+              onClick={handlePlatinumAction}
+              disabled={platinumLoading}
               className="relative mt-5 flex w-full items-center justify-center gap-2 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 py-3 text-white shadow-lg transition disabled:cursor-wait disabled:opacity-75"
               whileTap={{ scale: 0.97 }}
               transition={springConfig}
             >
               <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
               <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
-                {membership.isActive ? 'Open My Access' : insiderLoading ? 'Opening Stripe…' : hasRealInsiderCheckout ? 'Continue to Stripe' : 'Sign in for Insider'}
+                {hasPlatinumAccess(membership) ? 'Open My Access' : platinumLoading ? 'Opening Stripe…' : hasRealPlatinumCheckout ? 'Continue to Stripe' : 'Sign in for Platinum'}
               </span>
             </motion.button>
           </div>
@@ -1632,8 +1556,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.1 }}
       >
         <motion.button
-          onClick={() => openProfilePanel('rewards', 'points')}
-          data-testid="profile-rewards-summary"
+          onClick={() => openProfilePanel('points', 'points')}
+          data-testid="profile-points-summary"
           className="w-full rounded-[24px] p-6 border-2 border-purple-400 bg-slate-950 shadow-xl relative overflow-hidden tap-target"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
@@ -1647,10 +1571,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
               <div className="text-left">
                 <p className="text-[13px] text-purple-200 mb-0.5" style={{ fontWeight: 600 }}>
-                  MEMBERSHIP
+                  BYTSPOT POINTS
                 </p>
                 <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-                  Rewards & badges
+                  {userPoints.total.toLocaleString()} points
                 </p>
               </div>
             </div>
@@ -1659,20 +1583,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
           </div>
 
-          <div className="relative mt-4 flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Crown className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
-              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
-                {userTier.name} ({userTier.discount}% off)
-              </span>
-            </div>
-            <div className="w-px h-4 bg-slate-500" />
-            <div className="flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
-              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
-                {achievementStats.unlocked}/{achievementStats.total} badges
-              </span>
-            </div>
+          <div className="relative mt-4 flex items-center gap-1.5">
+            <MapPin className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
+            <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
+              Earned through check-ins · separate from membership
+            </span>
           </div>
         </motion.button>
       </motion.div>

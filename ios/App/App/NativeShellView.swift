@@ -229,12 +229,8 @@ struct BytspotNativeShellView: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
-    /// Live premium-membership entitlement (orthogonal to the service tier), sourced
-    /// from `NativeMembershipStore` (trpc.subscription.status.isPremium parity). It
-    /// fails safe to `.free` and still honors the BYT_NATIVE_PREVIEW_PREMIUM override
-    /// via the store's initial value, then threads into the map view so the Map
-    /// Functions sheet can gate premium rows.
-    @EnvironmentObject private var membershipStore: NativeMembershipStore
+    /// Canonical Green/Platinum/Black membership resolved by the backend-backed store.
+    @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
@@ -297,7 +293,7 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membership: membershipStore.membership, plainOpenGeneration: plainMapOpenGeneration)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
@@ -724,7 +720,7 @@ private struct NativeContextualDestinationView: View {
                         if case .patch(let route) = destination {
                             NativePatchAccessPreview(route: route, openAccess: openAccess)
                         }
-                        NativeRow(title: "Open Account Center", subtitle: "Manage access, reservations, rewards, and settings in Bytspot.", icon: "person.crop.circle.fill") {
+                        NativeRow(title: "Open Account Center", subtitle: "Manage access, reservations, points, and settings in Bytspot.", icon: "person.crop.circle.fill") {
                             openNativeProfilePanel(destination == .accessWallet ? .access : nil)
                         }
                         NativeRow(title: "Back to app tabs", subtitle: "Home · Discover · Map · Concierge · Profile", icon: "rectangle.grid.2x2.fill") {
@@ -739,22 +735,10 @@ private struct NativeContextualDestinationView: View {
     }
 }
 
-/// Guest-default profile values mirrored from src/components/ProfileSection.tsx
-/// (getUserPointsLocal → 100, member tier profile).
+/// Guest-default points values mirrored from src/utils/gamification.ts.
 private enum NativeProfileDefaults {
     static let userName = "Bytspot Member"
-    static let points = 100
-    static let tierIcon = "🥉"
-    static let tierName = "Member"
-    static let discount = 0
-    static let badgesUnlocked = 0
-    static let badgesTotal = 10
-    static let following = 0
-    static let bookings = 0
-    static let accessLevel = "Parking perks unlock as you book"
-    static let progressLabel = "3 more bookings to unlock the next perk"
-    static let progressPercent = 0
-    static let benefits = ["Local parking discovery", "Clear arrival pricing", "Same-day parking when available"]
+    static let points = 0
 
     static var pointsLabel: String {
         points >= 1000 ? String(format: "%.1fK", Double(points) / 1000) : "\(points)"
@@ -895,7 +879,7 @@ private struct NativeProfileHeaderCard: View {
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
                         NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)), label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
-                        NativeProfileStat(value: "\(NativeProfileDefaults.badgesUnlocked)", label: "Badges")
+                        NativeProfileStat(value: "\(NativeManualCheckInStore.all(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)).count)", label: "Check-ins")
                     }
                     .padding(.top, 16)
                 }
@@ -994,7 +978,7 @@ private struct NativeProfileAccountView: View {
 }
 
 enum NativeProfilePanel: String, Identifiable, CaseIterable {
-    case reservations, access, rewards
+    case reservations, access, points
     case personalInformation, vehicles, paymentMethods, savedSpots, placesVisited
     case vibePreferences, parkingPreferences, notifications
     case locationPrivacy, generalSettings, appearance, deleteAccount
@@ -1017,7 +1001,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return "Arrivals"
         case .access: return "My Access"
-        case .rewards: return "Rewards & badges"
+        case .points: return "Bytspot Points"
         case .personalInformation: return "Personal Information"
         case .vehicles: return "My Vehicles"
         case .paymentMethods: return "Payment Methods"
@@ -1039,7 +1023,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return "ARRIVALS"
         case .access: return "WALLET"
-        case .rewards: return "MEMBERSHIP"
+        case .points: return "CHECK-IN ACTIVITY"
         case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
@@ -1051,7 +1035,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return "car.fill"
         case .access: return "ticket.fill"
-        case .rewards: return "sparkles"
+        case .points: return "mappin.and.ellipse"
         case .personalInformation: return "person.text.rectangle.fill"
         case .vehicles: return "car.fill"
         case .paymentMethods: return "creditcard.fill"
@@ -1073,7 +1057,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return NativeTheme.cyan
         case .access, .paymentMethods: return NativeTheme.pink
-        case .rewards, .vibePreferences: return NativeTheme.purple
+        case .points, .vibePreferences: return NativeTheme.purple
         case .appearance: return NativeTheme.purple
         case .deleteAccount: return NativeProfileStyle.danger
         case .vehicles, .savedSpots, .placesVisited, .parkingPreferences: return NativeTheme.emerald
@@ -1192,7 +1176,7 @@ private struct NativeProfilePanelSheet: View {
         switch panel {
         case .reservations: return NativeArrivalLedgerContract.summary
         case .access: return "Active parking reservations and valet ride receipts appear here when created."
-        case .rewards: return "Membership progress, points, and badges help unlock better Bytspot perks."
+        case .points: return "Verified check-ins earn points. Points remain separate from Green, Platinum, and Black membership."
         case .personalInformation: return "Manage profile details for this account. Guest changes stay on this iPhone."
         case .vehicles: return "Add vehicles for parking, valet, and smoother arrivals."
         case .paymentMethods: return NativePaymentMethodsLedgerContract.summary
@@ -1217,8 +1201,8 @@ private struct NativeProfilePanelSheet: View {
             return []
         case .access:
             return []
-        case .rewards:
-            return [("Member rewards", "Membership benefits stay focused on Bytspot access.", "crown.fill"), ("Badges", "0 of 10 badges unlocked.", "rosette"), ("Your Bytspot benefits", "Booking milestones unlock easier arrivals.", "chart.line.uptrend.xyaxis")]
+        case .points:
+            return [("Check in to earn", "Verified venue and experience check-ins add points.", "mappin.and.ellipse"), ("One balance", "Points history stays separate from membership access.", "clock.arrow.circlepath")]
         case .personalInformation:
             return [("Profile identity", "Bytspot Member · Guest access.", "person.crop.circle.fill"), ("Contact details", "Name, email, phone, and birthday stay together here.", "text.badge.checkmark"), ("Ready to save", "Sign in to sync details across devices.", "checkmark.shield.fill")]
         case .vehicles:
@@ -3110,65 +3094,6 @@ private struct NativeNetworkHubView: View {
 
 
 
-private struct NativeParkerBenefitsCard: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Your Bytspot benefits").font(.system(size: 18, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
-                    Text(NativeProfileDefaults.accessLevel).font(.system(size: 13, weight: .bold)).foregroundColor(NativeProfileStyle.body)
-                }
-                Spacer()
-                VStack(spacing: 2) {
-                    Text("BOOKINGS").font(.system(size: 10, weight: .heavy)).foregroundColor(NativeProfileStyle.muted).tracking(1.4)
-                    Text("\(NativeProfileDefaults.bookings)").font(.system(size: 20, weight: .heavy)).foregroundColor(NativeProfileStyle.title)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(NativeProfileStyle.insetSurface)
-                .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous).stroke(NativeProfileStyle.strongBorder, lineWidth: 1))
-            }
-            VStack(spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    NativeProfileMicroChip("PROGRESS", icon: "chart.line.uptrend.xyaxis", color: NativeTheme.cyan)
-                    Spacer()
-                }
-                HStack(alignment: .firstTextBaseline) {
-                    Text(NativeProfileDefaults.progressLabel).font(.system(size: 12, weight: .heavy)).foregroundColor(NativeProfileStyle.body)
-                    Spacer()
-                    Text("\(NativeProfileDefaults.progressPercent)%").font(.system(size: 11, weight: .bold)).foregroundColor(NativeProfileStyle.muted)
-                }
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(NativeProfileStyle.insetSurface)
-                        Capsule()
-                            .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.pink, NativeTheme.orange], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: proxy.size.width * CGFloat(NativeProfileDefaults.progressPercent) / 100)
-                    }
-                }
-                .frame(height: 8)
-            }
-            .padding(12)
-            .background(NativeProfileStyle.insetSurface.opacity(0.72))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeProfileStyle.strongBorder, lineWidth: 1))
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(NativeProfileDefaults.benefits, id: \.self) { benefit in
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.cyan)
-                        Text(benefit).font(.system(size: 12, weight: .bold)).foregroundColor(NativeProfileStyle.title)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(NativeProfileStyle.cardPadding)
-        .nativeProfileCard(accent: NativeTheme.cyan)
-        .accessibilityIdentifier("native-profile-benefits")
-    }
-}
-
 private struct NativeProfileSummaryCard: View {
     let eyebrow: String
     let title: String
@@ -3210,14 +3135,14 @@ private struct NativeProfileSummaryCard: View {
 private struct NativeProfileCommandGrid: View {
     let openPanel: (NativeProfilePanel) -> Void
 
-    static let tileTitles = ["Wallet", "Bookings", "Payments", "Rewards"]
-    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .paymentMethods, .rewards]
+    static let tileTitles = ["Wallet", "Bookings", "Payments", "Points"]
+    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .paymentMethods, .points]
 
     private let tiles: [(String, String, String, String, NativeProfilePanel, Color)] = [
         ("WALLET", "Wallet", "Passes & access", "ticket.fill", .access, NativeTheme.pink),
         ("BOOKINGS", "Bookings", "Parking & stays", "car.fill", .reservations, NativeTheme.cyan),
         ("PAYMENTS", "Payments", "Cards & Apple Pay", "creditcard.fill", .paymentMethods, NativeTheme.pink),
-        ("STATUS", "Rewards", "Points & badges", "sparkles", .rewards, NativeTheme.purple)
+        ("ACTIVITY", "Points", "Earned by check-in", "mappin.and.ellipse", .points, NativeTheme.purple)
     ]
 
     var body: some View {
@@ -3261,42 +3186,6 @@ private struct NativeProfileCommandTile: View {
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1.25))
             .shadow(color: NativeTheme.softShadow, radius: 14, x: 0, y: 8)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct NativeRewardsCard: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "sparkles").font(.system(size: 22, weight: .bold)).foregroundColor(.white)
-                        }
-                        .frame(width: 48, height: 48)
-                        .clipShape(Circle())
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("MEMBERSHIP").font(.system(size: 13, weight: .heavy)).foregroundColor(NativeTheme.purple)
-                            Text("Rewards & badges").font(.system(size: 22, weight: .bold)).foregroundColor(NativeProfileStyle.title)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 18, weight: .bold)).foregroundColor(NativeProfileStyle.body)
-                }
-                HStack(spacing: 8) {
-                    NativeProfileMicroChip("\(NativeProfileDefaults.tierName) rewards", icon: "crown.fill", color: NativeTheme.purple)
-                    NativeProfileMicroChip("\(NativeProfileDefaults.badgesUnlocked)/\(NativeProfileDefaults.badgesTotal) badges", icon: "rosette", color: NativeTheme.cyan)
-                    Spacer()
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(24)
-            .nativeProfileCard(border: NativeTheme.purple.opacity(0.72), accent: NativeTheme.purple)
         }
         .buttonStyle(.plain)
     }
@@ -11547,9 +11436,8 @@ private struct NativeMapExploreView: View {
     let openNativeProfile: (NativeProfilePanel?) -> Void
     let openNativeAccess: () -> Void
     let activeTier: BytspotTier
-    /// Premium-membership entitlement (orthogonal to tier). Drives whether the
-    /// Map Functions sheet's premium rows unlock or show the upgrade nudge.
-    var membership: BytspotMembership = .free
+    /// Canonical membership tier that gates Platinum Map Functions.
+    var membershipTier: BytspotTier = .green
     var plainOpenGeneration: Int = 0
     @State private var region = NativeMapRegionPresentation.region(for: .midtown)
     @State private var selectedMode = modeTitles[0]
@@ -11947,9 +11835,9 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $premiumUpsellFunction) { function in
-            let sheet = NativePremiumUpsellSheet(function: function, entitlementPlan: BytspotMapFunctionCatalog.premiumEntitlementPlan) {
+            let sheet = NativePremiumUpsellSheet(function: function) {
                 premiumUpsellFunction = nil
-                openNativeProfile(.rewards)
+                openNativeProfile(.access)
             }
             if #available(iOS 16.0, *) {
                 sheet
@@ -12389,8 +12277,7 @@ private struct NativeMapExploreView: View {
             bestValueTitle: bestValueOption?.title,
             bestValueSummary: bestValueOption?.nativeValueSummary,
             isWithinVerifiedZone: isWithinVerifiedZone,
-            isAuthenticated: sessionStore.isAuthenticated,
-            isPremium: membership.isPremium
+            isAuthenticated: sessionStore.isAuthenticated
         )
     }
 
@@ -13167,10 +13054,10 @@ private struct NativeMapExploreView: View {
     /// parker holds the entitlement, so the upgrade surface is always discoverable.
     private var premiumFunctionsHeader: some View {
         HStack(spacing: 8) {
-            Image(systemName: membership.isPremium ? "crown.fill" : "lock.fill")
+            Image(systemName: membershipTier.hasPlatinumAccess ? "crown.fill" : "lock.fill")
                 .font(.system(size: 12, weight: .black))
-                .foregroundColor(membership.isPremium ? NativeTheme.orange : NativeTheme.textSecondary)
-            Text(membership.isPremium ? "PREMIUM · UNLOCKED" : "PREMIUM MEMBERSHIP")
+                .foregroundColor(membershipTier.hasPlatinumAccess ? NativeTheme.orange : NativeTheme.textSecondary)
+            Text(membershipTier.hasPlatinumAccess ? "PLATINUM · UNLOCKED" : "PLATINUM MEMBERSHIP")
                 .font(.system(size: 11.5, weight: .black, design: .monospaced))
                 .tracking(1.1)
                 .foregroundColor(NativeTheme.textSecondary)
@@ -13185,7 +13072,7 @@ private struct NativeMapExploreView: View {
     /// nudge instead. Unlock authority is the single `BytspotMapFunctionCatalog`
     /// source so UI and parity self-tests can never disagree.
     private func premiumFunctionRow(_ function: BytspotPremiumMapFunction) -> some View {
-        let unlocked = BytspotMapFunctionCatalog.isUnlocked(function, for: membership)
+        let unlocked = BytspotMapFunctionCatalog.isUnlocked(function, for: membershipTier)
         return Button(action: {
             nativeImpactLight()
             if unlocked {
@@ -13733,7 +13620,6 @@ struct NativeServiceHereContext: Equatable {
     var bestValueSummary: String?
     var isWithinVerifiedZone: Bool
     var isAuthenticated: Bool
-    var isPremium: Bool
 }
 
 struct NativeServiceHerePlan: Equatable {
@@ -14132,11 +14018,10 @@ private struct NativeTrafficIntelSheet: View {
 
 /// Upgrade nudge shown when a parker without the premium entitlement taps a locked
 /// Map Function. Names the function they reached for, lists the premium privilege
-/// set, and routes to the native Account Center rewards/membership panel. The
+/// set, and routes to the native Account Center access panel. The
 /// native billing surface is still preview-grade, but the handoff stays inside Swift.
 private struct NativePremiumUpsellSheet: View {
     let function: BytspotPremiumMapFunction
-    let entitlementPlan: String
     let onUpgrade: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -14182,7 +14067,7 @@ private struct NativePremiumUpsellSheet: View {
             Button(action: onUpgrade) {
                 HStack(spacing: 8) {
                     Image(systemName: "crown.fill").font(.system(size: 15, weight: .black))
-                    Text("Upgrade to Premium").font(.system(size: 16, weight: .black))
+                    Text("Upgrade to Platinum").font(.system(size: 16, weight: .black))
                 }
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
@@ -15498,33 +15383,20 @@ enum BytspotDescentStage: Int, Comparable {
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-/// Native premium-membership entitlement. Mirrors the React "Insider Premium"
-/// subscription (trpc.subscription.status.isPremium) and is ORTHOGONAL to the
-/// black/platinum/green service tier — a parker on any tier may or may not hold
-/// premium. Native billing parity is not complete, so this defaults to `.free`
-/// (exactly as the web silently defaults to free for guests/errors) and is
-/// overridable for previews via BYT_NATIVE_PREVIEW_PREMIUM, the same way the tier
-/// is via BYT_NATIVE_PREVIEW_TIER. The Map Functions sheet reads it to decide
-/// whether premium functions unlock or show their upgrade nudge.
-enum BytspotMembership: String, Equatable, CaseIterable {
-    case free
-    case premium
+extension BytspotTier {
+    var hasPlatinumAccess: Bool { self == .platinum || self == .black }
 
-    var isPremium: Bool { self == .premium }
-
-    static let previewEnvironmentKey = "BYT_NATIVE_PREVIEW_PREMIUM"
-
-    static var preview: BytspotMembership {
-        switch ProcessInfo.processInfo.environment[previewEnvironmentKey]?.lowercased() {
-        case "1", "true", "yes", "premium": return .premium
-        default: return .free
+    static var membershipPreview: BytspotTier {
+        switch ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_PREMIUM"]?.lowercased() {
+        case "1", "true", "yes", "premium", "platinum": return .platinum
+        default: return .green
         }
     }
 }
 
 /// Premium-gated Map Functions, ported from the React MapFunction union and locked
 /// to contracts/native-trust-contract.json mapFunctions.premium. Each requires an
-/// active BytspotMembership.premium; without it the sheet row renders a lock and
+/// Platinum or Black membership; Green renders a lock and
 /// routes to the upgrade nudge instead of the action.
 enum BytspotPremiumMapFunction: String, CaseIterable, Identifiable {
     case aiNavigation = "ai-navigation"
@@ -15568,17 +15440,17 @@ enum BytspotPremiumMapFunction: String, CaseIterable, Identifiable {
 
 /// Single native authority for the Map Functions catalog, mirroring the contract's
 /// mapFunctions block. `free` functions surface without an entitlement; `premium`
-/// requires BytspotMembership.premium. The sheet UI and the parity self-tests both
+/// requires Platinum membership. The sheet UI and the parity self-tests both
 /// read from here so the lock affordance can never disagree with the contract.
 enum BytspotMapFunctionCatalog {
     static let freeFunctions = ["smart-parking", "live-venue-data", "trending-hotspots"]
     static let premiumFunctions = BytspotPremiumMapFunction.allCases
-    static let premiumEntitlementPlan = "insider-premium"
+    static let requiredMembershipTier: BytspotTier = .platinum
 
     static var premiumFunctionTokens: [String] { premiumFunctions.map(\.rawValue) }
 
-    static func isUnlocked(_ function: BytspotPremiumMapFunction, for membership: BytspotMembership) -> Bool {
-        membership.isPremium
+    static func isUnlocked(_ function: BytspotPremiumMapFunction, for tier: BytspotTier) -> Bool {
+        tier.hasPlatinumAccess
     }
 }
 
@@ -16309,8 +16181,8 @@ enum NativeMapParitySelfTests {
         precondition(BytspotMapFunctionCatalog.premiumFunctionTokens == ["ai-navigation", "spot-radar", "traffic-intelligence"], "NativeMapParitySelfTests: premium Map Function tokens drifted from contract mapFunctions.premium.")
         precondition(BytspotMapFunctionCatalog.freeFunctions == ["smart-parking", "live-venue-data", "trending-hotspots"], "NativeMapParitySelfTests: free Map Function tokens drifted from contract mapFunctions.free.")
         precondition(Set(BytspotMapFunctionCatalog.freeFunctions).isDisjoint(with: Set(BytspotMapFunctionCatalog.premiumFunctionTokens)), "NativeMapParitySelfTests: a Map Function must not be both free and premium.")
-        precondition(BytspotMapFunctionCatalog.premiumEntitlementPlan == "insider-premium", "NativeMapParitySelfTests: premium entitlement plan drifted from contract mapFunctions.premiumEntitlement.")
-        precondition(BytspotPremiumMapFunction.allCases.allSatisfy { !BytspotMapFunctionCatalog.isUnlocked($0, for: .free) && BytspotMapFunctionCatalog.isUnlocked($0, for: .premium) }, "NativeMapParitySelfTests: premium functions must lock for .free and unlock only for .premium.")
+        precondition(BytspotMapFunctionCatalog.requiredMembershipTier == .platinum, "NativeMapParitySelfTests: premium functions must require canonical Platinum membership.")
+        precondition(BytspotPremiumMapFunction.allCases.allSatisfy { !BytspotMapFunctionCatalog.isUnlocked($0, for: .green) && BytspotMapFunctionCatalog.isUnlocked($0, for: .platinum) && BytspotMapFunctionCatalog.isUnlocked($0, for: .black) }, "NativeMapParitySelfTests: premium functions must lock for Green and unlock for Platinum or Black.")
         let pins = NativeMapPin.samples
         precondition(pins.contains { $0.kind == .parking }, "NativeMapParitySelfTests: Smart Parking sample pin missing.")
         precondition(pins.contains { $0.kind == .partner }, "NativeMapParitySelfTests: partnered tap-zone sample pin missing.")
@@ -16580,8 +16452,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Payments", "Rewards"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
-        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .paymentMethods, .rewards], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
+        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Payments", "Points"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
+        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .paymentMethods, .points], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
         precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals", "NativeAccountParitySelfTests: Wallet/Bookings tiles must open My Access and Arrivals native surfaces.")
         precondition(NativeProfileBoardDesignContract.footerTitle == "Close" && NativeProfileBoardDesignContract.neutralActionSurface == "NativeTheme.selectedControlSurface", "NativeAccountParitySelfTests: Profile panels should use neutral board close actions, not colored generic Done footers.")
         precondition(NativeProfileBoardDesignContract.productBoardIDs == ["native-arrival-ledger-panel", "native-saved-places-board", "native-places-visited-board"], "NativeAccountParitySelfTests: Product boards must remain on the neutral ledger design system.")

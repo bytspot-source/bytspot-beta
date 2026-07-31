@@ -30,9 +30,9 @@ import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
-import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
+import { syncBytspotMembershipFromSubscription } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
-import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
+import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
 function AppStoreUnavailable() {
@@ -1202,23 +1202,23 @@ export default function App() {
       }
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/success')) {
-      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
+      if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
         openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
-      syncInsiderMembershipFromPremium(true);
-      toast.success('🎉 Welcome to Insider!', { description: 'Your membership is now active.', duration: 5000 });
+      syncBytspotMembershipFromSubscription(true);
+      toast.success('Welcome to Bytspot Platinum', { description: 'Your Platinum membership is now active.', duration: 5000 });
       openProfileMain();
       // Clean the URL without reload
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/cancelled')) {
-      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
+      if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
         openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
-      toast('Insider checkout cancelled — no charges made.', { duration: 3000 });
+      toast('Platinum checkout cancelled — no charges made.', { duration: 3000 });
       openProfileMain();
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/parking/success')) {

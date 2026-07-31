@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Member Perks gating — Verified venues show perks UI on the map peek card.
- *  • Guest / non-premium → locked teaser → tapping opens PremiumTeaserSheet
- *  • Premium subscriber  → inline "MEMBER PERKS · ACTIVE" panel
+ * Platinum membership gating — Verified venues show access UI on the map peek card.
+ *  • Green → locked teaser
+ *  • Platinum → inline active panel
  */
 
 const TEST_COORDS = { lat: 33.789, lng: -84.384 };
@@ -263,8 +263,8 @@ async function openVenueFromSpatialSheet(page: Page, venueName = VERIFIED_VENUE.
   await robustClick(result);
 }
 
-test.describe('Member Perks gating on Verified venues', () => {
-  test('Guest sees locked teaser and tapping it opens the PremiumTeaserSheet', async ({ page }) => {
+test.describe('Platinum gating on Verified venues', () => {
+  test('Green member sees locked teaser and can open the Platinum sheet', async ({ page }) => {
     await installMocks(page, { isPremium: false });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
@@ -277,12 +277,12 @@ test.describe('Member Perks gating on Verified venues', () => {
     // it doesn't collide with strict-mode duplicate text in Home-tab sections.
     await expect(page.getByText('Unlock perks at this Verified venue')).toBeVisible({ timeout: 15_000 });
 
-    const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' });
+    const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' });
     await expect(unlockBtn).toBeVisible({ timeout: 5_000 });
 
     await robustClick(unlockBtn);
 
-    const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Premium' });
+    const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Platinum' });
     await expect(teaser).toBeVisible({ timeout: 5_000 });
     await expect(teaser.getByText('Unlock Verified perks')).toBeVisible();
     // Match exact list-item copy — the dialog's headline paragraph also mentions
@@ -293,16 +293,16 @@ test.describe('Member Perks gating on Verified venues', () => {
     await expect(teaser.getByText('Member-only Tap / Scan rewards')).toBeVisible();
   });
 
-  test('Premium subscriber sees "MEMBER PERKS · ACTIVE" inline (no teaser)', async ({ page }) => {
+  test('Platinum member sees canonical active state inline (no teaser)', async ({ page }) => {
     await installMocks(page, { isPremium: true });
     await enterMainApp(page);
     await openMapWithLiveVenues(page);
     await openVenueFromSpatialSheet(page);
 
     // Same AnimatePresence spring on the peek card — bumped timeout to 15s.
-    await expect(page.getByText('MEMBER PERKS · ACTIVE')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('PLATINUM · ACTIVE')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('10% off your tab')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' })).toHaveCount(0);
   });
 
   test('Upgrade CTA invokes subscription.createCheckout and redirects to Stripe', async ({ page }) => {
@@ -324,17 +324,17 @@ test.describe('Member Perks gating on Verified venues', () => {
     await openMapWithLiveVenues(page);
     await openVenueFromSpatialSheet(page);
 
-    const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' });
+    const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' });
     await robustClick(unlockBtn);
 
-    const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Premium' });
+    const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Platinum' });
     await expect(teaser).toBeVisible({ timeout: 5_000 });
 
-    // The teaser's primary CTA dispatches handleUpgradeToPremium, which awaits
+    // The teaser's primary CTA dispatches the Platinum checkout handler, which awaits
     // trpc.subscription.createCheckout.mutate() and assigns window.location.href
-    // to the returned URL. Current copy is "Upgrade · $9.99 / month"; switching
-    // to "Opening checkout…" while the mutation is in flight. Match on the
-    // leading "Upgrade" so the regex survives small price/copy tweaks.
+    // to the returned URL. The CTA switches to "Opening checkout…" while the
+    // mutation is in flight. Match on the leading "Upgrade" so the regex
+    // survives small price/copy tweaks.
     const upgradeCta = teaser.getByRole('button', { name: /^Upgrade/i }).first();
     await expect(upgradeCta).toBeVisible({ timeout: 5_000 });
 
@@ -359,8 +359,8 @@ test.describe('Member Perks gating on Verified venues', () => {
     expect(capturedCheckoutNavigation!).toBe(MOCK_STRIPE_CHECKOUT_URL);
   });
 
-  test('Profile Insider CTA redirects when checkout returns a nested cs_test session id', async ({ page }) => {
-    test.skip(process.env.VITE_HIDE_INSIDER_PREMIUM !== 'false', 'Profile Insider checkout is hidden unless VITE_HIDE_INSIDER_PREMIUM=false.');
+  test('Profile Platinum CTA redirects when checkout returns a nested cs_test session id', async ({ page }) => {
+    test.skip(process.env.VITE_HIDE_INSIDER_PREMIUM !== 'false', 'Profile Platinum checkout is hidden in the default review configuration.');
 
     let capturedCheckoutNavigation: string | null = null;
     await page.route('https://checkout.stripe.com/**', async (route) => {
@@ -397,7 +397,7 @@ test.describe('Member Perks gating on Verified venues', () => {
 
     // Confirm the active-perks state rendered first so the downgrade transition
     // is meaningful (i.e. we're not just observing the guest default).
-    await expect(page.getByText('MEMBER PERKS · ACTIVE')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('PLATINUM · ACTIVE')).toBeVisible({ timeout: 15_000 });
 
     // Simulate a webhook-driven subscription lapse. The state-driven mock fetch
     // re-reads localStorage[PREMIUM_FLAG_KEY] on every tRPC call, so flipping
@@ -416,9 +416,9 @@ test.describe('Member Perks gating on Verified venues', () => {
     await openVenueFromSpatialSheet(page);
 
     await expect(page.getByText('Unlock perks at this Verified venue')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' })).toBeVisible();
     // Hard guard: the active-perks badge must not leak through after downgrade.
-    await expect(page.getByText('MEMBER PERKS · ACTIVE')).toHaveCount(0);
+    await expect(page.getByText('PLATINUM · ACTIVE')).toHaveCount(0);
   });
 
   test('Non-Verified venue: neither active perks nor locked teaser render in the peek card', async ({ page }) => {
@@ -440,8 +440,8 @@ test.describe('Member Perks gating on Verified venues', () => {
     // would race the AnimatePresence enter transition).
     await expect(page.getByText(NON_VERIFIED_VENUE.name).first()).toBeVisible({ timeout: 15_000 });
 
-    await expect(page.getByText('MEMBER PERKS · ACTIVE')).toHaveCount(0);
+    await expect(page.getByText('PLATINUM · ACTIVE')).toHaveCount(0);
     await expect(page.getByText('Unlock perks at this Verified venue')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' })).toHaveCount(0);
   });
 });

@@ -1021,27 +1021,23 @@ final class NativeAPIState: ObservableObject {
     }
 }
 
-/// Live premium-entitlement source of truth. Mirrors the React
-/// trpc.subscription.status.isPremium query: for an authenticated session it fetches
-/// /trpc/subscription.status and publishes the BytspotMembership the Map Functions
-/// sheet gates against. The BYT_NATIVE_PREVIEW_PREMIUM override always wins (with no
-/// network), and everything else fails safe to .free — guests, signed-out sessions,
-/// and any fetch error — exactly as the web silently defaults to free for guests/errors.
+/// Live canonical-membership source for the Map Functions gate. The backend's
+/// legacy isPremium boolean maps to Platinum; guests and failures fail closed to Green.
 @MainActor
-final class NativeMembershipStore: ObservableObject {
-    @Published private(set) var membership: BytspotMembership = .preview
+final class NativeMembershipTierStore: ObservableObject {
+    @Published private(set) var tier: BytspotTier = .membershipPreview
 
     func refresh(sessionStore: BytspotSessionStore) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
-        if BytspotMembership.preview == .premium { membership = .premium; return }
-        guard sessionStore.isAuthenticated else { membership = .free; return }
+        if BytspotTier.membershipPreview == .platinum { tier = .platinum; return }
+        guard sessionStore.isAuthenticated else { tier = .green; return }
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
             let payload = try await client.json(path: "/trpc/subscription.status")
-            membership = Self.findBool(named: "isPremium", in: payload) == true ? .premium : .free
+            tier = Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green
         } catch {
-            membership = .free
+            tier = .green
         }
     }
 

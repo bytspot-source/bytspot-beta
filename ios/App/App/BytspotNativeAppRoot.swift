@@ -113,7 +113,7 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var apiState = NativeAPIState()
     @StateObject private var tabContentStore = NativeTabContentStore()
     @StateObject private var walletLedgerStore = NativeWalletLedgerStore()
-    @StateObject private var membershipStore = NativeMembershipStore()
+    @StateObject private var membershipStore = NativeMembershipTierStore()
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
     @StateObject private var locationStore = NativeLocationStore()

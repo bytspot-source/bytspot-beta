@@ -9,8 +9,8 @@ import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
 import { saveCheckinRecord } from '../utils/checkinHistory';
 import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
-import { addAccessPassToWallet, getAccessPassForProduct, getInsiderMembership, INSIDER_COMMERCE_EVENT, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
-import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
+import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct, getBytspotMembership, hasPlatinumAccess, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
+import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 
 interface VenueDetailsProps {
   venue: any;
@@ -85,7 +85,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
   const [activePass, setActivePass] = useState<AccessPass | null>(() => getAccessPassForProduct(accessProduct));
-  const [membership, setMembership] = useState(() => getInsiderMembership());
+  const [membership, setMembership] = useState(() => getBytspotMembership());
   const [showTicketFlow, setShowTicketFlow] = useState(false);
   const [ticketFlowStep, setTicketFlowStep] = useState<'offer' | 'checkout' | 'confirmed'>('offer');
   const [ticketLoading, setTicketLoading] = useState(false);
@@ -93,14 +93,12 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
     const token = localStorage.getItem('bytspot_auth_token');
   return !!token && token !== 'guest_session';
   })();
-  const accessMembershipLabel = APPLE_REVIEW_HIDE_INSIDER_PREMIUM
+  const accessMembershipLabel = APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP
     ? 'Saved on this profile'
-    : membership.isActive
-      ? 'Insider tier active'
-      : 'Community tier active';
+    : `${membership.label} membership`;
   const accessFlowLabel = activePass
     ? 'Ready in My Access'
-    : APPLE_REVIEW_HIDE_INSIDER_PREMIUM
+    : APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP
       ? 'My Access preview'
       : 'Checkout to My Access';
   // Dynamic gallery — prefer Google Places photos, fall back to Unsplash
@@ -139,11 +137,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
 
   useEffect(() => {
     const syncCommerce = () => {
-      setMembership(getInsiderMembership());
+      setMembership(getBytspotMembership());
       setActivePass(getAccessPassForProduct(accessProduct));
     };
-    window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
-    return () => window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+    window.addEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
+    return () => window.removeEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
   }, [accessProduct.accessLabel, accessProduct.entryPrice, accessProduct.id, accessProduct.location, accessProduct.name, accessProduct.productType, accessProduct.subtitle, accessProduct.ticketUrl, accessProduct.type]);
 
   useEffect(() => {
@@ -1165,7 +1163,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                     <div className="space-y-2 mb-5 text-[13px] text-white/75" style={{ fontWeight: 500 }}>
                       <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-300" /> Saved straight to My Access</div>
                       <div className="flex items-center gap-2"><Ticket className="w-4 h-4 text-fuchsia-300" /> {isEventAccess ? 'Door-ready event pass' : 'Door-ready entry pass'}</div>
-                      <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'Ready on this profile after confirmation' : membership.isActive ? 'Insider is active on this profile' : 'You can activate Insider later in Profile'}</div>
+                      <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-300" /> {APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP ? 'Ready on this profile after confirmation' : hasPlatinumAccess(membership) ? 'Platinum access is active on this profile' : 'Green membership is active on this profile'}</div>
                     </div>
 
                     <motion.button

@@ -184,23 +184,21 @@ async function openVerifiedPremiumTeaser(page: Page) {
 }
 
 test.describe('Canonical membership checkout proof', () => {
-  test('Platinum checkout stays separate from points and sends coupon payload', async ({ page }) => {
+  test('Platinum checkout sends no points or discount payload', async ({ page }) => {
     await installCheckoutMocks(page, STATUS_GUEST);
     await enterMainApp(page);
 
     const teaser = await openVerifiedPremiumTeaser(page);
     await expect(teaser.getByRole('checkbox')).toHaveCount(0);
-    await teaser.getByPlaceholder('Coupon code').fill('FIRST1000');
+    await expect(teaser.getByPlaceholder('Coupon code')).toHaveCount(0);
     const upgradeCta = teaser.getByRole('button', { name: /^Upgrade/i }).first();
     await upgradeCta.focus();
     await upgradeCta.press('Enter');
 
     await expect.poll(() => checkoutPayloads(page)).toHaveLength(1);
-    await expect.poll(async () => (await checkoutPayloads(page))[0]).toMatchObject({
-      plan: 'insider-premium',
-      couponCode: 'FIRST1000',
-    });
+    await expect.poll(async () => (await checkoutPayloads(page))[0]).toMatchObject({ plan: 'insider-premium' });
     expect((await checkoutPayloads(page))[0]).not.toHaveProperty('usePoints');
+    expect((await checkoutPayloads(page))[0]).not.toHaveProperty('couponCode');
   });
 
   test('Provider Premium gate sends ecosystem upgrade checkout payload', async ({ page }) => {

@@ -2,7 +2,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle, Ticket, Sparkles } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
-import { addPoints } from '../utils/gamification';
 import { trpc } from '../utils/trpc';
 import { toast } from 'sonner@2.0.3';
 import { recordTrendingCheckin, getOpenStatusText } from '../utils/venueHours';
@@ -120,6 +119,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const checkInKey = `bytspot_checkin_${venue.id || venue.name}`;
   const lastCheckIn = parseInt(localStorage.getItem(checkInKey) || '0', 10);
   const [checkedIn, setCheckedIn] = useState(Date.now() - lastCheckIn < 3600_000);
+  const [checkInPending, setCheckInPending] = useState(false);
 
   // Review state — ensure venueKey is always a string for tRPC compatibility
   const venueKey = String(venue.id || venue.name);
@@ -204,51 +204,48 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   }, [venue.slug]);
 
   const handleCheckIn = async () => {
-    if (checkedIn) return;
-    // Generate idempotency key once per tap — retries on this key are no-ops
+    if (checkedIn || checkInPending) return;
+    const token = localStorage.getItem('bytspot_auth_token');
+    if (!token || token === 'guest_session') {
+      toast.error('Sign in to check in', { description: 'Verified check-ins earn Bytspot Points.' });
+      return;
+    }
+    const venueId = venue.id || venue.apiId;
+    if (!venueId) {
+      toast.error('Check-in unavailable', { description: 'This venue is missing a verified Bytspot identifier.' });
+      return;
+    }
+
     const idempotencyKey = crypto.randomUUID();
-    localStorage.setItem(checkInKey, String(Date.now()));
-    setCheckedIn(true);
-    addPoints('VENUE_CHECKIN');
-    recordTrendingCheckin(venue.id || venue.name, venue.name);
     const currentLevel = venue.crowd?.level ?? (crowdLevel === 'Packed' ? 4 : crowdLevel === 'Busy' ? 3 : crowdLevel === 'Active' ? 2 : 1);
     const currentLabel = venue.crowd?.label ?? crowdLevel ?? 'Unknown';
+    setCheckInPending(true);
     try {
-      const venueId = venue.id || venue.apiId;
-      if (venueId) {
-        const result = await trpc.venues.checkin.mutate({ venueId, idempotencyKey });
-        const lvl = result?.newCrowdLevel ?? null;
-        const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
-        const finalLevel = lvl ?? currentLevel;
-        const finalLabel = lvl ? (lvlLabels[lvl] ?? currentLabel) : currentLabel;
-        // Save to history
-        saveCheckinRecord({
-          venueId: venueId,
-          venueName: venue.name,
-          venueCategory: venue.category || venue.type || 'venue',
-          timestamp: new Date().toISOString(),
-          crowdLevel: finalLevel,
-          crowdLabel: finalLabel,
-          pointsEarned: 10,
-        });
-        toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
-          description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
-          duration: 3000,
-        });
-      } else {
-        saveCheckinRecord({
-          venueId: venue.name,
-          venueName: venue.name,
-          venueCategory: venue.category || venue.type || 'venue',
-          timestamp: new Date().toISOString(),
-          crowdLevel: currentLevel,
-          crowdLabel: currentLabel,
-          pointsEarned: 10,
-        });
-        toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
-      }
+      const result = await trpc.venues.checkin.mutate({ venueId, idempotencyKey });
+      const lvl = result?.newCrowdLevel ?? null;
+      const lvlLabels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
+      const finalLevel = lvl ?? currentLevel;
+      const finalLabel = lvl ? (lvlLabels[lvl] ?? currentLabel) : currentLabel;
+      localStorage.setItem(checkInKey, String(Date.now()));
+      setCheckedIn(true);
+      recordTrendingCheckin(venueId, venue.name);
+      saveCheckinRecord({
+        venueId: String(venueId),
+        venueName: venue.name,
+        venueCategory: venue.category || venue.type || 'venue',
+        timestamp: new Date().toISOString(),
+        crowdLevel: finalLevel,
+        crowdLabel: finalLabel,
+        pointsEarned: 10,
+      });
+      toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, {
+        description: lvl ? `Crowd now: ${lvlLabels[lvl] ?? lvl}` : undefined,
+        duration: 3000,
+      });
     } catch {
-      toast.success(`Checked in at ${venue.name}! +10 pts 🎉`, { duration: 3000 });
+      toast.error('Check-in not verified', { description: 'No Points were awarded. Please try again.' });
+    } finally {
+      setCheckInPending(false);
     }
   };
   
@@ -1053,7 +1050,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
             ) : (
               <motion.button
                 onClick={handleCheckIn}
-                disabled={checkedIn}
+                disabled={checkedIn || checkInPending}
                 className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3"
                 style={{
                   background: checkedIn
@@ -1065,7 +1062,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               >
                 <CheckCircle className={`w-5 h-5 ${checkedIn ? 'text-emerald-400' : 'text-white'}`} strokeWidth={2.5} />
                 <span className={`text-[15px] ${checkedIn ? 'text-emerald-400' : 'text-white'}`} style={{ fontWeight: 700 }}>
-                  {checkedIn ? 'Checked In ✓' : 'Check In · +10 pts'}
+                  {checkedIn ? 'Checked In ✓' : checkInPending ? 'Verifying…' : 'Check In · +10 pts'}
                 </span>
               </motion.button>
             )}

@@ -290,7 +290,7 @@ test.describe('Platinum gating on Verified venues', () => {
     // loose regex like /Skip-the-line/i would collide with it under strict mode.
     await expect(teaser.getByText('10% off your tab at every Verified venue')).toBeVisible();
     await expect(teaser.getByText('Skip-the-line at participating partners')).toBeVisible();
-    await expect(teaser.getByText('Member-only Tap / Scan rewards')).toBeVisible();
+    await expect(teaser.getByText('Platinum Tap / Scan access')).toBeVisible();
   });
 
   test('Platinum member sees canonical active state inline (no teaser)', async ({ page }) => {
@@ -399,21 +399,11 @@ test.describe('Platinum gating on Verified venues', () => {
     // is meaningful (i.e. we're not just observing the guest default).
     await expect(page.getByText('PLATINUM · ACTIVE')).toBeVisible({ timeout: 15_000 });
 
-    // Simulate a webhook-driven subscription lapse. The state-driven mock fetch
-    // re-reads localStorage[PREMIUM_FLAG_KEY] on every tRPC call, so flipping
-    // the flag and forcing a refetch (here via reload) makes the next
-    // subscription.status response return isPremium:false without rebuilding
-    // the page-init script.
-    await page.evaluate((key) => localStorage.setItem(key, 'false'), PREMIUM_FLAG_KEY);
-    await page.reload();
-
-    // After reload the persisted guest-auth state usually skips the splash and
-    // lands directly on the Home tab, but a cold reload can still surface
-    // "Let's Go". ensureMainApp races both states so the test is robust either
-    // way.
-    await ensureMainApp(page);
-    await openMapWithLiveVenues(page);
-    await openVenueFromSpatialSheet(page);
+    // Simulate an entitlement update without reloading the SPA.
+    await page.evaluate((key) => {
+      localStorage.setItem(key, 'false');
+      window.dispatchEvent(new Event('bytspot:commerce-updated'));
+    }, PREMIUM_FLAG_KEY);
 
     await expect(page.getByText('Unlock perks at this Verified venue')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' })).toBeVisible();

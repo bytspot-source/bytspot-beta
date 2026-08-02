@@ -31,7 +31,7 @@ import { MapSearchBar } from './map/MapSearchBar';
 import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
 import { useMapParkingData } from './map/useMapParkingData';
-import { PLATINUM_SUBSCRIPTION_PLAN } from '../utils/insiderCommerce';
+import { BYTSPOT_COMMERCE_EVENT, PLATINUM_SUBSCRIPTION_PLAN } from '../utils/insiderCommerce';
 
 type ReservationSpot = {
   id: string;
@@ -308,7 +308,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [showPlatinumTeaser, setShowPlatinumTeaser] = useState(false);
   const [platinumCheckoutPending, setPlatinumCheckoutPending] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
-  const [platinumCouponCode, setPlatinumCouponCode] = useState('');
+  const membershipRefreshGeneration = useRef(0);
 
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
@@ -332,19 +332,33 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     return () => clearTimeout(t);
   }, [showLiveUpdates]);
 
-  // Pull Platinum status — silently defaults to Green on any error (e.g. guest).
-  useEffect(() => {
-    let cancelled = false;
+  const refreshMembership = useCallback(() => {
+    const generation = ++membershipRefreshGeneration.current;
+    setHasPlatinumMembership(false);
     trpc.subscription.status.query()
       .then((data) => {
-        if (!cancelled) {
-          setSubscriptionStatus(data);
-          setHasPlatinumMembership(Boolean(data?.isPremium));
-        }
+        if (generation !== membershipRefreshGeneration.current) return;
+        setSubscriptionStatus(data);
+        setHasPlatinumMembership(Boolean(data?.isPremium));
       })
-      .catch(() => { if (!cancelled) setHasPlatinumMembership(false); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (generation === membershipRefreshGeneration.current) setHasPlatinumMembership(false);
+      });
   }, []);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshMembership(); };
+    refreshMembership();
+    window.addEventListener(BYTSPOT_COMMERCE_EVENT, refreshMembership);
+    window.addEventListener('focus', refreshMembership);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      membershipRefreshGeneration.current += 1;
+      window.removeEventListener(BYTSPOT_COMMERCE_EVENT, refreshMembership);
+      window.removeEventListener('focus', refreshMembership);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshMembership]);
 
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
   const triggerLightHaptic = useCallback(() => { void impactLight(); }, []);
@@ -545,7 +559,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     try {
       const result = await trpc.subscription.createCheckout.mutate({
         plan: PLATINUM_SUBSCRIPTION_PLAN,
-        couponCode: platinumCouponCode.trim() || undefined,
       });
       if (result?.url) {
         window.location.href = result.url;
@@ -560,7 +573,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     } finally {
       setPlatinumCheckoutPending(false);
     }
-  }, [platinumCheckoutPending, platinumCouponCode]);
+  }, [platinumCheckoutPending]);
 
   useEffect(() => {
     if (destination) {
@@ -1562,7 +1575,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                   {[
                     { icon: '💸', label: '10% off your tab at every Verified venue' },
                     { icon: '🚪', label: 'Skip-the-line at participating partners' },
-                    { icon: '🎁', label: 'Member-only Tap / Scan rewards' },
+                    { icon: '🎟️', label: 'Platinum Tap / Scan access' },
                   ].map((perk) => (
                     <li key={perk.label} className="flex items-center gap-2.5 px-3 py-2 rounded-[12px] bg-white/5 border border-white/10">
                       <span className="text-[18px]">{perk.icon}</span>
@@ -1575,13 +1588,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                     <span style={{ fontWeight: 800 }}>Platinum membership</span>
                     <span className="text-white" style={{ fontWeight: 900 }}>{formatPlatinumCents(platinumBaseCents)} / month</span>
                   </div>
-                  <input
-                    value={platinumCouponCode}
-                    onChange={(event) => setPlatinumCouponCode(event.target.value)}
-                    placeholder="Coupon code"
-                    className="w-full rounded-[12px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
-                    style={{ fontWeight: 700 }}
-                  />
                 </div>
                 <motion.button
                   onClick={handleUpgradeToPlatinum}

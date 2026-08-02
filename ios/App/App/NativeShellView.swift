@@ -16051,8 +16051,8 @@ enum NativeShellThemeSelfTests {
     }
 
     private static func assertDefaultTierFallback() {
-        precondition(BytspotTheme.defaultTier(from: nil) == .platinum, "NativeShellThemeSelfTests: nil default tier should be platinum.")
-        precondition(BytspotTheme.defaultTier(from: "unknown") == .platinum, "NativeShellThemeSelfTests: invalid default tier should be platinum.")
+        precondition(BytspotTheme.defaultTier(from: nil) == .green, "NativeShellThemeSelfTests: nil default tier should fail closed to Green.")
+        precondition(BytspotTheme.defaultTier(from: "unknown") == .green, "NativeShellThemeSelfTests: invalid default tier should fail closed to Green.")
         precondition(BytspotTheme.defaultTier(from: "BLACK") == .black, "NativeShellThemeSelfTests: uppercase tier normalization drifted.")
     }
 

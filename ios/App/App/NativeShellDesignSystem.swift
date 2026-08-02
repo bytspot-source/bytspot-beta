@@ -75,8 +75,8 @@ enum BytspotTheme {
     }
 
     static func defaultTier(from rawValue: String?) -> BytspotTier {
-        guard let normalized = rawValue?.lowercased() else { return .platinum }
-        return BytspotTier(rawValue: normalized) ?? .platinum
+        guard let normalized = rawValue?.lowercased() else { return .green }
+        return BytspotTier(rawValue: normalized) ?? .green
     }
 
     static func accent(for tier: BytspotTier) -> Color { bytspotDesignColor(hex: accentHex(for: tier)) }

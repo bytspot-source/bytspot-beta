@@ -30,7 +30,7 @@ import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
 
 const DEMO_VENUE_SERVICES = [
   { name: 'Verified Entry', detail: 'Skip the line and walk straight in.' },
-  { name: 'VIP Access', detail: 'Premium seating, priority arrival, and lounge-ready support.' },
+  { name: 'Backstage Access', detail: 'Reserved seating, priority arrival, and lounge-ready support.' },
   { name: 'Smart Parking', detail: 'Find parking and book venue pickup.' },
   { name: 'Concierge Help', detail: 'Request private chef, massage, rides, and venue help.' },
 ];
@@ -220,7 +220,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }).catch(() => {});
     trpc.subscription.status.query().then((data: SubscriptionStatus) => {
       setMembership(syncBytspotMembershipFromSubscription(Boolean(data?.isPremium)));
-    }).catch(() => {});
+    }).catch(() => {
+      setMembership(syncBytspotMembershipFromSubscription(false));
+    });
 
     if (hasRealPlatinumCheckout) {
       trpc.user.accessPasses.list.query().then((passes: AccessPassList) => {
@@ -1436,7 +1438,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
             <div className="relative mt-4 flex flex-wrap gap-2">
               <div className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>
-                Premium checkout
+                Platinum access
               </div>
               <div className="rounded-full border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-1.5 text-[12px] text-fuchsia-100" style={{ fontWeight: 700 }}>
                 Priority support

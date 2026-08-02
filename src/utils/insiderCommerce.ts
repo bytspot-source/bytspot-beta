@@ -93,9 +93,9 @@ function greenMembership(): BytspotMembershipSnapshot {
 
 let currentMembership = greenMembership();
 
-export function getBytspotMembership(): BytspotMembershipSnapshot {
-  localStorage.removeItem(LEGACY_MEMBERSHIP_KEY);
-  localStorage.removeItem(MEMBERSHIP_KEY);
+export function getBytspotMembership(storage: Pick<Storage, 'removeItem'> = localStorage): BytspotMembershipSnapshot {
+  storage.removeItem(LEGACY_MEMBERSHIP_KEY);
+  storage.removeItem(MEMBERSHIP_KEY);
   return currentMembership;
 }
 

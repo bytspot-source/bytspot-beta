@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { User, Settings, Bell, CreditCard, MapPin, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
 import { VehicleManagement } from './VehicleManagement';
@@ -18,7 +18,7 @@ import { TermsOfService } from './TermsOfService';
 import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
-import { getUserPointsLocal, getUserPointsAsync } from '../utils/gamification';
+import { getUserPointsAsync, type UserPoints } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
 import { getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type FriendSuggestion } from '../utils/social';
 import { addPersonToCircleViaRpc, createSocialCircleViaRpc, hasCircleMembership, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
@@ -176,8 +176,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     } catch { return 'Guest'; }
   })();
 
-  // Async state: points and check-ins — start local, then upgrade from the API.
-  const [userPoints, setUserPoints] = useState(getUserPointsLocal());
+  // Points remain unavailable until the backend confirms the balance.
+  const [userPoints, setUserPoints] = useState<UserPoints | null>(null);
   const [checkinHistory, setCheckinHistory] = useState<CheckInRecord[]>(getCheckinHistory());
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
@@ -186,6 +186,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
   const [platinumLoading, setPlatinumLoading] = useState(false);
+  const membershipRefreshGeneration = useRef(0);
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
@@ -204,6 +205,24 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     return !!token && token !== 'guest_session';
   })();
   const subscriptionStateLabel = hasPlatinumAccess(membership) ? 'ACTIVE' : 'AVAILABLE';
+  const refreshMembership = useCallback(async (): Promise<boolean> => {
+    const generation = ++membershipRefreshGeneration.current;
+    const token = localStorage.getItem('bytspot_auth_token');
+    setMembership(syncBytspotMembershipFromSubscription(false));
+    try {
+      const data = await trpc.subscription.status.query() as SubscriptionStatus;
+      if (generation !== membershipRefreshGeneration.current || token !== localStorage.getItem('bytspot_auth_token')) return false;
+      const confirmed = Boolean(data?.isPremium);
+      setMembership(syncBytspotMembershipFromSubscription(confirmed));
+      return confirmed;
+    } catch {
+      if (generation === membershipRefreshGeneration.current) {
+        setMembership(syncBytspotMembershipFromSubscription(false));
+      }
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     const syncCommerce = () => {
       setMembership(getBytspotMembership());
@@ -218,11 +237,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     trpc.auth.me.query().then((data: { referralCount?: number | null } | null | undefined) => {
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
-    trpc.subscription.status.query().then((data: SubscriptionStatus) => {
-      setMembership(syncBytspotMembershipFromSubscription(Boolean(data?.isPremium)));
-    }).catch(() => {
-      setMembership(syncBytspotMembershipFromSubscription(false));
-    });
+    void refreshMembership();
 
     if (hasRealPlatinumCheckout) {
       trpc.user.accessPasses.list.query().then((passes: AccessPassList) => {
@@ -240,10 +255,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }
 
     return () => {
+      membershipRefreshGeneration.current += 1;
       window.removeEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
-  }, [hasRealPlatinumCheckout]);
+  }, [hasRealPlatinumCheckout, refreshMembership]);
 
   useEffect(() => {
     if (currentScreen !== 'main') return;
@@ -396,7 +412,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         }
 
         if (result?.message === 'Already premium') {
-          setMembership(syncBytspotMembershipFromSubscription(true));
+          const confirmed = await refreshMembership();
+          if (!confirmed) {
+            toast.error('Platinum confirmation unavailable', { description: 'Your membership must be confirmed by subscription status.' });
+            return;
+          }
           setCurrentScreen('tickets');
           toast.success('Platinum already active', { description: 'Your access wallet is ready in Profile.' });
           return;
@@ -1384,7 +1404,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {userPoints.total >= 1000 ? `${(userPoints.total / 1000).toFixed(1)}K` : userPoints.total.toLocaleString()}
+                {userPoints ? (userPoints.total >= 1000 ? `${(userPoints.total / 1000).toFixed(1)}K` : userPoints.total.toLocaleString()) : '—'}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                 Points
@@ -1576,7 +1596,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                   BYTSPOT POINTS
                 </p>
                 <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-                  {userPoints.total.toLocaleString()} points
+                  {userPoints ? `${userPoints.total.toLocaleString()} points` : 'Unavailable'}
                 </p>
               </div>
             </div>

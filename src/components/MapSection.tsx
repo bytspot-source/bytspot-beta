@@ -50,6 +50,8 @@ type ReservationSpot = {
   lastUpdate?: Date | string;
 };
 
+const PLATINUM_MAP_FUNCTIONS: readonly MapFunction[] = ['ai-navigation', 'spot-radar', 'traffic-intelligence'];
+
 interface MapSectionProps {
   isDarkMode: boolean;
   selectedFunction?: MapFunction;
@@ -593,10 +595,19 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       'spot-radar': 'Spot Radar Active',
     };
     if (selectedFunction && toasts[selectedFunction]) {
+      if (PLATINUM_MAP_FUNCTIONS.includes(selectedFunction) && !hasPlatinumMembership) {
+        setShowTrafficIntel(false);
+        setShowPlatinumTeaser(true);
+        return;
+      }
       if (selectedFunction === 'traffic-intelligence') setShowTrafficIntel(true);
       toast.success(toasts[selectedFunction], { duration: 2000 });
     }
-  }, [selectedFunction]);
+  }, [hasPlatinumMembership, selectedFunction]);
+
+  useEffect(() => {
+    if (!hasPlatinumMembership) setShowTrafficIntel(false);
+  }, [hasPlatinumMembership]);
 
   // Stable reserve callback — reads from refs so never stale
   const handleSpotReserve = useCallback((spotId: number) => {
@@ -749,7 +760,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     if (partnerFocusActive || routeDestination || selectedFunction) setNearbySheetDismissed(false);
   }, [partnerFocusActive, routeDestination, selectedFunction]);
-  const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
+  const trafficPanelActive = showTrafficIntel;
   const hasActiveSpatialQuery = normalizedMapQuery.length > 0;
   const shouldShowSpatialSheet = !trafficPanelActive && (peekVenue || droppedRequestPin || hasActiveSpatialQuery || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
   const mapMode: MapMode = isRideBookingOpen
@@ -785,6 +796,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const toggleTrafficIntel = useCallback(() => {
     const nextTrafficState = !showTrafficIntel;
+    if (nextTrafficState && !hasPlatinumMembership) {
+      setShowPlatinumTeaser(true);
+      return;
+    }
     if (nextTrafficState) {
       setShowLayerMenu(false);
       setNearbySheetDismissed(true);
@@ -796,7 +811,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       setSelectedSpot(null);
     }
     setShowTrafficIntel(nextTrafficState);
-  }, [showTrafficIntel]);
+  }, [hasPlatinumMembership, showTrafficIntel]);
 
   const visibleLayerControls = [
     { group: 'Explore', icon: 'P', label: 'Parking', detail: 'Include parking in results', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
@@ -914,6 +929,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         showLayerMenu={showLayerMenu}
         showFullRightActionStack={showFullRightActionStack}
         showTrafficIntel={showTrafficIntel}
+        trafficUnlocked={hasPlatinumMembership}
         showVerifiedOnly={showVerifiedOnly}
         onToggleLayers={(event) => {
           event.currentTarget.blur();

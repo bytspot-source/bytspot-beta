@@ -318,7 +318,7 @@ export function VibePreferences({ isDarkMode, onBack }: VibePreferencesProps) {
 
   const vibeProfile = useMemo(() => {
     if (vibeScore <= 3) return { label: 'Zen Minimalist', color: 'from-blue-500 to-cyan-500', emoji: '🧘', token: 'coffee' };
-    if (vibeScore <= 5) return { label: 'Balanced Explorer', color: 'from-green-500 to-emerald-500', emoji: '🌿', token: 'food' };
+    if (vibeScore <= 5) return { label: 'Balanced Discovery', color: 'from-green-500 to-emerald-500', emoji: '🌿', token: 'food' };
     if (vibeScore <= 7) return { label: 'Social Butterfly', color: 'from-purple-500 to-pink-500', emoji: '🦋', token: 'drinks' };
     return { label: 'Energy Seeker', color: 'from-orange-500 to-red-500', emoji: '⚡', token: 'nightlife' };
   }, [vibeScore]);
@@ -971,7 +971,7 @@ export function VibePreferences({ isDarkMode, onBack }: VibePreferencesProps) {
               </h4>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { value: 'explorer' as const, label: 'Explorer', icon: '🧭', desc: 'Spontaneous & adventurous' },
+                  { value: 'explorer' as const, label: 'Discover', icon: '🧭', desc: 'Spontaneous & adventurous' },
                   { value: 'planner' as const, label: 'Planner', icon: '📋', desc: 'Organized & prepared' },
                 ].map((style) => (
                   <motion.button

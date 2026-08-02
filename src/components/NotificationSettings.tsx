@@ -248,7 +248,7 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
             <div className="flex items-center justify-between py-2">
               <div>
                 <p className="text-[15px] text-white mb-0.5" style={{ fontWeight: 500 }}>
-                  Insider Updates
+                  Network Updates
                 </p>
                 <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
                   New posts and venue information

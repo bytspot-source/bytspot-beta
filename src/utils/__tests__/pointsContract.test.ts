@@ -14,6 +14,8 @@ test('points do not define or promote membership tiers', () => {
   assert.doesNotMatch(source, /MembershipTier|TierInfo|getUserTier|getNextTierInfo|TIERS/);
   assert.doesNotMatch(source, /bronze|silver|gold/i);
   assert.doesNotMatch(source, /function (addPoints|spendPoints|awardVerifiedCheckInPoints)/);
+  assert.doesNotMatch(source, /bytspot_user_points|bytspot_point_transactions/);
+  assert.doesNotMatch(source, /localStorage\.setItem/);
 });
 
 test('canonical Bytspot tiers remain Green, Platinum, and Black', () => {

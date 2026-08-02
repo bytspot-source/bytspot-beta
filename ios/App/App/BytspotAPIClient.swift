@@ -1026,19 +1026,39 @@ final class NativeAPIState: ObservableObject {
 @MainActor
 final class NativeMembershipTierStore: ObservableObject {
     @Published private(set) var tier: BytspotTier = .membershipPreview
+    private var refreshGeneration = 0
 
     func refresh(sessionStore: BytspotSessionStore) async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let expectedToken = sessionStore.token
+        let expectedUserID = sessionStore.authenticatedUserID
+        tier = .green
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         if BytspotTier.membershipPreview == .platinum { tier = .platinum; return }
-        guard sessionStore.isAuthenticated else { tier = .green; return }
+        guard sessionStore.isAuthenticated else { return }
 
-        let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
+        let client = BytspotAPIClient(tokenProvider: { expectedToken })
         do {
             let payload = try await client.json(path: "/trpc/subscription.status")
+            guard Self.canApplyRefresh(
+                generation: generation, currentGeneration: refreshGeneration,
+                expectedToken: expectedToken, currentToken: sessionStore.token,
+                expectedUserID: expectedUserID, currentUserID: sessionStore.authenticatedUserID
+            ) else { return }
             tier = Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green
         } catch {
+            guard generation == refreshGeneration else { return }
             tier = .green
         }
+    }
+
+    nonisolated static func canApplyRefresh(
+        generation: Int, currentGeneration: Int,
+        expectedToken: String?, currentToken: String?,
+        expectedUserID: String?, currentUserID: String?
+    ) -> Bool {
+        generation == currentGeneration && expectedToken == currentToken && expectedUserID == currentUserID
     }
 
     /// Recursively extracts a named boolean from a decoded tRPC payload, tolerating

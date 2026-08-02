@@ -1302,6 +1302,24 @@ final class BytspotTrustEngineTests: XCTestCase {
         let payload: [String: Any] = ["result": ["data": ["isVendorPremium": true]]]
         XCTAssertNil(NativeMembershipTierStore.findBool(named: "isPremium", in: payload))
     }
+
+    func testMembershipRefreshRejectsStaleGenerationOrSession() {
+        XCTAssertTrue(NativeMembershipTierStore.canApplyRefresh(
+            generation: 2, currentGeneration: 2,
+            expectedToken: "token-a", currentToken: "token-a",
+            expectedUserID: "user-a", currentUserID: "user-a"
+        ))
+        XCTAssertFalse(NativeMembershipTierStore.canApplyRefresh(
+            generation: 1, currentGeneration: 2,
+            expectedToken: "token-a", currentToken: "token-a",
+            expectedUserID: "user-a", currentUserID: "user-a"
+        ))
+        XCTAssertFalse(NativeMembershipTierStore.canApplyRefresh(
+            generation: 2, currentGeneration: 2,
+            expectedToken: "token-a", currentToken: nil,
+            expectedUserID: "user-a", currentUserID: nil
+        ))
+    }
 }
 
 final class NativeProfileDataAPITests: XCTestCase {

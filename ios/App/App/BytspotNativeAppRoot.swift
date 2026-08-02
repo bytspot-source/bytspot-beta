@@ -106,6 +106,7 @@ final class NativeAppearanceRuntimeStore: ObservableObject {
 }
 
 struct BytspotNativeAppRoot: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore = BytspotSessionStore()
     @StateObject private var bridgeStore = NativeBridgeStore()
     @StateObject private var navigation = NativeNavigationCoordinator()
@@ -188,6 +189,10 @@ struct BytspotNativeAppRoot: View {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
                 }
+            }
+            .onChange(of: scenePhase) { phase in
+                guard phase == .active else { return }
+                Task { await membershipStore.refresh(sessionStore: sessionStore) }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in
                 tabContentStore.invalidateLocationScopedContent(for: locationStore.coordinate)

@@ -2,11 +2,10 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Clock, MapPin, Sparkles, TrendingUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
-  getPointTransactions,
   getPointTransactionsAsync,
-  getUserPointsLocal,
   getUserPointsAsync,
   type PointTransaction,
+  type UserPoints,
 } from '../utils/gamification';
 
 interface BytspotPointsProps {
@@ -24,8 +23,8 @@ function formatDate(date: Date): string {
 }
 
 export function BytspotPoints({ onBack }: BytspotPointsProps) {
-  const [points, setPoints] = useState(getUserPointsLocal());
-  const [transactions, setTransactions] = useState<PointTransaction[]>(getPointTransactions());
+  const [points, setPoints] = useState<UserPoints | null>(null);
+  const [transactions, setTransactions] = useState<PointTransaction[] | null>(null);
 
   useEffect(() => {
     getUserPointsAsync().then(setPoints).catch(() => {});
@@ -49,13 +48,13 @@ export function BytspotPoints({ onBack }: BytspotPointsProps) {
         <div className="rounded-[24px] border-2 border-purple-300/40 bg-gradient-to-br from-purple-500/25 to-cyan-500/20 p-6">
           <div className="mb-2 flex items-center gap-2 text-purple-100">
             <Sparkles className="h-5 w-5" strokeWidth={2.5} />
-            <span className="text-[13px] font-bold tracking-wide">YOUR BALANCE</span>
+            <span className="text-[13px] font-bold tracking-wide">VERIFIED BALANCE</span>
           </div>
           <div className="flex items-baseline gap-2 text-white">
-            <span className="text-[48px] font-bold">{points.total.toLocaleString()}</span>
+            <span className="text-[48px] font-bold">{points ? points.total.toLocaleString() : '—'}</span>
             <span className="text-[20px] font-semibold text-white/80">points</span>
           </div>
-          {points.pending > 0 && (
+          {points && points.pending > 0 && (
             <div className="mt-3 flex w-fit items-center gap-2 rounded-full border border-yellow-300/30 bg-yellow-500/20 px-3 py-1.5 text-[12px] font-semibold text-yellow-100">
               <Clock className="h-3.5 w-3.5" />
               {points.pending} pending verification
@@ -77,14 +76,18 @@ export function BytspotPoints({ onBack }: BytspotPointsProps) {
           </div>
           <div className="mt-4 flex items-center gap-2 border-t border-slate-700 pt-4 text-slate-200">
             <TrendingUp className="h-4 w-4 text-cyan-300" />
-            <span className="text-[13px] font-semibold">{points.lifetime.toLocaleString()} lifetime points earned</span>
+            <span className="text-[13px] font-semibold">{points ? `${points.lifetime.toLocaleString()} lifetime points earned` : 'Sign in and connect to view verified Points'}</span>
           </div>
         </div>
 
         <div>
           <h2 className="mb-3 text-[17px] font-bold text-white">Points history</h2>
           <div className="space-y-3">
-            {transactions.length === 0 ? (
+            {transactions === null ? (
+              <div className="rounded-[18px] border border-slate-700 bg-slate-950 p-5 text-center text-[13px] text-slate-300">
+                Verified Points history is unavailable.
+              </div>
+            ) : transactions.length === 0 ? (
               <div className="rounded-[18px] border border-slate-700 bg-slate-950 p-5 text-center text-[13px] text-slate-300">
                 Your verified check-ins will appear here.
               </div>

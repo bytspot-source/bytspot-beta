@@ -264,6 +264,35 @@ async function openVenueFromSpatialSheet(page: Page, venueName = VERIFIED_VENUE.
 }
 
 test.describe('Platinum gating on Verified venues', () => {
+  test('Green member cannot open Traffic Intelligence', async ({ page }) => {
+    await installMocks(page, { isPremium: false });
+    await enterMainApp(page);
+    await openMapWithLiveVenues(page);
+
+    await robustClick(page.getByRole('button', { name: 'Traffic intelligence (Platinum locked)' }));
+    await expect(page.getByRole('dialog', { name: 'Unlock Bytspot Platinum' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Traffic Intelligence' })).toHaveCount(0);
+  });
+
+  test('Traffic Intelligence closes when Platinum lapses mid-session', async ({ page }) => {
+    await installMocks(page, { isPremium: true });
+    await enterMainApp(page);
+    await openMapWithLiveVenues(page);
+
+    const trafficButton = page.getByRole('button', { name: 'Traffic intelligence', exact: true });
+    await expect(trafficButton).toBeVisible({ timeout: 15_000 });
+    await robustClick(trafficButton);
+    await expect(page.getByRole('dialog', { name: 'Traffic Intelligence' })).toBeVisible();
+
+    await page.evaluate(({ key, eventName }) => {
+      localStorage.setItem(key, 'false');
+      window.dispatchEvent(new Event(eventName));
+    }, { key: PREMIUM_FLAG_KEY, eventName: 'bytspot:commerce-updated' });
+
+    await expect(page.getByRole('dialog', { name: 'Traffic Intelligence' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Traffic intelligence (Platinum locked)' })).toBeVisible();
+  });
+
   test('Green member sees locked teaser and can open the Platinum sheet', async ({ page }) => {
     await installMocks(page, { isPremium: false });
     await enterMainApp(page);

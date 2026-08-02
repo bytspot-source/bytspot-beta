@@ -1982,7 +1982,7 @@ private struct NativeVibePreferencesPanel: View {
             NativePreferenceChipSection(title: "Group Size Preferences", options: [("Solo", "person.fill", $solo), ("Couple", "person.2.fill", $couple), ("Small Group", "person.3.fill", $smallGroup), ("Large Group", "person.3.sequence.fill", $largeGroup)], color: NativeTheme.emerald)
             NativePreferenceChipSection(title: "Dietary + Accessibility", options: [("Vegetarian", "leaf.fill", $vegetarian), ("Vegan", "leaf.circle.fill", $vegan), ("Wheelchair Access", "figure.roll", $wheelchair), ("Service Animals", "pawprint.fill", $serviceAnimal)], color: NativeTheme.orange)
             NativePreferenceScaleRow(title: "Social Interaction Preference", value: $introvertExtrovert, range: 1...10, step: 1, leftLabel: "Introvert", rightLabel: "Extrovert", valueLabel: "\(Int(introvertExtrovert))/10", color: NativeTheme.pink)
-            NativePreferenceChoiceRow(title: "Discovery Style", choices: [("explorer", "Explorer", "Spontaneous & adventurous"), ("planner", "Planner", "Organized & prepared")], selection: $discoveryStyle, color: NativeTheme.cyan)
+            NativePreferenceChoiceRow(title: "Discovery Style", choices: [("explorer", "Discover", "Spontaneous & adventurous"), ("planner", "Planner", "Organized & prepared")], selection: $discoveryStyle, color: NativeTheme.cyan)
             NativePreferenceToggleRow(title: "AI Learning", subtitle: "Use your choices to improve future recommendations.", icon: "brain.head.profile", color: NativeTheme.purple, isOn: $learningEnabled)
             NativePreferenceToggleRow(title: "Seasonal Adjustments", subtitle: "Default on; tune recommendations by season and context.", icon: "sparkles", color: NativeTheme.emerald, isOn: $seasonalAdjustments)
             NativePreferenceToggleRow(title: "Social Influence", subtitle: "Default off; opt in before friend activity affects suggestions.", icon: "person.2.fill", color: NativeTheme.pink, isOn: $socialInfluence)
@@ -2033,7 +2033,7 @@ private struct NativeVibePreferencesPanel: View {
 
     private var vibeProfile: (label: String, token: String, publicStyle: String, emoji: String, color: Color) {
         if vibeScore <= 3 { return ("Zen Minimalist", "coffee", "Calm", "🧘", NativeTheme.cyan) }
-        if vibeScore <= 5 { return ("Balanced Explorer", "food", "Balanced", "🌿", NativeTheme.emerald) }
+        if vibeScore <= 5 { return ("Balanced Discovery", "food", "Balanced", "🌿", NativeTheme.emerald) }
         if vibeScore <= 7 { return ("Social Butterfly", "drinks", "Social", "🦋", NativeTheme.purple) }
         return ("Energy Seeker", "nightlife", "High Energy", "⚡", NativeTheme.orange)
     }

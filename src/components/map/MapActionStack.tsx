@@ -8,6 +8,7 @@ type MapActionStackProps = {
   showLayerMenu: boolean;
   showFullRightActionStack: boolean;
   showTrafficIntel: boolean;
+  trafficUnlocked: boolean;
   showVerifiedOnly: boolean;
   onToggleLayers: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onRecenter: () => void;
@@ -25,6 +26,7 @@ export function MapActionStack({
   showLayerMenu,
   showFullRightActionStack,
   showTrafficIntel,
+  trafficUnlocked,
   showVerifiedOnly,
   onToggleLayers,
   onRecenter,
@@ -73,8 +75,8 @@ export function MapActionStack({
             className={`w-11 h-11 rounded-full flex items-center justify-center border-2 shadow-xl transition-colors ${showTrafficIntel ? 'bg-cyan-500 border-cyan-100' : 'bg-[#050505] border-white/40'}`}
             whileTap={{ scale: 0.9 }}
             transition={transition}
-            title="Traffic Intelligence"
-            aria-label="Traffic intelligence"
+            title={trafficUnlocked ? 'Traffic Intelligence' : 'Traffic Intelligence · Platinum'}
+            aria-label={trafficUnlocked ? 'Traffic intelligence' : 'Traffic intelligence (Platinum locked)'}
             data-testid="traffic-intelligence-fab"
           >
             <Activity className={`w-5 h-5 ${showTrafficIntel ? 'text-white' : 'text-cyan-300'}`} strokeWidth={2.5} />

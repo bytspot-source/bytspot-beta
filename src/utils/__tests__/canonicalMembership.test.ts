@@ -33,3 +33,15 @@ test('the checkout success URL cannot promote membership without backend status'
   assert.doesNotMatch(successRoute, /syncBytspotMembershipFromSubscription\(true\)/);
   assert.match(successRoute, /Confirming your membership with Bytspot/);
 });
+
+test('active preference and access surfaces omit legacy progression labels', () => {
+  const paths = [
+    '../../components/VirtualPatchScannerSheet.tsx',
+    '../../components/NotificationSettings.tsx',
+    '../../components/LocationSettings.tsx',
+    '../../components/VibePreferences.tsx',
+    '../../../ios/App/App/NativeShellView.swift',
+  ];
+  const source = paths.map((path) => readFileSync(new URL(path, import.meta.url), 'utf8')).join('\n');
+  assert.doesNotMatch(source, /VIP Access Demo|Request VIP Access|Insider Updates|Insider tab|Balanced Explorer|["']Explorer["']/);
+});

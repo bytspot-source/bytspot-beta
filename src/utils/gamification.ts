@@ -8,7 +8,8 @@ import { trpc } from './trpc.ts';
 
 /** Returns true when a JWT is present (user is logged in). */
 function isAuthenticated(): boolean {
-  return !!localStorage.getItem('bytspot_auth_token');
+  const token = localStorage.getItem('bytspot_auth_token');
+  return Boolean(token && token !== 'guest_session');
 }
 
 export interface UserPoints {
@@ -31,60 +32,26 @@ export const POINT_ACTIONS = {
   VENUE_CHECKIN: { points: 10, description: 'Verified check-in' },
 } as const;
 
-// Storage keys
-const STORAGE_KEYS = {
-  POINTS: 'bytspot_user_points',
-  TRANSACTIONS: 'bytspot_point_transactions',
-};
-
 /**
- * Get user's current points — sync localStorage fallback
+ * Get the backend-authoritative Points balance. Guests and failures expose no
+ * balance rather than trusting client-controlled storage.
  */
-export function getUserPointsLocal(): UserPoints {
-  const stored = localStorage.getItem(STORAGE_KEYS.POINTS);
-  if (stored) {
-    const data = JSON.parse(stored);
-    return { ...data, lastUpdated: new Date(data.lastUpdated) };
-  }
-  const initialPoints: UserPoints = { total: 0, lifetime: 0, pending: 0, lastUpdated: new Date() };
-  localStorage.setItem(STORAGE_KEYS.POINTS, JSON.stringify(initialPoints));
-  return initialPoints;
-}
-
-/** @deprecated Use getUserPointsAsync instead */
-export const getUserPoints = getUserPointsLocal;
-
-/**
- * Get user's current points — API-first, localStorage fallback
- */
-export async function getUserPointsAsync(): Promise<UserPoints> {
-  if (!isAuthenticated()) return getUserPointsLocal();
+export async function getUserPointsAsync(): Promise<UserPoints | null> {
+  if (!isAuthenticated()) return null;
   try {
     const res = await trpc.user.points.get.query();
-    const pts: UserPoints = { total: res.total, lifetime: res.lifetime, pending: 0, lastUpdated: new Date() };
-    // Sync to localStorage for offline access
-    localStorage.setItem(STORAGE_KEYS.POINTS, JSON.stringify(pts));
-    return pts;
+    return { total: res.total, lifetime: res.lifetime, pending: 0, lastUpdated: new Date() };
   } catch {
-    return getUserPointsLocal();
+    return null;
   }
 }
 
 /**
- * Get point transaction history — localStorage fallback
+ * Get backend-verified Points history. Client storage is never rendered as an
+ * account ledger.
  */
-export function getPointTransactions(): PointTransaction[] {
-  const stored = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-  if (!stored) return [];
-  const data = JSON.parse(stored);
-  return data.map((txn: any) => ({ ...txn, timestamp: new Date(txn.timestamp) }));
-}
-
-/**
- * Get point transaction history — API-first
- */
-export async function getPointTransactionsAsync(): Promise<PointTransaction[]> {
-  if (!isAuthenticated()) return getPointTransactions();
+export async function getPointTransactionsAsync(): Promise<PointTransaction[] | null> {
+  if (!isAuthenticated()) return null;
   try {
     const res = await trpc.user.points.history.query({ limit: 50 });
     return res.items.map((t: any) => ({
@@ -96,6 +63,6 @@ export async function getPointTransactionsAsync(): Promise<PointTransaction[]> {
       category: t.category ?? '',
     }));
   } catch {
-    return getPointTransactions();
+    return null;
   }
 }

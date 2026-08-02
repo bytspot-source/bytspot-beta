@@ -62,7 +62,7 @@ export function LocationSettings({ isDarkMode, onBack, userRole = 'parker' }: Lo
     
     if (newValue) {
       toast.success('Venue Recommendations Enabled', {
-        description: 'You\'ll see personalized venue suggestions in the Insider tab',
+        description: 'You\'ll see personalized venue suggestions in Discover',
         duration: 3000,
       });
     } else {
@@ -396,7 +396,7 @@ export function LocationSettings({ isDarkMode, onBack, userRole = 'parker' }: Lo
                       Venue Recommendations
                     </p>
                     <p className="text-[13px] text-white/60 leading-relaxed" style={{ fontWeight: 400 }}>
-                      Show recommended restaurants, shops, and attractions based on your current location in the Insider tab.
+                      Show recommended restaurants, shops, and attractions based on your current location in Discover.
                     </p>
                   </div>
                   <ToggleSwitch

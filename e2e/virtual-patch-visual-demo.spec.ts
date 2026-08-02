@@ -301,7 +301,7 @@ async function robustClick(locator: import('@playwright/test').Locator) {
 async function openVirtualPatchMapFlow(page: import('@playwright/test').Page) {
   await page.goto(`/patch/${PATCH_ID}?venue=${encodeURIComponent(MOCK_VENUES[0].name)}`);
   await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
-  const verifyButton = page.getByRole('button', { name: 'Tap Patch to Verify' });
+  const verifyButton = page.getByRole('button', { name: 'Tap Patch to Verify' }).first();
   await expect(verifyButton).toBeVisible({ timeout: 15_000 });
   return verifyButton;
 }
@@ -328,14 +328,13 @@ test('sticker deep link opens Tap / Scan directly for a fresh guest', async ({ p
 
   await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   await expect(page.getByText('Services are ready now. Start the reader only when the venue asks for verified access.')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Browse Services' }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Tap Patch to Verify' })).toBeVisible({ timeout: 10_000 });
+  const browseServices = page.getByRole('button', { name: 'Browse Services' }).first();
+  await expect(browseServices).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Tap Patch to Verify' }).first()).toBeVisible({ timeout: 10_000 });
+  await robustClick(browseServices);
   await expect(page.getByText('Available Local Services')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Tap any service below to request instantly.')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Verified Entry').first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('VIP Access Demo')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Smart Parking')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Concierge Help').first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Ready near this patch. Continue as guest or sign in later to save requests.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Aster Room Private Chef').first()).toBeVisible({ timeout: 10_000 });
 });
 
 test('Black access link opens native-style elite hold panel', async ({ page }) => {
@@ -347,7 +346,7 @@ test('Black access link opens native-style elite hold panel', async ({ page }) =
   await expectNativeTierPanel(page, {
     eyebrow: 'BYTSPOT BLACK',
     service: 'Chef tasting board',
-    trust: 'Bytspot Black Elite Guarantee',
+    trust: 'Verified access',
     cta: 'Place Secure Hold',
   });
   await expect(page.getByTestId('app-clip-native-checkout-panel')).toContainText('Secure Hold');
@@ -363,7 +362,7 @@ test('Green access link opens native-style community order panel', async ({ page
   await expectNativeTierPanel(page, {
     eyebrow: 'BYTSPOT GREEN',
     service: 'Chef tasting board',
-    trust: 'Community order request',
+    trust: 'Verified access',
     cta: 'Request Local Order',
   });
   await expect(page.getByTestId('app-clip-native-checkout-panel')).toContainText('Community Pay');
@@ -420,7 +419,7 @@ test('iOS web fallback stays in valid web access instead of opening invalid app 
 
   await expect(page).toHaveURL(new RegExp(`/p/${PATCH_ID}\\?`), { timeout: 15_000 });
   await expect(page.getByText('Venue Services').first()).toBeVisible({ timeout: 15_000 });
-  await robustClick(page.getByRole('button', { name: 'Tap Patch to Verify' }));
+  await robustClick(page.getByRole('button', { name: 'Tap Patch to Verify' }).first());
 
   await expect(page.getByText('Safari opened this patch in web access')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Open Bytspot App' })).toHaveCount(0);

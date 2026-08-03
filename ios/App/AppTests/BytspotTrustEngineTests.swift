@@ -1486,6 +1486,8 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup])
         XCTAssertEqual(NativeLiveContentV2Contract.partyDraftCreateRoute, "/trpc/events.drafts.create")
         XCTAssertEqual(NativeLiveContentV2Contract.partyPublishRoute, "/trpc/events.publish")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyMediaUploadRoute, "/trpc/events.media.upload")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyMediaResetRoute, "/trpc/events.media.reset")
         XCTAssertEqual(NativeLiveContentV2Contract.partyRSVPRoute, "/trpc/events.rsvp.create")
         XCTAssertEqual(NativeLiveContentV2Contract.partyTicketCheckoutRoute, "/trpc/events.tickets.createCheckout")
         XCTAssertEqual(NativeLiveContentV2Contract.partyItineraryRoute, "/trpc/events.itinerary.upsert")
@@ -1514,6 +1516,33 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyStudioAPI.draftCreateInput(draft, idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertEqual(NativePartyStudioAPI.publishInput(partyID: "party-1", idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
+    }
+
+    func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        var paths: [String] = []
+        NativePartyURLProtocolStub.handler = { request in
+            paths.append(request.url?.path ?? "")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer host-token")
+            let bodyData = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+            XCTAssertEqual(body["partyId"] as? String, "party-1")
+            if request.url?.path == NativeLiveContentV2Contract.partyMediaResetRoute {
+                return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["status": "ready"]]]]))
+            }
+            XCTAssertEqual(body["kind"] as? String, "album")
+            XCTAssertEqual(body["index"] as? Int, 0)
+            XCTAssertTrue((body["dataUri"] as? String)?.hasPrefix("data:image/jpeg;base64,") == true)
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["url": "https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]]]))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        let api = NativePartyStudioAPI(client: client)
+        try await api.resetMedia(partyID: "party-1")
+        let url = try await api.uploadMedia(partyID: "party-1", kind: .album, index: 0, dataURI: "data:image/jpeg;base64,QUJD")
+        XCTAssertEqual(url.host, "res.cloudinary.com")
+        XCTAssertEqual(paths, [NativeLiveContentV2Contract.partyMediaResetRoute, NativeLiveContentV2Contract.partyMediaUploadRoute])
     }
 
     func testNativeHostStudioExecutesDraftThenPublishThroughURLSession() async throws {

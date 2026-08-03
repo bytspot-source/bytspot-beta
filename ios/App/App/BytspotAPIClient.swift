@@ -263,6 +263,8 @@ enum NativePartyHostRole: String, CaseIterable, Codable, Identifiable {
     var title: String { self == .cohost ? "Co-host" : rawValue.capitalized }
 }
 
+enum NativePartyMediaKind: String { case cover, album }
+
 enum NativePartyCapability: String, CaseIterable { case edit, invite, checkIn = "check-in", refund, payouts }
 
 enum NativePartyRoleContract {
@@ -329,11 +331,12 @@ struct NativePublishedParty: Equatable, Identifiable {
 }
 
 enum NativePartyStudioError: LocalizedError, Equatable {
-    case validation(String), missingDraft, missingPartyPass, sessionChanged
+    case validation(String), missingDraft, missingPartyMedia, missingPartyPass, sessionChanged
     var errorDescription: String? {
         switch self {
         case .validation(let message): return message
         case .missingDraft: return "The party draft was not returned."
+        case .missingPartyMedia: return "The party media upload was not returned."
         case .missingPartyPass: return "The Party Pass was not returned."
         case .sessionChanged: return "Your session changed. Reopen Host Studio to continue."
         }
@@ -356,6 +359,17 @@ struct NativePartyStudioAPI {
         return pass
     }
 
+    func uploadMedia(partyID: String, kind: NativePartyMediaKind, index: Int? = nil, dataURI: String) async throws -> URL {
+        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyMediaUploadRoute, method: "POST", input: Self.mediaUploadInput(partyID: partyID, kind: kind, index: index, dataURI: dataURI))
+        let row = Self.objectRow(payload)
+        guard let rawURL = Self.clean(row["url"]), let url = URL(string: rawURL), url.scheme?.lowercased() == "https" else { throw NativePartyStudioError.missingPartyMedia }
+        return url
+    }
+
+    func resetMedia(partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyMediaResetRoute, method: "POST", input: ["partyId": partyID])
+    }
+
     static func draftCreateInput(_ draft: NativePartyDraftInput, idempotencyKey: String) -> [String: Any] {
         var input = draft.rpcInput
         input["idempotencyKey"] = idempotencyKey
@@ -364,6 +378,12 @@ struct NativePartyStudioAPI {
 
     static func publishInput(partyID: String, idempotencyKey: String) -> [String: Any] {
         ["partyId": partyID, "idempotencyKey": idempotencyKey]
+    }
+
+    static func mediaUploadInput(partyID: String, kind: NativePartyMediaKind, index: Int?, dataURI: String) -> [String: Any] {
+        var input: [String: Any] = ["partyId": partyID, "kind": kind.rawValue, "dataUri": dataURI]
+        if kind == .album, let index { input["index"] = index }
+        return input
     }
 
     static func partyID(from value: Any) -> String? {
@@ -743,6 +763,8 @@ enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
     static let partyDraftCreateRoute = "/trpc/events.drafts.create"
     static let partyPublishRoute = "/trpc/events.publish"
+    static let partyMediaUploadRoute = "/trpc/events.media.upload"
+    static let partyMediaResetRoute = "/trpc/events.media.reset"
     static let partyRSVPRoute = "/trpc/events.rsvp.create"
     static let partyTicketCheckoutRoute = "/trpc/events.tickets.createCheckout"
     static let partyItineraryRoute = "/trpc/events.itinerary.upsert"

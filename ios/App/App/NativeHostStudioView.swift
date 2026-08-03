@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct NativeHostStudioView: View {
     private enum Step: Int, CaseIterable { case spark, build, door, invite }
@@ -27,6 +28,10 @@ struct NativeHostStudioView: View {
     @State private var message = ""
     @State private var publishTask: Task<Void, Never>?
     @State private var idempotencyKey = UUID().uuidString.lowercased()
+    @State private var coverMedia: NativePartyPendingImage?
+    @State private var albumMedia: [NativePartyPendingImage] = []
+    @State private var showCoverPicker = false
+    @State private var showAlbumPicker = false
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -56,6 +61,12 @@ struct NativeHostStudioView: View {
             message = NativePartyStudioError.sessionChanged.localizedDescription
         }
         .onDisappear { publishTask?.cancel() }
+        .sheet(isPresented: $showCoverPicker) {
+            NativePartyPhotoPicker(selectionLimit: 1) { images in setCoverImage(images.first) }
+        }
+        .sheet(isPresented: $showAlbumPicker) {
+            NativePartyPhotoPicker(selectionLimit: max(1, 6 - albumMedia.count)) { images in addAlbumImages(images) }
+        }
     }
 
     private var header: some View {
@@ -157,6 +168,7 @@ struct NativeHostStudioView: View {
             sectionHeading("BUILD THE MOMENT", "Make it yours.", "Name the night, set the place, and shape the run of show.")
             field("Party title", text: $title, icon: "sparkles", prompt: "Give the night a name")
             field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
+            partyMediaEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
             VStack(alignment: .leading, spacing: 7) {
@@ -166,6 +178,50 @@ struct NativeHostStudioView: View {
                 }
             }.padding(14).studioSurface()
         }
+    }
+
+    private var partyMediaEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PARTY MEDIA").studioLabel()
+                    Text("Cover poster + album").font(.system(size: 14, weight: .black))
+                }
+                Spacer()
+                Text("HOST CONTROLLED").font(.system(size: 8.5, weight: .black)).foregroundColor(NativeTheme.emerald)
+            }
+            Button(action: { showCoverPicker = true }) {
+                ZStack {
+                    if let coverMedia {
+                        Image(uiImage: coverMedia.preview).resizable().scaledToFill()
+                    } else {
+                        LinearGradient(colors: [NativeTheme.purple.opacity(0.7), NativeTheme.cyan.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Label("Choose cover poster", systemImage: "photo.badge.plus").font(.system(size: 13, weight: .black))
+                    }
+                }
+                .frame(maxWidth: .infinity).frame(height: 132).clipped().clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
+            }.buttonStyle(.plain)
+            HStack {
+                Text("PARTY ALBUM · \(albumMedia.count)/6").studioLabel()
+                Spacer()
+                if albumMedia.count < 6 {
+                    Button("Add photos") { showAlbumPicker = true }.font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
+                }
+            }
+            if !albumMedia.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 9) {
+                        ForEach(albumMedia) { media in
+                            Image(uiImage: media.preview).resizable().scaledToFill().frame(width: 72, height: 88).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(alignment: .topTrailing) { Button(action: { albumMedia.removeAll { $0.id == media.id } }) { Image(systemName: "xmark.circle.fill").foregroundColor(.white).background(Circle().fill(.black)) }.offset(x: 5, y: -5) }
+                        }
+                    }.padding(.vertical, 5)
+                }
+            } else {
+                Text("Only photos selected here appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.48))
+            }
+        }.padding(14).studioSurface()
     }
 
     private var doorContent: some View {
@@ -240,6 +296,18 @@ struct NativeHostStudioView: View {
             let partyID = try await api.createDraft(draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
+            message = "Preparing Party media…"
+            try await api.resetMedia(partyID: partyID)
+            if let coverMedia {
+                message = "Uploading cover poster…"
+                _ = try await api.uploadMedia(partyID: partyID, kind: .cover, dataURI: coverMedia.dataURI)
+            }
+            for (index, media) in albumMedia.enumerated() {
+                message = "Uploading album photo \(index + 1) of \(albumMedia.count)…"
+                _ = try await api.uploadMedia(partyID: partyID, kind: .album, index: index, dataURI: media.dataURI)
+            }
+            try Task.checkCancellation()
+            guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
@@ -283,6 +351,77 @@ struct NativeHostStudioView: View {
 
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
     private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund and payout access only." }
+
+    private func setCoverImage(_ image: UIImage?) {
+        guard let image, let media = NativePartyPendingImage(image: image) else { if image != nil { message = "That cover could not be prepared." }; return }
+        coverMedia = media
+    }
+
+    private func addAlbumImages(_ images: [UIImage]) {
+        let candidates = Array(images.prefix(6 - albumMedia.count))
+        let prepared = candidates.compactMap(NativePartyPendingImage.init(image:))
+        albumMedia.append(contentsOf: prepared)
+        if prepared.count != candidates.count { message = "Some photos could not be prepared." }
+    }
+}
+
+private struct NativePartyPendingImage: Identifiable {
+    let id = UUID()
+    let preview: UIImage
+    let dataURI: String
+
+    init?(image: UIImage) {
+        let maxDimension: CGFloat = 1400
+        let scale = min(1, maxDimension / max(image.size.width, image.size.height))
+        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
+        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        var quality: CGFloat = 0.82
+        var data = rendered.jpegData(compressionQuality: quality)
+        while let current = data, current.count > 600_000, quality > 0.32 {
+            quality -= 0.10
+            data = rendered.jpegData(compressionQuality: quality)
+        }
+        guard let data, data.count <= 600_000 else { return nil }
+        preview = rendered
+        dataURI = "data:image/jpeg;base64," + data.base64EncodedString()
+    }
+}
+
+private struct NativePartyPhotoPicker: UIViewControllerRepresentable {
+    let selectionLimit: Int
+    let completion: ([UIImage]) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = selectionLimit
+        configuration.selection = .ordered
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let completion: ([UIImage]) -> Void
+        init(completion: @escaping ([UIImage]) -> Void) { self.completion = completion }
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true)
+            let group = DispatchGroup()
+            var images = Array<UIImage?>(repeating: nil, count: results.count)
+            for (index, result) in results.enumerated() where result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+                group.enter()
+                result.itemProvider.loadObject(ofClass: UIImage.self) { object, _ in
+                    DispatchQueue.main.async {
+                        if let image = object as? UIImage { images[index] = image }
+                        group.leave()
+                    }
+                }
+            }
+            group.notify(queue: .main) { self.completion(images.compactMap { $0 }) }
+        }
+    }
 }
 
 private extension Text {

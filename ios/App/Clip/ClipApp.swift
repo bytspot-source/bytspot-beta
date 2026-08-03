@@ -99,6 +99,10 @@ struct ClipGroupEventInvite: Equatable {
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
     var isHostStudioParty: Bool { source == "host-studio-party" }
+    var partyPassURL: URL? {
+        guard isHostStudioParty else { return handoffURL }
+        return URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)")
+    }
     var handoffURL: URL? {
         var components = URLComponents()
         components.scheme = "https"
@@ -321,8 +325,9 @@ struct ClipGroupEventInvite: Equatable {
 
 enum ClipFlowStep: Equatable {
     case catalog
-    case groupEventLoading(partyID: String)
-    case groupEventFailed(partyID: String, message: String)
+    case partyLoading(partyID: String)
+    case partyFailed(partyID: String, message: String)
+    case party(ClipGroupEventInvite)
     case groupEvent(ClipGroupEventInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
@@ -398,7 +403,7 @@ final class ClipInvocationModel: ObservableObject {
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
         if let partyID = ClipGroupEventInvite.partyID(from: pathParts) {
-            flow = .groupEventLoading(partyID: partyID)
+            flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
             return
@@ -443,6 +448,9 @@ final class ClipInvocationModel: ObservableObject {
     /// Universal Link used when the Clip hands off to the installed full app.
     /// If the full app is not installed, the view layer falls back to SKOverlay.
     var mainAppHandoffURL: URL? {
+        if case .party(let invite) = flow {
+            return invite.handoffURL
+        }
         if case .groupEvent(let invite) = flow {
             return invite.handoffURL
         }
@@ -500,11 +508,13 @@ final class ClipInvocationModel: ObservableObject {
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
-                "requiresApproval": false
+                "requiresApproval": false,
+                "heroImageURL": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
+                "photoURLs": ["https://res.cloudinary.com/demo/image/upload/sample.jpg", "https://res.cloudinary.com/demo/image/upload/woman.jpg"]
             ]
             guard let invite = ClipGroupEventInvite.fromPartyPayload(payload) else { return false }
             tier = invite.tier
-            flow = .groupEvent(invite)
+            flow = .party(invite)
             return true
         case "vendors":
             guard let service = services.first else { return false }
@@ -685,11 +695,11 @@ final class ClipInvocationModel: ObservableObject {
             let invite = try await api.partyInvite(partyID: partyID)
             try Task.checkCancellation()
             tier = invite.tier
-            flow = .groupEvent(invite)
+            flow = .party(invite)
         } catch is CancellationError {
             return
         } catch {
-            flow = .groupEventFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
+            flow = .partyFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
         }
     }
 
@@ -783,7 +793,7 @@ final class ClipInvocationModel: ObservableObject {
         do {
             let result = try await api.verify(token: token)
             let label = result.patch.label ?? patchContext?.title ?? venueSlug ?? "Patch \(result.patch.id)"
-            verificationState = .verified(label: label, bindingType: result.binding?.type)
+            verificationState = Self.verificationState(for: result, label: label)
         } catch {
             let msg: String
             switch error {
@@ -792,8 +802,22 @@ final class ClipInvocationModel: ObservableObject {
             case ClipPatchVerifier.VerifyError.network(let m): msg = m
             default: msg = "Could not verify this patch. Try again."
             }
-            verificationState = .failed(message: msg)
+            verificationState = .unavailable(message: msg)
         }
+    }
+
+    nonisolated static func verificationState(for result: ClipPatchVerifier.VerifyResult, label: String) -> ClipVerifyState {
+        let status = result.patch.status.lowercased()
+        if !result.verified || ["denied", "revoked", "expired", "disabled", "inactive"].contains(status) {
+            return .denied(message: "This secure tap did not grant access.")
+        }
+        if ["pending", "provisioning", "review"].contains(status) {
+            return .pending(label: label, status: result.patch.status)
+        }
+        if ["active", "verified", "enabled"].contains(status) {
+            return .success(label: label, bindingType: result.binding?.type)
+        }
+        return .denied(message: "This pass returned an unsupported status and was not accepted.")
     }
 
     private static func isRideLogisticsService(_ service: ClipLocalService) -> Bool {

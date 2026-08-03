@@ -14,8 +14,10 @@ import SafariServices
 enum ClipVerifyState: Equatable {
     case idle
     case verifying
-    case verified(label: String, bindingType: String?)
-    case failed(message: String)
+    case success(label: String, bindingType: String?)
+    case pending(label: String, status: String)
+    case denied(message: String)
+    case unavailable(message: String)
 }
 
 enum ClipTheme {
@@ -78,14 +80,17 @@ struct ClipContentView: View {
                 case .catalog:
                     ClipCatalogView(showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
-                case .groupEventLoading:
+                case .partyLoading:
                     ClipPartyInviteStateView(title: "Loading Party Pass…", message: "Getting the moment directly from its Host Studio party.", isLoading: true)
                         .transition(.opacity)
-                case .groupEventFailed(_, let message):
+                case .partyFailed(_, let message):
                     ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false)
                         .transition(.opacity)
+                case .party(let invite):
+                    ClipInviteView(invite: invite, showOverlay: $showOverlay)
+                        .transition(.opacity)
                 case .groupEvent(let invite):
-                    ClipGroupEventJoinView(invite: invite, showOverlay: $showOverlay)
+                    ClipInviteView(invite: invite, showOverlay: $showOverlay)
                         .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
@@ -197,7 +202,7 @@ private struct ClipBookingContext {
     }
 }
 
-struct ClipGroupEventJoinView: View {
+struct ClipInviteView: View {
     enum JoinState: Equatable { case idle, joining, joined, pending, declined, failed(String) }
 
     let invite: ClipGroupEventInvite
@@ -219,7 +224,7 @@ struct ClipGroupEventJoinView: View {
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
-    private var inviteURL: URL? { invite.handoffURL }
+    private var inviteURL: URL? { invite.isHostStudioParty ? invite.partyPassURL : invite.handoffURL }
     private var ink: Color { Color.white }
     private var mutedInk: Color { Color.white.opacity(0.60) }
     private var avatarCount: Int { min(max(invite.participantCount, 0), 5) }
@@ -240,12 +245,21 @@ struct ClipGroupEventJoinView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 21) {
                     topControls
-                    eventHeader
-                    eventDetails
-                    rsvpPanel
-                    guestList
-                    photoAlbum
-                    activityFeed
+                    if invite.isHostStudioParty {
+                        partyHero
+                        partyCredential
+                        partyEssentials
+                        partyPlan
+                        guestList
+                        if !invite.photoURLs.isEmpty { photoAlbum }
+                    } else {
+                        eventHeader
+                        eventDetails
+                        rsvpPanel
+                        guestList
+                        photoAlbum
+                        activityFeed
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
@@ -254,7 +268,7 @@ struct ClipGroupEventJoinView: View {
         }
         .safeAreaInset(edge: .bottom) { primaryActions }
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: shareInviteItems) }
-        .accessibilityIdentifier("clip-group-event-join")
+        .accessibilityIdentifier(invite.isHostStudioParty ? "clip-party-pass" : "clip-group-event-join")
         .task(id: invite.id) { await loadGuests() }
     }
 
@@ -281,8 +295,10 @@ struct ClipGroupEventJoinView: View {
 
     private var topControls: some View {
         HStack(spacing: 12) {
-            glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
-            Spacer()
+            if !invite.isHostStudioParty {
+                glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
+                Spacer()
+            }
             Text("Bytspot")
                 .font(.system(size: 13, weight: .black, design: .rounded))
                 .foregroundStyle(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.violet, ClipTheme.pink], startPoint: .leading, endPoint: .trailing))
@@ -290,8 +306,92 @@ struct ClipGroupEventJoinView: View {
                 .padding(.vertical, 9)
                 .background(glassCapsule())
             Spacer()
-            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: "Share invite", action: shareInvite)
+            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: invite.isHostStudioParty ? "Share App Clip Party Pass" : "Share invite", action: shareInvite)
             glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
+        }
+    }
+
+    private var partyHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 30, style: .continuous).fill(ClipTheme.panelElevated)
+            if let poster = invite.displayPosterURL {
+                GeometryReader { proxy in
+                    AsyncImage(url: poster) { image in
+                        image.resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                    } placeholder: { Color.clear }
+                }
+            } else {
+                LinearGradient(colors: [accent.opacity(0.85), secondary.opacity(0.42), ClipTheme.panelElevated], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            LinearGradient(colors: [.clear, Color.black.opacity(0.22), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 7) {
+                    glassChip("PARTY PASS", icon: "bolt.fill")
+                    glassChip(privacyLabel, icon: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
+                }.frame(maxWidth: 310)
+                Text(invite.title).font(.system(size: titleFontSize, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
+                Text(invite.inviteNote ?? invite.theme).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.78)).lineLimit(2)
+                Label("Published by \(invite.hostName) in Host Studio", systemImage: "checkmark.seal.fill")
+                    .font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ClipTheme.emerald)
+            }.padding(18)
+        }
+        .frame(maxWidth: .infinity).frame(height: 286).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.22)))
+    }
+
+    private var partyCredential: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    sectionMiniTitle("Your Party Pass")
+                    Text(joinButtonTitle).font(.system(size: 20, weight: .black, design: .rounded)).foregroundColor(ink)
+                }
+                Spacer()
+                Image(systemName: joinButtonIcon).font(.system(size: 25, weight: .black)).foregroundColor(accent)
+            }
+            Divider().overlay(Color.white.opacity(0.14))
+            HStack(spacing: 10) {
+                partyCredentialMetric(accessModeLabel(invite.accessMode ?? "free-rsvp"), "ACCESS")
+                partyCredentialMetric(invite.capacity.map { "\($0) max" } ?? "Open", "CAPACITY")
+                partyCredentialMetric(invite.tier.displayName, "MEMBERSHIP")
+            }
+        }.padding(17).background(glassPanel(cornerRadius: 24, tint: accent.opacity(0.10)))
+    }
+
+    private func partyCredentialMetric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 8, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(mutedInk)
+            Text(value).font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ink).lineLimit(1).minimumScaleFactor(0.75)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var partyEssentials: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Essentials").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+            partyEssentialRow("calendar.badge.clock", "WHEN", invite.scheduledDate)
+            partyEssentialRow("mappin.and.ellipse", "WHERE", invite.locationLabel)
+            partyEssentialRow("person.2.fill", "INVITED THROUGH", invite.audienceCircle)
+        }
+    }
+
+    private func partyEssentialRow(_ icon: String, _ eyebrow: String, _ value: String) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 36, height: 36).background(glassCircle(tint: accent.opacity(0.12)))
+            detailRow(eyebrow: eyebrow, title: value)
+        }.padding(13).background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.03)))
+    }
+
+    @ViewBuilder private var partyPlan: some View {
+        if !invite.activityHighlights.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("The plan").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+                ForEach(Array(invite.activityHighlights.prefix(5).enumerated()), id: \.offset) { index, item in
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 25, height: 25).background(accent).clipShape(Circle())
+                        Text(item).font(.system(size: 14, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.84))
+                    }
+                }
+            }.padding(16).background(glassPanel(cornerRadius: 22, tint: secondary.opacity(0.07)))
         }
     }
 
@@ -465,7 +565,7 @@ struct ClipGroupEventJoinView: View {
                         overflowBubble(count: liveOverflowCount)
                     }
                 }
-            } else if avatarCount > 0 {
+            } else if !invite.isHostStudioParty && avatarCount > 0 {
                 HStack(spacing: -10) {
                     ForEach(0..<avatarCount, id: \.self) { index in
                         avatarBubble(index: index, size: guestAvatarSize)
@@ -475,7 +575,7 @@ struct ClipGroupEventJoinView: View {
                     }
                 }
             } else {
-                Text("Host is setting up the guest list")
+                Text(invite.isHostStudioParty ? "Guest identities stay private until the live list is available." : "Host is setting up the guest list")
                     .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
                     .foregroundColor(ink.opacity(0.72))
                     .padding(.horizontal, 14)
@@ -517,9 +617,8 @@ struct ClipGroupEventJoinView: View {
             .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1.2))
     }
 
-    // Horizontal photo carousel so invitees can see what's been happening. Real
-    // photos (invite.photoURLs) render first; branded placeholder tiles fill the
-    // rest so the album always reads as a live, fillable space.
+    // Party albums render only Host Studio media. Legacy group links retain their
+    // fillable placeholders until that compatibility surface is retired.
     private var photoAlbum: some View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeader(title: "Photo Album", subtitle: albumSubtitle) {
@@ -554,7 +653,7 @@ struct ClipGroupEventJoinView: View {
         return count == 1 ? "1 photo" : "\(count) photos"
     }
 
-    private var placeholderTileCount: Int { invite.photoURLs.isEmpty ? 4 : 1 }
+    private var placeholderTileCount: Int { invite.isHostStudioParty ? 0 : (invite.photoURLs.isEmpty ? 4 : 1) }
 
     private func albumTile(url: URL) -> some View {
         AsyncImage(url: url) { image in
@@ -656,25 +755,28 @@ struct ClipGroupEventJoinView: View {
                 .buttonStyle(.plain)
                 .disabled(membership == .joining || membership == .joined || membership == .declined)
 
-                Button(action: shareInvite) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 20, weight: .black))
+                Button(action: invite.isHostStudioParty ? { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) } : shareInvite) {
+                    VStack(spacing: 2) {
+                        Image(systemName: invite.isHostStudioParty ? "arrow.down.app.fill" : "square.and.arrow.up")
+                            .font(.system(size: 18, weight: .black))
+                        if invite.isHostStudioParty { Text("FULL APP").font(.system(size: 7, weight: .black, design: .rounded)) }
+                    }
                         .foregroundColor(ink)
-                        .frame(width: ctaHeight, height: ctaHeight)
+                        .frame(width: ctaHeight + 6, height: ctaHeight)
                         .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Share invite")
-                .accessibilityHint("Opens the iOS share sheet")
+                .accessibilityLabel(invite.isHostStudioParty ? "Open full Bytspot app" : "Share invite")
+                .accessibilityHint(invite.isHostStudioParty ? "Opens this Party in the full app" : "Opens the iOS share sheet")
             }
             Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
-                Text("Open Bytspot to unlock nearby offers & perks for this event")
+                Text(invite.isHostStudioParty ? "Share the App Clip above · continue in the full app here" : "Open Bytspot to unlock nearby offers & perks for this event")
                     .font(.system(size: 12, weight: .black, design: .rounded))
                     .foregroundColor(ink.opacity(0.68))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Opens this group in the full Bytspot app")
+            .accessibilityHint(invite.isHostStudioParty ? "Opens this Party in the full Bytspot app" : "Opens this group in the full Bytspot app")
             if !statusMessage.isEmpty {
                 Text(statusMessage)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -995,6 +1097,7 @@ struct ClipCatalogView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 partnerCardChromeHeader
+                verificationBanner
                 catalogHeader
                 membershipGateBanner
                 serviceSectionEyebrow
@@ -1024,6 +1127,39 @@ struct ClipCatalogView: View {
             .padding(.top, 14)
             .padding(.bottom, 28)
         }
+    }
+
+    @ViewBuilder private var verificationBanner: some View {
+        switch invocation.verificationState {
+        case .idle:
+            EmptyView()
+        case .verifying:
+            verificationCard(icon: "shield.lefthalf.filled", title: "Verifying secure tap", detail: "Checking this pass with Bytspot…", color: ClipTheme.cyan, showsProgress: true)
+        case .success(let label, let bindingType):
+            verificationCard(icon: "checkmark.seal.fill", title: "Pass verified", detail: [label, bindingType].compactMap { $0 }.joined(separator: " · "), color: ClipTheme.emerald)
+        case .pending(let label, let status):
+            verificationCard(icon: "clock.badge.questionmark.fill", title: "Verification pending", detail: "\(label) · \(status). No access has been granted yet.", color: .orange)
+        case .denied(let message):
+            verificationCard(icon: "xmark.shield.fill", title: "Pass not valid", detail: message, color: .pink)
+        case .unavailable(let message):
+            verificationCard(icon: "exclamationmark.shield.fill", title: "Verification unavailable", detail: message, color: .gray)
+        }
+    }
+
+    private func verificationCard(icon: String, title: String, detail: String, color: Color, showsProgress: Bool = false) -> some View {
+        HStack(spacing: 13) {
+            ZStack {
+                Circle().fill(color.opacity(0.16)).frame(width: 46, height: 46)
+                if showsProgress { ProgressView().tint(color) } else { Image(systemName: icon).font(.system(size: 19, weight: .black)).foregroundColor(color) }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white)
+                Text(detail).font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.66)).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14).background(RoundedRectangle(cornerRadius: 20).fill(ClipTheme.panelElevated).overlay(RoundedRectangle(cornerRadius: 20).stroke(color.opacity(0.38))))
+        .accessibilityElement(children: .combine)
     }
 
     private var catalogHeader: some View {
@@ -1265,7 +1401,7 @@ struct ClipCatalogView: View {
     }
 
     private var eyebrow: String {
-        if case .verified = invocation.verificationState { return "VERIFIED ACCESS" }
+        if case .success = invocation.verificationState { return "VERIFIED ACCESS" }
         return invocation.services.first?.source == "live" ? "LIVE SERVICES FEED" : invocation.tier.eyebrow
     }
     private var venueTitle: String { invocation.patchContext?.title ?? formattedSlug(invocation.venueSlug) ?? "Bytspot Patch" }

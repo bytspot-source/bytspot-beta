@@ -211,19 +211,19 @@ enum BytspotAviationFallbackTests {
     }
 
     private static func assertHostStudioPartyMappingContract() {
-        let invite = ClipGroupEventInvite.fromPartyPayload([
-            "id": "party-1", "source": "host-studio-party", "title": "First Listen",
-            "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
-            "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
-            "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
-            "hostName": "Avery Parker", "locationLabel": "The Loft",
-            "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"],
-            "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false
-        ])
+        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false]
+        let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
+        let invite = ClipGroupEventInvite.fromPartyPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite?.isHostStudioParty == true, "Party Loop: App Clip must identify Host Studio Party DTOs.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
-        precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/group/party-1", "Party Loop: handoff must stay on the App Clip group route.")
+        precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")
+        precondition(ClipGroupEventInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
+        precondition(ClipGroupEventInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
+        let injected = ClipGroupEventInvite.from(pathParts: ["party", "party-1"], queryItems: [URLQueryItem(name: "title", value: "Injected")], tier: .green)
+        precondition(injected == nil, "Party Loop: query data must never bypass the authoritative Party fetch.")
+        let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
+        precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
     }
 }
 #endif

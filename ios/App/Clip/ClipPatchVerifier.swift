@@ -912,10 +912,15 @@ struct ClipPatchVerifier {
         if let error = root["error"] as? [String: Any] {
             throw VerifyError.server(Self.string(error["message"]) ?? "Server error")
         }
-        if let result = root["result"] as? [String: Any], let payload = result["data"] {
-            return payload
-        }
-        return root
+        return Self.unwrapTRPCValue(root)
+    }
+
+    static func unwrapTRPCValue(_ value: Any) -> Any {
+        guard let row = value as? [String: Any] else { return value }
+        if let result = row["result"] { return unwrapTRPCValue(result) }
+        if let data = row["data"] { return unwrapTRPCValue(data) }
+        if let json = row["json"] { return unwrapTRPCValue(json) }
+        return value
     }
 
     private func normalizeService(_ row: [String: Any], index: Int) -> ClipLocalService {

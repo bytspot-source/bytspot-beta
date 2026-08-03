@@ -103,7 +103,7 @@ struct ClipGroupEventInvite: Equatable {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "bytspot.app"
-        components.path = "/group/\(id)"
+        components.path = "/\(isHostStudioParty ? "party" : "group")/\(id)"
         if isHostStudioParty {
             components.queryItems = [
                 URLQueryItem(name: "source", value: source),
@@ -142,7 +142,8 @@ struct ClipGroupEventInvite: Equatable {
     }
 
     static func from(pathParts: [String], queryItems: [URLQueryItem], tier: BytspotTier) -> Self? {
-        guard let id = inviteID(from: pathParts) else { return nil }
+        guard pathParts.count >= 2, pathParts[0].lowercased() == "group" else { return nil }
+        let id = pathParts[1]
         let title = queryValue(in: queryItems, names: ["title", "event"]) ?? id.replacingOccurrences(of: "-", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
         let timingRaw = queryValue(in: queryItems, names: ["timing", "when"]) ?? "now"
         let timing = ClipGroupEventTimingState(rawValue: timingRaw) ?? .now
@@ -183,14 +184,10 @@ struct ClipGroupEventInvite: Equatable {
         )
     }
 
-    static func inviteID(from pathParts: [String]) -> String? {
-        guard pathParts.count >= 2, ["group", "party"].contains(pathParts[0].lowercased()) else { return nil }
+    static func partyID(from pathParts: [String]) -> String? {
+        guard pathParts.count >= 2, pathParts[0].lowercased() == "party" else { return nil }
         let id = pathParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         return id.isEmpty ? nil : id
-    }
-
-    static func hasEmbeddedPresentation(_ queryItems: [URLQueryItem]) -> Bool {
-        queryValue(in: queryItems, names: ["title", "event"]) != nil
     }
 
     static func fromPartyPayload(_ value: Any) -> Self? {
@@ -400,15 +397,14 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        if let partyID = ClipGroupEventInvite.inviteID(from: pathParts) {
-            if ClipGroupEventInvite.hasEmbeddedPresentation(items),
-               let embeddedInvite = ClipGroupEventInvite.from(pathParts: pathParts, queryItems: items, tier: detectedTier) {
-                flow = .groupEvent(embeddedInvite)
-                return
-            }
+        if let partyID = ClipGroupEventInvite.partyID(from: pathParts) {
             flow = .groupEventLoading(partyID: partyID)
             isLoadingContext = true
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
+            return
+        }
+        if let legacyGroupInvite = ClipGroupEventInvite.from(pathParts: pathParts, queryItems: items, tier: detectedTier) {
+            flow = .groupEvent(legacyGroupInvite)
             return
         }
         // Reset catalog/vendor caches when the tier changes so stale luxury

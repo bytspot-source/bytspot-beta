@@ -1528,7 +1528,7 @@ final class NativeProfileDataAPITests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer host-token")
             let payload: [String: Any] = request.url?.path == NativeLiveContentV2Contract.partyDraftCreateRoute
                 ? ["result": ["data": ["json": ["id": "party-1"]]]]
-                : ["result": ["data": ["json": ["id": "party-1", "shareUrl": "https://bytspot.app/group/party-1", "passCode": "LAUGH26"]]]]
+                : ["result": ["data": ["json": ["id": "party-1", "shareUrl": "https://bytspot.app/party/party-1", "passCode": "LAUGH26"]]]]
             return (200, try JSONSerialization.data(withJSONObject: payload))
         }
         defer { NativePartyURLProtocolStub.handler = nil }

@@ -37,6 +37,7 @@
 		A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */; };
 			A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */; };
 			A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */; };
+			A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativeHostStudioView.swift */; };
 		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
 		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
 		B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */; };
@@ -106,6 +107,7 @@
 		A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchSpecialFlowSelfTests.swift; sourceTree = "<group>"; };
 			A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellDesignSystem.swift; sourceTree = "<group>"; };
 			A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVenueDetailPresentation.swift; sourceTree = "<group>"; };
+			A13F0D002D0000000000D000 /* NativeHostStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostStudioView.swift; sourceTree = "<group>"; };
 		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -177,6 +179,7 @@
 				A13F00002C0FF00100000001 /* NativeShellView.swift */,
 				A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */,
 				A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */,
+					A13F0D002D0000000000D000 /* NativeHostStudioView.swift */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
 				A13F03022C0FF00100000053 /* BytspotAPIClient.swift */,
@@ -388,6 +391,7 @@
 				A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */,
 				A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */,
 				A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */,
+					A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

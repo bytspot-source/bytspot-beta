@@ -1453,6 +1453,50 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
     }
 
+    func testNativeHostStudioContractCoversPartyOperatingSystem() {
+        XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup])
+        XCTAssertEqual(NativeLiveContentV2Contract.partyDraftCreateRoute, "/trpc/events.drafts.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyPublishRoute, "/trpc/events.publish")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyRSVPRoute, "/trpc/events.rsvp.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyTicketCheckoutRoute, "/trpc/events.tickets.createCheckout")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyItineraryRoute, "/trpc/events.itinerary.upsert")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyRoleAssignRoute, "/trpc/events.roles.assign")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyAudienceAttachRoute, "/trpc/events.audiences.attach")
+    }
+
+    func testNativeHostStudioRolesAreCapabilityScoped() {
+        XCTAssertTrue(NativePartyRoleContract.can(.owner, .payouts))
+        XCTAssertTrue(NativePartyRoleContract.can(.cohost, .invite))
+        XCTAssertTrue(NativePartyRoleContract.can(.door, .checkIn))
+        XCTAssertFalse(NativePartyRoleContract.can(.door, .edit))
+        XCTAssertTrue(NativePartyRoleContract.can(.finance, .refund))
+        XCTAssertFalse(NativePartyRoleContract.can(.finance, .checkIn))
+    }
+
+    func testNativeHostStudioDraftCarriesTierCirclesTicketsItineraryAndRoles() throws {
+        let draft = partyDraft()
+        XCTAssertNil(draft.validationMessage)
+        XCTAssertEqual(draft.rpcInput["source"] as? String, "host-studio")
+        XCTAssertEqual(draft.rpcInput["requiredMembershipTier"] as? String, "platinum")
+        XCTAssertEqual(draft.rpcInput["audienceCircleIds"] as? [String], ["circle-1"])
+        XCTAssertEqual((draft.rpcInput["ticketTiers"] as? [[String: Any]])?.first?["priceCents"] as? Int, 3_500)
+        XCTAssertEqual((draft.rpcInput["itinerary"] as? [[String: Any]])?.last?["offsetMinutes"] as? Int, 120)
+        XCTAssertEqual((draft.rpcInput["cohosts"] as? [[String: Any]])?.first?["role"] as? String, "door")
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
+    }
+
+    func testNativeHostStudioFailsClosedWithoutValidPaidTicketOrPartyPass() throws {
+        let unpaid = partyDraft(priceCents: 0)
+        XCTAssertEqual(unpaid.validationMessage, "Paid parties need a ticket price.")
+        XCTAssertEqual(NativePartyStudioAPI.partyID(from: ["party": ["partyId": "party-1"]]), "party-1")
+
+        let published = try XCTUnwrap(NativePartyStudioAPI.publishedParty(from: ["party": ["id": "party-1", "shareUrl": "https://bytspot.com/party/party-1", "passCode": "LAUGH26"]], fallbackID: "fallback", draft: partyDraft()))
+        XCTAssertEqual(published.id, "party-1")
+        XCTAssertEqual(published.passCode, "LAUGH26")
+        XCTAssertNil(NativePartyStudioAPI.publishedParty(from: ["shareUrl": "javascript:alert(1)", "passCode": "BAD"], fallbackID: "party-1", draft: partyDraft()))
+        XCTAssertNil(NativePartyStudioAPI.publishedParty(from: ["shareUrl": "https://evil.example/party/1", "passCode": "BAD"], fallbackID: "party-1", draft: partyDraft()))
+    }
+
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
         XCTAssertEqual(NativeProfileDataAPI.fixtureEnvironmentKey, "BYT_NATIVE_PROFILE_DATA_FIXTURES")
         XCTAssertEqual(NativeProfileDataAPI.fixtureProfile.email, "member@example.com")
@@ -1471,6 +1515,15 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         let guest = BytspotAPIClient(tokenProvider: { nil })
         XCTAssertNil(try guest.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"))
+    }
+
+    private func partyDraft(priceCents: Int = 3_500) -> NativePartyDraftInput {
+        NativePartyDraftInput(
+            templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, audienceCircleIDs: ["circle-1"],
+            itinerary: [NativePartyItineraryItem(title: "Doors open", offsetMinutes: 0), NativePartyItineraryItem(title: "Warm-up set", offsetMinutes: 60), NativePartyItineraryItem(title: "Headliner", offsetMinutes: 120)],
+            ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
+            cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)]
+        )
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from envelope: Any) throws -> T {

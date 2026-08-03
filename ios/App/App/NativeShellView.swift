@@ -2888,6 +2888,7 @@ private struct NativeNetworkHubView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
+    @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @State private var segment: NativeNetworkSegment = .people
     @State private var circleSnapshot: NativeSocialCircleSnapshot
     @State private var invitations: [NativeSocialInvitation] = []
@@ -2897,6 +2898,7 @@ private struct NativeNetworkHubView: View {
     @State private var newCircleName = ""
     @State private var statusMessage = ""
     @State private var isWorking = false
+    @State private var showHostStudio = false
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot) {
         _circleSnapshot = State(initialValue: initialCircleSnapshot)
@@ -2911,11 +2913,14 @@ private struct NativeNetworkHubView: View {
             }.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
             segmentControl.padding(.horizontal, 20).padding(.bottom, 12)
             ScrollView(showsIndicators: false) {
-                Group {
-                    switch segment {
-                    case .people: peopleContent
-                    case .circles: circlesContent
-                    case .invitations: invitationsContent
+                VStack(spacing: 16) {
+                    hostStudioCard
+                    Group {
+                        switch segment {
+                        case .people: peopleContent
+                        case .circles: circlesContent
+                        case .invitations: invitationsContent
+                        }
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 30)
@@ -2924,6 +2929,31 @@ private struct NativeNetworkHubView: View {
         .background(NativePolish.screenBackground.ignoresSafeArea())
         .accessibilityIdentifier("native-network-hub")
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
+        .fullScreenCover(isPresented: $showHostStudio) {
+            NativeHostStudioView(circles: circleSnapshot.groups, membershipTier: membershipStore.tier)
+        }
+    }
+
+    private var hostStudioCard: some View {
+        Button(action: {
+            nativeImpactLight()
+            if sessionStore.isAuthenticated { showHostStudio = true }
+            else { statusMessage = "Sign in before creating a moment." }
+        }) {
+            ZStack(alignment: .topTrailing) {
+                LinearGradient(colors: [NativeTheme.purple.opacity(0.94), NativeTheme.slate950, NativeTheme.cyan.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Text("🪩").font(.system(size: 82)).opacity(0.18).offset(x: 12, y: -15)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("HOST STUDIO · THE BACKSTAGE").font(.system(size: 9.5, weight: .black)).tracking(1.5).foregroundColor(.white.opacity(0.68))
+                    Text("Turn a vibe into a night.").font(.system(size: 25, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: 235, alignment: .leading)
+                    Text("Spark it. Invite your people. Drop the Party Pass.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.66)).frame(maxWidth: 240, alignment: .leading)
+                    Label(sessionStore.isAuthenticated ? "Create a Moment" : "Sign in to create", systemImage: "sparkles").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 13).frame(height: 35).background(Color.white).clipShape(Capsule())
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
+            }
+            .frame(minHeight: 190).clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 25).stroke(NativeTheme.pink.opacity(0.34)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-host-studio-launch")
     }
 
     private var segmentControl: some View {

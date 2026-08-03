@@ -224,6 +224,164 @@ struct NativeSocialInvitation: Equatable, Identifiable {
     }
 }
 
+enum NativePartyTemplateID: String, CaseIterable, Codable, Identifiable {
+    case listeningParty = "listening-party"
+    case comedyNight = "comedy-night"
+    case premiere
+    case privateParty = "private-party"
+    case fanMeetup = "fan-meetup"
+    var id: String { rawValue }
+}
+
+struct NativePartyTemplate: Equatable, Identifiable {
+    let id: NativePartyTemplateID
+    let name: String
+    let hook: String
+    let emoji: String
+    let itinerary: [String]
+
+    static let catalog = [
+        NativePartyTemplate(id: .listeningParty, name: "Listening Party", hook: "Drop the sound before everyone else.", emoji: "🎧", itinerary: ["Doors open", "First listen", "Artist Q&A"]),
+        NativePartyTemplate(id: .comedyNight, name: "Comedy Night", hook: "Turn a room into an inside joke.", emoji: "🎤", itinerary: ["Doors open", "Warm-up set", "Headliner"]),
+        NativePartyTemplate(id: .premiere, name: "Premiere", hook: "Make the first watch feel legendary.", emoji: "🎬", itinerary: ["Arrivals", "Screening", "Cast conversation"]),
+        NativePartyTemplate(id: .privateParty, name: "Private Party", hook: "One room. Your people. No noise.", emoji: "🪩", itinerary: ["Guest arrival", "Main moment", "After-hours"]),
+        NativePartyTemplate(id: .fanMeetup, name: "Fan Meetup", hook: "Turn followers into a real community.", emoji: "⚡️", itinerary: ["Meet the community", "Creator moment", "Group photo"])
+    ]
+}
+
+enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
+    case freeRSVP = "free-rsvp"
+    case paidTicket = "paid-ticket"
+    case privateApproval = "private-approval"
+    var id: String { rawValue }
+    var title: String { self == .freeRSVP ? "Free RSVP" : self == .paidTicket ? "Paid Ticket" : "Private Approval" }
+}
+
+enum NativePartyHostRole: String, CaseIterable, Codable, Identifiable {
+    case owner, cohost, door, finance
+    var id: String { rawValue }
+    var title: String { self == .cohost ? "Co-host" : rawValue.capitalized }
+}
+
+enum NativePartyCapability: String, CaseIterable { case edit, invite, checkIn = "check-in", refund, payouts }
+
+enum NativePartyRoleContract {
+    static let capabilities: [NativePartyHostRole: Set<NativePartyCapability>] = [
+        .owner: [.edit, .invite, .checkIn, .refund, .payouts],
+        .cohost: [.edit, .invite, .checkIn],
+        .door: [.checkIn],
+        .finance: [.refund, .payouts]
+    ]
+
+    static func can(_ role: NativePartyHostRole, _ capability: NativePartyCapability) -> Bool {
+        capabilities[role]?.contains(capability) == true
+    }
+}
+
+struct NativePartyItineraryItem: Equatable { let title: String; let offsetMinutes: Int }
+struct NativePartyTicketTier: Equatable { let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier }
+struct NativePartyHostAssignment: Equatable { let email: String; let role: NativePartyHostRole }
+
+struct NativePartyDraftInput: Equatable {
+    let templateID: NativePartyTemplateID
+    let title: String
+    let tagline: String
+    let startsAt: Date
+    let venueName: String
+    let capacity: Int
+    let accessMode: NativePartyAccessMode
+    let requiredMembershipTier: BytspotTier
+    let audienceCircleIDs: [String]
+    let itinerary: [NativePartyItineraryItem]
+    let ticketTiers: [NativePartyTicketTier]
+    let cohosts: [NativePartyHostAssignment]
+
+    var validationMessage: String? {
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "Add a party title." }
+        if venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add a venue." }
+        if capacity < 2 { return "Capacity must be at least 2." }
+        if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
+        if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
+        if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
+        return nil
+    }
+
+    var rpcInput: [String: Any] {
+        [
+            "templateId": templateID.rawValue, "title": title, "tagline": tagline,
+            "startsAt": ISO8601DateFormatter().string(from: startsAt), "venueName": venueName,
+            "capacity": capacity, "accessMode": accessMode.rawValue,
+            "requiredMembershipTier": requiredMembershipTier.rawValue,
+            "audienceCircleIds": audienceCircleIDs,
+            "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
+            "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
+            "cohosts": cohosts.map { ["email": $0.email, "role": $0.role.rawValue] },
+            "source": "host-studio"
+        ]
+    }
+}
+
+struct NativePublishedParty: Equatable, Identifiable {
+    let id: String
+    let shareURL: URL
+    let passCode: String
+    let draft: NativePartyDraftInput
+}
+
+enum NativePartyStudioError: LocalizedError, Equatable {
+    case validation(String), missingDraft, missingPartyPass
+    var errorDescription: String? {
+        switch self {
+        case .validation(let message): return message
+        case .missingDraft: return "The party draft was not returned."
+        case .missingPartyPass: return "The Party Pass was not returned."
+        }
+    }
+}
+
+struct NativePartyStudioAPI {
+    let client: BytspotAPIClient
+
+    func createAndPublish(_ draft: NativePartyDraftInput) async throws -> NativePublishedParty {
+        if let message = draft.validationMessage { throw NativePartyStudioError.validation(message) }
+        let created = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyDraftCreateRoute, method: "POST", input: draft.rpcInput)
+        guard let partyID = Self.partyID(from: created) else { throw NativePartyStudioError.missingDraft }
+        let published = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyPublishRoute, method: "POST", input: ["partyId": partyID])
+        guard let pass = Self.publishedParty(from: published, fallbackID: partyID, draft: draft) else { throw NativePartyStudioError.missingPartyPass }
+        return pass
+    }
+
+    static func partyID(from value: Any) -> String? {
+        clean(objectRow(value)["id"] ?? objectRow(value)["partyId"])
+    }
+
+    static func publishedParty(from value: Any, fallbackID: String, draft: NativePartyDraftInput) -> NativePublishedParty? {
+        let row = objectRow(value)
+        guard let rawURL = clean(row["shareUrl"] ?? row["url"]), let url = safeShareURL(rawURL),
+              let passCode = clean(row["passCode"] ?? row["accessCode"]) else { return nil }
+        return NativePublishedParty(id: clean(row["id"] ?? row["partyId"]) ?? fallbackID, shareURL: url, passCode: passCode, draft: draft)
+    }
+
+    private static func objectRow(_ value: Any) -> [String: Any] {
+        guard let row = value as? [String: Any] else { return [:] }
+        if let party = row["party"] as? [String: Any] { return objectRow(party) }
+        if let data = row["data"] as? [String: Any] { return objectRow(data) }
+        return row
+    }
+
+    private static func clean(_ value: Any?) -> String? {
+        guard let text = value as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func safeShareURL(_ value: String) -> URL? {
+        guard let url = URL(string: value), url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(), host == "bytspot.app" || host.hasSuffix(".bytspot.app") || host == "bytspot.com" || host.hasSuffix(".bytspot.com") else { return nil }
+        return url
+    }
+}
+
 struct NativeCheckoutSession: Equatable {
     var candidates: [String] = []
     var message: String?
@@ -568,6 +726,13 @@ enum NativeCheckInV2Contract {
 
 enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
+    static let partyDraftCreateRoute = "/trpc/events.drafts.create"
+    static let partyPublishRoute = "/trpc/events.publish"
+    static let partyRSVPRoute = "/trpc/events.rsvp.create"
+    static let partyTicketCheckoutRoute = "/trpc/events.tickets.createCheckout"
+    static let partyItineraryRoute = "/trpc/events.itinerary.upsert"
+    static let partyRoleAssignRoute = "/trpc/events.roles.assign"
+    static let partyAudienceAttachRoute = "/trpc/events.audiences.attach"
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"

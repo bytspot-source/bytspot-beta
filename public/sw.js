@@ -5,7 +5,7 @@ const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/
 function isNativeHandoffURL(url) {
   const parts = url.pathname.split('/').filter(Boolean);
   const first = (parts[0] || '').toLowerCase();
-  if (first === 'group' && parts[1]) return true;
+  if ((first === 'party' || first === 'group') && parts[1]) return true;
   if (first === 'access' || first === 'patch' || first === 'clip') return true;
   if ((first === 'p' || first === 'patch' || first === 't') && parts[1]) return true;
   if (/^byt[a-z0-9_-]{2,}$/i.test(parts[0] || '')) return true;

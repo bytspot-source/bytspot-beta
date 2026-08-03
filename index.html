@@ -58,7 +58,7 @@
               var pathParts = current.pathname.split('/').filter(Boolean);
               if (!patchId && pathParts[0] && pathParts[0].toUpperCase().indexOf('BYT') === 0) patchId = pathParts[0];
               if (!patchId && (pathParts[0] === 'p' || pathParts[0] === 'patch' || pathParts[0] === 't') && pathParts[1]) patchId = pathParts[1];
-              if (pathParts[0] === 'group' && pathParts[1]) {
+              if ((pathParts[0] === 'group' || pathParts[0] === 'party') && pathParts[1]) {
                 canonicalArgument = current.toString();
               } else if (patchId) {
                 var next = new URL('https://bytspot.app/p/app-clip');

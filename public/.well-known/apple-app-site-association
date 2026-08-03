@@ -10,6 +10,7 @@
           { "/": "/BYT424", "?": { "patchId": "BYT424-*" }, "comment": "Campaign root with serialized patchId query, e.g. /BYT424?patchId=BYT424-0301" },
           { "/": "/BYT*", "comment": "Root NTAG424 DNA production tag links, e.g. /BYT424-0301" },
           { "/": "/p/*", "comment": "Patch verify deep link" },
+          { "/": "/party/*", "comment": "Published Host Studio Party Pass" },
           { "/": "/access", "comment": "Native Access wallet" },
           { "/": "/access/*", "comment": "Full-app handoff path emitted by App Clip mainAppHandoffURL" },
           { "/": "/patch", "comment": "Compatibility path for older Smart App Banner defaults" },

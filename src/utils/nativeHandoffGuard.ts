@@ -1,4 +1,4 @@
-export type NativeHandoffKind = 'group' | 'patch' | 'access';
+export type NativeHandoffKind = 'party' | 'group' | 'patch' | 'access';
 
 export type NativeHandoffContext = {
   kind: NativeHandoffKind;
@@ -42,7 +42,7 @@ export function nativeAppClipArgumentFor(rawUrl: string): string {
     const current = new URL(rawUrl);
     const parts = pathParts(current);
     const [first] = parts;
-    if (first?.toLowerCase() === 'group') return current.toString();
+    if (first && ['party', 'group'].includes(first.toLowerCase())) return current.toString();
     const patchId = patchIdFrom(current, parts);
     if (!patchId) return 'https://bytspot.app/p/app-clip?patchId=BYT424&tier=platinum';
     const next = new URL('https://bytspot.app/p/app-clip');
@@ -71,6 +71,18 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
   const first = parts[0]?.toLowerCase();
   const source = url.searchParams.get('source')?.toLowerCase();
   const isAppClipHandoff = source === 'app_clip' || url.searchParams.get('handoff') === '1';
+
+  if (first === 'party' && parts[1]) {
+    const nativeURL = new URL(`bytspot://party/${parts.slice(1).join('/')}`);
+    cloneQuery(url, nativeURL);
+    return {
+      kind: 'party',
+      title: 'Open this Party Pass in Bytspot',
+      subtitle: 'This published Host Studio party opens in the native app or App Clip.',
+      appArgument: url.toString(),
+      appSchemeURL: nativeURL.toString(),
+    };
+  }
 
   if (first === 'group' && parts[1]) {
     const nativeURL = new URL(`bytspot://group/${parts.slice(1).join('/')}`);

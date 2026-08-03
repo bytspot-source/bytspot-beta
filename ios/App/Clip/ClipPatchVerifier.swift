@@ -822,12 +822,11 @@ struct ClipPatchVerifier {
             throw VerifyError.server(msg)
         }
 
-        // tRPC HTTP adapter wraps mutation results as { result: { data: ... } }
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = root["result"] as? [String: Any],
-              let payload = result["data"] else {
-            throw VerifyError.decode
-        }
+        let payload = try unwrapTRPCPayload(data)
+        return try Self.decodeVerifyResult(payload)
+    }
+
+    static func decodeVerifyResult(_ payload: Any) throws -> VerifyResult {
         let payloadData = try JSONSerialization.data(withJSONObject: payload)
         do {
             return try JSONDecoder().decode(VerifyResult.self, from: payloadData)

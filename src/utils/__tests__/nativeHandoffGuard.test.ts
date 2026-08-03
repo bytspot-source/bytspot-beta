@@ -18,6 +18,17 @@ test('blocks group invite URLs from booting the legacy PWA', () => {
   assert.match(context?.appSchemeURL ?? '', /^bytspot:\/\/group\/platinum-private-dinner/);
 });
 
+test('preserves authoritative Party Pass URLs for App Clip invocation', () => {
+  const url = 'https://bytspot.app/party/party-1?handoff=1';
+  const context = nativeHandoffContext(url);
+
+  assert.equal(nativeAppClipArgumentFor(url), url);
+  assert.equal(shouldBlockLegacyPwaFallback(url), true);
+  assert.equal(context?.kind, 'party');
+  assert.equal(context?.appArgument, url);
+  assert.match(context?.appSchemeURL ?? '', /^bytspot:\/\/party\/party-1/);
+});
+
 test('canonicalizes NFC patch URLs into App Clip arguments', () => {
   const url = 'https://bytspot.app/p/PATCH-FIFA-001?tier=platinum&service=gh-akwaaba-fifa';
   const argument = nativeAppClipArgumentFor(url);
@@ -51,6 +62,7 @@ test('service worker bypass classifier stays aligned for handoff navigation URLs
   assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/access/BYT424-0301')), true);
   assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch')), true);
   assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch/BYT424-0301')), true);
+  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/party/party-1')), true);
   assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/discover')), false);
 });
 

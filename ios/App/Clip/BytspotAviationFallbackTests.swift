@@ -102,6 +102,7 @@ enum BytspotAviationFallbackTests {
         runPhase3LuxuryFlowContract()
         assertRichMediaContextContract()
         assertPrivateGroupRichInviteContract()
+        assertHostStudioPartyMappingContract()
         assertPartnerCardParity()
     }
 
@@ -207,6 +208,22 @@ enum BytspotAviationFallbackTests {
         ], tier: .green)
         precondition(green?.hasPlayableVideo == false, "Phase4F App Clip: Green private groups should remain photo-first.")
         precondition(green?.theme == "Local family", "Phase4F App Clip: Green private group theme drifted.")
+    }
+
+    private static func assertHostStudioPartyMappingContract() {
+        let invite = ClipGroupEventInvite.fromPartyPayload([
+            "id": "party-1", "source": "host-studio-party", "title": "First Listen",
+            "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
+            "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
+            "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
+            "hostName": "Avery Parker", "locationLabel": "The Loft",
+            "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"],
+            "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false
+        ])
+        precondition(invite?.isHostStudioParty == true, "Party Loop: App Clip must identify Host Studio Party DTOs.")
+        precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
+        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/group/party-1", "Party Loop: handoff must stay on the App Clip group route.")
     }
 }
 #endif

@@ -758,6 +758,13 @@ struct ClipPatchVerifier {
         )
     }
 
+    /// Resolves the exact published Host Studio Party behind a clean Party Pass URL.
+    func partyInvite(partyID: String) async throws -> ClipGroupEventInvite {
+        let payload = try await getTRPC("events.invite", input: ["partyId": partyID])
+        guard let invite = ClipGroupEventInvite.fromPartyPayload(payload) else { throw VerifyError.decode }
+        return invite
+    }
+
     /// Join a private group event (`groupEvents.join`). Returns the resulting
     /// membership status: `"joined"` for open events or `"pending"` for
     /// approval-gated ones.

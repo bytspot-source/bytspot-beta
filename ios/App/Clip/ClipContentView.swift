@@ -78,6 +78,12 @@ struct ClipContentView: View {
                 case .catalog:
                     ClipCatalogView(showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
+                case .groupEventLoading:
+                    ClipPartyInviteStateView(title: "Loading Party Pass…", message: "Getting the moment directly from its Host Studio party.", isLoading: true)
+                        .transition(.opacity)
+                case .groupEventFailed(_, let message):
+                    ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false)
+                        .transition(.opacity)
                 case .groupEvent(let invite):
                     ClipGroupEventJoinView(invite: invite, showOverlay: $showOverlay)
                         .transition(.opacity)
@@ -104,6 +110,25 @@ struct ClipContentView: View {
             guard case .checkout(let service, let vendor) = invocation.flow else { return }
             invocation.completeCheckout(service: service, vendor: vendor, bookingRef: result.bookingId ?? "BYT-\(Int.random(in: 100000...999999))")
         }
+    }
+}
+
+private struct ClipPartyInviteStateView: View {
+    let title: String
+    let message: String
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if isLoading { ProgressView().tint(ClipTheme.cyan).scaleEffect(1.2) }
+            Image(systemName: isLoading ? "sparkles" : "exclamationmark.circle.fill")
+                .font(.system(size: 34, weight: .black)).foregroundColor(isLoading ? ClipTheme.cyan : ClipTheme.pink)
+            Text(title).font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(.white)
+            Text(message).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center)
+        }
+        .padding(26).frame(maxWidth: 360)
+        .background(RoundedRectangle(cornerRadius: 28).fill(ClipTheme.panelElevated.opacity(0.92)))
+        .padding(22)
     }
 }
 
@@ -277,7 +302,7 @@ struct ClipGroupEventJoinView: View {
             Image(systemName: "person.3.sequence.fill").font(.system(size: 94, weight: .black)).foregroundColor(Color.black.opacity(0.18)).offset(x: 178, y: -20)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 7) {
-                    glassChip("APP CLIP", icon: "bolt.fill")
+                    glassChip(invite.isHostStudioParty ? "PARTY PASS" : "APP CLIP", icon: "bolt.fill")
                     glassChip(privacyLabel, icon: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
                 }
                 Text(invite.title).font(.system(size: titleFontSize, weight: .black, design: .rounded)).foregroundColor(ink).lineLimit(2)
@@ -300,8 +325,14 @@ struct ClipGroupEventJoinView: View {
             VStack(alignment: .leading, spacing: 12) {
                 detailCard(eyebrow: "Date & time", title: invite.scheduledDate, icon: "calendar.badge.clock")
                 detailCard(eyebrow: "Hosted by", title: invite.hostName, icon: "person.crop.circle.badge.checkmark")
-                detailCard(eyebrow: invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
+                detailCard(eyebrow: invite.isHostStudioParty || invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
                 detailCard(eyebrow: "Circle", title: invite.audienceCircle, icon: "person.2.fill")
+                if let accessMode = invite.accessMode {
+                    detailCard(eyebrow: "Access", title: accessModeLabel(accessMode), icon: "person.badge.key.fill")
+                }
+                if let capacity = invite.capacity {
+                    detailCard(eyebrow: "Capacity", title: "\(capacity) guests", icon: "person.3.fill")
+                }
             }
 
             if !invite.activityHighlights.isEmpty {
@@ -350,6 +381,15 @@ struct ClipGroupEventJoinView: View {
         }
         .padding(13)
         .background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.04)))
+    }
+
+    private func accessModeLabel(_ value: String) -> String {
+        switch value {
+        case "free-rsvp": return "Free RSVP"
+        case "paid-ticket": return "Paid Ticket"
+        case "private-approval": return "Private Approval"
+        default: return value.replacingOccurrences(of: "-", with: " ").capitalized
+        }
     }
 
     private func sectionMiniTitle(_ title: String) -> some View {

@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, Compass, Map, Sparkles } from 'lucide-react';
+import { Home, Compass, Map, Sparkles, Users } from 'lucide-react';
 import { memo } from 'react';
 import { impactLight } from '../utils/haptics';
 
@@ -41,6 +41,7 @@ export const BottomNav = memo(function BottomNav({
     { id: 'home', label: 'Home', icon: Home },
     { id: 'discover', label: 'Discover', icon: Compass },
     { id: 'map', label: 'Map', icon: Map },
+    { id: 'network', label: 'Network', icon: Users },
     { id: 'concierge', label: 'Concierge', icon: Sparkles },
   ];
 

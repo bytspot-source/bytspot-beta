@@ -722,6 +722,9 @@ export default function App() {
         } else if (path === 'map') {
           setCurrentScreen('main');
           setActiveTab('map');
+        } else if (path === 'network') {
+          setCurrentScreen('main');
+          setActiveTab('network');
         } else if (path === 'profile') {
           openProfileMain();
         }
@@ -730,7 +733,7 @@ export default function App() {
 
     const applyNativeTabRoute = (tab?: string | null, focus?: string | null) => {
       const normalized = tab === 'access' ? 'profile' : tab;
-      if (!normalized || !['home', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
+      if (!normalized || !['home', 'discover', 'map', 'network', 'profile', 'concierge'].includes(normalized)) return;
       if (normalized === 'profile') {
         if (focus) localStorage.setItem('bytspot_profile_focus', focus);
         else localStorage.removeItem('bytspot_profile_focus');
@@ -2332,6 +2335,28 @@ export default function App() {
                         setCurrentScreen('auth');
                         setActiveTab('home');
                       }}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              </motion.div>
+            )}
+
+            {activeTab === 'network' && (
+              <motion.div
+                key="network"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0 overflow-y-auto"
+              >
+                <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
+                  <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" /></div>}>
+                    <ProfileSection
+                      isDarkMode={isDarkMode}
+                      initialScreen="friends"
+                      onBackFromNetwork={() => setActiveTab('home')}
+                      onOpenVirtualPatch={openVirtualPatchFromWallet}
                     />
                   </Suspense>
                 </ErrorBoundary>

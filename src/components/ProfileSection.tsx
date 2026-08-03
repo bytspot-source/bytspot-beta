@@ -27,6 +27,7 @@ import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReserva
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { saveVirtualPatchContext, type VirtualPatchContext, type VirtualPatchSavedServiceRequest, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
 import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
+import { HostStudio } from './HostStudio';
 
 const DEMO_VENUE_SERVICES = [
   { name: 'Verified Entry', detail: 'Skip the line and walk straight in.' },
@@ -39,6 +40,8 @@ interface ProfileSectionProps {
   isDarkMode: boolean;
   onOpenVirtualPatch?: (context: VirtualPatchContext | null) => void;
   onLogout?: () => void;
+  initialScreen?: 'main' | 'friends';
+  onBackFromNetwork?: () => void;
 }
 
 type ProfileMenuItem = {
@@ -54,7 +57,7 @@ type ProfileMenuSection = {
   items: ProfileMenuItem[];
 };
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'host-studio' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
 type NativeProfilePanel = 'reservations' | 'access' | 'points';
@@ -158,8 +161,8 @@ function formatReservationWindow(startTime: string, endTime: string): string {
   return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: ProfileSectionProps) {
-  const [currentScreen, setCurrentScreen] = useState<ProfileScreen>('main');
+export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout, initialScreen = 'main', onBackFromNetwork }: ProfileSectionProps) {
+  const [currentScreen, setCurrentScreen] = useState<ProfileScreen>(initialScreen);
   const [deleteReturnScreen, setDeleteReturnScreen] = useState<ProfileScreen>('general-settings');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [showDeleteFinalConfirm, setShowDeleteFinalConfirm] = useState(false);
@@ -282,9 +285,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     setVirtualPatchContext(readVirtualPatchContext());
   }, [currentScreen]);
 
-  // Network loads only people, circles, and invitations.
+  // Keep Network audiences current while Host Studio is open so a fast launch
+  // cannot miss Circles that were still loading.
   useEffect(() => {
-    if (currentScreen !== 'friends') return;
+    if (currentScreen !== 'friends' && currentScreen !== 'host-studio') return;
     let mounted = true;
     const invitations = listSocialInvitationsViaRpc(trpc)
       .then((items) => ({ items, failed: false }))
@@ -1167,11 +1171,15 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     );
   }
 
+  if (currentScreen === 'host-studio') {
+    return <HostStudio circles={socialCircles} membershipTier={membership.tier} onBack={() => setCurrentScreen('friends')} />;
+  }
+
   if (currentScreen === 'friends') {
     return (
       <div className="h-full flex flex-col">
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
-          <motion.button onClick={() => setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+          <motion.button onClick={() => onBackFromNetwork ? onBackFromNetwork() : setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
             <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
           </motion.button>
@@ -1179,6 +1187,19 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
+          <motion.button
+            data-testid="host-studio-launch"
+            onClick={() => setCurrentScreen('host-studio')}
+            className="relative w-full overflow-hidden rounded-[28px] border border-fuchsia-400/40 bg-[linear-gradient(135deg,rgba(126,34,206,0.9),rgba(15,23,42,0.98)_58%,rgba(6,182,212,0.45))] p-5 text-left shadow-[0_20px_55px_rgba(126,34,206,0.25)]"
+            whileTap={{ scale: 0.98 }}
+          >
+            <div className="absolute -right-5 -top-7 text-[96px] opacity-20">🪩</div>
+            <p className="text-[10px] font-black tracking-[0.2em] text-fuchsia-200">HOST STUDIO · THE BACKSTAGE</p>
+            <h3 className="mt-3 max-w-[75%] text-[26px] font-black leading-[0.95] text-white">Turn a vibe into a night.</h3>
+            <p className="mt-3 max-w-[80%] text-[12px] font-semibold text-white/70">Spark it. Invite your people. Drop the Party Pass.</p>
+            <span className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[12px] font-black text-black"><Sparkles className="h-4 w-4" /> Create a Moment</span>
+          </motion.button>
+
           <div className="grid grid-cols-3 gap-2">
             {['People', 'Social Circles', 'Invitations'].map((label, index) => (
               <div key={label} className="rounded-[16px] border border-slate-700 bg-slate-950 p-3 text-center">

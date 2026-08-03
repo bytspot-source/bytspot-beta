@@ -2,6 +2,35 @@ import XCTest
 import CoreLocation
 @testable import App
 
+private final class NativePartyURLProtocolStub: URLProtocol {
+    static var handler: ((URLRequest) throws -> (Int, Data))?
+    static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 1_024)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data.isEmpty ? nil : data
+    }
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "party.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            guard let handler = Self.handler else { throw URLError(.badServerResponse) }
+            let (status, data) = try handler(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}
+
 /// CI-runnable promotion of the launch-time `NativeMapParitySelfTests` pure-function
 /// suites for the L2/L3 trust engine. These exercise the same locked, pure API the
 /// `precondition` self-tests do (so drift is caught on every PR, not only when the
@@ -1482,7 +1511,35 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual((draft.rpcInput["ticketTiers"] as? [[String: Any]])?.first?["priceCents"] as? Int, 3_500)
         XCTAssertEqual((draft.rpcInput["itinerary"] as? [[String: Any]])?.last?["offsetMinutes"] as? Int, 120)
         XCTAssertEqual((draft.rpcInput["cohosts"] as? [[String: Any]])?.first?["role"] as? String, "door")
+        XCTAssertEqual(NativePartyStudioAPI.draftCreateInput(draft, idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
+        XCTAssertEqual(NativePartyStudioAPI.publishInput(partyID: "party-1", idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
+    }
+
+    func testNativeHostStudioExecutesDraftThenPublishThroughURLSession() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        var paths: [String] = []
+        NativePartyURLProtocolStub.handler = { request in
+            paths.append(request.url?.path ?? "")
+            let bodyData = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+            XCTAssertEqual(body["idempotencyKey"] as? String, "moment-1")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer host-token")
+            let payload: [String: Any] = request.url?.path == NativeLiveContentV2Contract.partyDraftCreateRoute
+                ? ["result": ["data": ["json": ["id": "party-1"]]]]
+                : ["result": ["data": ["json": ["id": "party-1", "shareUrl": "https://bytspot.com/party/party-1", "passCode": "LAUGH26"]]]]
+            return (200, try JSONSerialization.data(withJSONObject: payload))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        let api = NativePartyStudioAPI(client: client)
+
+        let partyID = try await api.createDraft(partyDraft(), idempotencyKey: "moment-1")
+        let party = try await api.publish(partyID: partyID, draft: partyDraft(), idempotencyKey: "moment-1")
+
+        XCTAssertEqual(paths, [NativeLiveContentV2Contract.partyDraftCreateRoute, NativeLiveContentV2Contract.partyPublishRoute])
+        XCTAssertEqual(party.passCode, "LAUGH26")
     }
 
     func testNativeHostStudioFailsClosedWithoutValidPaidTicketOrPartyPass() throws {

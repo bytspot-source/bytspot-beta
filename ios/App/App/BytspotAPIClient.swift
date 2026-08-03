@@ -329,12 +329,13 @@ struct NativePublishedParty: Equatable, Identifiable {
 }
 
 enum NativePartyStudioError: LocalizedError, Equatable {
-    case validation(String), missingDraft, missingPartyPass
+    case validation(String), missingDraft, missingPartyPass, sessionChanged
     var errorDescription: String? {
         switch self {
         case .validation(let message): return message
         case .missingDraft: return "The party draft was not returned."
         case .missingPartyPass: return "The Party Pass was not returned."
+        case .sessionChanged: return "Your session changed. Reopen Host Studio to continue."
         }
     }
 }
@@ -342,13 +343,27 @@ enum NativePartyStudioError: LocalizedError, Equatable {
 struct NativePartyStudioAPI {
     let client: BytspotAPIClient
 
-    func createAndPublish(_ draft: NativePartyDraftInput) async throws -> NativePublishedParty {
+    func createDraft(_ draft: NativePartyDraftInput, idempotencyKey: String) async throws -> String {
         if let message = draft.validationMessage { throw NativePartyStudioError.validation(message) }
-        let created = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyDraftCreateRoute, method: "POST", input: draft.rpcInput)
+        let created = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyDraftCreateRoute, method: "POST", input: Self.draftCreateInput(draft, idempotencyKey: idempotencyKey))
         guard let partyID = Self.partyID(from: created) else { throw NativePartyStudioError.missingDraft }
-        let published = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyPublishRoute, method: "POST", input: ["partyId": partyID])
+        return partyID
+    }
+
+    func publish(partyID: String, draft: NativePartyDraftInput, idempotencyKey: String) async throws -> NativePublishedParty {
+        let published = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyPublishRoute, method: "POST", input: Self.publishInput(partyID: partyID, idempotencyKey: idempotencyKey))
         guard let pass = Self.publishedParty(from: published, fallbackID: partyID, draft: draft) else { throw NativePartyStudioError.missingPartyPass }
         return pass
+    }
+
+    static func draftCreateInput(_ draft: NativePartyDraftInput, idempotencyKey: String) -> [String: Any] {
+        var input = draft.rpcInput
+        input["idempotencyKey"] = idempotencyKey
+        return input
+    }
+
+    static func publishInput(partyID: String, idempotencyKey: String) -> [String: Any] {
+        ["partyId": partyID, "idempotencyKey": idempotencyKey]
     }
 
     static func partyID(from value: Any) -> String? {

@@ -25,6 +25,8 @@ struct NativeHostStudioView: View {
     @State private var isPublishing = false
     @State private var publishedParty: NativePublishedParty?
     @State private var message = ""
+    @State private var publishTask: Task<Void, Never>?
+    @State private var idempotencyKey = UUID().uuidString.lowercased()
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -47,6 +49,13 @@ struct NativeHostStudioView: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-host-studio")
+        .onChange(of: sessionStore.token ?? "") { _ in
+            guard isPublishing else { return }
+            publishTask?.cancel()
+            isPublishing = false
+            message = NativePartyStudioError.sessionChanged.localizedDescription
+        }
+        .onDisappear { publishTask?.cancel() }
     }
 
     private var header: some View {
@@ -218,17 +227,25 @@ struct NativeHostStudioView: View {
         if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { message = "Add a title and venue before setting the door."; return }
         if step == .door && draft.validationMessage != nil { message = draft.validationMessage ?? "Review the door settings."; return }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
-        Task { await publish() }
+        guard !isPublishing else { return }
+        isPublishing = true
+        publishTask = Task { await publish() }
     }
 
     @MainActor private func publish() async {
-        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { message = "Sign in before publishing this moment."; return }
-        isPublishing = true; defer { isPublishing = false }
+        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { isPublishing = false; message = "Sign in before publishing this moment."; return }
+        defer { isPublishing = false; publishTask = nil }
         do {
-            let result = try await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { publishingToken })).createAndPublish(draft)
-            guard sessionStore.token == publishingToken else { message = "Your session changed. Reopen Host Studio to continue."; return }
+            let api = NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { publishingToken }))
+            let partyID = try await api.createDraft(draft, idempotencyKey: idempotencyKey)
+            try Task.checkCancellation()
+            guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
+            let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
+            try Task.checkCancellation()
+            guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishedParty = result
         }
+        catch is CancellationError { if message.isEmpty { message = NativePartyStudioError.sessionChanged.localizedDescription } }
         catch { message = (error as? LocalizedError)?.errorDescription ?? "The party could not be published." }
     }
 

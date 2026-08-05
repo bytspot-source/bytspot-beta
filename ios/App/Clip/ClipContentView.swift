@@ -145,6 +145,7 @@ struct PartyPassClipView: View {
     @Environment(\.openURL) private var openURL
     @State private var passState: ClipPartyPassState?
     @State private var isResolving = true
+    @State private var isPerformingAction = false
     @State private var statusMessage = ""
     @State private var showTicketTiers = false
     @State private var showShareSheet = false
@@ -152,6 +153,7 @@ struct PartyPassClipView: View {
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
+    private var isBusy: Bool { isResolving || isPerformingAction }
     private var primaryTitle: String {
         guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
         switch action {
@@ -274,20 +276,25 @@ struct PartyPassClipView: View {
     }
 
     private var ticketActionBar: some View {
-        HStack(spacing: 11) {
-            Button(action: primaryAction) { Label(primaryTitle, systemImage: passState?.action == .ticket ? "ticket.fill" : "checkmark.seal.fill").font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 55).background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 20)) }
-                .disabled(isResolving || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
-            Button { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) } label: { Image(systemName: "ellipsis").foregroundColor(.white).frame(width: 55, height: 55).background(Color.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 20)) }.buttonStyle(.plain)
+        VStack(spacing: 8) {
+            HStack(spacing: 11) {
+                Button(action: primaryAction) { Label(primaryTitle, systemImage: passState?.action == .ticket ? "ticket.fill" : "checkmark.seal.fill").font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 55).background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 20)) }
+                    .disabled(isBusy || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
+                Button { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) } label: { Image(systemName: "ellipsis").foregroundColor(.white).frame(width: 55, height: 55).background(Color.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 20)) }.buttonStyle(.plain)
+            }
+            if !statusMessage.isEmpty {
+                Text(statusMessage).font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.76)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            }
         }
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12).background(.ultraThinMaterial)
     }
 
     private var accessLabel: String { invite.accessMode == "paid-ticket" ? "Paid ticket access" : invite.accessMode == "private-approval" ? "Host approval required" : "RSVP access" }
-    private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id) } catch { statusMessage = "We couldn’t verify ticket availability right now." } }
-    private func primaryAction() { guard let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
-    private func authenticate() async { do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); await resolvePass() } catch { statusMessage = "Sign in could not be completed." } }
-    private func rsvp() async { do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent." } }
-    private func createCheckout(for tier: ClipPartyTicketTier) { Task { do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
+    private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id); statusMessage = "" } catch { passState = nil; statusMessage = "We couldn’t verify ticket availability right now. Please try again." } }
+    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
+    private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
+    private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
 }
 
 private struct PartyGlassCard<Content: View>: View { let content: Content; init(@ViewBuilder content: () -> Content) { self.content = content() }; var body: some View { VStack(alignment: .leading, spacing: 13) { content }.padding(17).background(RoundedRectangle(cornerRadius: 25).fill(ClipTheme.panelElevated.opacity(0.82))).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.14))) } }

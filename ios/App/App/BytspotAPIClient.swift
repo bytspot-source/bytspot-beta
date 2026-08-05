@@ -230,6 +230,8 @@ enum NativePartyTemplateID: String, CaseIterable, Codable, Identifiable {
     case premiere
     case privateParty = "private-party"
     case fanMeetup = "fan-meetup"
+    case releaseParty = "release-party"
+    case popUp = "pop-up"
     var id: String { rawValue }
 }
 
@@ -245,8 +247,60 @@ struct NativePartyTemplate: Equatable, Identifiable {
         NativePartyTemplate(id: .comedyNight, name: "Comedy Night", hook: "Turn a room into an inside joke.", emoji: "🎤", itinerary: ["Doors open", "Warm-up set", "Headliner"]),
         NativePartyTemplate(id: .premiere, name: "Premiere", hook: "Make the first watch feel legendary.", emoji: "🎬", itinerary: ["Arrivals", "Screening", "Cast conversation"]),
         NativePartyTemplate(id: .privateParty, name: "Private Party", hook: "One room. Your people. No noise.", emoji: "🪩", itinerary: ["Guest arrival", "Main moment", "After-hours"]),
-        NativePartyTemplate(id: .fanMeetup, name: "Fan Meetup", hook: "Turn followers into a real community.", emoji: "⚡️", itinerary: ["Meet the community", "Creator moment", "Group photo"])
+        NativePartyTemplate(id: .fanMeetup, name: "Fan Meetup", hook: "Turn followers into a real community.", emoji: "⚡️", itinerary: ["Meet the community", "Creator moment", "Group photo"]),
+        NativePartyTemplate(id: .releaseParty, name: "Release Party", hook: "Give the drop its first room.", emoji: "💿", itinerary: ["Doors open", "Release premiere", "Celebration set"]),
+        NativePartyTemplate(id: .popUp, name: "Pop-Up", hook: "Make the reveal the moment.", emoji: "📍", itinerary: ["Location reveal", "Drop live", "Last call"])
     ]
+}
+
+enum NativeListeningPartyFormat: String, CaseIterable, Codable, Identifiable { case listeningSession = "listening-session", djMixPremiere = "dj-mix-premiere", livePerformance = "live-performance", labelShowcase = "label-showcase"; var id: String { rawValue }; var title: String { self == .listeningSession ? "Listen" : self == .djMixPremiere ? "DJ mix" : self == .livePerformance ? "Live set" : "Label" } }
+enum NativeFanMeetupFormat: String, CaseIterable, Codable, Identifiable { case meetAndGreet = "meet-and-greet", creatorConversation = "creator-conversation", communityPhoto = "community-photo"; var id: String { rawValue }; var title: String { self == .meetAndGreet ? "Meet & greet" : self == .creatorConversation ? "Conversation" : "Photo moment" } }
+enum NativeReleaseFormat: String, CaseIterable, Codable, Identifiable { case single, ep, album, mix, video; var id: String { rawValue }; var title: String { rawValue.uppercased() == "EP" ? "EP" : rawValue.capitalized } }
+enum NativePopUpLocationDisclosure: String, CaseIterable, Codable, Identifiable { case `public`, afterApproval = "after-approval"; var id: String { rawValue }; var title: String { self == .public ? "Public" : "After approval" } }
+enum NativePrivatePartyGuestPolicy: String, CaseIterable, Codable, Identifiable { case namedGuests = "named-guests", namedGuestsPlusOne = "named-guests-plus-one"; var id: String { rawValue }; var title: String { self == .namedGuests ? "Named guests" : "Named + one" } }
+
+enum NativePartyTemplateConfiguration: Equatable {
+    case standard
+    case listeningParty(NativeListeningPartyFormat)
+    case fanMeetup(NativeFanMeetupFormat)
+    case releaseParty(NativeReleaseFormat, String)
+    case popUp(NativePopUpLocationDisclosure)
+    case privateParty(NativePrivatePartyGuestPolicy)
+
+    var templateID: NativePartyTemplateID? {
+        switch self {
+        case .standard: return nil
+        case .listeningParty: return .listeningParty
+        case .fanMeetup: return .fanMeetup
+        case .releaseParty: return .releaseParty
+        case .popUp: return .popUp
+        case .privateParty: return .privateParty
+        }
+    }
+
+    var allowedAccessModes: [NativePartyAccessMode] {
+        if case .privateParty = self { return [.privateApproval] }
+        return NativePartyAccessMode.allCases
+    }
+
+    var validationMessage: String? {
+        switch self {
+        case .releaseParty(_, let title) where title.trimmingCharacters(in: .whitespacesAndNewlines).count < 2:
+            return "Add the release title."
+        default: return nil
+        }
+    }
+
+    var rpcInput: [String: Any] {
+        switch self {
+        case .standard: return ["kind": "standard"]
+        case .listeningParty(let format): return ["kind": "listening-party", "format": format.rawValue]
+        case .fanMeetup(let format): return ["kind": "fan-meetup", "format": format.rawValue]
+        case .releaseParty(let format, let title): return ["kind": "release-party", "releaseType": format.rawValue, "releaseTitle": title.trimmingCharacters(in: .whitespacesAndNewlines)]
+        case .popUp(let disclosure): return ["kind": "pop-up", "locationDisclosure": disclosure.rawValue]
+        case .privateParty(let policy): return ["kind": "private-party", "guestPolicy": policy.rawValue]
+        }
+    }
 }
 
 enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
@@ -297,11 +351,17 @@ struct NativePartyDraftInput: Equatable {
     let itinerary: [NativePartyItineraryItem]
     let ticketTiers: [NativePartyTicketTier]
     let cohosts: [NativePartyHostAssignment]
+    let templateConfiguration: NativePartyTemplateConfiguration
 
     var validationMessage: String? {
         if title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "Add a party title." }
         if venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add a venue." }
         if capacity < 2 { return "Capacity must be at least 2." }
+        if let configuredTemplate = templateConfiguration.templateID, configuredTemplate != templateID { return "Choose the matching Party format." }
+        if templateConfiguration.templateID == nil && ![NativePartyTemplateID.comedyNight, .premiere].contains(templateID) { return "Choose the matching Party format." }
+        if let message = templateConfiguration.validationMessage { return message }
+        if case .privateParty = templateConfiguration, accessMode != .privateApproval { return "Private Parties require host approval." }
+        if case .popUp(.afterApproval) = templateConfiguration, accessMode != .privateApproval { return "Hidden Pop-Up locations require host approval." }
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
@@ -318,6 +378,7 @@ struct NativePartyDraftInput: Equatable {
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
             "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
             "cohosts": cohosts.map { ["email": $0.email, "role": $0.role.rawValue] },
+            "templateConfig": templateConfiguration.rpcInput,
             "source": "host-studio"
         ]
     }

@@ -238,6 +238,7 @@ struct ClipInviteView: View {
             : invite.guestSummary
     }
     private var privacyLabel: String { invite.privacyStatus == "publicDiscovery" ? "Public" : "Private Invite" }
+    private var locationLabel: String { invite.locationDisclosure == "after-approval" ? "LOCATION AFTER APPROVAL" : "WHERE" }
 
     var body: some View {
         ZStack {
@@ -369,7 +370,7 @@ struct ClipInviteView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Essentials").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
             partyEssentialRow("calendar.badge.clock", "WHEN", invite.scheduledDate)
-            partyEssentialRow("mappin.and.ellipse", "WHERE", invite.locationLabel)
+            partyEssentialRow("mappin.and.ellipse", locationLabel, invite.locationLabel)
             partyEssentialRow("person.2.fill", "INVITED THROUGH", invite.audienceCircle)
         }
     }
@@ -425,7 +426,7 @@ struct ClipInviteView: View {
             VStack(alignment: .leading, spacing: 12) {
                 detailCard(eyebrow: "Date & time", title: invite.scheduledDate, icon: "calendar.badge.clock")
                 detailCard(eyebrow: "Hosted by", title: invite.hostName, icon: "person.crop.circle.badge.checkmark")
-                detailCard(eyebrow: invite.isHostStudioParty || invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
+                detailCard(eyebrow: invite.locationDisclosure == "after-approval" ? "Location after approval" : invite.isHostStudioParty || invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
                 detailCard(eyebrow: "Circle", title: invite.audienceCircle, icon: "person.2.fill")
                 if let accessMode = invite.accessMode {
                     detailCard(eyebrow: "Access", title: accessModeLabel(accessMode), icon: "person.badge.key.fill")

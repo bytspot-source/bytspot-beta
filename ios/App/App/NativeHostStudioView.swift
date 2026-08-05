@@ -23,6 +23,12 @@ struct NativeHostStudioView: View {
     @State private var selectedCircleIDs: Set<String> = []
     @State private var teammateEmail = ""
     @State private var teammateRole: NativePartyHostRole = .cohost
+    @State private var listeningFormat: NativeListeningPartyFormat = .listeningSession
+    @State private var fanMeetupFormat: NativeFanMeetupFormat = .meetAndGreet
+    @State private var releaseFormat: NativeReleaseFormat = .single
+    @State private var releaseTitle = ""
+    @State private var popUpLocationDisclosure: NativePopUpLocationDisclosure = .public
+    @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishedParty: NativePublishedParty?
     @State private var message = ""
@@ -131,6 +137,8 @@ struct NativeHostStudioView: View {
         case .premiere: colors = [NativeTheme.cyan, Color.blue.opacity(0.72), NativeTheme.slate950]
         case .privateParty: colors = [NativeTheme.emerald, NativeTheme.green900, NativeTheme.slate950]
         case .fanMeetup: colors = [NativeTheme.purple, Color.indigo, NativeTheme.slate950]
+        case .releaseParty: colors = [NativeTheme.pink, Color.red.opacity(0.60), NativeTheme.slate950]
+        case .popUp: colors = [NativeTheme.orange, NativeTheme.purple900, NativeTheme.slate950]
         }
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
@@ -153,7 +161,7 @@ struct NativeHostStudioView: View {
             sectionHeading("SPARK THE VIBE", "What are we making?", "Pick a feeling. We build the night around it.")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(NativePartyTemplate.catalog) { item in
-                    Button(action: { nativeImpactLight(); templateID = item.id }) {
+                    Button(action: { nativeImpactLight(); selectTemplate(item.id) }) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.emoji).font(.system(size: 27)); Text(item.name).font(.system(size: 14, weight: .black)); Text(item.hook).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)).lineLimit(2)
                         }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(templateID == item.id ? NativeTheme.pink.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(templateID == item.id ? NativeTheme.pink : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
@@ -168,6 +176,7 @@ struct NativeHostStudioView: View {
             sectionHeading("BUILD THE MOMENT", "Make it yours.", "Name the night, set the place, and shape the run of show.")
             field("Party title", text: $title, icon: "sparkles", prompt: "Give the night a name")
             field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
+            templateConfigurationEditor
             partyMediaEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
@@ -177,6 +186,61 @@ struct NativeHostStudioView: View {
                     HStack { Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle()); Text(item).font(.system(size: 12.5, weight: .bold)); Spacer(); Text(index == 0 ? "Doors" : "+\(index * 60)m").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.4)) }
                 }
             }.padding(14).studioSurface()
+        }
+    }
+
+    @ViewBuilder private var templateConfigurationEditor: some View {
+        switch templateID {
+        case .listeningParty:
+            templatePicker("MUSIC FORMAT", selection: $listeningFormat, options: NativeListeningPartyFormat.allCases)
+        case .fanMeetup:
+            templatePicker("MEETUP FORMAT", selection: $fanMeetupFormat, options: NativeFanMeetupFormat.allCases)
+        case .releaseParty:
+            VStack(alignment: .leading, spacing: 10) {
+                templatePicker("RELEASE FORMAT", selection: $releaseFormat, options: NativeReleaseFormat.allCases)
+                field("Release title", text: $releaseTitle, icon: "music.note.list", prompt: "Single, album, mix, or video title")
+            }.padding(14).studioSurface()
+        case .popUp:
+            VStack(alignment: .leading, spacing: 7) {
+                templatePicker("LOCATION RELEASE", selection: $popUpLocationDisclosure, options: NativePopUpLocationDisclosure.allCases)
+                Text(popUpLocationDisclosure == .afterApproval ? "The public Party Pass will hide the venue. Guest-specific reveal requires a later authorized pass action." : "The venue is visible on the public Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            }.padding(14).studioSurface()
+            .onChange(of: popUpLocationDisclosure) { disclosure in
+                if disclosure == .afterApproval { accessMode = .privateApproval }
+            }
+        case .privateParty:
+            VStack(alignment: .leading, spacing: 7) {
+                templatePicker("GUEST LIST", selection: $privateGuestPolicy, options: NativePrivatePartyGuestPolicy.allCases)
+                Text("Private Parties always use host approval. Named guest enforcement is introduced with the authorized guest action.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            }.padding(14).studioSurface()
+        case .comedyNight, .premiere:
+            EmptyView()
+        }
+    }
+
+    private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label).studioLabel()
+            Picker(label, selection: selection) {
+                ForEach(Array(options), id: \.id) { option in Text(templateOptionTitle(option)).tag(option) }
+            }.pickerStyle(.segmented)
+        }
+    }
+
+    private func templateOptionTitle<T: RawRepresentable>(_ option: T) -> String where T.RawValue == String {
+        switch option.rawValue {
+        case "listening-session": return "Listen"
+        case "dj-mix-premiere": return "DJ mix"
+        case "live-performance": return "Live set"
+        case "label-showcase": return "Label"
+        case "meet-and-greet": return "Meet & greet"
+        case "creator-conversation": return "Conversation"
+        case "community-photo": return "Photo moment"
+        case "after-approval": return "After approval"
+        case "named-guests": return "Named guests"
+        case "named-guests-plus-one": return "Named + one"
+        case "ep": return "EP"
+        default: return option.rawValue.capitalized
         }
     }
 
@@ -227,7 +291,7 @@ struct NativeHostStudioView: View {
     private var doorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
-            ForEach(NativePartyAccessMode.allCases) { mode in
+            ForEach(templateConfiguration.allowedAccessModes) { mode in
                 Button(action: { accessMode = mode }) {
                     HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
                 }.buttonStyle(.plain)
@@ -267,6 +331,11 @@ struct NativeHostStudioView: View {
         Button(action: { if selectedCircleIDs.contains(circle.id) { selectedCircleIDs.remove(circle.id) } else { selectedCircleIDs.insert(circle.id) } }) {
             HStack { VStack(alignment: .leading) { Text(circle.name).font(.system(size: 13, weight: .black)); Text(circle.memberLabel).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.45)) }; Spacer(); Image(systemName: selectedCircleIDs.contains(circle.id) ? "checkmark.circle.fill" : "circle").foregroundColor(NativeTheme.cyan) }.padding(11).background(Color.white.opacity(selectedCircleIDs.contains(circle.id) ? 0.09 : 0.035)).clipShape(RoundedRectangle(cornerRadius: 14))
         }.buttonStyle(.plain)
+    }
+
+    private func selectTemplate(_ id: NativePartyTemplateID) {
+        templateID = id
+        if id == .privateParty { accessMode = .privateApproval }
     }
 
     private var navigationButtons: some View {
@@ -321,7 +390,18 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)])
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+    }
+
+    private var templateConfiguration: NativePartyTemplateConfiguration {
+        switch templateID {
+        case .listeningParty: return .listeningParty(listeningFormat)
+        case .fanMeetup: return .fanMeetup(fanMeetupFormat)
+        case .releaseParty: return .releaseParty(releaseFormat, releaseTitle)
+        case .popUp: return .popUp(popUpLocationDisclosure)
+        case .privateParty: return .privateParty(privateGuestPolicy)
+        case .comedyNight, .premiere: return .standard
+        }
     }
 
     private func partyPass(_ party: NativePublishedParty) -> some View {

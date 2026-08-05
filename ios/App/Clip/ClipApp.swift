@@ -86,6 +86,7 @@ struct ClipGroupEventInvite: Equatable {
     let activityHighlights: [String]
     let audienceCircle: String
     let privacyStatus: String
+    let locationDisclosure: String
     let rsvpCutoff: String?
     let requiresApproval: Bool
     let inviteNote: String?
@@ -131,6 +132,7 @@ struct ClipGroupEventInvite: Equatable {
             URLQueryItem(name: "activities", value: activityHighlights.joined(separator: ",")),
             URLQueryItem(name: "circle", value: audienceCircle),
             URLQueryItem(name: "visibility", value: privacyStatus),
+            URLQueryItem(name: "locationDisclosure", value: locationDisclosure),
             URLQueryItem(name: "rsvpCutoff", value: rsvpCutoff),
             URLQueryItem(name: "approval", value: requiresApproval ? "1" : "0"),
             URLQueryItem(name: "note", value: inviteNote),
@@ -176,6 +178,7 @@ struct ClipGroupEventInvite: Equatable {
             activityHighlights: queryArray(in: queryItems, names: ["activities", "activityHighlights", "highlights"]) ?? fallback.highlights,
             audienceCircle: queryValue(in: queryItems, names: ["circle", "audienceCircle", "audience"]) ?? (queryValue(in: queryItems, names: ["visibility"]) == "publicDiscovery" ? "Public" : "Close Friends"),
             privacyStatus: queryValue(in: queryItems, names: ["visibility", "privacy"]) ?? "privateInvite",
+            locationDisclosure: queryValue(in: queryItems, names: ["locationDisclosure"]) ?? "public",
             rsvpCutoff: queryValue(in: queryItems, names: ["rsvpCutoff", "rsvpDeadline", "deadline"]),
             requiresApproval: ["1", "true", "approval"].contains((queryValue(in: queryItems, names: ["approval", "approvalMode", "requiresApproval"]) ?? "").lowercased()),
             inviteNote: queryValue(in: queryItems, names: ["note", "inviteNote", "description"]),
@@ -220,6 +223,7 @@ struct ClipGroupEventInvite: Equatable {
             activityHighlights: stringArray(row["activityHighlights"]),
             audienceCircle: cleanString(row["audienceCircle"]) ?? "Shared Party Pass",
             privacyStatus: cleanString(row["privacyStatus"]) ?? "privateInvite",
+            locationDisclosure: cleanString(row["locationDisclosure"]) ?? "public",
             rsvpCutoff: cleanString(row["rsvpCutoff"]),
             requiresApproval: boolValue(row["requiresApproval"]),
             inviteNote: cleanString(row["inviteNote"]),

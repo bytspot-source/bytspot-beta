@@ -1489,7 +1489,7 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeHostStudioContractCoversPartyOperatingSystem() {
-        XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup])
+        XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup, .releaseParty, .popUp])
         XCTAssertEqual(NativeLiveContentV2Contract.partyDraftCreateRoute, "/trpc/events.drafts.create")
         XCTAssertEqual(NativeLiveContentV2Contract.partyPublishRoute, "/trpc/events.publish")
         XCTAssertEqual(NativeLiveContentV2Contract.partyMediaUploadRoute, "/trpc/events.media.upload")
@@ -1519,6 +1519,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual((draft.rpcInput["ticketTiers"] as? [[String: Any]])?.first?["priceCents"] as? Int, 3_500)
         XCTAssertEqual((draft.rpcInput["itinerary"] as? [[String: Any]])?.last?["offsetMinutes"] as? Int, 120)
         XCTAssertEqual((draft.rpcInput["cohosts"] as? [[String: Any]])?.first?["role"] as? String, "door")
+        XCTAssertEqual((draft.rpcInput["templateConfig"] as? [String: Any])?["kind"] as? String, "standard")
         XCTAssertEqual(NativePartyStudioAPI.draftCreateInput(draft, idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertEqual(NativePartyStudioAPI.publishInput(partyID: "party-1", idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
@@ -1589,6 +1590,18 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePartyStudioAPI.publishedParty(from: ["shareUrl": "https://evil.example/party/1", "passCode": "BAD"], fallbackID: "party-1", draft: partyDraft()))
     }
 
+    func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        XCTAssertEqual(release.validationMessage, "Add the release title.")
+
+        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
+        XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
+
+        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
+        XCTAssertNil(privateParty.validationMessage)
+        XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
+    }
+
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
         XCTAssertEqual(NativeProfileDataAPI.fixtureEnvironmentKey, "BYT_NATIVE_PROFILE_DATA_FIXTURES")
         XCTAssertEqual(NativeProfileDataAPI.fixtureProfile.email, "member@example.com")
@@ -1614,7 +1627,7 @@ final class NativeProfileDataAPITests: XCTestCase {
             templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, audienceCircleIDs: ["circle-1"],
             itinerary: [NativePartyItineraryItem(title: "Doors open", offsetMinutes: 0), NativePartyItineraryItem(title: "Warm-up set", offsetMinutes: 60), NativePartyItineraryItem(title: "Headliner", offsetMinutes: 120)],
             ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
-            cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)]
+            cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)], templateConfiguration: .standard
         )
     }
 

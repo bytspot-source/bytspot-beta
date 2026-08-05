@@ -220,6 +220,10 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")
         precondition(invite?.partyPassURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
         precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")
+        var hiddenLocation = dto
+        hiddenLocation["locationLabel"] = "Location shared after approval"
+        hiddenLocation["locationDisclosure"] = "after-approval"
+        precondition(ClipGroupEventInvite.fromPartyPayload(hiddenLocation)?.locationDisclosure == "after-approval", "Party Loop: public Pop-Up location redaction must survive authoritative Party decoding.")
         precondition(ClipGroupEventInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(ClipGroupEventInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
         let injected = ClipGroupEventInvite.from(pathParts: ["party", "party-1"], queryItems: [URLQueryItem(name: "title", value: "Injected")], tier: .green)

@@ -238,6 +238,17 @@ enum BytspotAviationFallbackTests {
         var malformedTemplate = dto
         malformedTemplate["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "public"]
         precondition(ClipGroupEventInvite.fromPartyPayload(malformedTemplate)?.partyTemplate == nil, "Party Loop: mismatched template metadata must not select an App Clip layout.")
+        var protectedPopUp = dto
+        protectedPopUp["templateId"] = "pop-up"
+        protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
+        protectedPopUp["locationLabel"] = "Secret rooftop"
+        protectedPopUp.removeValue(forKey: "locationDisclosure")
+        let protectedInvite = ClipGroupEventInvite.fromPartyPayload(protectedPopUp)
+        precondition(protectedInvite?.locationDisclosure == "after-approval" && protectedInvite?.locationLabel == "Location shared after approval", "Party Loop: missing or malformed Pop-Up disclosure must redact the venue fail-closed.")
+        var shortRelease = dto
+        shortRelease["templateId"] = "release-party"
+        shortRelease["templateConfig"] = ["kind": "release-party", "releaseType": "album", "releaseTitle": "X"]
+        precondition(ClipGroupEventInvite.fromPartyPayload(shortRelease)?.partyTemplate == nil, "Party Loop: invalid Release Party titles must not select a template layout.")
         precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")
         precondition(invite?.partyPassURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
         precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")

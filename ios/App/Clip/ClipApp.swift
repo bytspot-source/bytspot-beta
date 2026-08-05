@@ -116,7 +116,7 @@ enum ClipPartyTemplateConfiguration: Equatable {
             guard let type = row["releaseType"] as? String,
                   ["single", "ep", "album", "mix", "video"].contains(type),
                   let title = row["releaseTitle"] as? String,
-                  (1...120).contains(title.trimmingCharacters(in: .whitespacesAndNewlines).count) else { return nil }
+                  (2...120).contains(title.trimmingCharacters(in: .whitespacesAndNewlines).count) else { return nil }
             return .releaseParty(type: type, title: title.trimmingCharacters(in: .whitespacesAndNewlines))
         case .popUp:
             guard let disclosure = row["locationDisclosure"] as? String,
@@ -274,6 +274,21 @@ struct ClipGroupEventInvite: Equatable {
         let decodedTemplate = cleanString(row["templateId"]).flatMap(ClipPartyTemplate.init(rawValue:))
         let decodedTemplateConfig = ClipPartyTemplateConfiguration.from(row["templateConfig"], for: decodedTemplate)
         let template = decodedTemplateConfig == nil ? nil : decodedTemplate
+        let templateProtectsLocation: Bool
+        if case .popUp(let disclosure) = decodedTemplateConfig {
+            templateProtectsLocation = disclosure != "public"
+        } else {
+            templateProtectsLocation = false
+        }
+        // Party locations are public only with an explicit public declaration.
+        // Missing/malformed disclosure and a protected Pop-Up config both redact
+        // the value client-side, even if a malformed DTO includes a venue label.
+        let locationDisclosure = cleanString(row["locationDisclosure"]) == "public" && !templateProtectsLocation
+            ? "public"
+            : "after-approval"
+        let locationLabel = locationDisclosure == "public"
+            ? cleanString(row["locationLabel"]) ?? "Location pending"
+            : "Location shared after approval"
         return Self(
             id: id,
             title: title,
@@ -287,13 +302,13 @@ struct ClipGroupEventInvite: Equatable {
             partyTemplateConfig: decodedTemplateConfig,
             scheduledDate: scheduled,
             hostName: cleanString(row["hostName"]) ?? "Bytspot Host",
-            locationLabel: cleanString(row["locationLabel"]) ?? "Location pending",
+            locationLabel: locationLabel,
             theme: cleanString(row["theme"]) ?? "Host Studio Party",
             guestSummary: cleanString(row["guestSummary"]) ?? "Guest list open",
             activityHighlights: stringArray(row["activityHighlights"]),
             audienceCircle: cleanString(row["audienceCircle"]) ?? "Shared Party Pass",
             privacyStatus: cleanString(row["privacyStatus"]) ?? "privateInvite",
-            locationDisclosure: cleanString(row["locationDisclosure"]) ?? "public",
+            locationDisclosure: locationDisclosure,
             rsvpCutoff: cleanString(row["rsvpCutoff"]),
             requiresApproval: boolValue(row["requiresApproval"]),
             inviteNote: cleanString(row["inviteNote"]),

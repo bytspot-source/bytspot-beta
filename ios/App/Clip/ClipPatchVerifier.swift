@@ -8,6 +8,7 @@ import Foundation
 enum ClipAuthStore {
     static let appGroupSuiteName = "group.com.bytspot.app"
     static let tokenKey = "bytspot_auth_token"
+    static let displayNameKey = "bytspot_user_display_name"
 
     private static var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupSuiteName)
@@ -20,6 +21,12 @@ enum ClipAuthStore {
         UserDefaults.standard.set(trimmed, forKey: tokenKey)
     }
 
+    static func store(displayName: String?) {
+        guard let greetingName = greetingName(from: displayName) else { return }
+        sharedDefaults?.set(greetingName, forKey: displayNameKey)
+        UserDefaults.standard.set(greetingName, forKey: displayNameKey)
+    }
+
     static var token: String? {
         let candidates = [
             sharedDefaults?.string(forKey: tokenKey),
@@ -29,6 +36,21 @@ enum ClipAuthStore {
         return candidates
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty && $0 != "guest_session" && $0 != "beta_guest" }
+    }
+
+    static var displayName: String? {
+        let candidates = [
+            sharedDefaults?.string(forKey: displayNameKey),
+            UserDefaults.standard.string(forKey: displayNameKey)
+        ]
+        return candidates.compactMap(greetingName(from:)).first
+    }
+
+    static func greetingName(from rawName: String?) -> String? {
+        guard let rawName else { return nil }
+        let parts = rawName.split(whereSeparator: { $0.isWhitespace })
+        guard let first = parts.first, (1...64).contains(first.count) else { return nil }
+        return String(first)
     }
 }
 
@@ -768,13 +790,15 @@ struct ClipPatchVerifier {
               let token = Self.string(root["token"]) else { throw VerifyError.decode }
         ClipAuthStore.store(token: token)
         let user = root["user"] as? [String: Any]
-        return ClipGuestSession(
+        let session = ClipGuestSession(
             token: token,
             userId: Self.string(user?["id"]),
             name: Self.string(user?["name"]),
             email: Self.string(user?["email"]),
             isNewUser: (root["isNewUser"] as? Bool) ?? false
         )
+        ClipAuthStore.store(displayName: session.name ?? name)
+        return session
     }
 
     /// Resolves the exact published Host Studio Party behind a clean Party Pass URL.

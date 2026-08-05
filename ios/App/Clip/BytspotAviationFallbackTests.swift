@@ -49,6 +49,10 @@ enum BytspotAviationFallbackTests {
     /// Pulls the actual Black aviation service out of the production fallback
     /// catalog and asserts the vendor pool matches the locked spec verbatim.
     static func run() {
+        precondition(ClipAuthStore.greetingName(from: "Ada Lovelace") == "Ada")
+        precondition(ClipAuthStore.greetingName(from: "  Ada  ") == "Ada")
+        precondition(ClipAuthStore.greetingName(from: "   ") == nil)
+
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-B"), patchId: "BYT424-0301-B") == .black)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-P"), patchId: "BYT424-0301-P") == .platinum)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-G"), patchId: "BYT424-0301-G") == .green)

@@ -151,6 +151,7 @@ struct PartyPassClipView: View {
     @State private var statusMessage = ""
     @State private var showTicketTiers = false
     @State private var showShareSheet = false
+    @State private var viewerName = ClipAuthStore.displayName
     @State private var authController = ClipGuestAuthController()
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
@@ -221,7 +222,7 @@ struct PartyPassClipView: View {
                     .foregroundColor(.white)
                 HStack(spacing: 5) {
                     Circle().fill(ClipTheme.cyan).frame(width: 5, height: 5)
-                    Text("PRIVATE ACCESS · HOST STUDIO").font(.system(size: 8, weight: .black, design: .rounded)).tracking(1.1).foregroundColor(.white.opacity(0.54))
+                    Text(viewerName.map { "WELCOME, \($0.uppercased())" } ?? "PRIVATE ACCESS · HOST STUDIO").font(.system(size: 8, weight: .black, design: .rounded)).tracking(1.1).foregroundColor(.white.opacity(0.54))
                 }
             }
             Spacer()
@@ -328,7 +329,7 @@ struct PartyPassClipView: View {
     private var accessLabel: String { invite.accessMode == "paid-ticket" ? "Paid ticket access" : invite.accessMode == "private-approval" ? "Host approval required" : "RSVP access" }
     private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id); statusMessage = "" } catch { passState = nil; statusMessage = "We couldn’t verify ticket availability right now. Please try again." } }
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
-    private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
+    private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
     private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
 }

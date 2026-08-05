@@ -143,6 +143,7 @@ struct PartyPassClipView: View {
     let invite: PartyPassInvite
     @Binding var showOverlay: Bool
     @EnvironmentObject private var invocation: ClipInvocationModel
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @State private var passState: ClipPartyPassState?
     @State private var isResolving = true
@@ -193,6 +194,10 @@ struct PartyPassClipView: View {
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: [invite.canonicalURL].compactMap { $0 }) }
         .accessibilityIdentifier("party-pass-clip")
         .task(id: invite.id) { await resolvePass() }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await resolvePass() }
+        }
     }
 
     private var partyBackdrop: some View {

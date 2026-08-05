@@ -95,6 +95,15 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativePartyPassRoute(url: try XCTUnwrap(URL(string: "https://example.com/party/party-1"))))
     }
 
+    func testPartyPassContinuationBypassesFirstRunLaunchFlow() throws {
+        let partyURL = try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1?checkout=success"))
+        let partyRoute = try XCTUnwrap(NativePartyPassRoute(url: partyURL))
+
+        XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .party(partyRoute)))
+        XCTAssertFalse(NativeAuthLaunchContract.bypassesLaunchFlow(for: .accessWallet))
+        XCTAssertFalse(NativeAuthLaunchContract.bypassesLaunchFlow(for: nil))
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,

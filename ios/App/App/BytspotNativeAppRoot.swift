@@ -228,6 +228,7 @@ struct BytspotNativeAppRoot: View {
 
     private var shouldShowLaunchFlow: Bool {
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
+        if NativeAuthLaunchContract.bypassesLaunchFlow(for: navigation.requestedDestination) { return false }
         if NativeAuthLaunchContract.autoRunsLaunchJourney, didCompleteLaunchFlow || sessionStore.hasSecureToken { return false }
         if NativeAuthLaunchContract.requestedLaunchStage != nil { return true }
         if didCompleteLaunchFlow || sessionStore.hasSecureToken { return false }
@@ -292,6 +293,13 @@ enum NativeAuthLaunchContract {
     static var bypassesLaunchFlowForPreview: Bool {
         let env = ProcessInfo.processInfo.environment
         return env["BYT_NATIVE_PREVIEW_PROFILE"] != nil || env["BYT_NATIVE_PREVIEW_TAB"] != nil || env["BYT_NATIVE_PROFILE_PANEL_SMOKE"] != nil
+    }
+
+    /// A post-checkout Party universal link must continue directly to its
+    /// verified Party Pass; first-run discovery onboarding is unrelated.
+    static func bypassesLaunchFlow(for destination: NativeContextualDestination?) -> Bool {
+        guard case .party = destination else { return false }
+        return true
     }
 
     static func landingSubtitle(for location: NativeLocationCoordinate) -> String {

@@ -245,6 +245,11 @@ enum BytspotAviationFallbackTests {
         protectedPopUp.removeValue(forKey: "locationDisclosure")
         let protectedInvite = ClipGroupEventInvite.fromPartyPayload(protectedPopUp)
         precondition(protectedInvite?.locationDisclosure == "after-approval" && protectedInvite?.locationLabel == "Location shared after approval", "Party Loop: missing or malformed Pop-Up disclosure must redact the venue fail-closed.")
+        var whitespaceDisclosure = dto
+        whitespaceDisclosure["locationDisclosure"] = " public "
+        whitespaceDisclosure["locationLabel"] = "Secret rooftop"
+        let whitespaceInvite = ClipGroupEventInvite.fromPartyPayload(whitespaceDisclosure)
+        precondition(whitespaceInvite?.locationDisclosure == "after-approval" && whitespaceInvite?.locationLabel == "Location shared after approval", "Party Loop: only the exact raw public disclosure may reveal a venue.")
         var shortRelease = dto
         shortRelease["templateId"] = "release-party"
         shortRelease["templateConfig"] = ["kind": "release-party", "releaseType": "album", "releaseTitle": "X"]

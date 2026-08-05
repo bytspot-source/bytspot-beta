@@ -283,7 +283,7 @@ struct ClipGroupEventInvite: Equatable {
         // Party locations are public only with an explicit public declaration.
         // Missing/malformed disclosure and a protected Pop-Up config both redact
         // the value client-side, even if a malformed DTO includes a venue label.
-        let locationDisclosure = cleanString(row["locationDisclosure"]) == "public" && !templateProtectsLocation
+        let locationDisclosure = (row["locationDisclosure"] as? String) == "public" && !templateProtectsLocation
             ? "public"
             : "after-approval"
         let locationLabel = locationDisclosure == "public"

@@ -90,9 +90,6 @@ struct ClipContentView: View {
                 case .party(let invite):
                     PartyPassClipView(invite: invite, showOverlay: $showOverlay)
                         .transition(.opacity)
-                case .groupEvent(let invite):
-                    ClipInviteView(invite: invite, showOverlay: $showOverlay)
-                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -364,6 +361,7 @@ private struct ClipBookingContext {
     }
 }
 
+#if false // Legacy Group surface retained for extraction into its future project; not compiled into this Party App Clip.
 struct ClipInviteView: View {
     enum JoinState: Equatable { case idle, joining, joined, pending, declined, failed(String) }
 
@@ -1457,6 +1455,8 @@ struct ClipInviteView: View {
     }
     private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
 }
+
+#endif
 
 private struct ClipPartyTicketTierPicker: View {
     let tiers: [ClipPartyTicketTier]

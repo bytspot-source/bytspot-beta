@@ -41,6 +41,7 @@ struct ClipGuestSession {
     let isNewUser: Bool
 }
 
+#if false // Legacy Group API types retained for future extraction; not compiled into this Party App Clip.
 /// A single joined guest from `groupEvents.guests`. `profileImage` is optional;
 /// the view falls back to `initials` (server-provided) when it is absent.
 struct ClipGroupEventGuest: Identifiable, Equatable {
@@ -58,6 +59,7 @@ struct ClipGroupEventGuestList: Equatable {
     let count: Int
     let guests: [ClipGroupEventGuest]
 }
+#endif
 
 // MARK: - BytspotTier
 // Service-level axis (independent of providerType). Drives URL routing, the
@@ -752,7 +754,7 @@ struct ClipPatchVerifier {
 
     /// Exchange an Apple identity token for a Bytspot session (`auth.appleSignIn`).
     /// On success the JWT is persisted via `ClipAuthStore` so subsequent
-    /// authenticated calls (e.g. `groupEvents.join`) attach it automatically.
+    /// authenticated Party calls attach the stored credential automatically.
     func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> ClipGuestSession {
         var input: [String: Any] = ["identityToken": identityToken, "ref": "app_clip"]
         if let email, !email.isEmpty { input["email"] = email }
@@ -812,6 +814,7 @@ struct ClipPatchVerifier {
         return url
     }
 
+#if false // Legacy Group API retained for future extraction; not compiled into this Party App Clip.
     /// Join a private group event (`groupEvents.join`). Returns the resulting
     /// membership status: `"joined"` for open events or `"pending"` for
     /// approval-gated ones.
@@ -846,6 +849,7 @@ struct ClipPatchVerifier {
             guests: guests
         )
     }
+#endif
 
     func verify(token: String?) async throws -> VerifyResult {
         guard let token, !token.isEmpty else { throw VerifyError.missingToken }

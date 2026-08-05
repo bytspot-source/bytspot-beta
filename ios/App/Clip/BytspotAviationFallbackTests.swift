@@ -101,7 +101,6 @@ enum BytspotAviationFallbackTests {
 
         runPhase3LuxuryFlowContract()
         assertRichMediaContextContract()
-        assertPrivateGroupRichInviteContract()
         assertHostStudioPartyMappingContract()
         assertPartnerCardParity()
     }
@@ -186,6 +185,7 @@ enum BytspotAviationFallbackTests {
         precondition(vendors.first?.locationLabel == "Premium entry gate", "Phase4E App Clip: Platinum event vendor location context drifted.")
     }
 
+#if false // Legacy Group self-test retained for future project extraction.
     private static func assertPrivateGroupRichInviteContract() {
         let platinum = ClipGroupEventInvite.from(pathParts: ["group", "platinum-private-dinner"], queryItems: [
             URLQueryItem(name: "title", value: "Platinum Dinner Group"),
@@ -209,6 +209,7 @@ enum BytspotAviationFallbackTests {
         precondition(green?.hasPlayableVideo == false, "Phase4F App Clip: Green private groups should remain photo-first.")
         precondition(green?.theme == "Local family", "Phase4F App Clip: Green private group theme drifted.")
     }
+#endif
 
     private static func assertHostStudioPartyMappingContract() {
         let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
@@ -243,11 +244,9 @@ enum BytspotAviationFallbackTests {
         precondition(PartyPassInvite.fromPayload(hiddenLocation)?.locationIsWithheld == true, "Party Loop: protected Party locations must remain redacted.")
         precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
-        let injected = ClipGroupEventInvite.from(pathParts: ["party", "party-1"], queryItems: [URLQueryItem(name: "title", value: "Injected")], tier: .green)
-        precondition(injected == nil, "Party Loop: query data must never bypass the authoritative Party fetch.")
         var missingSource = dto
         missingSource.removeValue(forKey: "source")
-        precondition(ClipGroupEventInvite.fromPartyPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
+        precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
         let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
         precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
         let verifyEnvelope: [String: Any] = ["result": ["data": ["json": ["verified": true, "patch": ["id": "patch-1", "status": "active"]]]]]

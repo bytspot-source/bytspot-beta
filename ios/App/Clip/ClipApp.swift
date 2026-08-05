@@ -56,6 +56,7 @@ struct BytspotClipApp: App {
     }
 }
 
+#if false // Legacy Group domain retained only as source material for its future project; not compiled into this App Clip.
 enum ClipGroupEventTimingState: String, Equatable {
     case now, today, thisWeek, weekly
 
@@ -129,6 +130,8 @@ enum ClipPartyTemplateConfiguration: Equatable {
         }
     }
 }
+
+#endif
 
 enum ClipPartyPassAction: String, Equatable {
     case authenticate
@@ -238,6 +241,7 @@ struct PartyPassInvite: Equatable {
     }
 }
 
+#if false // Legacy Group domain retained only as source material for its future project; not compiled into this App Clip.
 struct ClipGroupEventInvite: Equatable {
     let id: String
     let title: String
@@ -532,12 +536,13 @@ enum ClipPartyPassActionPolicy {
     }
 }
 
+#endif
+
 enum ClipFlowStep: Equatable {
     case catalog
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
     case party(PartyPassInvite)
-    case groupEvent(ClipGroupEventInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
@@ -623,10 +628,6 @@ final class ClipInvocationModel: ObservableObject {
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
             return
         }
-        if let legacyGroupInvite = ClipGroupEventInvite.from(pathParts: pathParts, queryItems: items, tier: detectedTier) {
-            flow = .groupEvent(legacyGroupInvite)
-            return
-        }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
         services = ClipLocalService.fallbacks(for: detectedTier)
@@ -666,9 +667,6 @@ final class ClipInvocationModel: ObservableObject {
         if case .party(let invite) = flow {
             return invite.handoffURL
         }
-        if case .groupEvent(let invite) = flow {
-            return invite.handoffURL
-        }
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
         components.scheme = "https"
@@ -703,15 +701,6 @@ final class ClipInvocationModel: ObservableObject {
         switch step.lowercased() {
         case "catalog":
             flow = .catalog
-            return true
-        case "group", "group_event", "join_group":
-            let fallback = ClipGroupEventInvite.from(pathParts: ["group", "family-dinner"], queryItems: [
-                URLQueryItem(name: "title", value: "Family Dinner"),
-                URLQueryItem(name: "type", value: "Family"),
-                URLQueryItem(name: "participants", value: "3"),
-                URLQueryItem(name: "timing", value: "now")
-            ], tier: tier)
-            if let fallback { flow = .groupEvent(fallback) }
             return true
         case "party_loop", "host_party", "host_studio_party":
             let payload: [String: Any] = [

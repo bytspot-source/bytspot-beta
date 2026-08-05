@@ -809,9 +809,29 @@ struct ClipPatchVerifier {
         let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
         guard let root = payload as? [String: Any],
               let rawURL = Self.string(root["url"]),
-              let url = URL(string: rawURL),
-              url.scheme == "https" else { throw VerifyError.decode }
+              let url = Self.normalizedStripeCheckoutURL(rawURL) else { throw VerifyError.decode }
         return url
+    }
+
+    /// Party ticketing must only hand off to Stripe-hosted Checkout. Session IDs
+    /// are normalized to Stripe's Checkout URL; arbitrary HTTPS redirects fail
+    /// closed rather than being opened from the App Clip.
+    static func normalizedStripeCheckoutURL(_ candidate: String) -> URL? {
+        let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isStripeCheckoutSessionID(value) {
+            return URL(string: "https://checkout.stripe.com/c/pay/\(value)")
+        }
+        guard let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host == "stripe.com" || host.hasSuffix(".stripe.com") else { return nil }
+        return url
+    }
+
+    private static func isStripeCheckoutSessionID(_ value: String) -> Bool {
+        guard value.hasPrefix("cs_test_") || value.hasPrefix("cs_live_") else { return false }
+        return value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
     }
 
 #if false // Legacy Group API retained for future extraction; not compiled into this Party App Clip.

@@ -869,6 +869,7 @@ struct NativeAuthResponse: Codable, Equatable {
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
+    static let googleNativeSurface = "native_ios"
     static let passwordRecoveryRoutes = ["/#/forgot-password", "/forgot-password", "/#/reset-password", "/reset-password"]
 }
 
@@ -883,7 +884,7 @@ struct NativeAuthDataAPI {
     }
 
     func googleSignIn(idToken: String) async throws -> NativeAuthResponse {
-        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": "native_ios"])
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleNativeSurface])
     }
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {

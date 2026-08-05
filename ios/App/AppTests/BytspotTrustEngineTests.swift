@@ -1813,6 +1813,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
 
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
         XCTAssertEqual(NativeMigrationConfig.selfTestsEnvironmentKey, "BYT_NATIVE_SELF_TESTS")
+        XCTAssertEqual(NativeAuthRouteContract.googleNativeSurface, "native_ios")
         XCTAssertEqual(NativeAuthLaunchContract.splashTagline, "Your perfect spot awaits")
         XCTAssertEqual(NativeAuthLaunchContract.splashCapabilities, ["Parking", "Venues", "AI-Powered"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")

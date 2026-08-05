@@ -739,8 +739,8 @@ struct ClipInviteView: View {
     private var primaryActions: some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
-                Button(action: joinGroup) {
-                    Label(joinButtonTitle, systemImage: joinButtonIcon)
+                Button(action: primaryPartyAction) {
+                    Label(primaryButtonTitle, systemImage: primaryButtonIcon)
                         .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
@@ -751,24 +751,23 @@ struct ClipInviteView: View {
                         .background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
                         .shadow(color: accent.opacity(0.30), radius: 18, x: 0, y: 10)
-                        .opacity(membership == .joining ? 0.7 : 1)
+                        .opacity(membership == .joining && ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) ? 0.7 : 1)
                 }
                 .buttonStyle(.plain)
-                .disabled(membership == .joining || membership == .joined || membership == .declined)
+                .disabled(ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) && (membership == .joining || membership == .joined || membership == .declined))
 
-                Button(action: invite.isHostStudioParty ? { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) } : shareInvite) {
+                Button(action: shareInvite) {
                     VStack(spacing: 2) {
-                        Image(systemName: invite.isHostStudioParty ? "arrow.down.app.fill" : "square.and.arrow.up")
+                        Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 18, weight: .black))
-                        if invite.isHostStudioParty { Text("FULL APP").font(.system(size: 7, weight: .black, design: .rounded)) }
                     }
                         .foregroundColor(ink)
                         .frame(width: ctaHeight + 6, height: ctaHeight)
                         .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(invite.isHostStudioParty ? "Open full Bytspot app" : "Share invite")
-                .accessibilityHint(invite.isHostStudioParty ? "Opens this Party in the full app" : "Opens the iOS share sheet")
+                .accessibilityLabel(invite.isHostStudioParty ? "Share Party Pass" : "Share invite")
+                .accessibilityHint("Opens the iOS share sheet")
             }
             Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
                 Text(invite.isHostStudioParty ? "Share the App Clip above · continue in the full app here" : "Open Bytspot to unlock nearby offers & perks for this event")
@@ -921,10 +920,30 @@ struct ClipInviteView: View {
         }
     }
 
+    private var primaryButtonTitle: String {
+        invite.isHostStudioParty ? "Continue securely" : joinButtonTitle
+    }
+
+    private var primaryButtonIcon: String {
+        invite.isHostStudioParty ? "lock.shield.fill" : joinButtonIcon
+    }
+
+    private func primaryPartyAction() {
+        if ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) { joinGroup() }
+        else {
+            impactLight()
+            openFullApp(url: invite.handoffURL, showOverlay: $showOverlay)
+        }
+    }
+
     // Sign in with Apple -> auth.appleSignIn (persists the JWT) -> groupEvents.join.
     // Open events return "joined"; approval-gated events return "pending". A guest
     // the host previously declined stays "declined" on re-join (no fall-through).
     private func joinGroup() {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else {
+            primaryPartyAction()
+            return
+        }
         guard membership != .joining, membership != .joined, membership != .declined else { return }
         impactMedium()
         membership = .joining
@@ -934,6 +953,7 @@ struct ClipInviteView: View {
 
     @MainActor
     private func performJoin() async {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else { return }
         do {
             let credential = try await authController.requestAppleCredential()
             statusMessage = "Joining \(invite.title)…"
@@ -970,6 +990,11 @@ struct ClipInviteView: View {
     // keeps its existing placeholder bubbles, so the section never reads empty.
     @MainActor
     private func loadGuests() async {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else {
+            liveGuests = []
+            liveGuestCount = 0
+            return
+        }
         guard let list = try? await ClipPatchVerifier().groupEventGuests(eventId: invite.id) else { return }
         liveGuests = list.guests
         liveGuestCount = list.count

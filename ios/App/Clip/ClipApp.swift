@@ -328,6 +328,14 @@ struct ClipGroupEventInvite: Equatable {
     }
 }
 
+/// Host Studio Parties use only Party-specific server contracts. Legacy Group
+/// Event APIs cannot be a fallback because they have different eligibility.
+enum ClipPartyPassActionPolicy {
+    static func usesLegacyGroupEventRoute(for invite: ClipGroupEventInvite) -> Bool {
+        !invite.isHostStudioParty
+    }
+}
+
 enum ClipFlowStep: Equatable {
     case catalog
     case partyLoading(partyID: String)

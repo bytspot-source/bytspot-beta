@@ -215,6 +215,7 @@ enum BytspotAviationFallbackTests {
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
         let invite = ClipGroupEventInvite.fromPartyPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite?.isHostStudioParty == true, "Party Loop: App Clip must identify Host Studio Party DTOs.")
+        if let invite { precondition(!ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite), "Party Loop: Host Studio Party actions must never call legacy Group Event APIs.") }
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
         precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")

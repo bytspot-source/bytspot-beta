@@ -199,7 +199,8 @@ struct ClipGroupEventInvite: Equatable {
               let id = cleanString(row["id"]),
               let title = cleanString(row["title"]),
               let tierRaw = cleanString(row["tier"])?.lowercased(),
-              let tier = BytspotTier(rawValue: tierRaw) else { return nil }
+              let tier = BytspotTier(rawValue: tierRaw),
+              cleanString(row["source"])?.lowercased() == "host-studio-party" else { return nil }
         let timing = cleanString(row["timing"]).flatMap(ClipGroupEventTimingState.init(rawValue:)) ?? .thisWeek
         let scheduled = cleanString(row["scheduledDate"]).map(displaySchedule) ?? timing.eyebrow.capitalized
         return Self(
@@ -227,7 +228,7 @@ struct ClipGroupEventInvite: Equatable {
             thumbnailURL: cleanString(row["thumbnailURL"]).flatMap(URL.init(string:)),
             photoURLs: stringArray(row["photoURLs"]).compactMap(URL.init(string:)),
             instagramHandle: normalizedInstagram(cleanString(row["instagramHandle"])),
-            source: cleanString(row["source"]) ?? "host-studio-party"
+            source: "host-studio-party"
         )
     }
 

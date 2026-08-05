@@ -213,6 +213,7 @@ struct BytspotNativeShellView: View {
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
     @State private var pendingPostAuthIntent: NativePostAuthIntent?
+    @State private var networkResumeGeneration = 0
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var pendingDiscoverFilter: String?
@@ -298,7 +299,12 @@ struct BytspotNativeShellView: View {
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .profile:
-                        NativeProfileTabView(initialPanel: pendingProfilePanel, consumeInitialPanel: { pendingProfilePanel = nil })
+                        NativeProfileTabView(
+                            initialPanel: pendingProfilePanel,
+                            consumeInitialPanel: { pendingProfilePanel = nil },
+                            networkResumeGeneration: networkResumeGeneration,
+                            requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -352,7 +358,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, openAccess: { openNativeEquivalent(for: .access) })
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) })
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
@@ -518,6 +524,9 @@ struct BytspotNativeShellView: View {
             selectedTab = .map
         case .savePicks:
             forceHomeAfterSavePicksAuth()
+        case .network:
+            selectedTab = .profile
+            networkResumeGeneration += 1
         }
     }
 
@@ -660,10 +669,12 @@ private struct BytspotNativeBottomTabBar: View {
 private struct NativeProfileTabView: View {
     let initialPanel: NativeProfilePanel?
     let consumeInitialPanel: () -> Void
+    let networkResumeGeneration: Int
+    let requestNetworkAuthentication: () -> Void
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            NativeProfileAccountView(initialPanel: initialPanel, consumeInitialPanel: consumeInitialPanel)
+            NativeProfileAccountView(initialPanel: initialPanel, consumeInitialPanel: consumeInitialPanel, networkResumeGeneration: networkResumeGeneration, requestNetworkAuthentication: requestNetworkAuthentication)
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 112)
@@ -678,6 +689,7 @@ private struct NativeContextualDestinationView: View {
     let initialProfilePanel: NativeProfilePanel?
     let consumeInitialProfilePanel: () -> Void
     let openNativeProfilePanel: (NativeProfilePanel?) -> Void
+    let requestNetworkAuthentication: () -> Void
     let openAccess: () -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -699,7 +711,7 @@ private struct NativeContextualDestinationView: View {
                             .navigationBarHidden(true)
                     } else {
                         ScrollView {
-                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel)
+                            NativeProfileAccountView(initialPanel: nil, consumeInitialPanel: consumeInitialProfilePanel, networkResumeGeneration: 0, requestNetworkAuthentication: requestNetworkAuthentication)
                                 .environmentObject(sessionStore)
                                 .environmentObject(authCoordinator)
                                 .environmentObject(apiState)
@@ -894,12 +906,15 @@ private struct NativeProfileHeaderCard: View {
 private struct NativeProfileAccountView: View {
     let initialPanel: NativeProfilePanel?
     let consumeInitialPanel: () -> Void
+    let networkResumeGeneration: Int
+    let requestNetworkAuthentication: () -> Void
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var activePanel: NativeProfilePanel?
     @State private var showNetworkHub = false
     @State private var socialCircleSnapshot: NativeSocialCircleSnapshot = .empty
     @State private var didConsumeInitialPanel = false
     @State private var didConsumeDirectSmokePanel = false
+    @State private var lastConsumedNetworkResumeGeneration = 0
 
     static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.placesActivity, .preferences, .appSettings, .safetyLegal]
 
@@ -923,8 +938,12 @@ private struct NativeProfileAccountView: View {
         .onAppear {
             openInitialPanelIfNeeded()
             openDirectSmokePanelIfRequested()
+            openNetworkAfterAuthenticationIfNeeded()
         }
         .task(id: sessionStore.isAuthenticated) { await refreshSocialCircles() }
+        .onChange(of: networkResumeGeneration) { _ in
+            openNetworkAfterAuthenticationIfNeeded()
+        }
         .sheet(item: $activePanel) { panel in
             let sheet = NativeProfilePanelSheet(panel: panel, openPanel: { activePanel = $0 })
             if #available(iOS 16.0, *) {
@@ -936,7 +955,7 @@ private struct NativeProfileAccountView: View {
             }
         }
         .sheet(isPresented: $showNetworkHub) {
-            let hub = NativeNetworkHubView(initialCircleSnapshot: socialCircleSnapshot)
+            let hub = NativeNetworkHubView(initialCircleSnapshot: socialCircleSnapshot, requestAuthentication: requestNetworkAuthentication)
             if #available(iOS 16.0, *) { hub.presentationDetents([.large]).presentationDragIndicator(.visible) } else { hub }
         }
     }
@@ -950,6 +969,12 @@ private struct NativeProfileAccountView: View {
                 if activePanel == nil { activePanel = initialPanel }
             }
         }
+    }
+
+    private func openNetworkAfterAuthenticationIfNeeded() {
+        guard networkResumeGeneration > lastConsumedNetworkResumeGeneration, sessionStore.isAuthenticated else { return }
+        lastConsumedNetworkResumeGeneration = networkResumeGeneration
+        showNetworkHub = true
     }
 
     private func openDirectSmokePanelIfRequested() {
@@ -2899,9 +2924,11 @@ private struct NativeNetworkHubView: View {
     @State private var statusMessage = ""
     @State private var isWorking = false
     @State private var showHostStudio = false
+    let requestAuthentication: () -> Void
 
-    init(initialCircleSnapshot: NativeSocialCircleSnapshot) {
+    init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
         _circleSnapshot = State(initialValue: initialCircleSnapshot)
+        self.requestAuthentication = requestAuthentication
     }
 
     var body: some View {
@@ -2938,7 +2965,7 @@ private struct NativeNetworkHubView: View {
         Button(action: {
             nativeImpactLight()
             if sessionStore.isAuthenticated { showHostStudio = true }
-            else { statusMessage = "Sign in before creating a moment." }
+            else { beginAuthentication() }
         }) {
             ZStack(alignment: .topTrailing) {
                 LinearGradient(colors: [NativeTheme.purple.opacity(0.94), NativeTheme.slate950, NativeTheme.cyan.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -2981,7 +3008,7 @@ private struct NativeNetworkHubView: View {
                 }
                 if selectedPersonID != nil { personActions }
             } else {
-                NativeProfileEmptyState(title: "Sign in to use Network", subtitle: "People, circles, and invitations are private to your account.", icon: "person.crop.circle.badge.exclamationmark")
+                networkAuthenticationPrompt
             }
             statusView
         }
@@ -3015,16 +3042,18 @@ private struct NativeNetworkHubView: View {
     private var circlesContent: some View {
         VStack(alignment: .leading, spacing: 13) {
             Text("Circles save the people you invite together, so you don't have to select the same attendees every time. Choose a venue and invite the whole circle instantly.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
-            if sessionStore.isAuthenticated {
+            if !sessionStore.isAuthenticated {
+                networkAuthenticationPrompt
+            } else {
                 HStack(spacing: 8) {
                     TextField("Circle name", text: $newCircleName).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     Button("Create") { Task { await createCircle() } }.font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 42).background(NativeTheme.emerald).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).disabled(newCircleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
                 }
             }
-            if !circleSnapshot.groups.isEmpty {
+            if sessionStore.isAuthenticated, !circleSnapshot.groups.isEmpty {
                 Text("YOUR CIRCLES").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(1)
                 ForEach(circleSnapshot.groups) { circle in circleRow(circle) }
-            } else {
+            } else if sessionStore.isAuthenticated {
                 Text("No synced circles yet").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
             }
             statusView
@@ -3042,10 +3071,25 @@ private struct NativeNetworkHubView: View {
 
     private var invitationsContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            invitationSection(title: "INCOMING", items: invitations.filter { $0.direction == "incoming" })
-            invitationSection(title: "OUTGOING", items: invitations.filter { $0.direction == "outgoing" })
-            if invitations.isEmpty { NativeProfileEmptyState(title: "No invitations", subtitle: "Incoming and outgoing invitations appear here.", icon: "envelope.open.fill") }
+            if !sessionStore.isAuthenticated {
+                networkAuthenticationPrompt
+            } else {
+                invitationSection(title: "INCOMING", items: invitations.filter { $0.direction == "incoming" })
+                invitationSection(title: "OUTGOING", items: invitations.filter { $0.direction == "outgoing" })
+                if invitations.isEmpty { NativeProfileEmptyState(title: "No invitations", subtitle: "Incoming and outgoing invitations appear here.", icon: "envelope.open.fill") }
+            }
             statusView
+        }
+    }
+
+    private var networkAuthenticationPrompt: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            NativeProfileEmptyState(title: "Sign in to use Network", subtitle: "People, circles, and invitations stay private to your account.", icon: "person.crop.circle.badge.exclamationmark")
+            Button(action: beginAuthentication) {
+                NativeCTA(title: "Sign in to continue", color: NativeTheme.purple, foreground: .white)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-network-sign-in")
         }
     }
 
@@ -3081,6 +3125,11 @@ private struct NativeNetworkHubView: View {
         return circleSnapshot.groups.first { $0.id == circleID }?.memberIDs.contains(personID) == true
     }
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    private func beginAuthentication() {
+        dismiss()
+        requestAuthentication()
+    }
 
     private func refreshNetwork() async {
         guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; return }
@@ -4071,10 +4120,11 @@ private struct NativeGuestSavePromptSheet: View {
     }
 }
 
-private enum NativePostAuthIntent: String, Equatable, CaseIterable {
+enum NativePostAuthIntent: String, Equatable, CaseIterable {
     case explorePicks
     case mapPicks
     case savePicks
+    case network
 
     var authMode: NativeAuthMode { .login }
 }
@@ -16158,8 +16208,8 @@ enum NativeHomeParitySelfTests {
 enum NativePostAuthIntentSelfTests {
     static func runIfRequested() {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
-        precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
-        precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: personalized picks should open sign-in auth, not a premium lock flow.")
+        precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks", "network"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
+        precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: protected destinations should open sign-in auth, not a premium lock flow.")
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
         precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
         precondition(NativeHomeDashboardView.rankedLaunchPicks(from: .fallback, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe").isEmpty, "NativePostAuthIntentSelfTests: fallback fixture venues must never become personalized Home picks.")

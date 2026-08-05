@@ -224,6 +224,9 @@ enum BytspotAviationFallbackTests {
         precondition(ClipGroupEventInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
         let injected = ClipGroupEventInvite.from(pathParts: ["party", "party-1"], queryItems: [URLQueryItem(name: "title", value: "Injected")], tier: .green)
         precondition(injected == nil, "Party Loop: query data must never bypass the authoritative Party fetch.")
+        var missingSource = dto
+        missingSource.removeValue(forKey: "source")
+        precondition(ClipGroupEventInvite.fromPartyPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
         let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
         precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
         let verifyEnvelope: [String: Any] = ["result": ["data": ["json": ["verified": true, "patch": ["id": "patch-1", "status": "active"]]]]]

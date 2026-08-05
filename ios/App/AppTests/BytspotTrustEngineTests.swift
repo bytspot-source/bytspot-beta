@@ -1447,6 +1447,12 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(decoded["surface"] as? String, "network")
     }
 
+    func testNetworkAuthenticationContinuationUsesTheStandardSignInIntent() {
+        XCTAssertEqual(NativePostAuthIntent.network.rawValue, "network")
+        XCTAssertEqual(NativePostAuthIntent.network.authMode, .login)
+        XCTAssertEqual(NativePostAuthIntent.allCases.map(\.rawValue), ["explorePicks", "mapPicks", "savePicks", "network"])
+    }
+
     func testSocialNormalizationSupportsCirclesAndInvitations() throws {
         let payload: [String: Any] = ["groups": [
             ["id": "circle-1", "name": "Trust Crew", "ownerUserId": "user-1", "memberCount": 12, "memberIDs": ["user-2", ["userId": "user-3"]], "role": "owner"],

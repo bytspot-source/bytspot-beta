@@ -9,6 +9,7 @@ enum ClipAuthStore {
     static let appGroupSuiteName = "group.com.bytspot.app"
     static let tokenKey = "bytspot_auth_token"
     static let displayNameKey = "bytspot_user_display_name"
+    static let displayNameUserIDKey = "bytspot_user_display_name_user_id"
 
     private static var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupSuiteName)
@@ -21,10 +22,10 @@ enum ClipAuthStore {
         UserDefaults.standard.set(trimmed, forKey: tokenKey)
     }
 
-    static func store(displayName: String?) {
-        guard let greetingName = greetingName(from: displayName) else { return }
-        sharedDefaults?.set(greetingName, forKey: displayNameKey)
-        UserDefaults.standard.set(greetingName, forKey: displayNameKey)
+    static func store(displayName: String?, userID: String?) {
+        [sharedDefaults, UserDefaults.standard].compactMap { $0 }.forEach {
+            store(displayName: displayName, userID: userID, in: $0)
+        }
     }
 
     static var token: String? {
@@ -39,14 +40,34 @@ enum ClipAuthStore {
     }
 
     static var displayName: String? {
-        let candidates = [
-            sharedDefaults?.string(forKey: displayNameKey),
-            UserDefaults.standard.string(forKey: displayNameKey)
-        ]
-        return candidates.compactMap(greetingName(from:)).first
+        for defaults in [sharedDefaults, UserDefaults.standard].compactMap({ $0 }) {
+            guard let userID = normalizedUserID(defaults.string(forKey: displayNameUserIDKey)), !userID.isEmpty,
+                  let name = greetingName(from: defaults.string(forKey: displayNameKey)) else { continue }
+            return name
+        }
+        return nil
     }
 
-    static func greetingName(from rawName: String?) -> String? {
+    static func store(displayName: String?, userID: String?, in defaults: UserDefaults) {
+        defaults.removeObject(forKey: displayNameKey)
+        defaults.removeObject(forKey: displayNameUserIDKey)
+        guard let identity = greetingIdentity(displayName: displayName, userID: userID) else { return }
+        defaults.set(identity.name, forKey: displayNameKey)
+        defaults.set(identity.userID, forKey: displayNameUserIDKey)
+    }
+
+    static func greetingIdentity(displayName: String?, userID: String?) -> (userID: String, name: String)? {
+        guard let userID = normalizedUserID(userID), let name = greetingName(from: displayName) else { return nil }
+        return (userID, name)
+    }
+
+    private static func normalizedUserID(_ rawUserID: String?) -> String? {
+        guard let rawUserID else { return nil }
+        let userID = rawUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...200).contains(userID.count) ? userID : nil
+    }
+
+    private static func greetingName(from rawName: String?) -> String? {
         guard let rawName else { return nil }
         let parts = rawName.split(whereSeparator: { $0.isWhitespace })
         guard let first = parts.first, (1...64).contains(first.count) else { return nil }
@@ -788,7 +809,6 @@ struct ClipPatchVerifier {
         let payload = try await postTRPC("auth.appleSignIn", input: input)
         guard let root = payload as? [String: Any],
               let token = Self.string(root["token"]) else { throw VerifyError.decode }
-        ClipAuthStore.store(token: token)
         let user = root["user"] as? [String: Any]
         let session = ClipGuestSession(
             token: token,
@@ -797,7 +817,8 @@ struct ClipPatchVerifier {
             email: Self.string(user?["email"]),
             isNewUser: (root["isNewUser"] as? Bool) ?? false
         )
-        ClipAuthStore.store(displayName: session.name ?? name)
+        ClipAuthStore.store(displayName: session.name ?? name, userID: session.userId)
+        ClipAuthStore.store(token: token)
         return session
     }
 

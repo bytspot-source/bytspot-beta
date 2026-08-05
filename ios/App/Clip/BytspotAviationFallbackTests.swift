@@ -49,9 +49,15 @@ enum BytspotAviationFallbackTests {
     /// Pulls the actual Black aviation service out of the production fallback
     /// catalog and asserts the vendor pool matches the locked spec verbatim.
     static func run() {
-        precondition(ClipAuthStore.greetingName(from: "Ada Lovelace") == "Ada")
-        precondition(ClipAuthStore.greetingName(from: "  Ada  ") == "Ada")
-        precondition(ClipAuthStore.greetingName(from: "   ") == nil)
+        let greetingSuite = "com.bytspot.app.Clip.greeting-tests"
+        let greetingDefaults = UserDefaults(suiteName: greetingSuite)!
+        greetingDefaults.removePersistentDomain(forName: greetingSuite)
+        ClipAuthStore.store(displayName: "Ada Lovelace", userID: "user-1", in: greetingDefaults)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == "Ada")
+        ClipAuthStore.store(displayName: nil, userID: "user-2", in: greetingDefaults)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == nil)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameUserIDKey) == nil)
+        greetingDefaults.removePersistentDomain(forName: greetingSuite)
 
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-B"), patchId: "BYT424-0301-B") == .black)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-P"), patchId: "BYT424-0301-P") == .platinum)

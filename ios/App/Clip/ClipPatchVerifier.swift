@@ -755,8 +755,12 @@ struct ClipPatchVerifier {
     /// Exchange an Apple identity token for a Bytspot session (`auth.appleSignIn`).
     /// On success the JWT is persisted via `ClipAuthStore` so subsequent
     /// authenticated Party calls attach the stored credential automatically.
+    static let appleSignInSource = "native_ios"
+
     func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> ClipGuestSession {
-        var input: [String: Any] = ["identityToken": identityToken, "ref": "app_clip"]
+        // Use the established native iOS source contract so the backend applies
+        // the same Apple identity-token validation policy to the App Clip.
+        var input: [String: Any] = ["identityToken": identityToken, "ref": Self.appleSignInSource]
         if let email, !email.isEmpty { input["email"] = email }
         if let name, !name.isEmpty { input["name"] = name }
         let payload = try await postTRPC("auth.appleSignIn", input: input)

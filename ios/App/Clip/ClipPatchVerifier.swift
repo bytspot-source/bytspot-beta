@@ -765,6 +765,39 @@ struct ClipPatchVerifier {
         return invite
     }
 
+    /// The Party resolver is the only client-action authority. The Clip may
+    /// render its result but must never infer an RSVP, approval, or ticket CTA
+    /// from the invite template or access mode.
+    func resolvePartyPass(partyID: String) async throws -> ClipPartyPassState {
+        let payload = try await getTRPC("events.pass.resolve", input: ["partyId": partyID])
+        guard let root = payload as? [String: Any],
+              let resolvedPartyID = Self.string(root["partyId"]),
+              let rawAction = Self.string(root["action"]),
+              let action = ClipPartyPassAction(rawValue: rawAction) else { throw VerifyError.decode }
+        let guest = root["guest"] as? [String: Any]
+        return ClipPartyPassState(
+            partyID: resolvedPartyID,
+            action: action,
+            guestStatus: Self.string(guest?["status"]) ?? "unknown",
+            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass)
+        )
+    }
+
+    func createPartyRSVP(partyID: String, idempotencyKey: String) async throws -> String {
+        let payload = try await postTRPC("events.rsvp.create", input: ["partyId": partyID, "idempotencyKey": idempotencyKey])
+        guard let root = payload as? [String: Any], let status = Self.string(root["status"]) else { throw VerifyError.decode }
+        return status
+    }
+
+    func createPartyTicketCheckout(partyID: String, ticketTierName: String, idempotencyKey: String) async throws -> URL {
+        let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
+        guard let root = payload as? [String: Any],
+              let rawURL = Self.string(root["url"]),
+              let url = URL(string: rawURL),
+              url.scheme == "https" else { throw VerifyError.decode }
+        return url
+    }
+
     /// Join a private group event (`groupEvents.join`). Returns the resulting
     /// membership status: `"joined"` for open events or `"pending"` for
     /// approval-gated ones.

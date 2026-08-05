@@ -130,6 +130,43 @@ enum ClipPartyTemplateConfiguration: Equatable {
     }
 }
 
+enum ClipPartyPassAction: String, Equatable {
+    case authenticate
+    case rsvp
+    case requestApproval = "request-approval"
+    case ticket
+    case viewPass = "view-pass"
+    case unavailable
+}
+
+struct ClipPartyPassState: Equatable {
+    let partyID: String
+    let action: ClipPartyPassAction
+    let guestStatus: String
+    let accessGranted: Bool
+}
+
+struct ClipPartyTicketTier: Identifiable, Equatable {
+    let name: String
+    let priceCents: Int
+    let quantity: Int
+    let requiredMembershipTier: String
+
+    var id: String { name }
+
+    static func from(_ value: Any?) -> Self? {
+        guard let row = value as? [String: Any],
+              let rawName = row["name"] as? String,
+              let priceCents = (row["priceCents"] as? NSNumber)?.intValue, priceCents > 0,
+              let quantity = (row["quantity"] as? NSNumber)?.intValue, quantity > 0,
+              let tier = row["requiredMembershipTier"] as? String,
+              ["green", "platinum", "black"].contains(tier) else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...80).contains(name.count) else { return nil }
+        return Self(name: name, priceCents: priceCents, quantity: quantity, requiredMembershipTier: tier)
+    }
+}
+
 struct ClipGroupEventInvite: Equatable {
     let id: String
     let title: String
@@ -138,6 +175,7 @@ struct ClipGroupEventInvite: Equatable {
     let participantCount: Int
     let capacity: Int?
     let accessMode: String?
+    let ticketTiers: [ClipPartyTicketTier]
     let groupType: String
     let partyTemplate: ClipPartyTemplate?
     let partyTemplateConfig: ClipPartyTemplateConfiguration?
@@ -232,6 +270,7 @@ struct ClipGroupEventInvite: Equatable {
             participantCount: participantCount,
             capacity: Int(queryValue(in: queryItems, names: ["capacity"]) ?? ""),
             accessMode: queryValue(in: queryItems, names: ["accessMode", "access"]),
+            ticketTiers: [],
             groupType: groupType,
             partyTemplate: nil,
             partyTemplateConfig: nil,
@@ -297,6 +336,7 @@ struct ClipGroupEventInvite: Equatable {
             participantCount: intValue(row["participantCount"]) ?? 0,
             capacity: intValue(row["capacity"]),
             accessMode: cleanString(row["accessMode"]),
+            ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
             groupType: cleanString(row["groupType"]) ?? "Private Party",
             partyTemplate: template,
             partyTemplateConfig: decodedTemplateConfig,

@@ -208,6 +208,8 @@ struct ClipInviteView: View {
 
     let invite: ClipGroupEventInvite
     @Binding var showOverlay: Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var membership: JoinState = .idle
     @State private var statusMessage = ""
     @State private var showShareSheet = false
@@ -215,6 +217,9 @@ struct ClipInviteView: View {
     @State private var liveGuests: [ClipGroupEventGuest] = []
     @State private var liveGuestCount = 0
     @State private var partyHasArrived = false
+    @State private var partyPass: ClipPartyPassState?
+    @State private var isResolvingPartyPass = false
+    @State private var showTicketTiers = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 31
     @ScaledMetric(relativeTo: .title2) private var sectionTitleFontSize: CGFloat = 28
     @ScaledMetric(relativeTo: .headline) private var bodyFontSize: CGFloat = 16
@@ -271,12 +276,23 @@ struct ClipInviteView: View {
         }
         .safeAreaInset(edge: .bottom) { primaryActions }
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: shareInviteItems) }
+        .sheet(isPresented: $showTicketTiers) {
+            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title) { tier in
+                showTicketTiers = false
+                startPartyTicketCheckout(tier)
+            }
+        }
         .accessibilityIdentifier(invite.isHostStudioParty ? "clip-party-pass" : "clip-group-event-join")
         .task(id: invite.id) {
             partyHasArrived = false
             await loadGuests()
             guard invite.isHostStudioParty else { return }
+            await refreshPartyPass()
             withAnimation(.spring(response: 0.62, dampingFraction: 0.82).delay(0.08)) { partyHasArrived = true }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, invite.isHostStudioParty else { return }
+            Task { await refreshPartyPass() }
         }
     }
 
@@ -893,7 +909,7 @@ struct ClipInviteView: View {
                         .opacity(membership == .joining && ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) ? 0.7 : 1)
                 }
                 .buttonStyle(.plain)
-                .disabled(ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) && (membership == .joining || membership == .joined || membership == .declined))
+                .disabled(isPrimaryActionDisabled)
 
                 Button(action: shareInvite) {
                     VStack(spacing: 2) {
@@ -1060,18 +1076,124 @@ struct ClipInviteView: View {
     }
 
     private var primaryButtonTitle: String {
-        invite.isHostStudioParty ? "Continue securely" : joinButtonTitle
+        guard invite.isHostStudioParty else { return joinButtonTitle }
+        guard let action = partyPass?.action else { return isResolvingPartyPass ? "Checking access…" : "Party Pass unavailable" }
+        switch action {
+        case .authenticate: return "Sign in to continue"
+        case .rsvp: return "RSVP to this Party"
+        case .requestApproval: return "Request host approval"
+        case .ticket: return "Choose a ticket"
+        case .viewPass: return "Party Pass confirmed"
+        case .unavailable: return "Party Pass unavailable"
+        }
     }
 
     private var primaryButtonIcon: String {
-        invite.isHostStudioParty ? "lock.shield.fill" : joinButtonIcon
+        guard invite.isHostStudioParty else { return joinButtonIcon }
+        guard let action = partyPass?.action else { return isResolvingPartyPass ? "hourglass" : "xmark.shield" }
+        switch action {
+        case .authenticate: return "person.crop.circle.badge.checkmark"
+        case .rsvp: return "checkmark.circle.fill"
+        case .requestApproval: return "lock.badge.plus"
+        case .ticket: return "ticket.fill"
+        case .viewPass: return "checkmark.seal.fill"
+        case .unavailable: return "xmark.shield"
+        }
     }
 
     private func primaryPartyAction() {
         if ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) { joinGroup() }
         else {
-            impactLight()
-            openFullApp(url: invite.handoffURL, showOverlay: $showOverlay)
+            Task { await performPartyAction() }
+        }
+    }
+
+    private var isPrimaryActionDisabled: Bool {
+        if invite.isHostStudioParty {
+            guard let action = partyPass?.action else { return true }
+            return isResolvingPartyPass || action == .unavailable || action == .viewPass
+        }
+        return membership == .joining || membership == .joined || membership == .declined
+    }
+
+    @MainActor
+    private func refreshPartyPass() async {
+        guard invite.isHostStudioParty else { return }
+        isResolvingPartyPass = true
+        defer { isResolvingPartyPass = false }
+        do {
+            partyPass = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            statusMessage = partyStatusMessage
+        } catch {
+            partyPass = nil
+            statusMessage = "We couldn't verify this Party Pass. Try again shortly."
+        }
+    }
+
+    private var partyStatusMessage: String {
+        guard let state = partyPass else { return "" }
+        switch state.action {
+        case .authenticate: return "Sign in with Apple to see your authorized Party action."
+        case .rsvp: return "RSVP is available for this Party."
+        case .requestApproval: return "The host reviews access requests before sharing the full Party Pass."
+        case .ticket: return "Choose a server-published ticket tier to continue securely."
+        case .viewPass: return "Your access is confirmed. Keep this Party Pass handy."
+        case .unavailable:
+            return state.guestStatus == "pending" ? "Your access request is with the host." : "This Party Pass is not available for a new action."
+        }
+    }
+
+    @MainActor
+    private func performPartyAction() async {
+        guard let action = partyPass?.action, !isResolvingPartyPass else { return }
+        impactMedium()
+        switch action {
+        case .authenticate:
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                let credential = try await authController.requestAppleCredential()
+                _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName)
+                partyPass = nil
+                await refreshPartyPass()
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
+        case .rsvp, .requestApproval:
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString)
+                partyPass = nil
+                await refreshPartyPass()
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
+        case .ticket:
+            guard !invite.ticketTiers.isEmpty else {
+                statusMessage = "Ticket options are unavailable right now. Try again shortly."
+                return
+            }
+            showTicketTiers = true
+        case .viewPass:
+            statusMessage = "Your Party Pass is confirmed."
+        case .unavailable:
+            statusMessage = partyStatusMessage
+        }
+    }
+
+    private func startPartyTicketCheckout(_ tier: ClipPartyTicketTier) {
+        Task { @MainActor in
+            guard partyPass?.action == .ticket, !isResolvingPartyPass else { return }
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                let checkoutURL = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString)
+                statusMessage = "Secure checkout opened. We'll refresh your Party Pass when you return."
+                openURL(checkoutURL)
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
         }
     }
 
@@ -1165,6 +1287,69 @@ struct ClipInviteView: View {
         }
     }
     private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
+}
+
+private struct ClipPartyTicketTierPicker: View {
+    let tiers: [ClipPartyTicketTier]
+    let partyTitle: String
+    let select: (ClipPartyTicketTier) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                ClipTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("SECURE TICKETS")
+                            .font(.system(size: 11, weight: .black, design: .rounded))
+                            .foregroundColor(.white.opacity(0.58))
+                        Text(partyTitle)
+                            .font(.system(size: 28, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("Choose a server-published tier. Your price and eligibility are verified again before Checkout opens.")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.68))
+                        ForEach(tiers) { tier in
+                            Button { select(tier) } label: {
+                                HStack(spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(tier.name).font(.system(size: 17, weight: .black, design: .rounded))
+                                        Text("\(tier.quantity) available · \(tier.requiredMembershipTier.capitalized) access")
+                                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                                            .foregroundColor(.white.opacity(0.62))
+                                    }
+                                    Spacer()
+                                    Text(price(tier.priceCents))
+                                        .font(.system(size: 17, weight: .black, design: .rounded))
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .font(.system(size: 20, weight: .black))
+                                }
+                                .foregroundColor(.white)
+                                .padding(16)
+                                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(ClipTheme.panelElevated))
+                                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.20)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Ticket tiers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Not now") { dismiss() }.foregroundColor(.white)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func price(_ cents: Int) -> String {
+        String(format: "$%.2f", Double(cents) / 100)
+    }
 }
 
 // MARK: - Sign in with Apple controller

@@ -220,6 +220,10 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
         precondition(invite?.partyTemplate == .listeningParty, "Party Loop: Host Studio template identity must be decoded from the authoritative DTO.")
         precondition(invite?.partyTemplateConfig == .listeningParty(format: "listening-session"), "Party Loop: matching Party template configuration must be decoded.")
+        let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
+        precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
+        precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
+        precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
         let templateCases: [(String, String, [String: Any])] = [
             ("comedy-night", "standard", ["kind": "standard"]),
             ("premiere", "standard", ["kind": "standard"]),

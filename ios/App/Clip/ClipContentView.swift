@@ -348,7 +348,7 @@ struct ClipInviteView: View {
             LinearGradient(colors: [.clear, Color.black.opacity(0.12), Color.black.opacity(0.94)], startPoint: .top, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
-                    Label("PARTY PASS", systemImage: "sparkles")
+                    Label(partyTemplateEyebrow, systemImage: "sparkles")
                         .font(.system(size: chipFontSize, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                         .padding(.horizontal, 11)
@@ -394,7 +394,7 @@ struct ClipInviteView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     sectionMiniTitle("Access status")
-                    Text("Ready when you are").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+                    Text("Your Party access").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
                 }
                 Spacer()
                 Image(systemName: "ticket.fill")
@@ -405,7 +405,7 @@ struct ClipInviteView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                     .accessibilityHidden(true)
             }
-            Text("Your access and any RSVP confirmation stay tied to this Party Pass.")
+            Text("Bytspot verifies access before it creates or updates your Party Pass.")
                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
                 .foregroundColor(mutedInk)
             Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
@@ -447,17 +447,92 @@ struct ClipInviteView: View {
     }
 
     @ViewBuilder private var partyPlan: some View {
-        if !invite.activityHighlights.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("The plan").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
-                ForEach(Array(invite.activityHighlights.prefix(5).enumerated()), id: \.offset) { index, item in
-                    HStack(spacing: 12) {
-                        Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 25, height: 25).background(accent).clipShape(Circle())
-                        Text(item).font(.system(size: 14, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.84))
+        let moment = partyTemplateMoment
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: moment.symbol)
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundColor(.white)
+                    .frame(width: 42, height: 42)
+                    .background(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionMiniTitle(moment.eyebrow)
+                    Text(moment.title).font(.system(size: 19, weight: .black, design: .rounded)).foregroundColor(ink)
+                    Text(moment.detail).font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundColor(mutedInk).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if !invite.activityHighlights.isEmpty {
+                Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
+                VStack(alignment: .leading, spacing: 11) {
+                    Text(partyProgramTitle).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(ink)
+                    ForEach(Array(invite.activityHighlights.prefix(5).enumerated()), id: \.offset) { index, item in
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 25, height: 25).background(accent).clipShape(Circle())
+                            Text(item).font(.system(size: 14, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.84))
+                        }
                     }
                 }
-            }.padding(16).background(glassPanel(cornerRadius: 22, tint: secondary.opacity(0.07)))
+            }
         }
+        .padding(16)
+        .background(glassPanel(cornerRadius: 22, tint: secondary.opacity(0.07)))
+    }
+
+    private var partyTemplateEyebrow: String {
+        switch invite.partyTemplate {
+        case .listeningParty: return "LISTENING SESSION"
+        case .comedyNight: return "COMEDY NIGHT"
+        case .premiere: return "PREMIERE"
+        case .privateParty: return "PRIVATE PARTY"
+        case .fanMeetup: return "FAN MEETUP"
+        case .releaseParty: return "RELEASE PARTY"
+        case .popUp: return "POP-UP"
+        case nil: return "PARTY PASS"
+        }
+    }
+
+    private var partyProgramTitle: String {
+        switch invite.partyTemplate {
+        case .listeningParty, .releaseParty: return "The set"
+        case .comedyNight: return "Show order"
+        case .premiere: return "Screening sequence"
+        case .fanMeetup: return "Meetup flow"
+        case .privateParty: return "The evening"
+        case .popUp: return "The drop"
+        case nil: return "The plan"
+        }
+    }
+
+    private var partyTemplateMoment: (eyebrow: String, title: String, detail: String, symbol: String) {
+        guard let config = invite.partyTemplateConfig else {
+            return ("PARTY FORMAT", invite.groupType, "The host will reveal the full format through this Party Pass.", "sparkles")
+        }
+        switch config {
+        case .listeningParty(let format):
+            return ("LISTENING FORMAT", displayTemplateValue(format), "A curated first listen with \(invite.hostName).", "headphones")
+        case .fanMeetup(let format):
+            return ("MEETUP FORMAT", displayTemplateValue(format), "A real-world moment for the community around \(invite.hostName).", "person.3.fill")
+        case .releaseParty(let type, let title):
+            return ("RELEASE MOMENT", "\(displayTemplateValue(type)) · \(title)", "The first room for this release, curated by \(invite.hostName).", "music.note.list")
+        case .popUp(let disclosure):
+            let detail = disclosure == "after-approval" ? "The location remains protected until approval." : "Location and timing are live in this Party Pass."
+            return ("LOCATION DROP", disclosure == "after-approval" ? "Protected reveal" : "Live reveal", detail, "mappin.and.ellipse")
+        case .privateParty(let policy):
+            return ("GUEST POLICY", displayTemplateValue(policy), "A deliberately private room hosted by \(invite.hostName).", "lock.fill")
+        case .standard:
+            switch invite.partyTemplate {
+            case .comedyNight: return ("LIVE FORMAT", "Comedy night", "A room built for the set, the headliner, and the afterglow.", "theatermasks.fill")
+            case .premiere: return ("FIRST SCREENING", "Premiere moment", "Arrive for the first watch and stay for the conversation.", "film.fill")
+            default: return ("PARTY FORMAT", invite.groupType, "The host will reveal the full format through this Party Pass.", "sparkles")
+            }
+        }
+    }
+
+    private func displayTemplateValue(_ value: String) -> String {
+        value.replacingOccurrences(of: "-", with: " ").capitalized
     }
 
     private var eventHeader: some View {

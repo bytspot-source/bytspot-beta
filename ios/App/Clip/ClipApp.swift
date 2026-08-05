@@ -69,6 +69,67 @@ enum ClipGroupEventTimingState: String, Equatable {
     }
 }
 
+enum ClipPartyTemplate: String, Equatable {
+    case listeningParty = "listening-party"
+    case comedyNight = "comedy-night"
+    case premiere
+    case privateParty = "private-party"
+    case fanMeetup = "fan-meetup"
+    case releaseParty = "release-party"
+    case popUp = "pop-up"
+
+    var configurationKind: String {
+        switch self {
+        case .comedyNight, .premiere: return "standard"
+        case .listeningParty: return "listening-party"
+        case .privateParty: return "private-party"
+        case .fanMeetup: return "fan-meetup"
+        case .releaseParty: return "release-party"
+        case .popUp: return "pop-up"
+        }
+    }
+}
+
+enum ClipPartyTemplateConfiguration: Equatable {
+    case standard
+    case listeningParty(format: String)
+    case fanMeetup(format: String)
+    case releaseParty(type: String, title: String)
+    case popUp(locationDisclosure: String)
+    case privateParty(guestPolicy: String)
+
+    static func from(_ value: Any?, for template: ClipPartyTemplate?) -> Self? {
+        guard let template, let row = value as? [String: Any], let kind = row["kind"] as? String,
+              kind == template.configurationKind else { return nil }
+        switch template {
+        case .comedyNight, .premiere:
+            return kind == "standard" ? .standard : nil
+        case .listeningParty:
+            guard let format = row["format"] as? String,
+                  ["listening-session", "dj-mix-premiere", "live-performance", "label-showcase"].contains(format) else { return nil }
+            return .listeningParty(format: format)
+        case .fanMeetup:
+            guard let format = row["format"] as? String,
+                  ["meet-and-greet", "creator-conversation", "community-photo"].contains(format) else { return nil }
+            return .fanMeetup(format: format)
+        case .releaseParty:
+            guard let type = row["releaseType"] as? String,
+                  ["single", "ep", "album", "mix", "video"].contains(type),
+                  let title = row["releaseTitle"] as? String,
+                  (1...120).contains(title.trimmingCharacters(in: .whitespacesAndNewlines).count) else { return nil }
+            return .releaseParty(type: type, title: title.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .popUp:
+            guard let disclosure = row["locationDisclosure"] as? String,
+                  ["public", "after-approval"].contains(disclosure) else { return nil }
+            return .popUp(locationDisclosure: disclosure)
+        case .privateParty:
+            guard let policy = row["guestPolicy"] as? String,
+                  ["named-guests", "named-guests-plus-one"].contains(policy) else { return nil }
+            return .privateParty(guestPolicy: policy)
+        }
+    }
+}
+
 struct ClipGroupEventInvite: Equatable {
     let id: String
     let title: String
@@ -78,6 +139,8 @@ struct ClipGroupEventInvite: Equatable {
     let capacity: Int?
     let accessMode: String?
     let groupType: String
+    let partyTemplate: ClipPartyTemplate?
+    let partyTemplateConfig: ClipPartyTemplateConfiguration?
     let scheduledDate: String
     let hostName: String
     let locationLabel: String
@@ -170,6 +233,8 @@ struct ClipGroupEventInvite: Equatable {
             capacity: Int(queryValue(in: queryItems, names: ["capacity"]) ?? ""),
             accessMode: queryValue(in: queryItems, names: ["accessMode", "access"]),
             groupType: groupType,
+            partyTemplate: nil,
+            partyTemplateConfig: nil,
             scheduledDate: queryValue(in: queryItems, names: ["scheduled", "scheduledDate", "date", "startTime"]) ?? fallback.schedule,
             hostName: queryValue(in: queryItems, names: ["host", "hostName"]) ?? fallback.host,
             locationLabel: queryValue(in: queryItems, names: ["location", "locationLabel", "address"]) ?? fallback.location,
@@ -206,6 +271,9 @@ struct ClipGroupEventInvite: Equatable {
               cleanString(row["source"])?.lowercased() == "host-studio-party" else { return nil }
         let timing = cleanString(row["timing"]).flatMap(ClipGroupEventTimingState.init(rawValue:)) ?? .thisWeek
         let scheduled = cleanString(row["scheduledDate"]).map(displaySchedule) ?? timing.eyebrow.capitalized
+        let decodedTemplate = cleanString(row["templateId"]).flatMap(ClipPartyTemplate.init(rawValue:))
+        let decodedTemplateConfig = ClipPartyTemplateConfiguration.from(row["templateConfig"], for: decodedTemplate)
+        let template = decodedTemplateConfig == nil ? nil : decodedTemplate
         return Self(
             id: id,
             title: title,
@@ -215,6 +283,8 @@ struct ClipGroupEventInvite: Equatable {
             capacity: intValue(row["capacity"]),
             accessMode: cleanString(row["accessMode"]),
             groupType: cleanString(row["groupType"]) ?? "Private Party",
+            partyTemplate: template,
+            partyTemplateConfig: decodedTemplateConfig,
             scheduledDate: scheduled,
             hostName: cleanString(row["hostName"]) ?? "Bytspot Host",
             locationLabel: cleanString(row["locationLabel"]) ?? "Location pending",
@@ -516,6 +586,7 @@ final class ClipInvocationModel: ObservableObject {
                 "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
                 "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
+                "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
                 "hostName": "Avery Parker", "locationLabel": "The Loft",
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",

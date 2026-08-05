@@ -211,13 +211,33 @@ enum BytspotAviationFallbackTests {
     }
 
     private static func assertHostStudioPartyMappingContract() {
-        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
         let invite = ClipGroupEventInvite.fromPartyPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite?.isHostStudioParty == true, "Party Loop: App Clip must identify Host Studio Party DTOs.")
         if let invite { precondition(!ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite), "Party Loop: Host Studio Party actions must never call legacy Group Event APIs.") }
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.partyTemplate == .listeningParty, "Party Loop: Host Studio template identity must be decoded from the authoritative DTO.")
+        precondition(invite?.partyTemplateConfig == .listeningParty(format: "listening-session"), "Party Loop: matching Party template configuration must be decoded.")
+        let templateCases: [(String, String, [String: Any])] = [
+            ("comedy-night", "standard", ["kind": "standard"]),
+            ("premiere", "standard", ["kind": "standard"]),
+            ("private-party", "private-party", ["kind": "private-party", "guestPolicy": "named-guests"]),
+            ("fan-meetup", "fan-meetup", ["kind": "fan-meetup", "format": "meet-and-greet"]),
+            ("release-party", "release-party", ["kind": "release-party", "releaseType": "album", "releaseTitle": "After Hours"]),
+            ("pop-up", "pop-up", ["kind": "pop-up", "locationDisclosure": "after-approval"])
+        ]
+        for (templateID, expectedKind, config) in templateCases {
+            var candidate = dto
+            candidate["templateId"] = templateID
+            candidate["templateConfig"] = config
+            let decoded = ClipGroupEventInvite.fromPartyPayload(candidate)
+            precondition(decoded?.partyTemplate?.configurationKind == expectedKind && decoded?.partyTemplateConfig != nil, "Party Loop: every supported Host Studio Party template must decode only with its matching configuration.")
+        }
+        var malformedTemplate = dto
+        malformedTemplate["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "public"]
+        precondition(ClipGroupEventInvite.fromPartyPayload(malformedTemplate)?.partyTemplate == nil, "Party Loop: mismatched template metadata must not select an App Clip layout.")
         precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")
         precondition(invite?.partyPassURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
         precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")

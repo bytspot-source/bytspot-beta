@@ -203,9 +203,9 @@ struct PartyPassClipView: View {
                     .opacity(0.18).ignoresSafeArea()
             }
             LinearGradient(colors: [Color.black.opacity(0.18), Color(red: 0.059, green: 0.090, blue: 0.165).opacity(0.86), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
-            RadialGradient(colors: [ClipTheme.cyan.opacity(0.28), .clear], center: .topLeading, startRadius: 10, endRadius: 390).ignoresSafeArea()
-            RadialGradient(colors: [ClipTheme.magenta.opacity(0.20), .clear], center: .bottomTrailing, startRadius: 10, endRadius: 410).ignoresSafeArea()
-            RadialGradient(colors: [ClipTheme.orange.opacity(0.12), .clear], center: .bottom, startRadius: 10, endRadius: 260).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.cyan.opacity(0.20), .clear], center: .topLeading, startRadius: 10, endRadius: 390).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.magenta.opacity(0.10), .clear], center: .bottomTrailing, startRadius: 10, endRadius: 410).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.orange.opacity(0.08), .clear], center: .bottom, startRadius: 10, endRadius: 260).ignoresSafeArea()
         }
     }
 
@@ -213,8 +213,11 @@ struct PartyPassClipView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("BYTSPOT").font(.system(size: 12, weight: .black, design: .rounded)).tracking(1.4)
-                    .foregroundStyle(LinearGradient(colors: primaryBrandGradient, startPoint: .leading, endPoint: .trailing))
-                Text("HOST STUDIO · PARTY PASS").font(.system(size: 8, weight: .black, design: .rounded)).tracking(1.1).foregroundColor(.white.opacity(0.54))
+                    .foregroundColor(.white)
+                HStack(spacing: 5) {
+                    Circle().fill(ClipTheme.cyan).frame(width: 5, height: 5)
+                    Text("PRIVATE ACCESS · HOST STUDIO").font(.system(size: 8, weight: .black, design: .rounded)).tracking(1.1).foregroundColor(.white.opacity(0.54))
+                }
             }
             Spacer()
             Button { showShareSheet = true } label: { Image(systemName: "square.and.arrow.up.fill") }
@@ -229,28 +232,32 @@ struct PartyPassClipView: View {
             if let poster = invite.displayPosterURL {
                 AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
             }
-            LinearGradient(colors: [Color.black.opacity(0.02), Color.black.opacity(0.30), Color.black.opacity(0.93)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color.black.opacity(0.04), Color.black.opacity(0.32), Color.black.opacity(0.96)], startPoint: .top, endPoint: .bottom)
             VStack {
                 HStack {
-                    Text("PARTY PASS").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1.25)
-                        .foregroundColor(.white).padding(.horizontal, 11).padding(.vertical, 7)
-                        .background(Capsule().fill(LinearGradient(colors: [ClipTheme.magenta, ClipTheme.violet], startPoint: .leading, endPoint: .trailing)))
+                    Text("PRIVATE INVITATION").font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.35)
+                        .foregroundColor(.white.opacity(0.94)).padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Capsule().fill(Color.black.opacity(0.42))).overlay(Capsule().stroke(Color.white.opacity(0.22)))
                     Spacer()
-                    Image(systemName: "checkmark.seal.fill").font(.system(size: 18, weight: .bold)).foregroundColor(ClipTheme.cyan)
-                        .padding(10).background(Circle().fill(Color.black.opacity(0.30)))
+                    Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.90))
+                        .padding(11).background(Circle().fill(Color.black.opacity(0.38))).overlay(Circle().stroke(Color.white.opacity(0.18)))
                 }
                 Spacer()
             }.padding(17)
             VStack(alignment: .leading, spacing: 9) {
-                Text(invite.title).font(.system(size: 31, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
+                Text(invite.title).font(.system(size: 34, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(3).minimumScaleFactor(0.82)
                 HStack(spacing: 7) {
                     Image(systemName: "person.crop.circle.fill").foregroundColor(ClipTheme.cyan)
                     Text("Hosted by \(invite.hostName)").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.86))
                 }
+                HStack(spacing: 7) {
+                    Image(systemName: "calendar").foregroundColor(.white.opacity(0.62))
+                    Text(invite.scheduledDate).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.76)).lineLimit(1)
+                }
             }.padding(19)
         }
-        .frame(height: 292).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 30).stroke(LinearGradient(colors: [ClipTheme.cyan.opacity(0.42), .white.opacity(0.10), ClipTheme.magenta.opacity(0.38)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        .frame(height: 330).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color.white.opacity(0.18)))
     }
 
     private var passSummary: some View {
@@ -258,9 +265,9 @@ struct PartyPassClipView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "ticket.fill").font(.system(size: 21, weight: .black)).foregroundColor(.white).frame(width: 48, height: 48).background(LinearGradient(colors: primaryBrandGradient, startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("BYTSPOT VERIFIED ENTRY").font(.system(size: 10, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(ClipTheme.cyan)
+                    Text("ENTRY CREDENTIAL").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1.05).foregroundColor(ClipTheme.cyan)
                     Text(accessLabel).font(.system(size: 18, weight: .black, design: .rounded)).foregroundColor(.white)
-                    Text("Choose a ticket securely. Availability is confirmed by the server before checkout.").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
+                    Text("Availability is live and confirmed before secure checkout.").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
                 }
             }
             HStack(spacing: 8) {
@@ -273,7 +280,7 @@ struct PartyPassClipView: View {
 
     private var details: some View {
         PartyGlassCard {
-            Text("Party details").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            Text("The invitation").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
             PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
             PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationIsWithheld ? "LOCATION AFTER APPROVAL" : "WHERE", value: invite.locationLabel)
             if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
@@ -282,7 +289,7 @@ struct PartyPassClipView: View {
 
     private var program: some View {
         PartyGlassCard {
-            Text("The plan").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            Text("Tonight's plan").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
             ForEach(Array(invite.itinerary.prefix(4).enumerated()), id: \.offset) { index, item in
                 HStack(spacing: 11) { Text("\(index + 1)").font(.system(size: 11, weight: .black)).foregroundColor(accent).frame(width: 24, height: 24).background(accent.opacity(0.15)).clipShape(Circle()); Text(item).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)); Spacer() }
             }
@@ -321,7 +328,7 @@ struct PartyPassClipView: View {
     private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
 }
 
-private struct PartyGlassCard<Content: View>: View { let content: Content; init(@ViewBuilder content: () -> Content) { self.content = content() }; var body: some View { VStack(alignment: .leading, spacing: 13) { content }.padding(17).background(RoundedRectangle(cornerRadius: 25).fill(LinearGradient(colors: [Color(red: 0.059, green: 0.090, blue: 0.165).opacity(0.94), ClipTheme.panel.opacity(0.90)], startPoint: .topLeading, endPoint: .bottomTrailing))).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.14))).shadow(color: ClipTheme.violet.opacity(0.12), radius: 18, y: 8) } }
+private struct PartyGlassCard<Content: View>: View { let content: Content; init(@ViewBuilder content: () -> Content) { self.content = content() }; var body: some View { VStack(alignment: .leading, spacing: 13) { content }.padding(17).background(RoundedRectangle(cornerRadius: 25).fill(LinearGradient(colors: [Color(red: 0.045, green: 0.059, blue: 0.094).opacity(0.96), ClipTheme.panel.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))) } }
 private struct PartyMetric: View { let value: String; let label: String; var body: some View { VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 8, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 11, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth: .infinity, alignment: .leading) } }
 private struct PartyDetailRow: View { let icon: String; let label: String; let value: String; var body: some View { HStack(alignment: .top, spacing: 12) { Image(systemName: icon).foregroundColor(ClipTheme.cyan).frame(width: 22); VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 9, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)) } } } }
 private struct PartyGuestStack: View { let count: Int; let accent: Color; let secondary: Color; var body: some View { HStack(spacing: -11) { ForEach(0..<min(max(count, 1), 4), id: \.self) { index in Circle().fill(index.isMultiple(of: 2) ? accent : secondary).frame(width: 38, height: 38).overlay(Circle().stroke(ClipTheme.panel, lineWidth: 2)).overlay(Text("•").font(.system(size: 22, weight: .black)).foregroundColor(.white.opacity(0.75))) }; if count > 4 { Text("+\(count - 4)").font(.system(size: 10, weight: .black)).foregroundColor(.white).frame(width: 38, height: 38).background(ClipTheme.panelElevated).clipShape(Circle()) } } } }

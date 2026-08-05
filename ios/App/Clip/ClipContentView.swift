@@ -307,17 +307,26 @@ struct ClipInviteView: View {
                 glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
                 Spacer()
             }
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 9, height: 9)
-                Text(invite.isHostStudioParty ? "BYTSPOT / PARTY" : "Bytspot")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
+            if invite.isHostStudioParty {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 9, height: 9)
+                    Text("BYTSPOT / PARTY")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                }
+                .foregroundColor(ink)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
+                .background(glassCapsule(tint: ClipTheme.magenta.opacity(0.10)))
+            } else {
+                Text("Bytspot")
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundStyle(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.violet, ClipTheme.pink], startPoint: .leading, endPoint: .trailing))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(glassCapsule())
             }
-            .foregroundColor(ink)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 10)
-            .background(glassCapsule(tint: invite.isHostStudioParty ? ClipTheme.magenta.opacity(0.10) : .white.opacity(0.06)))
             Spacer()
             glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: invite.isHostStudioParty ? "Share App Clip Party Pass" : "Share invite", action: shareInvite)
             glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
@@ -363,7 +372,9 @@ struct ClipInviteView: View {
                     .foregroundColor(.white.opacity(0.76))
                     .lineLimit(2)
                 HStack(spacing: 7) {
-                    Image(systemName: "checkmark.seal.fill").foregroundColor(ClipTheme.emerald)
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(ClipTheme.emerald)
+                        .accessibilityHidden(true)
                     Text("CURATED BY \(invite.hostName.uppercased())")
                 }
                 .font(.system(size: 10, weight: .black, design: .rounded))
@@ -392,6 +403,7 @@ struct ClipInviteView: View {
                     .frame(width: 46, height: 46)
                     .background(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .accessibilityHidden(true)
             }
             Text("Your access and any RSVP confirmation stay tied to this Party Pass.")
                 .font(.system(size: 12.5, weight: .bold, design: .rounded))

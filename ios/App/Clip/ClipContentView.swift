@@ -30,6 +30,7 @@ enum ClipTheme {
     static let violet = Color(red: 0.659, green: 0.333, blue: 0.969) // #A855F7
     static let pink = Color(red: 0.851, green: 0.275, blue: 0.937) // #D946EF
     static let magenta = Color(red: 1.000, green: 0.000, blue: 1.000) // #FF00FF
+    static let orange = Color(red: 1.000, green: 0.271, blue: 0.000) // #FF4500
     static let emerald = Color(red: 0.133, green: 0.773, blue: 0.369)
     static let gold = Color(red: 0.847, green: 0.729, blue: 0.384) // Black-tier accent only
 
@@ -213,6 +214,7 @@ struct ClipInviteView: View {
     @State private var authController = ClipGuestAuthController()
     @State private var liveGuests: [ClipGroupEventGuest] = []
     @State private var liveGuestCount = 0
+    @State private var partyHasArrived = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 31
     @ScaledMetric(relativeTo: .title2) private var sectionTitleFontSize: CGFloat = 28
     @ScaledMetric(relativeTo: .headline) private var bodyFontSize: CGFloat = 16
@@ -270,7 +272,12 @@ struct ClipInviteView: View {
         .safeAreaInset(edge: .bottom) { primaryActions }
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: shareInviteItems) }
         .accessibilityIdentifier(invite.isHostStudioParty ? "clip-party-pass" : "clip-group-event-join")
-        .task(id: invite.id) { await loadGuests() }
+        .task(id: invite.id) {
+            partyHasArrived = false
+            await loadGuests()
+            guard invite.isHostStudioParty else { return }
+            withAnimation(.spring(response: 0.62, dampingFraction: 0.82).delay(0.08)) { partyHasArrived = true }
+        }
     }
 
     private var eventBackdrop: some View {
@@ -300,12 +307,17 @@ struct ClipInviteView: View {
                 glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
                 Spacer()
             }
-            Text("Bytspot")
-                .font(.system(size: 13, weight: .black, design: .rounded))
-                .foregroundStyle(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.violet, ClipTheme.pink], startPoint: .leading, endPoint: .trailing))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(glassCapsule())
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 9, height: 9)
+                Text(invite.isHostStudioParty ? "BYTSPOT / PARTY" : "Bytspot")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+            }
+            .foregroundColor(ink)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .background(glassCapsule(tint: invite.isHostStudioParty ? ClipTheme.magenta.opacity(0.10) : .white.opacity(0.06)))
             Spacer()
             glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: invite.isHostStudioParty ? "Share App Clip Party Pass" : "Share invite", action: shareInvite)
             glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
@@ -314,7 +326,7 @@ struct ClipInviteView: View {
 
     private var partyHero: some View {
         ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 30, style: .continuous).fill(ClipTheme.panelElevated)
+            RoundedRectangle(cornerRadius: 32, style: .continuous).fill(ClipTheme.panelElevated)
             if let poster = invite.displayPosterURL {
                 GeometryReader { proxy in
                     AsyncImage(url: poster) { image in
@@ -322,41 +334,75 @@ struct ClipInviteView: View {
                     } placeholder: { Color.clear }
                 }
             } else {
-                LinearGradient(colors: [accent.opacity(0.85), secondary.opacity(0.42), ClipTheme.panelElevated], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [ClipTheme.cyan.opacity(0.82), ClipTheme.magenta.opacity(0.58), ClipTheme.orange.opacity(0.38), ClipTheme.panelElevated], startPoint: .topLeading, endPoint: .bottomTrailing)
             }
-            LinearGradient(colors: [.clear, Color.black.opacity(0.22), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 9) {
+            LinearGradient(colors: [.clear, Color.black.opacity(0.12), Color.black.opacity(0.94)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    Label("PARTY PASS", systemImage: "sparkles")
+                        .font(.system(size: chipFontSize, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.black.opacity(0.28)))
+                    Spacer()
+                    Image(systemName: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.ultraThinMaterial))
+                        .accessibilityLabel(privacyLabel)
+                }
+                Spacer(minLength: 14)
+                Text(invite.title)
+                    .font(.system(size: titleFontSize + 3, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                Text(invite.inviteNote ?? invite.theme)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.76))
+                    .lineLimit(2)
                 HStack(spacing: 7) {
-                    glassChip("PARTY PASS", icon: "bolt.fill")
-                    glassChip(privacyLabel, icon: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
-                }.frame(maxWidth: 310)
-                Text(invite.title).font(.system(size: titleFontSize, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
-                Text(invite.inviteNote ?? invite.theme).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.78)).lineLimit(2)
-                Label("Published by \(invite.hostName) in Host Studio", systemImage: "checkmark.seal.fill")
-                    .font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ClipTheme.emerald)
-            }.padding(18)
+                    Image(systemName: "checkmark.seal.fill").foregroundColor(ClipTheme.emerald)
+                    Text("CURATED BY \(invite.hostName.uppercased())")
+                }
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(.white.opacity(0.78))
+            }
+            .padding(20)
         }
-        .frame(maxWidth: .infinity).frame(height: 286).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.22)))
+        .frame(maxWidth: .infinity).frame(height: 316).clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        .shadow(color: ClipTheme.magenta.opacity(0.20), radius: 28, x: 0, y: 16)
+        .scaleEffect(partyHasArrived ? 1 : 0.965)
+        .opacity(partyHasArrived ? 1 : 0)
     }
 
     private var partyCredential: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    sectionMiniTitle("Your Party Pass")
-                    Text(joinButtonTitle).font(.system(size: 20, weight: .black, design: .rounded)).foregroundColor(ink)
+                    sectionMiniTitle("Access status")
+                    Text("Ready when you are").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
                 }
                 Spacer()
-                Image(systemName: joinButtonIcon).font(.system(size: 25, weight: .black)).foregroundColor(accent)
+                Image(systemName: "ticket.fill")
+                    .font(.system(size: 21, weight: .black))
+                    .foregroundColor(.white)
+                    .frame(width: 46, height: 46)
+                    .background(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             }
-            Divider().overlay(Color.white.opacity(0.14))
+            Text("Your access and any RSVP confirmation stay tied to this Party Pass.")
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .foregroundColor(mutedInk)
+            Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
             HStack(spacing: 10) {
                 partyCredentialMetric(accessModeLabel(invite.accessMode ?? "free-rsvp"), "ACCESS")
                 partyCredentialMetric(invite.capacity.map { "\($0) max" } ?? "Open", "CAPACITY")
                 partyCredentialMetric(invite.tier.displayName, "MEMBERSHIP")
             }
-        }.padding(17).background(glassPanel(cornerRadius: 24, tint: accent.opacity(0.10)))
+        }.padding(18).background(glassPanel(cornerRadius: 26, tint: ClipTheme.magenta.opacity(0.09)))
     }
 
     private func partyCredentialMetric(_ value: String, _ label: String) -> some View {
@@ -368,7 +414,13 @@ struct ClipInviteView: View {
 
     private var partyEssentials: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Essentials").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+            HStack {
+                Text("At a glance").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+                Spacer()
+                Text("PRIVATE DETAILS")
+                    .font(.system(size: 9, weight: .black, design: .rounded))
+                    .foregroundColor(mutedInk)
+            }
             partyEssentialRow("calendar.badge.clock", "WHEN", invite.scheduledDate)
             partyEssentialRow("mappin.and.ellipse", locationLabel, invite.locationLabel)
             partyEssentialRow("person.2.fill", "INVITED THROUGH", invite.audienceCircle)

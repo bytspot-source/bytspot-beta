@@ -88,7 +88,7 @@ struct ClipContentView: View {
                     ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false)
                         .transition(.opacity)
                 case .party(let invite):
-                    ClipInviteView(invite: invite, showOverlay: $showOverlay)
+                    PartyPassClipView(invite: invite, showOverlay: $showOverlay)
                         .transition(.opacity)
                 case .groupEvent(let invite):
                     ClipInviteView(invite: invite, showOverlay: $showOverlay)
@@ -137,6 +137,167 @@ private struct ClipPartyInviteStateView: View {
         .padding(22)
     }
 }
+
+// MARK: - Party Pass
+
+/// Dedicated paid-party App Clip surface. It is intentionally separate from
+/// `ClipInviteView`, which remains the legacy `/group/<id>` implementation.
+struct PartyPassClipView: View {
+    let invite: PartyPassInvite
+    @Binding var showOverlay: Bool
+    @Environment(\.openURL) private var openURL
+    @State private var passState: ClipPartyPassState?
+    @State private var isResolving = true
+    @State private var statusMessage = ""
+    @State private var showTicketTiers = false
+    @State private var showShareSheet = false
+    @State private var authController = ClipGuestAuthController()
+
+    private var accent: Color { ClipTheme.accent(for: invite.tier) }
+    private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
+    private var primaryTitle: String {
+        guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
+        switch action {
+        case .authenticate: return "Sign in to get tickets"
+        case .ticket: return "Choose a ticket"
+        case .rsvp: return "RSVP to this Party"
+        case .requestApproval: return "Request host approval"
+        case .viewPass: return "Party Pass confirmed"
+        case .unavailable: return "Party Pass unavailable"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            partyBackdrop
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    hero
+                    passSummary
+                    details
+                    if !invite.itinerary.isEmpty { program }
+                    guestStack
+                }
+                .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 114)
+            }
+        }
+        .safeAreaInset(edge: .bottom) { ticketActionBar }
+        .sheet(isPresented: $showTicketTiers) {
+            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title) { tier in
+                showTicketTiers = false
+                createCheckout(for: tier)
+            }
+        }
+        .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: [invite.canonicalURL].compactMap { $0 }) }
+        .accessibilityIdentifier("party-pass-clip")
+        .task(id: invite.id) { await resolvePass() }
+    }
+
+    private var partyBackdrop: some View {
+        ZStack {
+            ClipTheme.background.ignoresSafeArea()
+            if let poster = invite.displayPosterURL {
+                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .opacity(0.22).ignoresSafeArea()
+            }
+            LinearGradient(colors: [Color.black.opacity(0.25), ClipTheme.background.opacity(0.72), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            RadialGradient(colors: [accent.opacity(0.32), .clear], center: .topLeading, startRadius: 20, endRadius: 390).ignoresSafeArea()
+            RadialGradient(colors: [secondary.opacity(0.26), .clear], center: .bottomTrailing, startRadius: 10, endRadius: 410).ignoresSafeArea()
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("BYTSPOT").font(.system(size: 12, weight: .black, design: .rounded)).tracking(1.2)
+                .foregroundStyle(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.violet, ClipTheme.pink], startPoint: .leading, endPoint: .trailing))
+            Spacer()
+            Button { showShareSheet = true } label: { Image(systemName: "square.and.arrow.up.fill") }
+                .buttonStyle(PartyGlassIconButton()).accessibilityLabel("Share Party Pass")
+        }
+    }
+
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 30, style: .continuous).fill(ClipTheme.panelElevated)
+            if let poster = invite.displayPosterURL {
+                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+            }
+            LinearGradient(colors: [.clear, Color.black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 9) {
+                Text("PARTY PASS").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1.4).padding(.horizontal, 10).padding(.vertical, 7).background(Capsule().fill(accent.opacity(0.92)))
+                Text(invite.title).font(.system(size: 31, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(2)
+                Text("Hosted by \(invite.hostName)").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.78))
+            }.padding(19)
+        }
+        .frame(height: 292).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color.white.opacity(0.18)))
+    }
+
+    private var passSummary: some View {
+        PartyGlassCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "ticket.fill").font(.system(size: 21, weight: .black)).foregroundColor(.white).frame(width: 48, height: 48).background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR ENTRY, VERIFIED").font(.system(size: 10, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(accent)
+                    Text(accessLabel).font(.system(size: 18, weight: .black, design: .rounded)).foregroundColor(.white)
+                    Text("Choose a ticket securely. Availability is confirmed by the server before checkout.").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
+                }
+            }
+            HStack(spacing: 8) {
+                PartyMetric(value: invite.capacity.map { "\($0) max" } ?? "Limited", label: "CAPACITY")
+                PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "MEMBERSHIP")
+                PartyMetric(value: invite.ticketTiers.isEmpty ? "RSVP" : "TICKETS", label: "ACCESS")
+            }
+        }
+    }
+
+    private var details: some View {
+        PartyGlassCard {
+            Text("Party details").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
+            PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationIsWithheld ? "LOCATION AFTER APPROVAL" : "WHERE", value: invite.locationLabel)
+            if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
+        }
+    }
+
+    private var program: some View {
+        PartyGlassCard {
+            Text("The plan").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            ForEach(Array(invite.itinerary.prefix(4).enumerated()), id: \.offset) { index, item in
+                HStack(spacing: 11) { Text("\(index + 1)").font(.system(size: 11, weight: .black)).foregroundColor(accent).frame(width: 24, height: 24).background(accent.opacity(0.15)).clipShape(Circle()); Text(item).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)); Spacer() }
+            }
+        }
+    }
+
+    private var guestStack: some View {
+        PartyGlassCard {
+            HStack { VStack(alignment: .leading, spacing: 3) { Text("THE ROOM").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1).foregroundColor(accent); Text(invite.attendeeCount == 1 ? "1 guest is in" : "\(invite.attendeeCount) guests are in").font(.system(size: 17, weight: .black, design: .rounded)).foregroundColor(.white) }; Spacer(); PartyGuestStack(count: invite.attendeeCount, accent: accent, secondary: secondary) }
+        }
+    }
+
+    private var ticketActionBar: some View {
+        HStack(spacing: 11) {
+            Button(action: primaryAction) { Label(primaryTitle, systemImage: passState?.action == .ticket ? "ticket.fill" : "checkmark.seal.fill").font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 55).background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 20)) }
+                .disabled(isResolving || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
+            Button { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) } label: { Image(systemName: "ellipsis").foregroundColor(.white).frame(width: 55, height: 55).background(Color.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 20)) }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12).background(.ultraThinMaterial)
+    }
+
+    private var accessLabel: String { invite.accessMode == "paid-ticket" ? "Paid ticket access" : invite.accessMode == "private-approval" ? "Host approval required" : "RSVP access" }
+    private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id) } catch { statusMessage = "We couldn’t verify ticket availability right now." } }
+    private func primaryAction() { guard let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    private func authenticate() async { do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); await resolvePass() } catch { statusMessage = "Sign in could not be completed." } }
+    private func rsvp() async { do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent." } }
+    private func createCheckout(for tier: ClipPartyTicketTier) { Task { do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
+}
+
+private struct PartyGlassCard<Content: View>: View { let content: Content; init(@ViewBuilder content: () -> Content) { self.content = content() }; var body: some View { VStack(alignment: .leading, spacing: 13) { content }.padding(17).background(RoundedRectangle(cornerRadius: 25).fill(ClipTheme.panelElevated.opacity(0.82))).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.14))) } }
+private struct PartyMetric: View { let value: String; let label: String; var body: some View { VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 8, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 11, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth: .infinity, alignment: .leading) } }
+private struct PartyDetailRow: View { let icon: String; let label: String; let value: String; var body: some View { HStack(alignment: .top, spacing: 12) { Image(systemName: icon).foregroundColor(ClipTheme.cyan).frame(width: 22); VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 9, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)) } } } }
+private struct PartyGuestStack: View { let count: Int; let accent: Color; let secondary: Color; var body: some View { HStack(spacing: -11) { ForEach(0..<min(max(count, 1), 4), id: \.self) { index in Circle().fill(index.isMultiple(of: 2) ? accent : secondary).frame(width: 38, height: 38).overlay(Circle().stroke(ClipTheme.panel, lineWidth: 2)).overlay(Text("•").font(.system(size: 22, weight: .black)).foregroundColor(.white.opacity(0.75))) }; if count > 4 { Text("+\(count - 4)").font(.system(size: 10, weight: .black)).foregroundColor(.white).frame(width: 38, height: 38).background(ClipTheme.panelElevated).clipShape(Circle()) } } } }
+private struct PartyGlassIconButton: ButtonStyle { func makeBody(configuration: Configuration) -> some View { configuration.label.foregroundColor(.white).frame(width: 42, height: 42).background(Color.white.opacity(configuration.isPressed ? 0.20 : 0.12)).clipShape(Circle()) } }
 
 // MARK: - Shared helpers
 

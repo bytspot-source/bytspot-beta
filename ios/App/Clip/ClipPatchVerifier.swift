@@ -658,13 +658,26 @@ struct ClipPatchVerifier {
         let binding: VerifiedBinding?
     }
 
-    static let baseURL: URL = {
+    #if DEBUG
+    static let debugPreviewAPIKey = "BytspotClipDebugPreviewAPI"
+    #endif
+
+    static var baseURL: URL {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: debugPreviewAPIKey) {
+            return URL(string: "https://bytspot-api-pr-1.onrender.com")!
+        }
+        if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
+           let url = URL(string: raw), url.scheme?.lowercased() == "https" {
+            return url
+        }
+        #endif
         if let raw = Bundle.main.object(forInfoDictionaryKey: "BytspotAPIBaseURL") as? String,
            let url = URL(string: raw) {
             return url
         }
         return URL(string: "https://bytspot-api.onrender.com")!
-    }()
+    }
 
     func resolvePatch(patchId: String, tier: BytspotTier = .black) async throws -> ClipPatchContext {
         let payload = try await getTRPC("patch.resolve", input: ["patchId": patchId, "tier": tier.rawValue])
@@ -759,9 +772,9 @@ struct ClipPatchVerifier {
     }
 
     /// Resolves the exact published Host Studio Party behind a clean Party Pass URL.
-    func partyInvite(partyID: String) async throws -> ClipGroupEventInvite {
+    func partyInvite(partyID: String) async throws -> PartyPassInvite {
         let payload = try await getTRPC("events.invite", input: ["partyId": partyID])
-        guard let invite = ClipGroupEventInvite.fromPartyPayload(payload) else { throw VerifyError.decode }
+        guard let invite = PartyPassInvite.fromPayload(payload) else { throw VerifyError.decode }
         return invite
     }
 

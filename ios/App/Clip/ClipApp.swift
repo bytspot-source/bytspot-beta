@@ -167,6 +167,77 @@ struct ClipPartyTicketTier: Identifiable, Equatable {
     }
 }
 
+/// The authoritative, Party-only representation used by `/party/<id>`.
+/// It intentionally has no Group Event fallback, fields, or API semantics.
+struct PartyPassInvite: Equatable {
+    let id: String
+    let title: String
+    let tier: BytspotTier
+    let hostName: String
+    let scheduledDate: String
+    let locationLabel: String
+    let locationIsWithheld: Bool
+    let accessMode: String
+    let capacity: Int?
+    let attendeeCount: Int
+    let ticketTiers: [ClipPartyTicketTier]
+    let itinerary: [String]
+    let note: String?
+    let heroImageURL: URL?
+    let thumbnailURL: URL?
+
+    var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
+    var canonicalURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)") }
+    var handoffURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)?source=host-studio-party&handoff=1") }
+
+    static func partyID(from pathParts: [String]) -> String? {
+        guard pathParts.count == 2, pathParts[0].lowercased() == "party" else { return nil }
+        let id = pathParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty || id.count > 200 ? nil : id
+    }
+
+    static func fromPayload(_ value: Any) -> Self? {
+        guard let row = value as? [String: Any],
+              let id = string(row["id"]),
+              let title = string(row["title"]),
+              let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
+              string(row["source"]) == "host-studio-party" else { return nil }
+        let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
+        return Self(
+            id: id, title: title, tier: tier,
+            hostName: string(row["hostName"]) ?? "Bytspot Host",
+            scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : "Location shared after approval",
+            locationIsWithheld: !locationIsPublic,
+            accessMode: string(row["accessMode"]) ?? "free-rsvp",
+            capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
+            ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
+            itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
+            note: string(row["inviteNote"]),
+            heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
+            thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))
+        )
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    private static func int(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+    private static func displayDate(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return date?.formatted(date: .abbreviated, time: .shortened) ?? value
+    }
+}
+
 struct ClipGroupEventInvite: Equatable {
     let id: String
     let title: String
@@ -465,7 +536,7 @@ enum ClipFlowStep: Equatable {
     case catalog
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
-    case party(ClipGroupEventInvite)
+    case party(PartyPassInvite)
     case groupEvent(ClipGroupEventInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
@@ -533,6 +604,12 @@ final class ClipInvocationModel: ObservableObject {
         let items = components.queryItems ?? []
         let pathParts = Self.pathParts(from: components)
 
+        #if DEBUG
+        if let previewAPI = Self.queryValue(in: items, names: ["debugPreviewAPI"]) {
+            UserDefaults.standard.set(previewAPI == "1", forKey: ClipPatchVerifier.debugPreviewAPIKey)
+        }
+        #endif
+
         venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
         patchId = Self.queryValue(in: items, names: ["patch", "patchid", "p"])
             ?? Self.patchId(from: pathParts)
@@ -540,7 +617,7 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        if let partyID = ClipGroupEventInvite.partyID(from: pathParts) {
+        if let partyID = PartyPassInvite.partyID(from: pathParts) {
             flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
@@ -643,7 +720,7 @@ final class ClipInvocationModel: ObservableObject {
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
                 "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
-                "hostName": "Avery Parker", "locationLabel": "The Loft",
+                "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public",
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
@@ -651,7 +728,7 @@ final class ClipInvocationModel: ObservableObject {
                 "heroImageURL": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
                 "photoURLs": ["https://res.cloudinary.com/demo/image/upload/sample.jpg", "https://res.cloudinary.com/demo/image/upload/woman.jpg"]
             ]
-            guard let invite = ClipGroupEventInvite.fromPartyPayload(payload) else { return false }
+            guard let invite = PartyPassInvite.fromPayload(payload) else { return false }
             tier = invite.tier
             flow = .party(invite)
             return true

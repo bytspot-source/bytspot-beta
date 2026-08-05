@@ -213,61 +213,36 @@ enum BytspotAviationFallbackTests {
     private static func assertHostStudioPartyMappingContract() {
         let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
-        let invite = ClipGroupEventInvite.fromPartyPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
-        precondition(invite?.isHostStudioParty == true, "Party Loop: App Clip must identify Host Studio Party DTOs.")
-        if let invite { precondition(!ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite), "Party Loop: Host Studio Party actions must never call legacy Group Event APIs.") }
+        let invite = PartyPassInvite.fromPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
+        precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
-        precondition(invite?.partyTemplate == .listeningParty, "Party Loop: Host Studio template identity must be decoded from the authoritative DTO.")
-        precondition(invite?.partyTemplateConfig == .listeningParty(format: "listening-session"), "Party Loop: matching Party template configuration must be decoded.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
-        let templateCases: [(String, String, [String: Any])] = [
-            ("comedy-night", "standard", ["kind": "standard"]),
-            ("premiere", "standard", ["kind": "standard"]),
-            ("private-party", "private-party", ["kind": "private-party", "guestPolicy": "named-guests"]),
-            ("fan-meetup", "fan-meetup", ["kind": "fan-meetup", "format": "meet-and-greet"]),
-            ("release-party", "release-party", ["kind": "release-party", "releaseType": "album", "releaseTitle": "After Hours"]),
-            ("pop-up", "pop-up", ["kind": "pop-up", "locationDisclosure": "after-approval"])
-        ]
-        for (templateID, expectedKind, config) in templateCases {
-            var candidate = dto
-            candidate["templateId"] = templateID
-            candidate["templateConfig"] = config
-            let decoded = ClipGroupEventInvite.fromPartyPayload(candidate)
-            precondition(decoded?.partyTemplate?.configurationKind == expectedKind && decoded?.partyTemplateConfig != nil, "Party Loop: every supported Host Studio Party template must decode only with its matching configuration.")
-        }
-        var malformedTemplate = dto
-        malformedTemplate["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "public"]
-        precondition(ClipGroupEventInvite.fromPartyPayload(malformedTemplate)?.partyTemplate == nil, "Party Loop: mismatched template metadata must not select an App Clip layout.")
         var protectedPopUp = dto
         protectedPopUp["templateId"] = "pop-up"
         protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
         protectedPopUp["locationLabel"] = "Secret rooftop"
         protectedPopUp.removeValue(forKey: "locationDisclosure")
-        let protectedInvite = ClipGroupEventInvite.fromPartyPayload(protectedPopUp)
-        precondition(protectedInvite?.locationDisclosure == "after-approval" && protectedInvite?.locationLabel == "Location shared after approval", "Party Loop: missing or malformed Pop-Up disclosure must redact the venue fail-closed.")
+        let protectedInvite = PartyPassInvite.fromPayload(protectedPopUp)
+        precondition(protectedInvite?.locationIsWithheld == true && protectedInvite?.locationLabel == "Location shared after approval", "Party Loop: missing or malformed Party disclosure must redact the venue fail-closed.")
         var whitespaceDisclosure = dto
         whitespaceDisclosure["locationDisclosure"] = " public "
         whitespaceDisclosure["locationLabel"] = "Secret rooftop"
-        let whitespaceInvite = ClipGroupEventInvite.fromPartyPayload(whitespaceDisclosure)
-        precondition(whitespaceInvite?.locationDisclosure == "after-approval" && whitespaceInvite?.locationLabel == "Location shared after approval", "Party Loop: only the exact raw public disclosure may reveal a venue.")
-        var shortRelease = dto
-        shortRelease["templateId"] = "release-party"
-        shortRelease["templateConfig"] = ["kind": "release-party", "releaseType": "album", "releaseTitle": "X"]
-        precondition(ClipGroupEventInvite.fromPartyPayload(shortRelease)?.partyTemplate == nil, "Party Loop: invalid Release Party titles must not select a template layout.")
-        precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")
-        precondition(invite?.partyPassURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
+        let whitespaceInvite = PartyPassInvite.fromPayload(whitespaceDisclosure)
+        precondition(whitespaceInvite?.locationIsWithheld == true && whitespaceInvite?.locationLabel == "Location shared after approval", "Party Loop: only the exact raw public disclosure may reveal a venue.")
+        precondition(invite?.displayPosterURL?.host == "res.cloudinary.com", "Party Loop: Host Studio poster media must map authoritatively.")
+        precondition(invite?.canonicalURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
         precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")
         precondition(URLComponents(url: invite?.handoffURL ?? URL(string: "https://bytspot.app")!, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "handoff", value: "1")) == true, "Party Loop: secure Party handoff marker drifted.")
         var hiddenLocation = dto
         hiddenLocation["locationLabel"] = "Location shared after approval"
         hiddenLocation["locationDisclosure"] = "after-approval"
-        precondition(ClipGroupEventInvite.fromPartyPayload(hiddenLocation)?.locationDisclosure == "after-approval", "Party Loop: public Pop-Up location redaction must survive authoritative Party decoding.")
-        precondition(ClipGroupEventInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
-        precondition(ClipGroupEventInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
+        precondition(PartyPassInvite.fromPayload(hiddenLocation)?.locationIsWithheld == true, "Party Loop: protected Party locations must remain redacted.")
+        precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
+        precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
         let injected = ClipGroupEventInvite.from(pathParts: ["party", "party-1"], queryItems: [URLQueryItem(name: "title", value: "Injected")], tier: .green)
         precondition(injected == nil, "Party Loop: query data must never bypass the authoritative Party fetch.")
         var missingSource = dto

@@ -722,6 +722,9 @@ private struct NativeContextualDestinationView: View {
                         .background(NativePolish.screenBackground.ignoresSafeArea())
                         .navigationBarHidden(true)
                     }
+                } else if case .party(let route) = destination {
+                    NativePartyPassPreview(route: route)
+                        .environmentObject(sessionStore)
                 } else {
                     NativeScreenScroll {
                         NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
@@ -744,6 +747,75 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+/// Read-only continuation for App Clip Party Pass handoffs. Participation is
+/// deliberately absent until a Party-specific server-authorized action exists.
+private struct NativePartyPassPreview: View {
+    enum LoadState {
+        case loading
+        case loaded(NativePartyPassRecord)
+        case unavailable
+    }
+
+    let route: NativePartyPassRoute
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var state: LoadState = .loading
+
+    var body: some View {
+        NativeScreenScroll {
+            switch state {
+            case .loading:
+                NativeHeroCard(title: "Loading Party Pass", eyebrow: "PARTY PASS", subtitle: "Getting this moment directly from Host Studio.")
+                ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity).padding(.vertical, 30)
+            case .unavailable:
+                NativeHeroCard(title: "Party Pass unavailable", eyebrow: "PARTY PASS", subtitle: "This Party could not be verified. Open a current Party Pass and try again.")
+            case .loaded(let party):
+                partyCard(party)
+                NativeHeroCard(title: "Secure continuation", eyebrow: "PARTY PASS", subtitle: "Guest actions remain on the verified Party Pass. This screen never uses legacy group access.")
+            }
+        }
+        .task(id: route.partyID) { await loadParty() }
+        .accessibilityIdentifier("native-party-pass")
+    }
+
+    @ViewBuilder private func partyCard(_ party: NativePartyPassRecord) -> some View {
+        VStack(alignment: .leading, spacing: 15) {
+            if let coverURL = party.coverURL {
+                AsyncImage(url: coverURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+                .frame(height: 185)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            HStack {
+                Text(party.requiredTier.uppercased() + " PARTY PASS").font(.system(size: 10, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.cyan)
+                Spacer()
+                Text(accessLabel(party.accessMode)).font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.emerald)
+            }
+            Text(party.title).nativeTitle(26)
+            if let tagline = party.tagline { Text(tagline).nativeBody(size: 14) }
+            NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
+            NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
+            NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
+            NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private func accessLabel(_ value: String) -> String {
+        value == "paid-ticket" ? "TICKET" : value == "private-approval" ? "APPROVAL" : "RSVP"
+    }
+
+    @MainActor private func loadParty() async {
+        state = .loading
+        let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
+        do { state = .loaded(try await NativePartyPassAPI(client: client).invite(partyID: route.partyID)) }
+        catch { state = .unavailable }
     }
 }
 

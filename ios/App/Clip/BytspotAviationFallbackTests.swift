@@ -221,6 +221,7 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.displayPosterURL?.host == "res.cloudinary.com" && invite?.photoURLs.count == 1, "Party Loop: Host Studio media must map authoritatively.")
         precondition(invite?.partyPassURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
         precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")
+        precondition(URLComponents(url: invite?.handoffURL ?? URL(string: "https://bytspot.app")!, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "handoff", value: "1")) == true, "Party Loop: secure Party handoff marker drifted.")
         var hiddenLocation = dto
         hiddenLocation["locationLabel"] = "Location shared after approval"
         hiddenLocation["locationDisclosure"] = "after-approval"

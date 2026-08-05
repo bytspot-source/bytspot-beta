@@ -80,6 +80,21 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(coordinator.requestedDestination)
     }
 
+    @MainActor
+    func testNativeRoutingPreservesCanonicalPartyPassHandoffs() throws {
+        let coordinator = NativeNavigationCoordinator()
+        let universal = try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1?source=host-studio-party&handoff=1"))
+        XCTAssertTrue(coordinator.handle(url: universal))
+        guard case .party(let universalRoute) = coordinator.requestedDestination else { return XCTFail("Expected Party destination") }
+        XCTAssertEqual(universalRoute.partyID, "party-1")
+
+        let deepLink = try XCTUnwrap(URL(string: "bytspot://party/party-1"))
+        XCTAssertTrue(coordinator.handle(url: deepLink))
+        guard case .party(let deepLinkRoute) = coordinator.requestedDestination else { return XCTFail("Expected Party destination") }
+        XCTAssertEqual(deepLinkRoute.partyID, "party-1")
+        XCTAssertNil(NativePartyPassRoute(url: try XCTUnwrap(URL(string: "https://example.com/party/party-1"))))
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,
@@ -1576,6 +1591,27 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         XCTAssertEqual(paths, [NativeLiveContentV2Contract.partyDraftCreateRoute, NativeLiveContentV2Contract.partyPublishRoute])
         XCTAssertEqual(party.passCode, "LAUGH26")
+    }
+
+    func testNativePartyPassInviteFailsClosedForMissingLocationDisclosure() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        NativePartyURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/trpc/events.invite")
+            let payload: [String: Any] = ["result": ["data": ["json": [
+                "id": "party-1", "source": "host-studio-party", "title": "Secret Drop",
+                "scheduledDate": "2026-08-10T20:00:00Z", "locationLabel": "Secret rooftop",
+                "accessMode": "private-approval", "tier": "green"
+            ]]]]
+            return (200, try JSONSerialization.data(withJSONObject: payload))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, urlSession: URLSession(configuration: configuration))
+        let party = try await NativePartyPassAPI(client: client).invite(partyID: "party-1")
+
+        XCTAssertTrue(party.isLocationWithheld)
+        XCTAssertEqual(party.locationLabel, "Location shared after approval")
     }
 
     func testNativeHostStudioFailsClosedWithoutValidPaidTicketOrPartyPass() throws {

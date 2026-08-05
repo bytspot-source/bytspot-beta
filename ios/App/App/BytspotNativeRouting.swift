@@ -4,6 +4,7 @@ import SwiftUI
 enum NativeContextualDestination: Identifiable, Equatable {
     case profile
     case accessWallet
+    case party(NativePartyPassRoute)
     case patch(BytspotPatchRoute)
     case booking(status: String, url: URL)
     case legal(title: String, url: URL)
@@ -12,6 +13,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "profile"
         case .accessWallet: return "access-wallet"
+        case .party(let route): return "party-\(route.partyID)"
         case .patch(let route): return "patch-\(route.patchId)"
         case .booking(let status, let url): return "booking-\(status)-\(url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
@@ -22,6 +24,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Profile"
         case .accessWallet: return "Access Wallet"
+        case .party: return "Party Pass"
         case .patch(let route): return "Patch \(route.patchId)"
         case .booking(let status, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
@@ -32,6 +35,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Account, payments, preferences, and saved access."
         case .accessWallet: return "Tickets, reservations, patch access, and App Clip handoffs live here."
+        case .party: return "Secure Party Pass continuation"
         case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
         case .booking(let status, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
@@ -41,7 +45,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
     var fallbackRoute: BytspotHybridRoute {
         switch self {
         case .profile: return .profile
-        case .accessWallet, .patch, .booking: return .access
+        case .accessWallet, .party, .patch, .booking: return .access
         case .legal: return .home
         }
     }
@@ -50,10 +54,38 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "ACCOUNT"
         case .accessWallet: return "WALLET"
+        case .party: return "PARTY PASS"
         case .patch(let route): return route.tier.eyebrow
         case .booking(let status, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
         }
+    }
+}
+
+/// Canonical native Party Pass URL. The App accepts only Bytspot's custom
+/// scheme or production universal-link host; legacy `/group` is never a Party.
+struct NativePartyPassRoute: Equatable {
+    let partyID: String
+    let url: URL
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = url.scheme?.lowercased()
+        let isCustomScheme = scheme == "bytspot"
+        let isUniversalLink = scheme == "https" && components.host?.lowercased() == "bytspot.app"
+        guard isCustomScheme || isUniversalLink else { return nil }
+
+        let pathComponents: [Substring]
+        if isCustomScheme, let host = components.host, !host.isEmpty {
+            pathComponents = ([Substring(host)] + components.path.split(separator: "/"))
+        } else {
+            pathComponents = components.path.split(separator: "/")
+        }
+        guard pathComponents.count == 2, pathComponents[0].lowercased() == "party" else { return nil }
+        let partyID = String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !partyID.isEmpty, partyID.count <= 200, !partyID.contains("/") else { return nil }
+        self.partyID = partyID
+        self.url = url
     }
 }
 
@@ -97,6 +129,11 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
+        if let partyRoute = NativePartyPassRoute(url: url) {
+            requestedTab = .home
+            requestedDestination = .party(partyRoute)
+            return true
+        }
         if path.hasPrefix("booking/") {
             requestedTab = .home
             let status = path.split(separator: "/").dropFirst().first.map(String.init) ?? "update"

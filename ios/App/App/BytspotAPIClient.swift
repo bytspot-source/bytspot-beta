@@ -478,6 +478,65 @@ struct NativePartyStudioAPI {
     }
 }
 
+struct NativePartyPassRecord: Equatable {
+    let id: String
+    let title: String
+    let tagline: String?
+    let hostName: String
+    let scheduledDate: String
+    let locationLabel: String
+    let locationDisclosure: String
+    let accessMode: String
+    let capacity: Int
+    let requiredTier: String
+    let coverURL: URL?
+
+    var isLocationWithheld: Bool { locationDisclosure != "public" }
+}
+
+struct NativePartyPassAPI {
+    let client: BytspotAPIClient
+
+    func invite(partyID: String) async throws -> NativePartyPassRecord {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/events.invite", input: ["partyId": partyID])
+        guard let record = Self.record(from: payload), record.id == partyID else { throw NativePartyStudioError.missingPartyPass }
+        return record
+    }
+
+    private static func record(from value: Any) -> NativePartyPassRecord? {
+        let row = objectRow(value)
+        guard clean(row["source"])?.lowercased() == "host-studio-party",
+              let id = clean(row["id"]),
+              let title = clean(row["title"]),
+              let scheduledDate = clean(row["scheduledDate"]),
+              let locationLabel = clean(row["locationLabel"]),
+              let accessMode = clean(row["accessMode"]),
+              let requiredTier = clean(row["tier"]) else { return nil }
+        let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
+        let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
+        let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
+    }
+
+    private static func objectRow(_ value: Any) -> [String: Any] {
+        guard let row = value as? [String: Any] else { return [:] }
+        if let data = row["data"] { return objectRow(data) }
+        return row
+    }
+
+    private static func clean(_ value: Any?) -> String? {
+        guard let text = value as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func int(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return clean(value).flatMap(Int.init)
+    }
+}
+
 struct NativeCheckoutSession: Equatable {
     var candidates: [String] = []
     var message: String?

@@ -220,6 +220,7 @@ struct ClipInviteView: View {
     @State private var partyPass: ClipPartyPassState?
     @State private var isResolvingPartyPass = false
     @State private var showTicketTiers = false
+    @State private var resolverGeneration = 0
     @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 31
     @ScaledMetric(relativeTo: .title2) private var sectionTitleFontSize: CGFloat = 28
     @ScaledMetric(relativeTo: .headline) private var bodyFontSize: CGFloat = 16
@@ -1119,12 +1120,19 @@ struct ClipInviteView: View {
     @MainActor
     private func refreshPartyPass() async {
         guard invite.isHostStudioParty else { return }
+        resolverGeneration &+= 1
+        let generation = resolverGeneration
         isResolvingPartyPass = true
-        defer { isResolvingPartyPass = false }
+        defer {
+            if resolverGeneration == generation { isResolvingPartyPass = false }
+        }
         do {
-            partyPass = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            let resolved = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            guard resolverGeneration == generation else { return }
+            partyPass = resolved
             statusMessage = partyStatusMessage
         } catch {
+            guard resolverGeneration == generation else { return }
             partyPass = nil
             statusMessage = "We couldn't verify this Party Pass. Try again shortly."
         }
@@ -1331,6 +1339,8 @@ private struct ClipPartyTicketTierPicker: View {
                                 .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.20)))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(tier.name), \(price(tier.priceCents)), \(tier.quantity) available, \(tier.requiredMembershipTier.capitalized) access")
                         }
                     }
                     .padding(20)

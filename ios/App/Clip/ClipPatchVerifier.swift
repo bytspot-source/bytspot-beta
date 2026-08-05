@@ -772,6 +772,7 @@ struct ClipPatchVerifier {
         let payload = try await getTRPC("events.pass.resolve", input: ["partyId": partyID])
         guard let root = payload as? [String: Any],
               let resolvedPartyID = Self.string(root["partyId"]),
+              resolvedPartyID == partyID,
               let rawAction = Self.string(root["action"]),
               let action = ClipPartyPassAction(rawValue: rawAction) else { throw VerifyError.decode }
         let guest = root["guest"] as? [String: Any]

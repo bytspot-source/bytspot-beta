@@ -1815,7 +1815,26 @@ struct NativeEventSummary: Identifiable, Equatable {
     let price: String
     let emoji: String
     let imageUrl: URL?
-    var category: String = "event"
+    let category: String
+    /// Optional verified destination data. Event labels alone are never used to
+    /// infer a Map route because a venue name can be ambiguous.
+    let address: String?
+    let latitude: Double?
+    let longitude: Double?
+
+    init(id: String, title: String, venue: String, time: String, price: String, emoji: String, imageUrl: URL?, category: String = "event", address: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
+        self.id = id
+        self.title = title
+        self.venue = venue
+        self.time = time
+        self.price = price
+        self.emoji = emoji
+        self.imageUrl = imageUrl
+        self.category = category
+        self.address = address
+        self.latitude = latitude
+        self.longitude = longitude
+    }
 }
 
 struct NativeTabContentSnapshot: Equatable {
@@ -2290,13 +2309,13 @@ final class NativeTabContentStore: ObservableObject {
 
     private static func eventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
         events.prefix(20).map { event in
-            NativeDiscoverSummary(id: "event-\(event.id)", type: "entertainment", title: event.title, subtitle: event.venue, distance: event.time, rating: "Live", icon: "ticket.fill", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Events", event.category.capitalized, event.venue, event.emoji], vibeScore: 8, availability: event.time, membershipRequired: false)
+            NativeDiscoverSummary(id: "event-\(event.id)", type: "entertainment", title: event.title, subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "ticket.fill", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Events", event.category.capitalized, event.venue, event.emoji], vibeScore: 8, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
         }
     }
 
     private static func nightlifeEventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
         events.prefix(20).filter(isNightlifeAdjacentEvent).map { event in
-            NativeDiscoverSummary(id: "nightlife-event-\(event.id)", type: "nightlife", title: "Night out: \(event.title)", subtitle: event.venue, distance: event.time, rating: "Live", icon: "music.note", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Nightlife", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Live music", event.category.capitalized, event.venue], vibeScore: 9, availability: event.time, membershipRequired: false)
+            NativeDiscoverSummary(id: "nightlife-event-\(event.id)", type: "nightlife", title: "Night out: \(event.title)", subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "music.note", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Nightlife", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Live music", event.category.capitalized, event.venue], vibeScore: 9, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
         }
     }
 
@@ -2504,15 +2523,19 @@ final class NativeTabContentStore: ObservableObject {
     private static func event(from pair: EnumeratedSequence<[Any]>.Element) -> NativeEventSummary? {
         let (index, value) = pair
         guard let item = value as? [String: Any] else { return nil }
+        let venue = string(item, ["venue", "venueName", "location"]) ?? "Midtown"
         return NativeEventSummary(
             id: string(item, ["id"]) ?? "event-\(index)",
             title: string(item, ["title", "name"]) ?? "Tonight's Event",
-            venue: string(item, ["venue", "venueName", "location"]) ?? "Midtown",
+            venue: venue,
             time: string(item, ["time", "startsAt"]) ?? "Tonight",
             price: string(item, ["price", "priceLabel"]) ?? "Free",
             emoji: string(item, ["emoji"]) ?? "🎭",
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
-            category: string(item, ["category", "type", "classification", "genre"]) ?? "event"
+            category: string(item, ["category", "type", "classification", "genre"]) ?? "event",
+            address: string(item, ["address", "venueAddress", "locationAddress", "formattedAddress", "venue_address"]),
+            latitude: double(item, ["lat", "latitude"]),
+            longitude: double(item, ["lng", "longitude"])
         )
     }
 
@@ -2756,8 +2779,8 @@ extension NativeTabContentSnapshot {
     ]
 
     static let fallbackEvents = [
-        NativeEventSummary(id: "fifa-gh", title: "GH Akwaaba FIFA Matchday", venue: "Mercedes-Benz Stadium", time: "Tonight", price: "Platinum", emoji: "🇬🇭", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=900&q=80")),
-        NativeEventSummary(id: "midtown-live", title: "Midtown Live Lounge", venue: "Colony Square", time: "8:00 PM", price: "Free", emoji: "🎶", imageUrl: URL(string: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=900&q=80"))
+        NativeEventSummary(id: "fifa-gh", title: "GH Akwaaba FIFA Matchday", venue: "Mercedes-Benz Stadium", time: "Tonight", price: "Platinum", emoji: "🇬🇭", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=900&q=80"), address: "1 AMB Dr NW, Atlanta, GA 30313", latitude: 33.7553, longitude: -84.4006),
+        NativeEventSummary(id: "midtown-live", title: "Midtown Live Lounge", venue: "Colony Square", time: "8:00 PM", price: "Free", emoji: "🎶", imageUrl: URL(string: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=900&q=80"), address: "1197 Peachtree St NE, Atlanta, GA 30361", latitude: 33.7851, longitude: -84.3834)
     ]
 
     static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards + specialDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)

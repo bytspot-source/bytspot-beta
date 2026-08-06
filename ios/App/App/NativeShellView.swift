@@ -90,7 +90,11 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     @Published private(set) var authorizationState: AuthorizationState = .notDetermined
     @Published private(set) var lastLocation: CLLocation?
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var locality: String?
     private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
+    private var localityRequestGeneration = 0
+    private var localityCoordinate: CLLocation?
 
     override init() {
         super.init()
@@ -144,11 +148,41 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
-        Task { @MainActor in self.lastLocation = latest; self.lastErrorMessage = nil }
+        Task { @MainActor in self.receive(latest) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in self.lastErrorMessage = error.localizedDescription }
+    }
+
+    private func receive(_ location: CLLocation) {
+        lastLocation = location
+        lastErrorMessage = nil
+        guard location.horizontalAccuracy >= 0 else { return }
+        if let localityCoordinate, localityCoordinate.distance(from: location) < 1_000 { return }
+        localityCoordinate = location
+        localityRequestGeneration += 1
+        let generation = localityRequestGeneration
+        geocoder.cancelGeocode()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let placemark = try await self.geocoder.reverseGeocodeLocation(location).first
+                guard generation == self.localityRequestGeneration else { return }
+                self.locality = Self.displayLocality(from: placemark)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard generation == self.localityRequestGeneration else { return }
+                self.locality = nil
+            }
+        }
+    }
+
+    private static func displayLocality(from placemark: CLPlacemark?) -> String? {
+        let value = placemark?.locality ?? placemark?.subAdministrativeArea ?? placemark?.administrativeArea
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func updateAuthorization(_ status: CLAuthorizationStatus) {
@@ -230,6 +264,7 @@ struct BytspotNativeShellView: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
+    @StateObject private var directMapRouteStore = NativeDirectMapRouteStore()
     /// Canonical Green/Platinum/Black membership resolved by the backend-backed store.
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -292,10 +327,11 @@ struct BytspotNativeShellView: View {
                     case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
+                            .environmentObject(directMapRouteStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .profile:
@@ -592,7 +628,7 @@ struct BytspotNativeShellView: View {
     }
 
     private var hasExplicitMapHandoff: Bool {
-        NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus
+        directMapRouteStore.hasPendingRoute || NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus
     }
 
     private func openDiscoverFilter(_ filter: String) {
@@ -4454,7 +4490,10 @@ enum NativeHomeRegionPresentation {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
 
-    static func cityBadge(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "ATL" : "HERE" }
+    static func cityBadge(for location: NativeLocationCoordinate, locality: String? = nil) -> String {
+        let resolved = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return resolved.isEmpty ? "Nearby" : resolved
+    }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
     static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
@@ -4785,7 +4824,7 @@ private struct NativeHomeDashboardView: View {
         let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
         let forYou = snapshot.discoverCards.count
         let liveVenues = snapshot.venues.filter { $0.crowd != nil }.count
-        let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate)
+        let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate, locality: locationStore.locality)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
@@ -4838,6 +4877,7 @@ private struct NativeHomeDashboardView: View {
                             .font(.system(size: 12, weight: .black, design: .rounded))
                             .foregroundColor(NativeTheme.textPrimary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.65)
                     }
                     .frame(width: 72, height: 40)
                     .background(NativeTheme.cyan.opacity(0.16))
@@ -7043,6 +7083,29 @@ enum NativeMapFocusHandoff {
     }
 }
 
+/// A direct Discover-card Route tap is navigation state, not durable content.
+/// Keep it in memory so Map can consume it during the same tab transition.
+@MainActor
+final class NativeDirectMapRouteStore: ObservableObject {
+    struct Route: Equatable {
+        let id = UUID()
+        let venue: NativeVenueSummary
+    }
+
+    @Published private(set) var pendingRoute: Route?
+
+    var hasPendingRoute: Bool { pendingRoute != nil }
+
+    func stageRoute(to venue: NativeVenueSummary) {
+        pendingRoute = venue.hasKnownCoordinates ? Route(venue: venue) : nil
+    }
+
+    func consumeRoute() -> Route? {
+        defer { pendingRoute = nil }
+        return pendingRoute
+    }
+}
+
 private struct NativeParkingBookingSheet: View {
     let venue: NativeVenueSummary
     var onOpenAccess: (() -> Void)? = nil
@@ -8943,6 +9006,7 @@ enum NativeDiscoverRanking {
 private struct NativeDiscoverView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
+    let openDirectRoute: (NativeVenueSummary) -> Void
     let openNativeProfile: () -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: () -> Void
@@ -9330,8 +9394,7 @@ private struct NativeDiscoverView: View {
 
     private func openRoute(to venue: NativeVenueSummary) {
         nativeImpactLight()
-        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route", locationScopeOrigin: locationStore.coordinate)
-        openNativeTab(.map)
+        openDirectRoute(venue)
     }
 
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
@@ -11638,6 +11701,7 @@ private struct NativeMapExploreView: View {
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var pairingStore: NativePatchPairingStore
+    @EnvironmentObject private var directMapRouteStore: NativeDirectMapRouteStore
     @EnvironmentObject private var locationStore: NativeLocationStore
     @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var onboardingMapDestination = ""
     @AppStorage(NativeOnboardingMapHandoff.modeKey) private var onboardingMapMode = ""
@@ -12022,6 +12086,7 @@ private struct NativeMapExploreView: View {
         .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusRequestID) { _ in applyNativeMapFocusHandoffIfRequested() }
+        .onChange(of: directMapRouteStore.pendingRoute?.id) { _ in _ = applyDirectMapRouteIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onDisappear { headingProvider.stopLocating() }
@@ -12042,8 +12107,10 @@ private struct NativeMapExploreView: View {
         autoOpenTrafficIntelIfRequested()
         applySelectedPinPreviewIfRequested()
         if !consumedPlainOpen {
-            applyOnboardingMapHandoffIfRequested()
-            applyNativeMapFocusHandoffIfRequested()
+            if !applyDirectMapRouteIfRequested() {
+                applyOnboardingMapHandoffIfRequested()
+                applyNativeMapFocusHandoffIfRequested()
+            }
         }
         resetPlainMapLaunchIfNeeded()
         autoOpenServiceHereIfRequested()
@@ -12149,6 +12216,24 @@ private struct NativeMapExploreView: View {
         }
     }
 
+    @discardableResult
+    private func applyDirectMapRouteIfRequested() -> Bool {
+        guard let route = directMapRouteStore.consumeRoute() else { return false }
+        let focused = NativeMapPin(venue: route.venue)
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
+        focusedHandoffPin = focused
+        focusedHandoffOrigin = nil
+        focusedHandoffIsLocationScoped = false
+        selectedMode = "Route"
+        routeFocusedPinID = focused.id
+        activeRoutePinID = focused.id
+        selectedPin = focused
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+        showFunctionSheet = false
+        return true
+    }
+
     private func applyNativeMapFocusHandoffIfRequested() {
         guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
         let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12182,25 +12267,26 @@ private struct NativeMapExploreView: View {
             kind: kind,
             crowdLevel: kind == .parking ? 1 : nil
         )
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            guard !requestID.isEmpty, NativeMapFocusHandoff.requestID() == requestID else { return }
-            guard !isLocationScoped || NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin, current: locationStore.coordinate) else {
-                NativeMapFocusHandoff.clear()
-                return
-            }
-            focusedHandoffPin = focused
-            focusedHandoffOrigin = locationScopeOrigin
-            focusedHandoffIsLocationScoped = isLocationScoped
-            let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
-            selectedMode = resolvedMode
-            routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
-            activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
-            if focused.kind == .parking { showParking = true }
-            selectedPin = focused
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
-            showFunctionSheet = false
+        // Apply a valid user-selected destination immediately. Delaying this
+        // state update lets Map/location refreshes supersede the handoff and
+        // leaves the user on the blank default map.
+        guard !requestID.isEmpty, NativeMapFocusHandoff.requestID() == requestID else { return }
+        guard !isLocationScoped || NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin, current: locationStore.coordinate) else {
             NativeMapFocusHandoff.clear()
+            return
         }
+        focusedHandoffPin = focused
+        focusedHandoffOrigin = locationScopeOrigin
+        focusedHandoffIsLocationScoped = isLocationScoped
+        let resolvedMode = mapFocusMode.isEmpty ? (focused.kind == .parking ? "Smart Parking" : "Route") : mapFocusMode
+        selectedMode = resolvedMode
+        routeFocusedPinID = resolvedMode == "Route" ? focused.id : nil
+        activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
+        if focused.kind == .parking { showParking = true }
+        selectedPin = focused
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+        showFunctionSheet = false
+        NativeMapFocusHandoff.clear()
     }
 
     private func rejectPendingNativeMapFocusHandoff() {

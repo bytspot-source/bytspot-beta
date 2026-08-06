@@ -682,12 +682,14 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         XCTAssertEqual(venues.map(\.id), [local.id])
         XCTAssertEqual(cards.map(\.id), [localPlaceCard.id])
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "HERE")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "Nearby")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Seattle"), "Seattle")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "  Decatur  "), "Decatur")
         XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "HERE")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "Nearby")
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown), "ATL")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown, locality: "Atlanta"), "Atlanta")
     }
 
     @MainActor
@@ -1092,8 +1094,28 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeMapFocusHandoff.isLocationScoped(in: defaults))
         XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.sourceKey), NativeMapFocusHandoff.explicitSource)
         XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
+
+        // A Discover Route tap is direct user intent, so it remains usable
+        // while the Map screen is mounting rather than being treated as a
+        // location-scoped regional recommendation.
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route", defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.sourceKey), NativeMapFocusHandoff.explicitSource)
+        XCTAssertFalse(NativeMapFocusHandoff.isLocationScoped(in: defaults))
+        XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
         NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: .midtown, defaults: defaults)
         XCTAssertFalse(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+    }
+
+    @MainActor
+    func testDiscoverRouteHandoffKeepsTheExplicitVenueUntilMapConsumesIt() throws {
+        let venue = NativeVenueSummary(id: "route-cafe", name: "Route Cafe", category: "coffee", address: "1 Route St", distance: "0.3 mi", rating: 4.8, latitude: 33.7870, longitude: -84.3830, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let handoff = NativeDirectMapRouteStore()
+
+        handoff.stageRoute(to: venue)
+
+        XCTAssertTrue(handoff.hasPendingRoute)
+        XCTAssertEqual(try XCTUnwrap(handoff.consumeRoute()).venue.id, venue.id)
+        XCTAssertFalse(handoff.hasPendingRoute)
     }
 
     func testLegacyMapFocusHandoffWithoutPositiveProvenanceFailsClosed() {

@@ -2523,7 +2523,37 @@ final class NativeTabContentStore: ObservableObject {
     private static func event(from pair: EnumeratedSequence<[Any]>.Element) -> NativeEventSummary? {
         let (index, value) = pair
         guard let item = value as? [String: Any] else { return nil }
-        let venue = string(item, ["venue", "venueName", "location"]) ?? "Midtown"
+        return event(from: item, index: index)
+    }
+
+    static func event(from item: [String: Any], index: Int = 0) -> NativeEventSummary? {
+        let embedded = item["_embedded"] as? [String: Any]
+        let venueRecord = (embedded?["venues"] as? [Any])?.first as? [String: Any]
+        let venueLocation = venueRecord?["location"] as? [String: Any]
+        let venueAddress = venueRecord?["address"] as? [String: Any]
+        let venueCity = venueRecord?["city"] as? [String: Any]
+        let venueState = venueRecord?["state"] as? [String: Any]
+        let coordinates = coordinatePair(
+            latitude: double(item, ["lat", "latitude"]),
+            longitude: double(item, ["lng", "longitude"])
+        ) ?? coordinatePair(
+            latitude: double(venueLocation, ["lat", "latitude"]),
+            longitude: double(venueLocation, ["lng", "longitude"])
+        ) ?? coordinatePair(
+            latitude: double(venueRecord, ["lat", "latitude"]),
+            longitude: double(venueRecord, ["lng", "longitude"])
+        )
+        let venue = string(item, ["venue", "venueName", "location"])
+            ?? string(venueRecord, ["name"])
+            ?? "Midtown"
+        let address = string(item, ["address", "venueAddress", "locationAddress", "formattedAddress", "venue_address"])
+            ?? joinedAddress([
+                string(venueRecord, ["address", "formattedAddress"]),
+                string(venueAddress, ["line1", "line2"]),
+                string(venueCity, ["name"]),
+                string(venueState, ["stateCode", "name"]),
+                string(venueRecord, ["postalCode", "zip"])
+            ])
         return NativeEventSummary(
             id: string(item, ["id"]) ?? "event-\(index)",
             title: string(item, ["title", "name"]) ?? "Tonight's Event",
@@ -2533,10 +2563,24 @@ final class NativeTabContentStore: ObservableObject {
             emoji: string(item, ["emoji"]) ?? "🎭",
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
             category: string(item, ["category", "type", "classification", "genre"]) ?? "event",
-            address: string(item, ["address", "venueAddress", "locationAddress", "formattedAddress", "venue_address"]),
-            latitude: double(item, ["lat", "latitude"]),
-            longitude: double(item, ["lng", "longitude"])
+            address: address,
+            latitude: coordinates?.latitude,
+            longitude: coordinates?.longitude
         )
+    }
+
+    private static func coordinatePair(latitude: Double?, longitude: Double?) -> (latitude: Double, longitude: Double)? {
+        guard let latitude, let longitude,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
+        return (latitude, longitude)
+    }
+
+    private static func joinedAddress(_ parts: [String?]) -> String? {
+        let resolved = parts.compactMap { value -> String? in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        return resolved.isEmpty ? nil : resolved.joined(separator: ", ")
     }
 
     private static func mergeCanonicalDiscoverCards(into liveServices: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {

@@ -22,7 +22,8 @@ test('normalizeEventRow accepts raw Ticketmaster Discovery API shape', () => {
     classifications: [{ segment: { name: 'Sports' }, genre: { name: 'Soccer' } }],
     priceRanges: [{ min: 50, max: 120, currency: 'USD' }],
     images: [{ url: 'https://images.example.com/match.jpg' }],
-    _embedded: { venues: [{ name: 'Mercedes-Benz Stadium' }] },
+    latitude: 33.7866,
+    _embedded: { venues: [{ name: 'Mercedes-Benz Stadium', address: { line1: '1 AMB Dr NW' }, city: { name: 'Atlanta' }, state: { stateCode: 'GA' }, postalCode: '30313', location: { latitude: '33.7553', longitude: '-84.4006' } }] },
   });
 
   assert.equal(event?.id, 'tm-ghana-match');
@@ -31,13 +32,19 @@ test('normalizeEventRow accepts raw Ticketmaster Discovery API shape', () => {
   assert.equal(event?.time, '8:00 PM');
   assert.equal(event?.category, 'sports');
   assert.equal(event?.price, '$50');
+  assert.equal(event?.address, '1 AMB Dr NW, Atlanta, GA, 30313');
+  assert.equal(event?.latitude, 33.7553);
+  assert.equal(event?.longitude, -84.4006);
 });
 
 test('normalizeEventsResponse accepts backend normalized and raw embedded events', () => {
-  const normalized = normalizeEventsResponse({ events: [{ id: 'evt-1', title: 'Jazz Night', venue: 'City Winery', category: 'concert', price: '$25', image: 'jazz.jpg' }] });
+  const normalized = normalizeEventsResponse({ events: [{ id: 'evt-1', title: 'Jazz Night', venue: 'City Winery', category: 'concert', price: '$25', image: 'jazz.jpg', address: '650 North Ave NE, Atlanta, GA', latitude: 33.771, longitude: -84.365 }] });
   const raw = normalizeEventsResponse({ _embedded: { events: [{ id: 'tm-1', name: 'Comedy Show', classifications: [{ segment: { name: 'Comedy' } }] }] } });
 
   assert.equal(normalized[0].title, 'Jazz Night');
+  assert.equal(normalized[0].address, '650 North Ave NE, Atlanta, GA');
+  assert.equal(normalized[0].latitude, 33.771);
+  assert.equal(normalized[0].longitude, -84.365);
   assert.equal(raw[0].category, 'comedy');
 });
 

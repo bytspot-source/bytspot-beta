@@ -11575,8 +11575,13 @@ enum NativeDiscoverRouteResolver {
     }
 
     static func routeVenue(cardID: String, title: String, subtitle: String, type: String, distance: String, imageURL: URL?, latitude: Double?, longitude: Double?, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
+        let hasVerifiedCardCoordinate = latitude.flatMap { latitude in longitude.map { NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: $0) } } ?? false
+        // An event title is marketing copy, not a destination identifier. Events
+        // must carry their own verified venue coordinates and never fall back to
+        // a same-named venue in the local inventory.
+        guard !isEventCard(cardID) || hasVerifiedCardCoordinate else { return nil }
         let matchedVenue = matchingVenue(cardID: cardID, title: title, venues: venues)
-        if let latitude, let longitude, NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) {
+        if let latitude, let longitude, hasVerifiedCardCoordinate {
             if let matchedVenue, matchedVenue.hasKnownCoordinates,
                NativeMapCoordinateTrustPolicy.agrees(latitude: latitude, longitude: longitude, candidateLatitude: matchedVenue.latitude, candidateLongitude: matchedVenue.longitude) {
                 return matchedVenue
@@ -11585,6 +11590,11 @@ enum NativeDiscoverRouteResolver {
         }
         guard let matchedVenue, matchedVenue.hasKnownCoordinates else { return nil }
         return matchedVenue
+    }
+
+    private static func isEventCard(_ cardID: String) -> Bool {
+        let normalized = normalizedID(cardID)
+        return normalized.hasPrefix("event-") || normalized.hasPrefix("nightlife-event-")
     }
 }
 

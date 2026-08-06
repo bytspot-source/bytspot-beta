@@ -987,6 +987,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.address, event.address)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.latitude, event.latitude)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.longitude, event.longitude)
+        let unresolvedEventWithVenueCollision = NativeDiscoverSummary(id: "event-route-deck", type: "entertainment", title: venue.name, subtitle: venue.address, distance: "Tonight", rating: "Live", icon: "ticket.fill", verified: true, entryType: "free", cta: "View Event", imageUrl: nil, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "Tonight", features: [], vibeScore: 8, availability: "Tonight", membershipRequired: false)
+        XCTAssertNil(NativeDiscoverRouteResolver.routeVenue(for: unresolvedEventWithVenueCollision, venues: [venue]))
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: providerCard, venues: [])?.id, providerCard.id)
         XCTAssertEqual(localProviderCards.first?.latitude, providerCard.latitude)
         XCTAssertEqual(localProviderCards.first?.longitude, providerCard.longitude)
@@ -1015,6 +1017,27 @@ final class BytspotTrustEngineTests: XCTestCase {
                 XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [live]), .replaceExisting(indices: [0]))
             }
         }
+    }
+
+    @MainActor
+    func testEventDecoderPreservesVerifiedNormalizedAndTicketmasterVenueLocations() throws {
+        let normalized = try XCTUnwrap(NativeTabContentStore.event(from: [
+            "id": "normalized-event", "title": "Normalized Event", "venue": "Venue", "address": "10 Event Way, Atlanta, GA", "lat": 33.7866, "lng": -84.3833
+        ]))
+        let ticketmaster = try XCTUnwrap(NativeTabContentStore.event(from: [
+            "id": "ticketmaster-event", "name": "Ticketmaster Event", "lat": 33.7866,
+            "_embedded": ["venues": [[
+                "name": "Venue", "address": ["line1": "1 AMB Dr NW"], "city": ["name": "Atlanta"], "state": ["stateCode": "GA"], "postalCode": "30313",
+                "location": ["latitude": "33.7553", "longitude": "-84.4006"]
+            ]]]
+        ]))
+
+        XCTAssertEqual(normalized.address, "10 Event Way, Atlanta, GA")
+        XCTAssertEqual(normalized.latitude, 33.7866)
+        XCTAssertEqual(normalized.longitude, -84.3833)
+        XCTAssertEqual(ticketmaster.address, "1 AMB Dr NW, Atlanta, GA, 30313")
+        XCTAssertEqual(ticketmaster.latitude, 33.7553)
+        XCTAssertEqual(ticketmaster.longitude, -84.4006)
     }
 
     func testDiscoverRouteResolverPrefersExactAndLongestCompanionVenueIDs() {

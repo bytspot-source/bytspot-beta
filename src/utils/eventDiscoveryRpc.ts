@@ -13,6 +13,9 @@ export interface AppEvent {
   price: string;
   image: string;
   url?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface EventsListRpcInput {
@@ -53,6 +56,17 @@ function stringFrom(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function coordinateFrom(value: unknown, minimum: number, maximum: number): number | null {
+  const coordinate = Number(value);
+  return Number.isFinite(coordinate) && coordinate >= minimum && coordinate <= maximum ? coordinate : null;
+}
+
+function coordinatePair(latitudeValue: unknown, longitudeValue: unknown): { latitude: number; longitude: number } | null {
+  const latitude = coordinateFrom(latitudeValue, -90, 90);
+  const longitude = coordinateFrom(longitudeValue, -180, 180);
+  return latitude === null || longitude === null || (latitude === 0 && longitude === 0) ? null : { latitude, longitude };
+}
+
 function categoryFrom(value: unknown): EventCategory {
   const raw = stringFrom(value)?.toLowerCase() ?? '';
   if (/sport|soccer|football|basketball|baseball|hockey/.test(raw)) return 'sports';
@@ -90,11 +104,33 @@ function priceLabel(raw: Record<string, unknown>): string {
   return 'Tickets';
 }
 
-function ticketmasterVenue(raw: Record<string, unknown>): string | null {
+function ticketmasterVenueRecord(raw: Record<string, unknown>): Record<string, unknown> | null {
   const embedded = isRecord(raw._embedded) ? raw._embedded : null;
   const venues = Array.isArray(embedded?.venues) ? embedded?.venues : [];
-  const first = venues.find(isRecord);
-  return stringFrom(first?.name);
+  return venues.find(isRecord) ?? null;
+}
+
+function ticketmasterVenue(raw: Record<string, unknown>): string | null {
+  return stringFrom(ticketmasterVenueRecord(raw)?.name);
+}
+
+function ticketmasterAddress(raw: Record<string, unknown>): string | null {
+  const venue = ticketmasterVenueRecord(raw);
+  const address = isRecord(venue?.address) ? venue.address : null;
+  const city = isRecord(venue?.city) ? venue.city : null;
+  const state = isRecord(venue?.state) ? venue.state : null;
+  const parts = [stringFrom(venue?.address), stringFrom(address?.line1), stringFrom(address?.line2), stringFrom(city?.name), stringFrom(state?.stateCode ?? state?.name), stringFrom(venue?.postalCode)]
+    .filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+function ticketmasterCoordinates(raw: Record<string, unknown>): { latitude: number; longitude: number } | null {
+  const venue = ticketmasterVenueRecord(raw);
+  const location = isRecord(venue?.location) ? venue.location : null;
+  return coordinatePair(
+    location?.latitude ?? venue?.latitude ?? venue?.lat,
+    location?.longitude ?? location?.lng ?? venue?.longitude ?? venue?.lng,
+  );
 }
 
 function ticketmasterCategory(raw: Record<string, unknown>): EventCategory {
@@ -115,6 +151,8 @@ export function normalizeEventRow(value: unknown): AppEvent | null {
   const title = stringFrom(value.title ?? value.name);
   const id = stringFrom(value.id);
   if (!title || !id) return null;
+  const coordinates = coordinatePair(value.latitude ?? value.lat, value.longitude ?? value.lng) ?? ticketmasterCoordinates(value);
+  const address = stringFrom(value.address ?? value.venueAddress ?? value.locationAddress ?? value.formattedAddress) ?? ticketmasterAddress(value);
   return {
     id,
     title,
@@ -126,6 +164,8 @@ export function normalizeEventRow(value: unknown): AppEvent | null {
     price: priceLabel(value),
     image: stringFrom(value.image) ?? stringFrom(firstImage?.url) ?? DEFAULT_EVENT_IMAGE,
     ...(stringFrom(value.url) ? { url: stringFrom(value.url)! } : {}),
+    ...(address ? { address } : {}),
+    ...(coordinates ? coordinates : {}),
   };
 }
 

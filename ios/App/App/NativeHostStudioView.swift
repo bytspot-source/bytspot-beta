@@ -18,6 +18,7 @@ struct NativeHostStudioView: View {
     @State private var venueName = ""
     @State private var capacity = "80"
     @State private var accessMode: NativePartyAccessMode?
+    @State private var hasExplicitDoorAdmissionSelection = false
     @State private var requiredTier: BytspotTier = .green
     @State private var admissionPrice = "25"
     @State private var selectedCircleIDs: Set<String> = []
@@ -210,8 +211,8 @@ struct NativeHostStudioView: View {
                 templatePicker("LOCATION RELEASE", selection: $popUpLocationDisclosure, options: NativePopUpLocationDisclosure.allCases)
                 Text(popUpLocationDisclosure == .afterApproval ? "The public Party Pass will hide the venue. Guest-specific reveal requires a later authorized pass action." : "The venue is visible on the public Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
             }.padding(14).studioSurface()
-            .onChange(of: popUpLocationDisclosure) { disclosure in
-                if disclosure == .afterApproval { accessMode = .privateApproval }
+            .onChange(of: popUpLocationDisclosure) { _ in
+                clearDoorAdmissionSelection()
             }
         case .privateParty:
             VStack(alignment: .leading, spacing: 7) {
@@ -345,7 +346,7 @@ struct NativeHostStudioView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeading("SET THE DOOR", "Who gets in?", "Choose open entry, RSVP, cash at the door, online tickets, or host approval.")
             ForEach(templateConfiguration.allowedAccessModes) { mode in
-                Button(action: { accessMode = mode }) {
+                Button(action: { accessMode = mode; hasExplicitDoorAdmissionSelection = true }) {
                     HStack(spacing: 12) { Image(systemName: accessIcon(mode)).foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
                 }.buttonStyle(.plain)
             }
@@ -388,7 +389,12 @@ struct NativeHostStudioView: View {
 
     private func selectTemplate(_ id: NativePartyTemplateID) {
         templateID = id
-        if let accessMode, !templateConfiguration.allowedAccessModes.contains(accessMode) { self.accessMode = nil }
+        clearDoorAdmissionSelection()
+    }
+
+    private func clearDoorAdmissionSelection() {
+        accessMode = nil
+        hasExplicitDoorAdmissionSelection = false
     }
 
     private var navigationButtons: some View {
@@ -404,7 +410,7 @@ struct NativeHostStudioView: View {
         message = ""
         if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { message = "Add a title and venue before setting the door."; return }
         if step == .door {
-            guard let draft else { message = NativePartyAccessMode.selectionMessage(accessMode) ?? "Choose how guests enter before publishing."; return }
+            guard let draft, NativePartyAccessMode.selectionMessage(accessMode, explicitlySelected: hasExplicitDoorAdmissionSelection) == nil else { message = NativePartyAccessMode.selectionMessage(accessMode, explicitlySelected: hasExplicitDoorAdmissionSelection) ?? "Choose how guests enter before publishing."; return }
             if let validationMessage = draft.validationMessage { message = validationMessage; return }
         }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
@@ -415,7 +421,7 @@ struct NativeHostStudioView: View {
 
     @MainActor private func publish() async {
         guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { isPublishing = false; message = "Sign in before publishing this moment."; return }
-        guard let draft else { isPublishing = false; message = NativePartyAccessMode.selectionMessage(accessMode) ?? "Choose how guests enter before publishing."; return }
+        guard let draft, NativePartyAccessMode.selectionMessage(accessMode, explicitlySelected: hasExplicitDoorAdmissionSelection) == nil else { isPublishing = false; message = NativePartyAccessMode.selectionMessage(accessMode, explicitlySelected: hasExplicitDoorAdmissionSelection) ?? "Choose how guests enter before publishing."; return }
         defer { isPublishing = false; publishTask = nil }
         do {
             let api = NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { publishingToken }))

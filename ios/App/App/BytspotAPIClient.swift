@@ -321,8 +321,8 @@ enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
     }
     var requiresPrice: Bool { self == .cashAtDoor || self == .paidTicket }
 
-    static func selectionMessage(_ mode: Self?) -> String? {
-        mode == nil ? "Choose how guests enter before publishing." : nil
+    static func selectionMessage(_ mode: Self?, explicitlySelected: Bool = true) -> String? {
+        mode == nil || !explicitlySelected ? "Choose how guests enter before publishing." : nil
     }
 
     static func cashDoorAmount(cents: Int) -> String {

@@ -1554,6 +1554,7 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testNativePartyAdmissionModesSeparateOpenCashAndOnlinePayment() {
         XCTAssertEqual(NativePartyAccessMode.selectionMessage(nil), "Choose how guests enter before publishing.")
         XCTAssertNil(NativePartyAccessMode.selectionMessage(.freeRSVP))
+        XCTAssertEqual(NativePartyAccessMode.selectionMessage(.privateApproval, explicitlySelected: false), "Choose how guests enter before publishing.")
         let open = partyDraft(accessMode: .openEntry)
         XCTAssertNil(open.validationMessage)
         XCTAssertEqual(open.ticketTiers, [])

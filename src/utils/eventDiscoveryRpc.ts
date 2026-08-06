@@ -57,7 +57,13 @@ function stringFrom(value: unknown): string | null {
 }
 
 function coordinateFrom(value: unknown, minimum: number, maximum: number): number | null {
-  const coordinate = Number(value);
+  const raw = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim().length > 0
+      ? Number(value)
+      : null;
+  if (raw === null) return null;
+  const coordinate = raw;
   return Number.isFinite(coordinate) && coordinate >= minimum && coordinate <= maximum ? coordinate : null;
 }
 
@@ -127,10 +133,8 @@ function ticketmasterAddress(raw: Record<string, unknown>): string | null {
 function ticketmasterCoordinates(raw: Record<string, unknown>): { latitude: number; longitude: number } | null {
   const venue = ticketmasterVenueRecord(raw);
   const location = isRecord(venue?.location) ? venue.location : null;
-  return coordinatePair(
-    location?.latitude ?? venue?.latitude ?? venue?.lat,
-    location?.longitude ?? location?.lng ?? venue?.longitude ?? venue?.lng,
-  );
+  return coordinatePair(location?.latitude, location?.longitude ?? location?.lng)
+    ?? coordinatePair(venue?.latitude ?? venue?.lat, venue?.longitude ?? venue?.lng);
 }
 
 function ticketmasterCategory(raw: Record<string, unknown>): EventCategory {

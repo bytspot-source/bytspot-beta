@@ -48,6 +48,24 @@ test('normalizeEventsResponse accepts backend normalized and raw embedded events
   assert.equal(raw[0].category, 'comedy');
 });
 
+test('normalizeEventRow rejects partial or malformed coordinate sources', () => {
+  const mixedEmbeddedSources = [
+    { location: { latitude: '33.1' }, longitude: '-84.2' },
+    { location: { longitude: '-84.2' }, latitude: '33.1' },
+  ];
+  for (const venue of mixedEmbeddedSources) {
+    const event = normalizeEventRow({ id: 'tm-mixed', name: 'Mixed Venue Event', _embedded: { venues: [venue] } });
+    assert.equal(event?.latitude, undefined);
+    assert.equal(event?.longitude, undefined);
+  }
+
+  for (const invalidLatitude of ['', ' ', false, true, null, [], {}]) {
+    const event = normalizeEventRow({ id: 'invalid-coordinate', name: 'Invalid Coordinate', latitude: invalidLatitude, longitude: -84.4 });
+    assert.equal(event?.latitude, undefined);
+    assert.equal(event?.longitude, undefined);
+  }
+});
+
 test('loadEventsViaRpc prefers events.list and falls back safely', async () => {
   let inputSeen: unknown;
   const backend = await loadEventsViaRpc({

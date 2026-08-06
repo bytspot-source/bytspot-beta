@@ -833,6 +833,7 @@ enum NativeMobilityRouteContract {
 enum NativeEventRideBookingContract {
     static let source = "native-event-discovery"
     static let bookingType = "event_ride"
+    static let maximumQuotedPickupDriftMiles = 100.0 / 1_609.344
 
     static func quoteInput(event: NativeVenueSummary, pickup: NativeLocationCoordinate) -> [String: Any]? {
         guard event.hasKnownCoordinates, !pickup.isFallback,
@@ -867,6 +868,14 @@ enum NativeEventRideBookingContract {
         input["etaLabel"] = quote.etaLabel ?? "ETA pending"
         input["requestMode"] = "reserve"
         return input
+    }
+
+    static func quotedPickupMatchesCurrent(_ quoted: NativeLocationCoordinate, current: NativeLocationCoordinate) -> Bool {
+        guard !quoted.isFallback, !current.isFallback,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: quoted.latitude, longitude: quoted.longitude),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: current.latitude, longitude: current.longitude),
+              let distance = quoted.distanceMiles(toLatitude: current.latitude, longitude: current.longitude) else { return false }
+        return distance <= maximumQuotedPickupDriftMiles
     }
 }
 

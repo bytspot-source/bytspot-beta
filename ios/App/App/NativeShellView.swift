@@ -112,6 +112,19 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     var isUsingFallback: Bool { coordinate.isFallback }
     var displayLabel: String { coordinate.isFallback ? "Midtown fallback" : "Near you" }
 
+    nonisolated static let rideBookingMaximumLocationAge: TimeInterval = 60
+    nonisolated static let rideBookingMaximumHorizontalAccuracy: CLLocationAccuracy = 250
+
+    nonisolated static func coordinateForRideBooking(location: CLLocation?, now: Date = Date()) -> NativeLocationCoordinate? {
+        guard let location,
+              location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= rideBookingMaximumHorizontalAccuracy else { return nil }
+        let age = now.timeIntervalSince(location.timestamp)
+        guard age >= 0, age <= rideBookingMaximumLocationAge,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude) else { return nil }
+        return NativeLocationCoordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, isFallback: false)
+    }
+
     func startIfAuthorized() {
         updateAuthorization(manager.authorizationStatus)
         guard authorizationState == .allowed else { return }
@@ -10272,7 +10285,10 @@ private struct NativeVenueDetailView: View {
             NativeEventRideBookingSheet(event: venue, onCompleted: { ride in
                 dismiss()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { onRideBookingCompleted?(ride) }
-            }, onSignIn: { openNativeAuth?() })
+            }, onSignIn: {
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { openNativeAuth?() }
+            })
         }
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
         .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
@@ -10786,6 +10802,7 @@ private struct NativeEventRideBookingSheet: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
     @State private var quote: NativeMobilityQuoteRecord?
+    @State private var quotedPickup: NativeLocationCoordinate?
     @State private var statusMessage = ""
     @State private var isQuoting = false
     @State private var isReserving = false
@@ -10794,7 +10811,9 @@ private struct NativeEventRideBookingSheet: View {
         NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
     }
 
-    private var pickup: NativeLocationCoordinate { locationStore.coordinate }
+    private var currentPickup: NativeLocationCoordinate? {
+        NativeLocationStore.coordinateForRideBooking(location: locationStore.lastLocation)
+    }
     private var isWorking: Bool { isQuoting || isReserving }
     private var primaryTitle: String {
         if isQuoting { return "Finding rides…" }
@@ -10823,8 +10842,7 @@ private struct NativeEventRideBookingSheet: View {
         .onAppear { locationStore.requestWhenInUseIfNeeded() }
         .task { await requestQuoteIfPossible() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in
-            guard quote == nil else { return }
-            Task { await requestQuoteIfPossible() }
+            handlePickupUpdate()
         }
         .accessibilityIdentifier("native-event-ride-booking-sheet")
     }
@@ -10847,7 +10865,7 @@ private struct NativeEventRideBookingSheet: View {
     private var routePanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ROUTE").font(.system(size: 10.5, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.textTertiary)
-            NativeWalletLine(title: "Pickup", subtitle: pickup.isFallback ? "Waiting for your current location" : "Current location", icon: "location.fill")
+            NativeWalletLine(title: "Pickup", subtitle: currentPickup == nil ? "Waiting for a fresh, accurate current location" : "Current location", icon: "location.fill")
             NativeWalletLine(title: "Destination", subtitle: event.address.isEmpty ? event.name : event.address, icon: "mappin.and.ellipse")
             Text("The event destination is passed as verified coordinates; it is never searched by venue name.").nativeBody(size: 11.5)
         }
@@ -10875,11 +10893,26 @@ private struct NativeEventRideBookingSheet: View {
         }
         guard sessionStore.isAuthenticated else {
             statusMessage = "Sign in before requesting this ride."
-            onSignIn()
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { onSignIn() }
             return
         }
-        guard let input = NativeEventRideBookingContract.reservationInput(quote: quote, event: event, pickup: pickup) else {
-            statusMessage = "Your current location or event destination is no longer available."
+        guard let quotedPickup, let currentPickup else {
+            self.quote = nil
+            self.quotedPickup = nil
+            locationStore.requestWhenInUseIfNeeded()
+            statusMessage = "A fresh current location is required before requesting this ride."
+            return
+        }
+        guard NativeEventRideBookingContract.quotedPickupMatchesCurrent(quotedPickup, current: currentPickup) else {
+            self.quote = nil
+            self.quotedPickup = nil
+            statusMessage = "Your location changed. Checking updated ride options."
+            await requestQuoteIfPossible()
+            return
+        }
+        guard let input = NativeEventRideBookingContract.reservationInput(quote: quote, event: event, pickup: quotedPickup) else {
+            statusMessage = "The quoted pickup or event destination is no longer available."
             return
         }
         isReserving = true
@@ -10895,19 +10928,50 @@ private struct NativeEventRideBookingSheet: View {
 
     private func requestQuoteIfPossible() async {
         guard !isQuoting, quote == nil else { return }
+        guard let pickup = currentPickup else {
+            locationStore.requestWhenInUseIfNeeded()
+            statusMessage = "Waiting for a fresh, accurate current location before checking rides."
+            return
+        }
         guard let input = NativeEventRideBookingContract.quoteInput(event: event, pickup: pickup) else {
-            statusMessage = pickup.isFallback ? "Allow location access to see rides from your current location." : "This event does not have a verified destination."
+            statusMessage = "This event does not have a verified destination."
             return
         }
         isQuoting = true
         statusMessage = "Checking ride options for this event."
         defer { isQuoting = false }
         do {
-            quote = try await mobilityAPI.createQuote(input: input)
-            statusMessage = "Ride option ready. Review it before requesting."
+            let result = try await mobilityAPI.createQuote(input: input)
+            guard let currentPickup, NativeEventRideBookingContract.quotedPickupMatchesCurrent(pickup, current: currentPickup) else {
+                statusMessage = "Your location changed while checking rides. Check options again for the updated pickup."
+                return
+            }
+            quote = result
+            quotedPickup = pickup
+            statusMessage = "Ride option ready for your current pickup. Review it before requesting."
         } catch {
             statusMessage = "Ride options are unavailable right now. Try again shortly."
         }
+    }
+
+    private func handlePickupUpdate() {
+        guard let currentPickup else {
+            if quote != nil {
+                quote = nil
+                quotedPickup = nil
+                statusMessage = "A fresh current location is required before requesting this ride."
+            }
+            return
+        }
+        guard let quotedPickup else {
+            Task { await requestQuoteIfPossible() }
+            return
+        }
+        guard !NativeEventRideBookingContract.quotedPickupMatchesCurrent(quotedPickup, current: currentPickup) else { return }
+        quote = nil
+        self.quotedPickup = nil
+        statusMessage = "Your location changed. Checking updated ride options."
+        Task { await requestQuoteIfPossible() }
     }
 }
 

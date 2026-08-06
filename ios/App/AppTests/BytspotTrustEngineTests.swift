@@ -1040,6 +1040,28 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeEventRideBookingContract.quoteInput(event: event, pickup: .midtown))
     }
 
+    func testEventRidePickupRequiresFreshAccurateFixAndReservationKeepsQuotedCoordinate() throws {
+        let now = Date()
+        let freshLocation = CLLocation(coordinate: CLLocationCoordinate2D(latitude: 33.781, longitude: -84.390), altitude: 0, horizontalAccuracy: 25, verticalAccuracy: 25, timestamp: now)
+        let quotedPickup = try XCTUnwrap(NativeLocationStore.coordinateForRideBooking(location: freshLocation, now: now))
+        let staleLocation = CLLocation(coordinate: freshLocation.coordinate, altitude: 0, horizontalAccuracy: 25, verticalAccuracy: 25, timestamp: now.addingTimeInterval(-61))
+        let inaccurateLocation = CLLocation(coordinate: freshLocation.coordinate, altitude: 0, horizontalAccuracy: 251, verticalAccuracy: 25, timestamp: now)
+        XCTAssertNil(NativeLocationStore.coordinateForRideBooking(location: staleLocation, now: now))
+        XCTAssertNil(NativeLocationStore.coordinateForRideBooking(location: inaccurateLocation, now: now))
+
+        let nearbyCurrent = NativeLocationCoordinate(latitude: 33.7812, longitude: -84.3901, isFallback: false)
+        let movedCurrent = NativeLocationCoordinate(latitude: 33.791, longitude: -84.400, isFallback: false)
+        XCTAssertTrue(NativeEventRideBookingContract.quotedPickupMatchesCurrent(quotedPickup, current: nearbyCurrent))
+        XCTAssertFalse(NativeEventRideBookingContract.quotedPickupMatchesCurrent(quotedPickup, current: movedCurrent))
+
+        let event = NativeVenueSummary(id: "event-ride", name: "Coordinate Event", category: "entertainment", address: "1 Event Way", distance: "Tonight", rating: nil, latitude: 33.787, longitude: -84.383, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let quote = NativeMobilityQuoteRecord(id: "quote-123", provider: "bytspot", providerQuoteId: nil, serviceClass: "standard", serviceTitle: "Event ride", priceLabel: "$24", etaLabel: "6 min", pickupLabel: nil, dropoffLabel: nil, cancellationLabel: nil, providerBookingMode: nil, requiresAccountLink: nil, currency: nil, expiresAt: nil)
+        let reservation = try XCTUnwrap(NativeEventRideBookingContract.reservationInput(quote: quote, event: event, pickup: quotedPickup))
+        XCTAssertEqual(reservation["quoteId"] as? String, quote.id)
+        XCTAssertEqual(reservation["pickupLat"] as? Double, quotedPickup.latitude)
+        XCTAssertEqual(reservation["pickupLng"] as? Double, quotedPickup.longitude)
+    }
+
     @MainActor
     func testNativeRideBookingRouteRetainsReservationRecord() throws {
         let coordinator = NativeNavigationCoordinator()

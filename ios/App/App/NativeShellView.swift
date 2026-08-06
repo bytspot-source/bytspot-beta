@@ -844,6 +844,23 @@ private enum NativeProfileDefaults {
     }
 }
 
+enum NativeAuthenticatedGreetingPresentation {
+    static func profileTitle(firstName: String?) -> String {
+        normalizedFirstName(firstName) ?? NativeProfileDefaults.userName
+    }
+
+    static func homeTitle(firstName: String?) -> String {
+        guard let firstName = normalizedFirstName(firstName) else { return NativeProfileDefaults.userName }
+        return "Welcome, \(firstName)"
+    }
+
+    private static func normalizedFirstName(_ firstName: String?) -> String? {
+        guard let firstName else { return nil }
+        let value = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+}
+
 private enum NativeProfileStyle {
     static let cardRadius = NativePolish.cardRadius
     static let rowRadius: CGFloat = 16
@@ -931,8 +948,7 @@ private struct NativeProfileHeaderCard: View {
     let socialCircleSnapshot: NativeSocialCircleSnapshot
 
     private var userName: String {
-        guard sessionStore.isAuthenticated else { return NativeProfileDefaults.userName }
-        return sessionStore.greetingName.map { "Welcome, \($0)" } ?? "Welcome to Bytspot"
+        NativeAuthenticatedGreetingPresentation.profileTitle(firstName: sessionStore.greetingName)
     }
 
     private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }
@@ -4934,7 +4950,11 @@ private struct NativeHomeDashboardView: View {
 
     private var contextualEyebrow: (String, String) {
         let hour = Calendar.current.component(.hour, from: Date())
-        return NativeHomeRegionPresentation.contextualEyebrow(hour: hour, location: locationStore.coordinate)
+        let contextualCopy = NativeHomeRegionPresentation.contextualEyebrow(hour: hour, location: locationStore.coordinate)
+        return (
+            NativeAuthenticatedGreetingPresentation.homeTitle(firstName: sessionStore.greetingName),
+            contextualCopy.1
+        )
     }
 
     private var nativeSearchBar: some View {

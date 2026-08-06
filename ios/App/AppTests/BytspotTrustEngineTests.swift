@@ -1560,6 +1560,13 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyCreatorLink.collection(from: [valid]).first?.title, "Listen now")
     }
 
+    func testNativeAuthenticatedGreetingPresentationIsContextSpecificAndSafe() {
+        XCTAssertEqual(NativeAuthenticatedGreetingPresentation.profileTitle(firstName: "Alex"), "Alex")
+        XCTAssertEqual(NativeAuthenticatedGreetingPresentation.homeTitle(firstName: "Alex"), "Welcome, Alex")
+        XCTAssertEqual(NativeAuthenticatedGreetingPresentation.profileTitle(firstName: "  \n "), "Bytspot Member")
+        XCTAssertEqual(NativeAuthenticatedGreetingPresentation.homeTitle(firstName: nil), "Bytspot Member")
+    }
+
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]

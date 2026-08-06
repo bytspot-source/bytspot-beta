@@ -595,8 +595,12 @@ final class BytspotSessionStore: ObservableObject {
                     return false
                 }
                 authenticatedUserID = stableUserID
-                if let greetingName = normalizedGreetingName(displayName), saveValue(greetingName, for: displayNameAccount) {
+                if let greetingName = normalizedGreetingName(displayName) {
+                    // The old stored value was already cleared above. Keep the
+                    // verified current value for this active session even if its
+                    // separate Keychain write is temporarily unavailable.
                     authenticatedDisplayName = greetingName
+                    _ = saveValue(greetingName, for: displayNameAccount)
                 } else {
                     authenticatedDisplayName = nil
                 }

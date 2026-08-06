@@ -334,7 +334,7 @@ struct NativeHostStudioView: View {
         guard let url = URL(string: rawURL) else { message = "Add a secure HTTPS creator link."; return }
         let link = NativePartyCreatorLink(kind: creatorLinkKind, title: title, url: url)
         guard link.isValid else { message = "Creator links need a title and secure HTTPS URL."; return }
-        guard !creatorLinks.contains(where: { $0.url.absoluteString == link.url.absoluteString }) else { message = "That creator link is already added."; return }
+        guard !creatorLinks.contains(where: { NativePartyCreatorLink.canonicalURL($0.url) == NativePartyCreatorLink.canonicalURL(link.url) }) else { message = "That creator link is already added."; return }
         creatorLinks.append(link)
         creatorLinkTitle = ""
         creatorLinkURL = ""

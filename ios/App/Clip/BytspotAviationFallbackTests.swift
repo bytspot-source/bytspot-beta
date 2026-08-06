@@ -228,7 +228,10 @@ enum BytspotAviationFallbackTests {
         precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
-        precondition(invite?.creatorLinks.map(\.title) == ["Listen now"], "Party Loop: only validated HTTPS creator links may reach the Party Pass.")
+        precondition(invite?.creatorLinks.isEmpty == true, "Party Loop: malformed creator-link collections must fail closed.")
+        let validLink: [String: String] = ["kind": "music", "title": "Listen now", "url": "https://music.example"]
+        precondition(ClipPartyCreatorLink.collection(from: [validLink, ["kind": "social", "title": "Follow", "url": "https://music.example/"]]).isEmpty, "Party Loop: canonical duplicate creator links must fail closed.")
+        precondition(ClipPartyCreatorLink.collection(from: Array(repeating: validLink, count: 9)).isEmpty, "Party Loop: creator links may not exceed the published maximum.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")

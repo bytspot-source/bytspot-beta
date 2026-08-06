@@ -373,11 +373,30 @@ struct NativePartyCreatorLink: Equatable, Identifiable {
         guard let row = value as? [String: Any],
               let rawKind = row["kind"] as? String,
               let kind = NativePartyCreatorLinkKind(rawValue: rawKind),
-              let title = row["title"] as? String,
+              let rawTitle = row["title"] as? String,
               let urlString = row["url"] as? String,
               let url = URL(string: urlString) else { return nil }
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let link = Self(kind: kind, title: title, url: url)
         return link.isValid ? link : nil
+    }
+
+    static func collection(from value: Any?) -> [Self] {
+        guard let values = value as? [Any], values.count <= 8 else { return [] }
+        let links = values.compactMap(Self.from)
+        guard links.count == values.count else { return [] }
+        var seen = Set<String>()
+        guard links.allSatisfy({ seen.insert(canonicalURL($0.url)).inserted }) else { return [] }
+        return links
+    }
+
+    static func canonicalURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if components.path.isEmpty { components.path = "/" }
+        if components.scheme == "https", components.port == 443 { components.port = nil }
+        return components.string ?? url.absoluteString
     }
 }
 
@@ -409,7 +428,7 @@ struct NativePartyDraftInput: Equatable {
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
         if creatorLinks.count > 8 || creatorLinks.contains(where: { !$0.isValid }) { return "Creator links need a title and secure HTTPS URL." }
-        if Set(creatorLinks.map { $0.url.absoluteString }).count != creatorLinks.count { return "Each creator link can be added only once." }
+        if Set(creatorLinks.map { NativePartyCreatorLink.canonicalURL($0.url) }).count != creatorLinks.count { return "Each creator link can be added only once." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
         return nil
     }
@@ -563,7 +582,7 @@ struct NativePartyPassAPI {
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
         let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
         let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
-        let creatorLinks = (row["creatorLinks"] as? [Any])?.compactMap(NativePartyCreatorLink.from) ?? []
+        let creatorLinks = NativePartyCreatorLink.collection(from: row["creatorLinks"])
         return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, creatorLinks: creatorLinks)
     }
 

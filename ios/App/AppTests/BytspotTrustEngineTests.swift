@@ -1551,6 +1551,15 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
     }
 
+    func testNativePartyCreatorLinksFailClosedForInvalidDuplicateOrExcessPublicPayloads() throws {
+        let valid: [String: String] = ["kind": "music", "title": "Listen now", "url": "https://music.example"]
+        let invalid: [String: String] = ["kind": "website", "title": "Unsafe", "url": "http://creator.example"]
+        XCTAssertTrue(NativePartyCreatorLink.collection(from: [valid, invalid]).isEmpty)
+        XCTAssertTrue(NativePartyCreatorLink.collection(from: [valid, ["kind": "social", "title": "Follow", "url": "https://music.example/"]]).isEmpty)
+        XCTAssertTrue(NativePartyCreatorLink.collection(from: Array(repeating: valid, count: 9)).isEmpty)
+        XCTAssertEqual(NativePartyCreatorLink.collection(from: [valid]).first?.title, "Listen now")
+    }
+
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]

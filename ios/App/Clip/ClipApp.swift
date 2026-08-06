@@ -200,6 +200,24 @@ struct ClipPartyCreatorLink: Equatable, Identifiable {
         return Self(kind: kind, title: title, url: url)
     }
 
+    static func collection(from value: Any?) -> [Self] {
+        guard let values = value as? [Any], values.count <= 8 else { return [] }
+        let links = values.compactMap(Self.from)
+        guard links.count == values.count else { return [] }
+        var seen = Set<String>()
+        guard links.allSatisfy({ seen.insert(canonicalURL($0.url)).inserted }) else { return [] }
+        return links
+    }
+
+    private static func canonicalURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if components.path.isEmpty { components.path = "/" }
+        if components.scheme == "https", components.port == 443 { components.port = nil }
+        return components.string ?? url.absoluteString
+    }
+
     private static func string(_ value: Any?) -> String? {
         guard let value = value as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -254,7 +272,7 @@ struct PartyPassInvite: Equatable {
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
             itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
-            creatorLinks: (row["creatorLinks"] as? [Any])?.compactMap(ClipPartyCreatorLink.from) ?? [],
+            creatorLinks: ClipPartyCreatorLink.collection(from: row["creatorLinks"]),
             note: string(row["inviteNote"]),
             heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
             thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))

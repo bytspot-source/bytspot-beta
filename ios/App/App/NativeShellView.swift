@@ -7106,6 +7106,29 @@ final class NativeDirectMapRouteStore: ObservableObject {
     }
 }
 
+enum NativeMapHandoffPrecedencePolicy {
+    enum PersistedFocusDisposition: Equatable {
+        case apply
+        case discard
+    }
+
+    static func directRouteIsActive(directRoutePinID: String?, selectedMode: String, selectedPinID: String?, routeFocusedPinID: String?, activeRoutePinID: String?) -> Bool {
+        let directID = directRoutePinID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !directID.isEmpty, selectedMode == "Route" else { return false }
+        return selectedPinID == directID && routeFocusedPinID == directID && activeRoutePinID == directID
+    }
+
+    static func persistedFocusDisposition(directRoutePinID: String?, selectedMode: String, selectedPinID: String?, routeFocusedPinID: String?, activeRoutePinID: String?) -> PersistedFocusDisposition {
+        directRouteIsActive(directRoutePinID: directRoutePinID, selectedMode: selectedMode, selectedPinID: selectedPinID, routeFocusedPinID: routeFocusedPinID, activeRoutePinID: activeRoutePinID) ? .discard : .apply
+    }
+
+    static func hasMatchingRequestID(_ requestID: String, storedRequestID: String) -> Bool {
+        let requested = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = storedRequestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !requested.isEmpty && requested == stored
+    }
+}
+
 private struct NativeParkingBookingSheet: View {
     let venue: NativeVenueSummary
     var onOpenAccess: (() -> Void)? = nil
@@ -11659,6 +11682,7 @@ private struct NativeMapExploreView: View {
     @State private var selectedPin: NativeMapPin?
     @State private var routeFocusedPinID: String?
     @State private var activeRoutePinID: String?
+    @State private var directRoutePinID: String?
     @State private var didConsumeExplicitMapLaunch = false
     @State private var didOpenMapContext = false
     @State private var consumedPlainOpenGeneration = 0
@@ -11721,6 +11745,16 @@ private struct NativeMapExploreView: View {
         return NativeTabContentStore.locationAwareVenues(
             NativeLocationAwareUIContent.venues(in: tabContentStore.snapshot(for: locationStore.coordinate)),
             location: locationStore.coordinate
+        )
+    }
+
+    private var hasActiveDirectMapRoute: Bool {
+        NativeMapHandoffPrecedencePolicy.directRouteIsActive(
+            directRoutePinID: directRoutePinID,
+            selectedMode: selectedMode,
+            selectedPinID: selectedPin?.id,
+            routeFocusedPinID: routeFocusedPinID,
+            activeRoutePinID: activeRoutePinID
         )
     }
 
@@ -12193,6 +12227,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func applyOnboardingMapHandoffIfRequested() {
+        guard !hasActiveDirectMapRoute else { NativeOnboardingMapHandoff.clear(); return }
         guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
         guard !NativeMapFocusHandoff.hasPendingFocus else { NativeOnboardingMapHandoff.clear(); return }
         let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12205,6 +12240,8 @@ private struct NativeMapExploreView: View {
         let resolvedVenue = NativeLocationAwareUIContent.mapHandoffVenue(destination: destination, mode: mode, venues: venues)
         let resolved = resolvedVenue.flatMap { venue in pins.first(where: { $0.id == venue.id }) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            guard !hasActiveDirectMapRoute else { return }
+            directRoutePinID = nil
             selectedMode = mode
             selectedPin = resolved
             if let coordinate = resolved?.coordinate {
@@ -12228,6 +12265,7 @@ private struct NativeMapExploreView: View {
         selectedMode = "Route"
         routeFocusedPinID = focused.id
         activeRoutePinID = focused.id
+        directRoutePinID = focused.id
         selectedPin = focused
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
         showFunctionSheet = false
@@ -12236,10 +12274,18 @@ private struct NativeMapExploreView: View {
 
     private func applyNativeMapFocusHandoffIfRequested() {
         guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
+        let requestID = mapFocusRequestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard NativeMapHandoffPrecedencePolicy.hasMatchingRequestID(requestID, storedRequestID: NativeMapFocusHandoff.requestID()) else {
+            discardPendingNativeMapFocusHandoff()
+            return
+        }
+        guard NativeMapHandoffPrecedencePolicy.persistedFocusDisposition(directRoutePinID: directRoutePinID, selectedMode: selectedMode, selectedPinID: selectedPin?.id, routeFocusedPinID: routeFocusedPinID, activeRoutePinID: activeRoutePinID) == .apply else {
+            discardPendingNativeMapFocusHandoff()
+            return
+        }
         let id = mapFocusID.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = mapFocusTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty || !title.isEmpty else { return }
-        let requestID = mapFocusRequestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty || !title.isEmpty else { discardPendingNativeMapFocusHandoff(); return }
         guard NativeMapFocusHandoff.canConsume(at: locationStore.coordinate) else {
             rejectPendingNativeMapFocusHandoff()
             return
@@ -12270,11 +12316,11 @@ private struct NativeMapExploreView: View {
         // Apply a valid user-selected destination immediately. Delaying this
         // state update lets Map/location refreshes supersede the handoff and
         // leaves the user on the blank default map.
-        guard !requestID.isEmpty, NativeMapFocusHandoff.requestID() == requestID else { return }
         guard !isLocationScoped || NativeTabContentStore.canPresentLocationScopedContent(origin: locationScopeOrigin, current: locationStore.coordinate) else {
             NativeMapFocusHandoff.clear()
             return
         }
+        directRoutePinID = nil
         focusedHandoffPin = focused
         focusedHandoffOrigin = locationScopeOrigin
         focusedHandoffIsLocationScoped = isLocationScoped
@@ -12290,6 +12336,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func rejectPendingNativeMapFocusHandoff() {
+        guard !hasActiveDirectMapRoute else { discardPendingNativeMapFocusHandoff(); return }
         NativeMapFocusHandoff.clear()
         focusedHandoffPin = nil
         focusedHandoffOrigin = nil
@@ -12300,6 +12347,10 @@ private struct NativeMapExploreView: View {
         activeRoutePinID = nil
         region.center = currentMapCoordinate
         showFunctionSheet = false
+    }
+
+    private func discardPendingNativeMapFocusHandoff() {
+        NativeMapFocusHandoff.clear()
     }
 
     private func clearLocationScopedMapFocus() {
@@ -12350,6 +12401,7 @@ private struct NativeMapExploreView: View {
         selectedPin = nil
         routeFocusedPinID = nil
         activeRoutePinID = nil
+        directRoutePinID = nil
         didOpenMapContext = false
         showFunctionSheet = false
         region.center = currentMapCoordinate

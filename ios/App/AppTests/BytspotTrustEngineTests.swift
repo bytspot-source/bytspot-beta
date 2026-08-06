@@ -1124,6 +1124,18 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(handoff.hasPendingRoute)
     }
 
+    func testDirectRoutePrecedenceDiscardsLatePersistedFocusWithoutResettingTheRoute() {
+        let directID = "route-cafe"
+
+        XCTAssertTrue(NativeMapHandoffPrecedencePolicy.directRouteIsActive(directRoutePinID: directID, selectedMode: "Route", selectedPinID: directID, routeFocusedPinID: directID, activeRoutePinID: directID))
+        XCTAssertEqual(NativeMapHandoffPrecedencePolicy.persistedFocusDisposition(directRoutePinID: directID, selectedMode: "Route", selectedPinID: directID, routeFocusedPinID: directID, activeRoutePinID: directID), .discard)
+        XCTAssertTrue(NativeMapHandoffPrecedencePolicy.hasMatchingRequestID("fresh-request", storedRequestID: "fresh-request"))
+        XCTAssertFalse(NativeMapHandoffPrecedencePolicy.hasMatchingRequestID("", storedRequestID: "fresh-request"))
+        XCTAssertFalse(NativeMapHandoffPrecedencePolicy.hasMatchingRequestID("stale-request", storedRequestID: "fresh-request"))
+
+        XCTAssertEqual(NativeMapHandoffPrecedencePolicy.persistedFocusDisposition(directRoutePinID: directID, selectedMode: "Nearby", selectedPinID: nil, routeFocusedPinID: nil, activeRoutePinID: nil), .apply)
+    }
+
     func testLegacyMapFocusHandoffWithoutPositiveProvenanceFailsClosed() {
         let suiteName = "NativeLegacyMapFocusHandoffTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }

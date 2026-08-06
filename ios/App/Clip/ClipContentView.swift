@@ -161,9 +161,11 @@ struct PartyPassClipView: View {
     private var primaryTitle: String {
         guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
         switch action {
-        case .authenticate: return "Sign in to get tickets"
+        case .authenticate:
+            return invite.accessMode == "cash-at-door" ? "Sign in to reserve your spot" : invite.accessMode == "paid-ticket" ? "Sign in to choose a ticket" : invite.accessMode == "private-approval" ? "Sign in to request access" : "Sign in to RSVP"
         case .ticket: return "Choose a ticket"
         case .rsvp: return "RSVP to this Party"
+        case .reserveCash: return "Reserve · pay cash at door"
         case .requestApproval: return "Request host approval"
         case .viewPass: return "Party Pass confirmed"
         case .unavailable: return "Party Pass unavailable"
@@ -343,9 +345,18 @@ struct PartyPassClipView: View {
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12).background(.ultraThinMaterial)
     }
 
-    private var accessLabel: String { invite.accessMode == "paid-ticket" ? "Paid ticket access" : invite.accessMode == "private-approval" ? "Host approval required" : "RSVP access" }
+    private var accessLabel: String {
+        switch invite.accessMode {
+        case "open-entry": return "Open entry · no payment"
+        case "free-rsvp": return "Free RSVP"
+        case "cash-at-door": return "Cash at door · \(cashDoorAmount)"
+        case "paid-ticket": return "Paid online ticket"
+        default: return "Host approval required"
+        }
+    }
+    private var cashDoorAmount: String { "$\((invite.cashDoorPriceCents ?? 0) / 100) cash" }
     private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id); statusMessage = "" } catch { passState = nil; statusMessage = "We couldn’t verify ticket availability right now. Please try again." } }
-    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .reserveCash, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
     private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
@@ -862,7 +873,9 @@ struct ClipInviteView: View {
 
     private func accessModeLabel(_ value: String) -> String {
         switch value {
+        case "open-entry": return "Open entry"
         case "free-rsvp": return "Free RSVP"
+        case "cash-at-door": return "Cash at door"
         case "paid-ticket": return "Paid Ticket"
         case "private-approval": return "Private Approval"
         default: return value.replacingOccurrences(of: "-", with: " ").capitalized
@@ -1300,11 +1313,13 @@ struct ClipInviteView: View {
         guard invite.isHostStudioParty else { return joinButtonTitle }
         guard let action = partyPass?.action else { return isResolvingPartyPass ? "Checking access…" : "Party Pass unavailable" }
         switch action {
-        case .authenticate: return "Sign in to continue"
+        case .authenticate:
+            return invite.accessMode == "cash-at-door" ? "Sign in to reserve your spot" : invite.accessMode == "paid-ticket" ? "Sign in to choose a ticket" : invite.accessMode == "private-approval" ? "Sign in to request access" : "Sign in to RSVP"
         case .rsvp: return "RSVP to this Party"
+        case .reserveCash: return "Reserve · pay cash at door"
         case .requestApproval: return "Request host approval"
         case .ticket: return "Choose a ticket"
-        case .viewPass: return "Party Pass confirmed"
+        case .viewPass: return invite.accessMode == "cash-at-door" ? "Reserved · cash due at door" : "Party Pass confirmed"
         case .unavailable: return "Party Pass unavailable"
         }
     }
@@ -1315,6 +1330,7 @@ struct ClipInviteView: View {
         switch action {
         case .authenticate: return "person.crop.circle.badge.checkmark"
         case .rsvp: return "checkmark.circle.fill"
+        case .reserveCash: return "banknote.fill"
         case .requestApproval: return "lock.badge.plus"
         case .ticket: return "ticket.fill"
         case .viewPass: return "checkmark.seal.fill"
@@ -1361,11 +1377,13 @@ struct ClipInviteView: View {
     private var partyStatusMessage: String {
         guard let state = partyPass else { return "" }
         switch state.action {
-        case .authenticate: return "Sign in with Apple to see your authorized Party action."
+        case .authenticate:
+            return invite.accessMode == "cash-at-door" ? "Sign in with Apple to reserve a spot. Cash is due only at the door." : invite.accessMode == "paid-ticket" ? "Sign in with Apple to choose an online ticket." : "Sign in with Apple to RSVP for this Party."
         case .rsvp: return "RSVP is available for this Party."
+        case .reserveCash: return "Reserve your spot now. \(cashDoorAmount) is due at check-in; no online checkout is used."
         case .requestApproval: return "The host reviews access requests before sharing the full Party Pass."
         case .ticket: return "Choose a server-published ticket tier to continue securely."
-        case .viewPass: return "Your access is confirmed. Keep this Party Pass handy."
+        case .viewPass: return invite.accessMode == "cash-at-door" ? "Your spot is reserved. \(cashDoorAmount) is due at the door." : "Your access is confirmed. Keep this Party Pass handy."
         case .unavailable:
             return state.guestStatus == "pending" ? "Your access request is with the host." : "This Party Pass is not available for a new action."
         }
@@ -1387,7 +1405,7 @@ struct ClipInviteView: View {
             } catch {
                 statusMessage = joinErrorText(from: error)
             }
-        case .rsvp, .requestApproval:
+        case .rsvp, .reserveCash, .requestApproval:
             isResolvingPartyPass = true
             defer { isResolvingPartyPass = false }
             do {

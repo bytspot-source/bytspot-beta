@@ -304,11 +304,35 @@ enum NativePartyTemplateConfiguration: Equatable {
 }
 
 enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
+    case openEntry = "open-entry"
     case freeRSVP = "free-rsvp"
+    case cashAtDoor = "cash-at-door"
     case paidTicket = "paid-ticket"
     case privateApproval = "private-approval"
     var id: String { rawValue }
-    var title: String { self == .freeRSVP ? "Free RSVP" : self == .paidTicket ? "Paid Ticket" : "Private Approval" }
+    var title: String {
+        switch self {
+        case .openEntry: return "Open entry"
+        case .freeRSVP: return "Free RSVP"
+        case .cashAtDoor: return "Cash at door"
+        case .paidTicket: return "Paid online"
+        case .privateApproval: return "Private approval"
+        }
+    }
+    var requiresPrice: Bool { self == .cashAtDoor || self == .paidTicket }
+
+    static func admissionLabel(rawValue: String, cashDoorPriceCents: Int? = nil) -> String {
+        guard let mode = Self(rawValue: rawValue) else { return "Party access" }
+        switch mode {
+        case .openEntry: return "Open entry · no payment"
+        case .freeRSVP: return "Free RSVP"
+        case .cashAtDoor:
+            guard let cashDoorPriceCents, cashDoorPriceCents > 0 else { return "Cash at door" }
+            return "Cash at door · $\(cashDoorPriceCents / 100)"
+        case .paidTicket: return "Paid online ticket"
+        case .privateApproval: return "Host approval required"
+        }
+    }
 }
 
 enum NativePartyHostRole: String, CaseIterable, Codable, Identifiable {
@@ -408,6 +432,7 @@ struct NativePartyDraftInput: Equatable {
     let venueName: String
     let capacity: Int
     let accessMode: NativePartyAccessMode
+    let cashDoorPriceCents: Int?
     let requiredMembershipTier: BytspotTier
     let audienceCircleIDs: [String]
     let itinerary: [NativePartyItineraryItem]
@@ -427,6 +452,8 @@ struct NativePartyDraftInput: Equatable {
         if case .popUp(.afterApproval) = templateConfiguration, accessMode != .privateApproval { return "Hidden Pop-Up locations require host approval." }
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
+        if accessMode == .cashAtDoor && (cashDoorPriceCents ?? 0) <= 0 { return "Cash-at-door parties need a cash amount." }
+        if accessMode != .cashAtDoor && cashDoorPriceCents != nil { return "Only cash-at-door parties can include a cash amount." }
         if creatorLinks.count > 8 || creatorLinks.contains(where: { !$0.isValid }) { return "Creator links need a title and secure HTTPS URL." }
         if Set(creatorLinks.map { NativePartyCreatorLink.canonicalURL($0.url) }).count != creatorLinks.count { return "Each creator link can be added only once." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
@@ -438,6 +465,7 @@ struct NativePartyDraftInput: Equatable {
             "templateId": templateID.rawValue, "title": title, "tagline": tagline,
             "startsAt": ISO8601DateFormatter().string(from: startsAt), "venueName": venueName,
             "capacity": capacity, "accessMode": accessMode.rawValue,
+            "cashDoorPriceCents": cashDoorPriceCents ?? NSNull(),
             "requiredMembershipTier": requiredMembershipTier.rawValue,
             "audienceCircleIds": audienceCircleIDs,
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
@@ -553,6 +581,7 @@ struct NativePartyPassRecord: Equatable {
     let locationLabel: String
     let locationDisclosure: String
     let accessMode: String
+    let cashDoorPriceCents: Int?
     let capacity: Int
     let requiredTier: String
     let coverURL: URL?
@@ -579,11 +608,14 @@ struct NativePartyPassAPI {
               let locationLabel = clean(row["locationLabel"]),
               let accessMode = clean(row["accessMode"]),
               let requiredTier = clean(row["tier"]) else { return nil }
+        guard NativePartyAccessMode(rawValue: accessMode) != nil else { return nil }
+        let cashDoorPriceCents = int(row["cashDoorPriceCents"])
+        guard accessMode != NativePartyAccessMode.cashAtDoor.rawValue || (cashDoorPriceCents ?? 0) > 0 else { return nil }
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
         let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
         let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
         let creatorLinks = NativePartyCreatorLink.collection(from: row["creatorLinks"])
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, creatorLinks: creatorLinks)
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, cashDoorPriceCents: accessMode == NativePartyAccessMode.cashAtDoor.rawValue ? cashDoorPriceCents : nil, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, creatorLinks: creatorLinks)
     }
 
     private static func objectRow(_ value: Any) -> [String: Any] {

@@ -136,6 +136,7 @@ enum ClipPartyTemplateConfiguration: Equatable {
 enum ClipPartyPassAction: String, Equatable {
     case authenticate
     case rsvp
+    case reserveCash = "reserve-cash"
     case requestApproval = "request-approval"
     case ticket
     case viewPass = "view-pass"
@@ -236,6 +237,7 @@ struct PartyPassInvite: Equatable {
     let locationLabel: String
     let locationIsWithheld: Bool
     let accessMode: String
+    let cashDoorPriceCents: Int?
     let capacity: Int?
     let attendeeCount: Int
     let ticketTiers: [ClipPartyTicketTier]
@@ -261,6 +263,10 @@ struct PartyPassInvite: Equatable {
               let title = string(row["title"]),
               let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
               string(row["source"]) == "host-studio-party" else { return nil }
+        let accessMode = string(row["accessMode"]) ?? "free-rsvp"
+        guard ["open-entry", "free-rsvp", "cash-at-door", "paid-ticket", "private-approval"].contains(accessMode) else { return nil }
+        let cashDoorPriceCents = int(row["cashDoorPriceCents"])
+        guard accessMode != "cash-at-door" || (cashDoorPriceCents ?? 0) > 0 else { return nil }
         let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
         return Self(
             id: id, title: title, tier: tier,
@@ -268,7 +274,7 @@ struct PartyPassInvite: Equatable {
             scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
             locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : "Location shared after approval",
             locationIsWithheld: !locationIsPublic,
-            accessMode: string(row["accessMode"]) ?? "free-rsvp",
+            accessMode: accessMode, cashDoorPriceCents: accessMode == "cash-at-door" ? cashDoorPriceCents : nil,
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
             itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],

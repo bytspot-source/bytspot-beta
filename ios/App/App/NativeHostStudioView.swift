@@ -19,7 +19,7 @@ struct NativeHostStudioView: View {
     @State private var capacity = "80"
     @State private var accessMode: NativePartyAccessMode = .freeRSVP
     @State private var requiredTier: BytspotTier = .green
-    @State private var ticketPrice = "25"
+    @State private var admissionPrice = "25"
     @State private var selectedCircleIDs: Set<String> = []
     @State private var teammateEmail = ""
     @State private var teammateRole: NativePartyHostRole = .cohost
@@ -343,13 +343,13 @@ struct NativeHostStudioView: View {
 
     private var doorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
+            sectionHeading("SET THE DOOR", "Who gets in?", "Choose open entry, RSVP, cash at the door, online tickets, or host approval.")
             ForEach(templateConfiguration.allowedAccessModes) { mode in
                 Button(action: { accessMode = mode }) {
-                    HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
+                    HStack(spacing: 12) { Image(systemName: accessIcon(mode)).foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
                 }.buttonStyle(.plain)
             }
-            if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
+            if accessMode.requiresPrice { field(accessMode == .cashAtDoor ? "Cash due at door" : "Online ticket price", text: $admissionPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "80", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 9) {
                 Text("MINIMUM MEMBERSHIP").studioLabel()
@@ -441,9 +441,9 @@ struct NativeHostStudioView: View {
 
     private var draft: NativePartyDraftInput {
         let count = Int(capacity) ?? 0
-        let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
+        let cents = max(0, Int(((Double(admissionPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, creatorLinks: creatorLinks, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, cashDoorPriceCents: accessMode == .cashAtDoor ? cents : nil, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, creatorLinks: creatorLinks, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {
@@ -482,7 +482,25 @@ struct NativeHostStudioView: View {
         HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization(keyboard == .emailAddress ? .never : .sentences).autocorrectionDisabled(keyboard == .emailAddress).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
     }
 
-    private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
+    private func accessIcon(_ mode: NativePartyAccessMode) -> String {
+        switch mode {
+        case .openEntry: return "door.left.hand.open"
+        case .freeRSVP: return "person.badge.plus"
+        case .cashAtDoor: return "banknote.fill"
+        case .paidTicket: return "ticket.fill"
+        case .privateApproval: return "lock.fill"
+        }
+    }
+
+    private func accessDetail(_ mode: NativePartyAccessMode) -> String {
+        switch mode {
+        case .openEntry: return "No RSVP, sign-in, or payment required."
+        case .freeRSVP: return "Guests sign in only to reserve a free spot."
+        case .cashAtDoor: return "Reserve first; collect cash at check-in."
+        case .paidTicket: return "Sell a limited online ticket through secure checkout."
+        case .privateApproval: return "You approve every guest."
+        }
+    }
     private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund and payout access only." }
 
     private func setCoverImage(_ image: UIImage?) {

@@ -798,6 +798,7 @@ private struct NativePartyPassPreview: View {
             }
             Text(party.title).nativeTitle(26)
             if let tagline = party.tagline { Text(tagline).nativeBody(size: 14) }
+            NativeWalletLine(title: "Admission", subtitle: NativePartyAccessMode.admissionLabel(rawValue: party.accessMode, cashDoorPriceCents: party.cashDoorPriceCents), icon: "door.left.hand.open")
             NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
             NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
@@ -823,7 +824,7 @@ private struct NativePartyPassPreview: View {
     }
 
     private func accessLabel(_ value: String) -> String {
-        value == "paid-ticket" ? "TICKET" : value == "private-approval" ? "APPROVAL" : "RSVP"
+        value == "paid-ticket" ? "ONLINE TICKET" : value == "cash-at-door" ? "CASH AT DOOR" : value == "private-approval" ? "APPROVAL" : value == "open-entry" ? "OPEN ENTRY" : "RSVP"
     }
 
     @MainActor private func loadParty() async {

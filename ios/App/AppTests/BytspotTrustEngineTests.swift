@@ -1551,6 +1551,23 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
     }
 
+    func testNativePartyAdmissionModesSeparateOpenCashAndOnlinePayment() {
+        let open = partyDraft(accessMode: .openEntry)
+        XCTAssertNil(open.validationMessage)
+        XCTAssertEqual(open.ticketTiers, [])
+        XCTAssertNil(open.cashDoorPriceCents)
+
+        let cashMissingAmount = partyDraft(accessMode: .cashAtDoor)
+        XCTAssertEqual(cashMissingAmount.validationMessage, "Cash-at-door parties need a cash amount.")
+
+        let cash = partyDraft(accessMode: .cashAtDoor, cashDoorPriceCents: 2_500)
+        XCTAssertNil(cash.validationMessage)
+        XCTAssertEqual(cash.rpcInput["cashDoorPriceCents"] as? Int, 2_500)
+        XCTAssertEqual(cash.ticketTiers, [])
+        XCTAssertEqual(NativePartyAccessMode.admissionLabel(rawValue: "cash-at-door", cashDoorPriceCents: 2_500), "Cash at door · $25")
+        XCTAssertEqual(NativePartyAccessMode.admissionLabel(rawValue: "open-entry"), "Open entry · no payment")
+    }
+
     func testNativePartyCreatorLinksFailClosedForInvalidDuplicateOrExcessPublicPayloads() throws {
         let valid: [String: String] = ["kind": "music", "title": "Listen now", "url": "https://music.example"]
         let invalid: [String: String] = ["kind": "website", "title": "Unsafe", "url": "http://creator.example"]
@@ -1656,13 +1673,13 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
-        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, cashDoorPriceCents: nil, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
         XCTAssertEqual(release.validationMessage, "Add the release title.")
 
-        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
+        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, cashDoorPriceCents: nil, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
         XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
 
-        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
+        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, cashDoorPriceCents: nil, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
     }
@@ -1687,11 +1704,11 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(try guest.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"))
     }
 
-    private func partyDraft(priceCents: Int = 3_500, creatorLinks: [NativePartyCreatorLink] = []) -> NativePartyDraftInput {
+    private func partyDraft(priceCents: Int = 3_500, accessMode: NativePartyAccessMode = .paidTicket, cashDoorPriceCents: Int? = nil, creatorLinks: [NativePartyCreatorLink] = []) -> NativePartyDraftInput {
         NativePartyDraftInput(
-            templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, audienceCircleIDs: ["circle-1"],
+            templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: accessMode, cashDoorPriceCents: cashDoorPriceCents, requiredMembershipTier: .platinum, audienceCircleIDs: ["circle-1"],
             itinerary: [NativePartyItineraryItem(title: "Doors open", offsetMinutes: 0), NativePartyItineraryItem(title: "Warm-up set", offsetMinutes: 60), NativePartyItineraryItem(title: "Headliner", offsetMinutes: 120)],
-            creatorLinks: creatorLinks, ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
+            creatorLinks: creatorLinks, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)] : [],
             cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)], templateConfiguration: .standard
         )
     }

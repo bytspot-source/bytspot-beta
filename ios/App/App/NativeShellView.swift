@@ -327,7 +327,7 @@ struct BytspotNativeShellView: View {
                     case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
@@ -761,6 +761,8 @@ private struct NativeContextualDestinationView: View {
                 } else if case .party(let route) = destination {
                     NativePartyPassPreview(route: route)
                         .environmentObject(sessionStore)
+                } else if case .booking(_, _, let ride) = destination, let ride {
+                    NativeMobilityBookingConfirmationCard(ride: ride, openAccess: openAccess)
                 } else {
                     NativeScreenScroll {
                         NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
@@ -783,6 +785,35 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+private struct NativeMobilityBookingConfirmationCard: View {
+    let ride: NativeMobilityRideRecord
+    let openAccess: () -> Void
+
+    var body: some View {
+        NativeScreenScroll {
+            NativeHeroCard(title: ride.serviceTitle ?? "Ride request received", eyebrow: "RIDE BOOKING", subtitle: rideStatusDescription)
+            VStack(alignment: .leading, spacing: 12) {
+                NativeWalletLine(title: "Status", subtitle: ride.normalizedStatus.replacingOccurrences(of: "_", with: " ").capitalized, icon: "checkmark.circle.fill")
+                NativeWalletLine(title: "Pickup", subtitle: ride.pickupLabel ?? "Current location", icon: "location.fill")
+                NativeWalletLine(title: "Destination", subtitle: ride.dropoffLabel ?? "Event destination", icon: "mappin.and.ellipse")
+                if let price = ride.priceLabel { NativeWalletLine(title: "Fare", subtitle: price, icon: "creditcard.fill") }
+                if let eta = ride.etaLabel { NativeWalletLine(title: "ETA", subtitle: eta, icon: "clock.fill") }
+                NativeWalletLine(title: "Reference", subtitle: ride.normalizedProviderReservationId ?? ride.id, icon: "number")
+            }
+            .padding(16)
+            .nativePanel()
+            Button(action: openAccess) { NativeCTA(title: "Open My Access", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+        }
+        .accessibilityIdentifier("native-mobility-booking-confirmation")
+    }
+
+    private var rideStatusDescription: String {
+        let provider = ride.provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return provider?.isEmpty == false ? "Your request is with \(provider!). Follow its status in My Access." : "Your ride request is saved in My Access."
     }
 }
 
@@ -9033,6 +9064,7 @@ private struct NativeDiscoverView: View {
     let openNativeProfile: () -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: () -> Void
+    var onRideBookingCompleted: (NativeMobilityRideRecord) -> Void = { _ in }
     var handoffFilter: String? = nil
     var consumeHandoffFilter: () -> Void = {}
     @State private var selectedFilter: String? = Self.previewFilter
@@ -9043,6 +9075,7 @@ private struct NativeDiscoverView: View {
     @State private var savedCardIDs: Set<String> = []
     @State private var skippedCardIDs: Set<String> = []
     @State private var detailVenue: NativeVenueSummary?
+    @State private var eventRideVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var partnerMenuVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
@@ -9118,7 +9151,7 @@ private struct NativeDiscoverView: View {
                 if Self.isValetPremiumRide(venue) {
                     NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: openNativeAuth)
                 } else {
-                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
+                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted)
                 }
             }
             if #available(iOS 16.0, *) {
@@ -9131,6 +9164,9 @@ private struct NativeDiscoverView: View {
         }
         .sheet(item: $parkingBookingVenue) { venue in
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
+        }
+        .sheet(item: $eventRideVenue) { venue in
+            NativeEventRideBookingSheet(event: venue, onCompleted: onRideBookingCompleted, onSignIn: openNativeAuth)
         }
         .sheet(item: $partnerMenuVenue) { venue in
             NativePartnerMenuView(menu: PartnerMenu.sample(for: venue), tier: partnerMenuTier(for: venue), isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth)
@@ -9404,6 +9440,15 @@ private struct NativeDiscoverView: View {
 
     private func handlePrimaryCTA(_ card: DiscoverCardSpec) {
         let venue = venueForDetail(card)
+        if card.cta == "Book Ride" {
+            guard venue.hasKnownCoordinates else {
+                discoverStatusMessage = "This event needs a verified destination before a ride can be requested."
+                detailVenue = venue
+                return
+            }
+            eventRideVenue = venue
+            return
+        }
         if Self.supportsManualCheckIn(card, venue: venue) {
             performManualCheckIn(from: venue)
             return
@@ -10162,6 +10207,7 @@ private struct NativeVenueDetailView: View {
     var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
     var openNativeAuth: (() -> Void)? = nil
     var openNativeAccess: (() -> Void)? = nil
+    var onRideBookingCompleted: ((NativeMobilityRideRecord) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -10178,6 +10224,7 @@ private struct NativeVenueDetailView: View {
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
     @State private var showPartnerMenu = false
+    @State private var showEventRideBooking = false
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -10220,6 +10267,12 @@ private struct NativeVenueDetailView: View {
         }
         .sheet(isPresented: $showPartnerMenu) {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
+        }
+        .sheet(isPresented: $showEventRideBooking) {
+            NativeEventRideBookingSheet(event: venue, onCompleted: { ride in
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { onRideBookingCompleted?(ride) }
+            }, onSignIn: { openNativeAuth?() })
         }
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
         .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
@@ -10562,6 +10615,14 @@ private struct NativeVenueDetailView: View {
     }
 
     private func handleCapability(_ action: NativeVenueDetailAction, capability: BytspotTrustCapability) {
+        if action.id == "bookRide", NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
+            guard venue.hasKnownCoordinates else {
+                statusMessage = "This event needs a verified destination before a ride can be requested."
+                return
+            }
+            showEventRideBooking = true
+            return
+        }
         if action.id == "bookRide", NativeVenueDetailPresentation.isMobilityVenue(venue) {
             if venue.name.localizedCaseInsensitiveContains("group") {
                 statusMessage = "Concierge can help coordinate group transport for \(venue.name)."
@@ -10705,7 +10766,7 @@ private struct NativeVenueDetailView: View {
     }
 
     private func detailActionTitle(for action: NativeVenueDetailAction) -> String { action.id == "checkIn" && didCheckIn ? "Checked In" : NativeVenueDetailPresentation.actionTitle(for: action, venue: venue) }
-    private func isLocked(_ action: NativeVenueDetailAction) -> Bool { if action.id == "bookRide", NativeVenueDetailPresentation.isMobilityVenue(venue) { return false }; if case .capability(let capability) = action.kind { return currentTrustLevel < capability.requiredLevel }; return false }
+    private func isLocked(_ action: NativeVenueDetailAction) -> Bool { if action.id == "bookRide", NativeVenueDetailPresentation.isMobilityVenue(venue) || NativeVenueDetailPresentation.isEventOrPassVenue(venue) { return false }; if case .capability(let capability) = action.kind { return currentTrustLevel < capability.requiredLevel }; return false }
     private func actionAccent(_ action: NativeVenueDetailAction) -> Color { ["navigate": NativeTheme.cyan, "call": NativeTheme.emerald, "share": NativeTheme.textPrimary, "save": NativeTheme.pink, "getTickets": NativeTheme.blackAmber, "checkIn": NativeTheme.emerald, "concierge": NativeTheme.purple, "bookRide": NativeTheme.orange][action.id] ?? NativeTheme.cyan }
     private var categoryDetailIcon: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "house.fill" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "cup.and.saucer.fill" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "fork.knife" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "ticket.fill" : venue.discoverType == "mobility" ? "car.side.fill" : venue.discoverType == "parking" ? "parkingsign.circle.fill" : "sparkles" }
     private var categoryDetailTitle: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Boutique Stay" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Coffee" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Dining" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Pass" : venue.discoverType == "mobility" ? "Mobility" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Services" : venue.discoverType == "parking" ? "Parking" : "Details" }
@@ -10715,6 +10776,139 @@ private struct NativeVenueDetailView: View {
     private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
     private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
     private func presentShare(text: String) { guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first, let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }; root.present(UIActivityViewController(activityItems: [text], applicationActivities: nil), animated: true) }
+}
+
+private struct NativeEventRideBookingSheet: View {
+    let event: NativeVenueSummary
+    let onCompleted: (NativeMobilityRideRecord) -> Void
+    let onSignIn: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
+    @State private var quote: NativeMobilityQuoteRecord?
+    @State private var statusMessage = ""
+    @State private var isQuoting = false
+    @State private var isReserving = false
+
+    private var mobilityAPI: NativeMobilityDataAPI {
+        NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+    }
+
+    private var pickup: NativeLocationCoordinate { locationStore.coordinate }
+    private var isWorking: Bool { isQuoting || isReserving }
+    private var primaryTitle: String {
+        if isQuoting { return "Finding rides…" }
+        if isReserving { return "Requesting ride…" }
+        if quote == nil { return "Check ride options" }
+        return sessionStore.isAuthenticated ? "Request this ride" : "Sign in to request"
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                routePanel
+                if let quote { quotePanel(quote) }
+                if !statusMessage.isEmpty { NativeWalletLine(title: "Ride status", subtitle: statusMessage, icon: "info.circle.fill").padding(14).nativePanel() }
+                Button(action: { nativeImpactLight(); Task { await advance() } }) {
+                    NativeCTA(title: primaryTitle, color: NativeTheme.orange, foreground: NativeProfileStyle.onVibrant)
+                }
+                .buttonStyle(.plain)
+                .disabled(isWorking)
+            }
+            .padding(18)
+            .padding(.bottom, 30)
+        }
+        .background(NativeTheme.background.ignoresSafeArea())
+        .onAppear { locationStore.requestWhenInUseIfNeeded() }
+        .task { await requestQuoteIfPossible() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in
+            guard quote == nil else { return }
+            Task { await requestQuoteIfPossible() }
+        }
+        .accessibilityIdentifier("native-event-ride-booking-sheet")
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            NativeIcon(symbol: "car.side.fill", color: NativeTheme.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Ride to event").nativeTitle(22)
+                Text(event.name).nativeBody(size: 13).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            Button(action: dismiss.callAsFunction) { Image(systemName: "xmark.circle.fill").font(.system(size: 25, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                .buttonStyle(.plain)
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private var routePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ROUTE").font(.system(size: 10.5, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.textTertiary)
+            NativeWalletLine(title: "Pickup", subtitle: pickup.isFallback ? "Waiting for your current location" : "Current location", icon: "location.fill")
+            NativeWalletLine(title: "Destination", subtitle: event.address.isEmpty ? event.name : event.address, icon: "mappin.and.ellipse")
+            Text("The event destination is passed as verified coordinates; it is never searched by venue name.").nativeBody(size: 11.5)
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private func quotePanel(_ quote: NativeMobilityQuoteRecord) -> some View {
+        let providerDetail = [quote.provider, quote.serviceClass].compactMap { $0 }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("RIDE OPTION").font(.system(size: 10.5, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.textTertiary)
+            NativeWalletLine(title: quote.serviceTitle ?? "Available ride", subtitle: providerDetail.isEmpty ? "Mobility provider" : providerDetail, icon: "car.fill")
+            if let price = quote.priceLabel { NativeWalletLine(title: "Fare", subtitle: price, icon: "creditcard.fill") }
+            if let eta = quote.etaLabel { NativeWalletLine(title: "ETA", subtitle: eta, icon: "clock.fill") }
+            if let cancellation = quote.cancellationLabel { NativeWalletLine(title: "Cancellation", subtitle: cancellation, icon: "arrow.uturn.backward.circle.fill") }
+        }
+        .padding(16)
+        .nativePanel()
+    }
+
+    private func advance() async {
+        guard let quote else {
+            await requestQuoteIfPossible()
+            return
+        }
+        guard sessionStore.isAuthenticated else {
+            statusMessage = "Sign in before requesting this ride."
+            onSignIn()
+            return
+        }
+        guard let input = NativeEventRideBookingContract.reservationInput(quote: quote, event: event, pickup: pickup) else {
+            statusMessage = "Your current location or event destination is no longer available."
+            return
+        }
+        isReserving = true
+        defer { isReserving = false }
+        do {
+            let ride = try await mobilityAPI.createReservation(input: input)
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { onCompleted(ride) }
+        } catch {
+            statusMessage = "We couldn't request this ride. Check your connection and try again."
+        }
+    }
+
+    private func requestQuoteIfPossible() async {
+        guard !isQuoting, quote == nil else { return }
+        guard let input = NativeEventRideBookingContract.quoteInput(event: event, pickup: pickup) else {
+            statusMessage = pickup.isFallback ? "Allow location access to see rides from your current location." : "This event does not have a verified destination."
+            return
+        }
+        isQuoting = true
+        statusMessage = "Checking ride options for this event."
+        defer { isQuoting = false }
+        do {
+            quote = try await mobilityAPI.createQuote(input: input)
+            statusMessage = "Ride option ready. Review it before requesting."
+        } catch {
+            statusMessage = "Ride options are unavailable right now. Try again shortly."
+        }
+    }
 }
 
 // MARK: - Native Partner Menu models

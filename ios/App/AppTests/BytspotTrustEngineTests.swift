@@ -987,6 +987,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.address, event.address)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.latitude, event.latitude)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.longitude, event.longitude)
+        XCTAssertEqual(eventCard.cta, "Book Ride")
         let unresolvedEventWithVenueCollision = NativeDiscoverSummary(id: "event-route-deck", type: "entertainment", title: venue.name, subtitle: venue.address, distance: "Tonight", rating: "Live", icon: "ticket.fill", verified: true, entryType: "free", cta: "View Event", imageUrl: nil, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "Tonight", features: [], vibeScore: 8, availability: "Tonight", membershipRequired: false)
         XCTAssertNil(NativeDiscoverRouteResolver.routeVenue(for: unresolvedEventWithVenueCollision, venues: [venue]))
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: providerCard, venues: [])?.id, providerCard.id)
@@ -1017,6 +1018,40 @@ final class BytspotTrustEngineTests: XCTestCase {
                 XCTAssertEqual(NativeMapFocusPinResolutionPolicy.mergeAction(focused: focused, candidates: [live]), .replaceExisting(indices: [0]))
             }
         }
+    }
+
+    func testEventRideQuoteInputRequiresVerifiedCoordinatePairs() throws {
+        let event = NativeVenueSummary(id: "event-ride", name: "Coordinate Event", category: "entertainment", address: "1 Event Way", distance: "Tonight", rating: nil, latitude: 33.787, longitude: -84.383, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        let pickup = NativeLocationCoordinate(latitude: 33.781, longitude: -84.390, isFallback: false)
+        let input = try XCTUnwrap(NativeEventRideBookingContract.quoteInput(event: event, pickup: pickup))
+
+        XCTAssertEqual(input["source"] as? String, "native-event-discovery")
+        XCTAssertEqual(input["bookingType"] as? String, "event_ride")
+        XCTAssertEqual(input["eventId"] as? String, event.id)
+        XCTAssertEqual(input["pickupLat"] as? Double, pickup.latitude)
+        XCTAssertEqual(input["pickupLng"] as? Double, pickup.longitude)
+        XCTAssertEqual(input["dropoffLat"] as? Double, event.latitude)
+        XCTAssertEqual(input["dropoffLng"] as? Double, event.longitude)
+        XCTAssertEqual((input["pickupLocation"] as? [String: Double])?["lat"], pickup.latitude)
+        XCTAssertEqual((input["dropoffLocation"] as? [String: Double])?["lng"], event.longitude)
+
+        let unresolvedEvent = NativeVenueSummary(id: "unresolved-event", name: "Unresolved Event", category: "entertainment", address: "Address pending", distance: "Tonight", rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        XCTAssertNil(NativeEventRideBookingContract.quoteInput(event: unresolvedEvent, pickup: pickup))
+        XCTAssertNil(NativeEventRideBookingContract.quoteInput(event: event, pickup: .midtown))
+    }
+
+    @MainActor
+    func testNativeRideBookingRouteRetainsReservationRecord() throws {
+        let coordinator = NativeNavigationCoordinator()
+        let ride = NativeMobilityRideRecord(id: "ride-123", provider: "bytspot", providerReservationId: "reservation-123", status: "confirmed", serviceTitle: "Event ride", priceLabel: "$24", etaLabel: "6 min", pickupLabel: "Current location", dropoffLabel: "1 Event Way")
+
+        coordinator.presentBooking(ride: ride)
+
+        XCTAssertEqual(coordinator.requestedTab, .home)
+        guard case let .booking(status, url, routedRide?) = coordinator.requestedDestination else { return XCTFail("Expected record-aware booking destination") }
+        XCTAssertEqual(status, "confirmed")
+        XCTAssertEqual(routedRide, ride)
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "rideId" })?.value, ride.id)
     }
 
     @MainActor

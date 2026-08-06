@@ -827,6 +827,49 @@ enum NativeMobilityRouteContract {
     static let routes = ["mobility.quotes.create", "mobility.reservations.create", "mobility.reservations.cancel", "mobility.trips.status", "mobility.passenger.update"]
 }
 
+/// Coordinate-authoritative request builder for rides originating from an
+/// event card. The backend receives labels for presentation and complete
+/// coordinate pairs for dispatch; neither field is inferred from a venue name.
+enum NativeEventRideBookingContract {
+    static let source = "native-event-discovery"
+    static let bookingType = "event_ride"
+
+    static func quoteInput(event: NativeVenueSummary, pickup: NativeLocationCoordinate) -> [String: Any]? {
+        guard event.hasKnownCoordinates, !pickup.isFallback,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: pickup.latitude, longitude: pickup.longitude) else { return nil }
+        let pickupLabel = "Current location"
+        let dropoffLabel = event.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? event.name : event.address
+        return [
+            "bookingType": bookingType,
+            "source": source,
+            "eventId": event.id,
+            "eventTitle": event.name,
+            "pickup": pickupLabel,
+            "dropoff": dropoffLabel,
+            "pickupLabel": pickupLabel,
+            "dropoffLabel": dropoffLabel,
+            "pickupLocation": pickup.apiPoint(),
+            "dropoffLocation": ["lat": event.latitude, "lng": event.longitude],
+            "pickupLat": pickup.latitude,
+            "pickupLng": pickup.longitude,
+            "dropoffLat": event.latitude,
+            "dropoffLng": event.longitude
+        ]
+    }
+
+    static func reservationInput(quote: NativeMobilityQuoteRecord, event: NativeVenueSummary, pickup: NativeLocationCoordinate) -> [String: Any]? {
+        guard var input = quoteInput(event: event, pickup: pickup) else { return nil }
+        input["quoteId"] = quote.id
+        input["provider"] = quote.provider ?? "bytspot"
+        input["serviceClass"] = quote.serviceClass ?? "standard"
+        input["serviceTitle"] = quote.serviceTitle ?? "Event ride"
+        input["priceLabel"] = quote.priceLabel ?? "Price pending"
+        input["etaLabel"] = quote.etaLabel ?? "ETA pending"
+        input["requestMode"] = "reserve"
+        return input
+    }
+}
+
 struct NativeMobilityDataAPI {
     let client: BytspotAPIClient
 
@@ -1835,6 +1878,11 @@ struct NativeEventSummary: Identifiable, Equatable {
         self.latitude = latitude
         self.longitude = longitude
     }
+
+    var hasKnownCoordinates: Bool {
+        guard let latitude, let longitude else { return false }
+        return NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude)
+    }
 }
 
 struct NativeTabContentSnapshot: Equatable {
@@ -2309,13 +2357,13 @@ final class NativeTabContentStore: ObservableObject {
 
     private static func eventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
         events.prefix(20).map { event in
-            NativeDiscoverSummary(id: "event-\(event.id)", type: "entertainment", title: event.title, subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "ticket.fill", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Events", event.category.capitalized, event.venue, event.emoji], vibeScore: 8, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
+            NativeDiscoverSummary(id: "event-\(event.id)", type: "entertainment", title: event.title, subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "ticket.fill", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: event.hasKnownCoordinates ? "Book Ride" : "View Event", imageUrl: event.imageUrl, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Events", event.category.capitalized, event.venue, event.emoji], vibeScore: 8, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
         }
     }
 
     private static func nightlifeEventDiscoverCards(from events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
         events.prefix(20).filter(isNightlifeAdjacentEvent).map { event in
-            NativeDiscoverSummary(id: "nightlife-event-\(event.id)", type: "nightlife", title: "Night out: \(event.title)", subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "music.note", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: "View Event", imageUrl: event.imageUrl, categoryLabel: "Nightlife", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Live music", event.category.capitalized, event.venue], vibeScore: 9, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
+            NativeDiscoverSummary(id: "nightlife-event-\(event.id)", type: "nightlife", title: "Night out: \(event.title)", subtitle: event.address ?? event.venue, distance: event.time, rating: "Live", icon: "music.note", verified: true, entryType: event.price.localizedCaseInsensitiveContains("free") ? "free" : "paid", cta: event.hasKnownCoordinates ? "Book Ride" : "View Event", imageUrl: event.imageUrl, categoryLabel: "Nightlife", badgeText: "LIVE EVENT", metadataLine: "\(event.time) • \(event.price)", features: ["Live music", event.category.capitalized, event.venue], vibeScore: 9, availability: event.time, membershipRequired: false, latitude: event.latitude, longitude: event.longitude)
         }
     }
 

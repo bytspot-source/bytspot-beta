@@ -1534,14 +1534,16 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativePartyRoleContract.can(.finance, .checkIn))
     }
 
-    func testNativeHostStudioDraftCarriesTierCirclesTicketsItineraryAndRoles() throws {
-        let draft = partyDraft()
+    func testNativeHostStudioDraftCarriesTierCirclesTicketsItineraryRolesAndCreatorLinks() throws {
+        let link = NativePartyCreatorLink(kind: .music, title: "Listen now", url: try XCTUnwrap(URL(string: "https://music.example/first-listen")))
+        let draft = partyDraft(creatorLinks: [link])
         XCTAssertNil(draft.validationMessage)
         XCTAssertEqual(draft.rpcInput["source"] as? String, "host-studio")
         XCTAssertEqual(draft.rpcInput["requiredMembershipTier"] as? String, "platinum")
         XCTAssertEqual(draft.rpcInput["audienceCircleIds"] as? [String], ["circle-1"])
         XCTAssertEqual((draft.rpcInput["ticketTiers"] as? [[String: Any]])?.first?["priceCents"] as? Int, 3_500)
         XCTAssertEqual((draft.rpcInput["itinerary"] as? [[String: Any]])?.last?["offsetMinutes"] as? Int, 120)
+        XCTAssertEqual((draft.rpcInput["creatorLinks"] as? [[String: String]])?.first?["url"], "https://music.example/first-listen")
         XCTAssertEqual((draft.rpcInput["cohosts"] as? [[String: Any]])?.first?["role"] as? String, "door")
         XCTAssertEqual((draft.rpcInput["templateConfig"] as? [String: Any])?["kind"] as? String, "standard")
         XCTAssertEqual(NativePartyStudioAPI.draftCreateInput(draft, idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
@@ -1610,7 +1612,8 @@ final class NativeProfileDataAPITests: XCTestCase {
             let payload: [String: Any] = ["result": ["data": ["json": [
                 "id": "party-1", "source": "host-studio-party", "title": "Secret Drop",
                 "scheduledDate": "2026-08-10T20:00:00Z", "locationLabel": "Secret rooftop",
-                "accessMode": "private-approval", "tier": "green"
+            "accessMode": "private-approval", "tier": "green",
+            "creatorLinks": [["kind": "merchandise", "title": "Shop the drop", "url": "https://shop.example/drop"]]
             ]]]]
             return (200, try JSONSerialization.data(withJSONObject: payload))
         }
@@ -1621,6 +1624,7 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         XCTAssertTrue(party.isLocationWithheld)
         XCTAssertEqual(party.locationLabel, "Location shared after approval")
+        XCTAssertEqual(party.creatorLinks.first?.title, "Shop the drop")
     }
 
     func testNativeHostStudioFailsClosedWithoutValidPaidTicketOrPartyPass() throws {
@@ -1636,13 +1640,13 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
-        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
         XCTAssertEqual(release.validationMessage, "Add the release title.")
 
-        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
+        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
         XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
 
-        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
+        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], creatorLinks: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
     }
@@ -1667,11 +1671,11 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(try guest.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"))
     }
 
-    private func partyDraft(priceCents: Int = 3_500) -> NativePartyDraftInput {
+    private func partyDraft(priceCents: Int = 3_500, creatorLinks: [NativePartyCreatorLink] = []) -> NativePartyDraftInput {
         NativePartyDraftInput(
             templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, audienceCircleIDs: ["circle-1"],
             itinerary: [NativePartyItineraryItem(title: "Doors open", offsetMinutes: 0), NativePartyItineraryItem(title: "Warm-up set", offsetMinutes: 60), NativePartyItineraryItem(title: "Headliner", offsetMinutes: 120)],
-            ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
+            creatorLinks: creatorLinks, ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
             cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)], templateConfiguration: .standard
         )
     }
@@ -1814,8 +1818,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         restoredApple.reloadFromKeychain()
         XCTAssertEqual(restoredApple.token, "keychain_apple_test_token")
         XCTAssertEqual(restoredApple.authenticatedUserID, "apple-user-id")
+        XCTAssertEqual(restoredApple.greetingName, "Apple")
 
-        XCTAssertTrue(store.updateSession(token: "refreshed_apple_test_token", userID: "apple-user-id"))
+        XCTAssertTrue(store.updateSession(token: "refreshed_apple_test_token", userID: "apple-user-id", displayName: "Apple Test"))
         let refreshedApple = BytspotSessionStore(account: account, service: service)
         XCTAssertEqual(refreshedApple.token, "refreshed_apple_test_token")
         XCTAssertEqual(refreshedApple.authenticatedUserID, "apple-user-id")
@@ -1829,6 +1834,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         restoredGoogle.reloadFromKeychain()
         XCTAssertEqual(restoredGoogle.token, "keychain_google_test_token")
         XCTAssertEqual(restoredGoogle.authenticatedUserID, "google-user-id")
+        XCTAssertEqual(restoredGoogle.greetingName, "Google")
     }
 
     @MainActor
@@ -1846,6 +1852,24 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let restoredSession = BytspotSessionStore(account: account, service: service)
         XCTAssertEqual(restoredSession.token, "email_session_token")
         XCTAssertEqual(restoredSession.authenticatedUserID, "email-user-id")
+        XCTAssertEqual(restoredSession.greetingName, "Member")
+    }
+
+    @MainActor
+    func testAuthenticatedGreetingClearsWhenTheNextAccountHasNoVerifiedName() {
+        let account = "native_authenticated_greeting_\(UUID().uuidString)"
+        let service = "com.bytspot.native-authenticated-greeting-tests"
+        let sessionStore = BytspotSessionStore(account: account, service: service)
+        defer { sessionStore.signOut() }
+
+        XCTAssertTrue(sessionStore.updateSession(token: "ada_token", userID: "user-1", displayName: "Ada Lovelace"))
+        XCTAssertEqual(sessionStore.greetingName, "Ada")
+        XCTAssertTrue(sessionStore.updateSession(token: "other_token", userID: "user-2", displayName: nil))
+        XCTAssertNil(sessionStore.greetingName)
+
+        let restoredSession = BytspotSessionStore(account: account, service: service)
+        XCTAssertEqual(restoredSession.authenticatedUserID, "user-2")
+        XCTAssertNil(restoredSession.greetingName)
     }
 
     @MainActor

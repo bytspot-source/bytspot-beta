@@ -498,27 +498,33 @@ private extension NativeVirtualPatchSavedServiceRequest {
 final class BytspotSessionStore: ObservableObject {
     @Published private(set) var token: String?
     @Published private(set) var authenticatedUserID: String?
+    @Published private(set) var authenticatedDisplayName: String?
     private let account: String
     private let identityAccount: String
+    private let displayNameAccount: String
     private let service: String
 
     init(account: String = "bytspot_auth_token", service: String = Bundle.main.bundleIdentifier ?? "com.bytspot.app") {
         self.account = account
         self.identityAccount = "\(account)_user_id"
+        self.displayNameAccount = "\(account)_display_name"
         self.service = service
         token = nil
         authenticatedUserID = nil
+        authenticatedDisplayName = nil
         token = readValue(for: account)
         authenticatedUserID = readValue(for: identityAccount)
-        if token == nil || token == "guest_session" { authenticatedUserID = nil }
+        authenticatedDisplayName = readValue(for: displayNameAccount)
+        normalizeStoredIdentity()
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         switch ProcessInfo.processInfo.environment[NativeMigrationConfig.previewSessionEnvironmentKey]?.lowercased() {
-        case "signed_out": token = nil; authenticatedUserID = nil
-        case "guest": token = "guest_session"; authenticatedUserID = nil
+        case "signed_out": token = nil; authenticatedUserID = nil; authenticatedDisplayName = nil
+        case "guest": token = "guest_session"; authenticatedUserID = nil; authenticatedDisplayName = nil
         default:
             if let previewToken = ProcessInfo.processInfo.environment[NativeMigrationConfig.previewTokenEnvironmentKey], !previewToken.isEmpty {
                 token = previewToken
                 authenticatedUserID = nil
+                authenticatedDisplayName = nil
             }
         }
     }
@@ -533,6 +539,12 @@ final class BytspotSessionStore: ObservableObject {
     var hasSecureToken: Bool { token?.isEmpty == false }
 
     var canAttachBearerToken: Bool { isAuthenticated }
+
+    var greetingName: String? {
+        guard isAuthenticated, normalizedUserID(authenticatedUserID) != nil,
+              let name = normalizedGreetingName(authenticatedDisplayName) else { return nil }
+        return name
+    }
 
     var sessionLabel: String {
         if isAuthenticated { return "Signed in" }
@@ -550,41 +562,82 @@ final class BytspotSessionStore: ObservableObject {
 
     func reloadFromKeychain() {
         token = readValue(for: account)
-        authenticatedUserID = token == nil || token == "guest_session" ? nil : readValue(for: identityAccount)
+        authenticatedUserID = readValue(for: identityAccount)
+        authenticatedDisplayName = readValue(for: displayNameAccount)
+        normalizeStoredIdentity()
     }
 
     @discardableResult
     func updateToken(_ newToken: String?) -> Bool {
-        updateSession(token: newToken, userID: nil)
+        updateSession(token: newToken, userID: nil, displayName: nil)
     }
 
     @discardableResult
     func updateSession(token newToken: String?, userID: String?) -> Bool {
+        updateSession(token: newToken, userID: userID, displayName: nil)
+    }
+
+    @discardableResult
+    func updateSession(token newToken: String?, userID: String?, displayName: String?) -> Bool {
         if let newToken, !newToken.isEmpty {
             guard saveValue(newToken, for: account) else { return false }
-            let normalizedUserID = userID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let normalizedUserID, !normalizedUserID.isEmpty {
-                guard saveValue(normalizedUserID, for: identityAccount) else {
+            clearValue(for: identityAccount)
+            clearValue(for: displayNameAccount)
+            let stableUserID = normalizedUserID(userID)
+            if let stableUserID {
+                guard saveValue(stableUserID, for: identityAccount) else {
                     clearValue(for: account)
                     clearValue(for: identityAccount)
+                    clearValue(for: displayNameAccount)
                     token = nil
                     authenticatedUserID = nil
+                    authenticatedDisplayName = nil
                     return false
                 }
-                authenticatedUserID = normalizedUserID
+                authenticatedUserID = stableUserID
+                if let greetingName = normalizedGreetingName(displayName), saveValue(greetingName, for: displayNameAccount) {
+                    authenticatedDisplayName = greetingName
+                } else {
+                    authenticatedDisplayName = nil
+                }
             } else {
-                clearValue(for: identityAccount)
                 authenticatedUserID = nil
+                authenticatedDisplayName = nil
             }
             token = newToken
             return true
         } else {
             clearValue(for: account)
             clearValue(for: identityAccount)
+            clearValue(for: displayNameAccount)
             token = nil
             authenticatedUserID = nil
+            authenticatedDisplayName = nil
             return true
         }
+    }
+
+    private func normalizeStoredIdentity() {
+        guard isAuthenticated, let userID = normalizedUserID(authenticatedUserID) else {
+            authenticatedUserID = nil
+            authenticatedDisplayName = nil
+            return
+        }
+        authenticatedUserID = userID
+        authenticatedDisplayName = normalizedGreetingName(authenticatedDisplayName)
+    }
+
+    private func normalizedUserID(_ rawUserID: String?) -> String? {
+        guard let rawUserID else { return nil }
+        let userID = rawUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...200).contains(userID.count) ? userID : nil
+    }
+
+    private func normalizedGreetingName(_ rawName: String?) -> String? {
+        guard let rawName else { return nil }
+        let parts = rawName.split(whereSeparator: { $0.isWhitespace })
+        guard let first = parts.first, (1...64).contains(first.count) else { return nil }
+        return String(first)
     }
 
     private func readValue(for keychainAccount: String) -> String? {

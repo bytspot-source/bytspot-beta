@@ -85,6 +85,7 @@ enum NativeAuthStatus: Equatable {
 protocol NativeAuthSessionStoring: AnyObject {
     @discardableResult func updateToken(_ newToken: String?) -> Bool
     @discardableResult func updateSession(token: String?, userID: String?) -> Bool
+    @discardableResult func updateSession(token: String?, userID: String?, displayName: String?) -> Bool
     func continueAsGuest()
     func signOut()
 }
@@ -141,7 +142,7 @@ final class NativeAuthCoordinator: ObservableObject {
             case .apple: result = try await appleAdapter.signIn()
             case .google: result = try await googleAdapter.signIn()
             }
-            if sessionStore.updateSession(token: result.token, userID: result.userID) {
+            if sessionStore.updateSession(token: result.token, userID: result.userID, displayName: result.displayName) {
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
                 status = .failed(message: "We couldn't save your sign-in. Please try again.")

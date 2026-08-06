@@ -338,6 +338,49 @@ struct NativePartyItineraryItem: Equatable { let title: String; let offsetMinute
 struct NativePartyTicketTier: Equatable { let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier }
 struct NativePartyHostAssignment: Equatable { let email: String; let role: NativePartyHostRole }
 
+enum NativePartyCreatorLinkKind: String, CaseIterable, Codable, Identifiable {
+    case music, merchandise, website, social
+    var id: String { rawValue }
+    var title: String { self == .merchandise ? "Merch" : rawValue.capitalized }
+    var icon: String {
+        switch self {
+        case .music: return "music.note"
+        case .merchandise: return "bag.fill"
+        case .website: return "safari.fill"
+        case .social: return "person.2.fill"
+        }
+    }
+}
+
+struct NativePartyCreatorLink: Equatable, Identifiable {
+    let kind: NativePartyCreatorLinkKind
+    let title: String
+    let url: URL
+
+    var id: String { "\(kind.rawValue):\(url.absoluteString)" }
+    var isValid: Bool {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...80).contains(name.count)
+            && url.scheme?.lowercased() == "https"
+            && url.host?.isEmpty == false
+            && url.user == nil
+            && url.password == nil
+            && url.absoluteString.count <= 2_048
+    }
+    var rpcInput: [String: String] { ["kind": kind.rawValue, "title": title.trimmingCharacters(in: .whitespacesAndNewlines), "url": url.absoluteString] }
+
+    static func from(_ value: Any) -> Self? {
+        guard let row = value as? [String: Any],
+              let rawKind = row["kind"] as? String,
+              let kind = NativePartyCreatorLinkKind(rawValue: rawKind),
+              let title = row["title"] as? String,
+              let urlString = row["url"] as? String,
+              let url = URL(string: urlString) else { return nil }
+        let link = Self(kind: kind, title: title, url: url)
+        return link.isValid ? link : nil
+    }
+}
+
 struct NativePartyDraftInput: Equatable {
     let templateID: NativePartyTemplateID
     let title: String
@@ -349,6 +392,7 @@ struct NativePartyDraftInput: Equatable {
     let requiredMembershipTier: BytspotTier
     let audienceCircleIDs: [String]
     let itinerary: [NativePartyItineraryItem]
+    let creatorLinks: [NativePartyCreatorLink]
     let ticketTiers: [NativePartyTicketTier]
     let cohosts: [NativePartyHostAssignment]
     let templateConfiguration: NativePartyTemplateConfiguration
@@ -364,6 +408,8 @@ struct NativePartyDraftInput: Equatable {
         if case .popUp(.afterApproval) = templateConfiguration, accessMode != .privateApproval { return "Hidden Pop-Up locations require host approval." }
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
+        if creatorLinks.count > 8 || creatorLinks.contains(where: { !$0.isValid }) { return "Creator links need a title and secure HTTPS URL." }
+        if Set(creatorLinks.map { $0.url.absoluteString }).count != creatorLinks.count { return "Each creator link can be added only once." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
         return nil
     }
@@ -376,6 +422,7 @@ struct NativePartyDraftInput: Equatable {
             "requiredMembershipTier": requiredMembershipTier.rawValue,
             "audienceCircleIds": audienceCircleIDs,
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
+            "creatorLinks": creatorLinks.map(\.rpcInput),
             "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
             "cohosts": cohosts.map { ["email": $0.email, "role": $0.role.rawValue] },
             "templateConfig": templateConfiguration.rpcInput,
@@ -490,6 +537,7 @@ struct NativePartyPassRecord: Equatable {
     let capacity: Int
     let requiredTier: String
     let coverURL: URL?
+    let creatorLinks: [NativePartyCreatorLink]
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
 }
@@ -515,7 +563,8 @@ struct NativePartyPassAPI {
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
         let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
         let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
+        let creatorLinks = (row["creatorLinks"] as? [Any])?.compactMap(NativePartyCreatorLink.from) ?? []
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, creatorLinks: creatorLinks)
     }
 
     private static func objectRow(_ value: Any) -> [String: Any] {

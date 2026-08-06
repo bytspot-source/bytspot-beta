@@ -12,11 +12,13 @@ enum NativeAuthSeamSelfTests {
     private final class InMemorySessionStore: NativeAuthSessionStoring {
         private(set) var token: String?
         private(set) var userID: String?
+        private(set) var displayName: String?
         var isAuthenticated: Bool { token?.isEmpty == false && token != "guest_session" }
-        @discardableResult func updateToken(_ newToken: String?) -> Bool { token = newToken; userID = nil; return true }
-        @discardableResult func updateSession(token: String?, userID: String?) -> Bool { self.token = token; self.userID = userID; return true }
-        func continueAsGuest() { token = "guest_session"; userID = nil }
-        func signOut() { token = nil; userID = nil }
+        @discardableResult func updateToken(_ newToken: String?) -> Bool { token = newToken; userID = nil; displayName = nil; return true }
+        @discardableResult func updateSession(token: String?, userID: String?) -> Bool { updateSession(token: token, userID: userID, displayName: nil) }
+        @discardableResult func updateSession(token: String?, userID: String?, displayName: String?) -> Bool { self.token = token; self.userID = userID; self.displayName = displayName; return true }
+        func continueAsGuest() { token = "guest_session"; userID = nil; displayName = nil }
+        func signOut() { token = nil; userID = nil; displayName = nil }
     }
 
     private struct SuccessAppleAdapter: AppleAuthAdapter {
@@ -64,6 +66,7 @@ enum NativeAuthSeamSelfTests {
         await waitFor { store.token == "selftest_apple_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Apple success did not authenticate the session.")
         precondition(store.userID == "selftest-apple-user", "NativeAuthSeamSelfTests: Apple success did not persist stable account identity.")
+        precondition(store.displayName == "Apple Self-Test", "NativeAuthSeamSelfTests: Apple success did not retain its verified display name.")
         precondition(coordinator.status == .signedIn(provider: .apple, displayName: "Apple Self-Test"), "NativeAuthSeamSelfTests: Apple success status drifted.")
         store.signOut()
     }
@@ -76,6 +79,7 @@ enum NativeAuthSeamSelfTests {
         await waitFor { store.token == "selftest_google_token" }
         precondition(store.isAuthenticated, "NativeAuthSeamSelfTests: Google success did not authenticate the session.")
         precondition(store.userID == "selftest-google-user", "NativeAuthSeamSelfTests: Google success did not persist stable account identity.")
+        precondition(store.displayName == "Google Self-Test", "NativeAuthSeamSelfTests: Google success did not retain its verified display name.")
         precondition(coordinator.status == .signedIn(provider: .google, displayName: "Google Self-Test"), "NativeAuthSeamSelfTests: Google success status drifted.")
         store.signOut()
     }

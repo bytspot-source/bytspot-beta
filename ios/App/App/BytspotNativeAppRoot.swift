@@ -1281,7 +1281,7 @@ private struct NativeLaunchPickRow: View {
             sessionStore.signOut()
             return false
         }
-        return sessionStore.updateSession(token: token, userID: userID)
+        return sessionStore.updateSession(token: token, userID: userID, displayName: response.user?.name)
     }
 }
 

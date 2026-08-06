@@ -180,6 +180,7 @@ struct PartyPassClipView: View {
                     passSummary
                     details
                     if !invite.itinerary.isEmpty { program }
+                    if !invite.creatorLinks.isEmpty { creatorLinks }
                     guestStack
                 }
                 .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 114)
@@ -298,6 +299,22 @@ struct PartyPassClipView: View {
             Text("Tonight's plan").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
             ForEach(Array(invite.itinerary.prefix(4).enumerated()), id: \.offset) { index, item in
                 HStack(spacing: 11) { Text("\(index + 1)").font(.system(size: 11, weight: .black)).foregroundColor(accent).frame(width: 24, height: 24).background(accent.opacity(0.15)).clipShape(Circle()); Text(item).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)); Spacer() }
+            }
+        }
+    }
+
+    private var creatorLinks: some View {
+        PartyGlassCard {
+            Text("From the creator").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            ForEach(invite.creatorLinks) { link in
+                Button(action: { openURL(link.url) }) {
+                    HStack(spacing: 11) {
+                        Image(systemName: link.kind.icon).foregroundColor(ClipTheme.cyan).frame(width: 22)
+                        Text(link.title).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.9)).lineLimit(1)
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .black)).foregroundColor(ClipTheme.cyan)
+                    }.padding(12).background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 15))
+                }.buttonStyle(.plain).accessibilityLabel("Open \(link.title)")
             }
         }
     }

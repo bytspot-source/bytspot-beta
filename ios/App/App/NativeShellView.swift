@@ -802,6 +802,21 @@ private struct NativePartyPassPreview: View {
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
             NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
+            if !party.creatorLinks.isEmpty {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("FROM THE CREATOR").font(.system(size: 10, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.cyan)
+                    ForEach(party.creatorLinks) { link in
+                        Link(destination: link.url) {
+                            HStack(spacing: 10) {
+                                Image(systemName: link.kind.icon).frame(width: 20).foregroundColor(NativeTheme.cyan)
+                                Text(link.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeProfileStyle.title)
+                                Spacer()
+                                Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
+                            }.padding(11).background(NativeTheme.cyan.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 13))
+                        }
+                    }
+                }
+            }
         }
         .padding(16)
         .nativePanel()
@@ -916,7 +931,8 @@ private struct NativeProfileHeaderCard: View {
     let socialCircleSnapshot: NativeSocialCircleSnapshot
 
     private var userName: String {
-        sessionStore.isAuthenticated ? "Signed in" : NativeProfileDefaults.userName
+        guard sessionStore.isAuthenticated else { return NativeProfileDefaults.userName }
+        return sessionStore.greetingName.map { "Welcome, \($0)" } ?? "Welcome to Bytspot"
     }
 
     private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }

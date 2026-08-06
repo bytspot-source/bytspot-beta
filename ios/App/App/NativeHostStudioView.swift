@@ -29,6 +29,10 @@ struct NativeHostStudioView: View {
     @State private var releaseTitle = ""
     @State private var popUpLocationDisclosure: NativePopUpLocationDisclosure = .public
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
+    @State private var creatorLinks: [NativePartyCreatorLink] = []
+    @State private var creatorLinkKind: NativePartyCreatorLinkKind = .music
+    @State private var creatorLinkTitle = ""
+    @State private var creatorLinkURL = ""
     @State private var isPublishing = false
     @State private var publishedParty: NativePublishedParty?
     @State private var message = ""
@@ -178,6 +182,7 @@ struct NativeHostStudioView: View {
             field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
             templateConfigurationEditor
             partyMediaEditor
+            creatorLinksEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
             VStack(alignment: .leading, spacing: 7) {
@@ -288,6 +293,54 @@ struct NativeHostStudioView: View {
         }.padding(14).studioSurface()
     }
 
+    private var creatorLinksEditor: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("CREATOR LINKS").studioLabel()
+                    Text("Music, merch, and fan destinations").font(.system(size: 14, weight: .black))
+                }
+                Spacer()
+                Text("\(creatorLinks.count)/8").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan)
+            }
+            Picker("Link type", selection: $creatorLinkKind) {
+                ForEach(NativePartyCreatorLinkKind.allCases) { kind in Text(kind.title).tag(kind) }
+            }.pickerStyle(.menu)
+            field("Link title", text: $creatorLinkTitle, icon: creatorLinkKind.icon, prompt: "Listen now, shop merch…")
+            field("Secure link", text: $creatorLinkURL, icon: "link", prompt: "https://…", keyboard: .URL)
+            Button(action: addCreatorLink) {
+                Label("Add creator link", systemImage: "plus.circle.fill").font(.system(size: 12.5, weight: .black)).frame(maxWidth: .infinity).frame(height: 42).foregroundColor(.black).background(creatorLinks.count < 8 ? NativeTheme.cyan : Color.white.opacity(0.16)).clipShape(RoundedRectangle(cornerRadius: 14))
+            }.buttonStyle(.plain).disabled(creatorLinks.count >= 8)
+            if !creatorLinks.isEmpty {
+                ForEach(creatorLinks) { link in
+                    HStack(spacing: 10) {
+                        Image(systemName: link.kind.icon).foregroundColor(NativeTheme.cyan).frame(width: 19)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(link.title).font(.system(size: 12.5, weight: .black)).lineLimit(1)
+                            Text(link.url.host ?? link.url.absoluteString).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.48)).lineLimit(1)
+                        }
+                        Spacer()
+                        Button(action: { creatorLinks.removeAll { $0.id == link.id } }) { Image(systemName: "xmark.circle.fill").foregroundColor(.white.opacity(0.65)) }.buttonStyle(.plain).accessibilityLabel("Remove \(link.title)")
+                    }.padding(10).background(Color.white.opacity(0.045)).clipShape(RoundedRectangle(cornerRadius: 13))
+                }
+            }
+            Text("Only HTTPS links are published to your Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.48))
+        }.padding(14).studioSurface()
+    }
+
+    private func addCreatorLink() {
+        let title = creatorLinkTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawURL = creatorLinkURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: rawURL) else { message = "Add a secure HTTPS creator link."; return }
+        let link = NativePartyCreatorLink(kind: creatorLinkKind, title: title, url: url)
+        guard link.isValid else { message = "Creator links need a title and secure HTTPS URL."; return }
+        guard !creatorLinks.contains(where: { $0.url.absoluteString == link.url.absoluteString }) else { message = "That creator link is already added."; return }
+        creatorLinks.append(link)
+        creatorLinkTitle = ""
+        creatorLinkURL = ""
+        message = ""
+    }
+
     private var doorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
@@ -390,7 +443,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, creatorLinks: creatorLinks, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

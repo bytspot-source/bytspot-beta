@@ -170,6 +170,43 @@ struct ClipPartyTicketTier: Identifiable, Equatable {
     }
 }
 
+enum ClipPartyCreatorLinkKind: String, Equatable {
+    case music, merchandise, website, social
+    var icon: String {
+        switch self {
+        case .music: return "music.note"
+        case .merchandise: return "bag.fill"
+        case .website: return "safari.fill"
+        case .social: return "person.2.fill"
+        }
+    }
+}
+
+struct ClipPartyCreatorLink: Equatable, Identifiable {
+    let kind: ClipPartyCreatorLinkKind
+    let title: String
+    let url: URL
+
+    var id: String { "\(kind.rawValue):\(url.absoluteString)" }
+
+    static func from(_ value: Any) -> Self? {
+        guard let row = value as? [String: Any],
+              let rawKind = string(row["kind"]),
+              let kind = ClipPartyCreatorLinkKind(rawValue: rawKind),
+              let title = string(row["title"]), (1...80).contains(title.count),
+              let rawURL = string(row["url"]), rawURL.count <= 2_048,
+              let url = URL(string: rawURL), url.scheme?.lowercased() == "https",
+              url.host?.isEmpty == false, url.user == nil, url.password == nil else { return nil }
+        return Self(kind: kind, title: title, url: url)
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 /// The authoritative, Party-only representation used by `/party/<id>`.
 /// It intentionally has no Group Event fallback, fields, or API semantics.
 struct PartyPassInvite: Equatable {
@@ -185,6 +222,7 @@ struct PartyPassInvite: Equatable {
     let attendeeCount: Int
     let ticketTiers: [ClipPartyTicketTier]
     let itinerary: [String]
+    let creatorLinks: [ClipPartyCreatorLink]
     let note: String?
     let heroImageURL: URL?
     let thumbnailURL: URL?
@@ -216,6 +254,7 @@ struct PartyPassInvite: Equatable {
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
             itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
+            creatorLinks: (row["creatorLinks"] as? [Any])?.compactMap(ClipPartyCreatorLink.from) ?? [],
             note: string(row["inviteNote"]),
             heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
             thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))

@@ -17,7 +17,7 @@ struct NativeHostStudioView: View {
     @State private var startsAt = Self.defaultStart
     @State private var venueName = ""
     @State private var capacity = "80"
-    @State private var accessMode: NativePartyAccessMode = .freeRSVP
+    @State private var accessMode: NativePartyAccessMode?
     @State private var requiredTier: BytspotTier = .green
     @State private var admissionPrice = "25"
     @State private var selectedCircleIDs: Set<String> = []
@@ -127,7 +127,7 @@ struct NativeHostStudioView: View {
                 Spacer(minLength: 18)
                 Text(displayTitle).font(.system(size: 29, weight: .black, design: .rounded)).lineLimit(2).minimumScaleFactor(0.78)
                 Text(tagline.isEmpty ? template.hook : tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.74)).lineLimit(2)
-                HStack(spacing: 7) { heroChip(requiredTier.displayName); heroChip(accessMode.title); heroChip(startsAt.formatted(date: .abbreviated, time: .shortened)) }
+                HStack(spacing: 7) { heroChip(requiredTier.displayName); heroChip(accessMode?.title ?? "Set admission"); heroChip(startsAt.formatted(date: .abbreviated, time: .shortened)) }
             }.padding(21)
         }
         .frame(minHeight: 210).clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous)).shadow(color: NativeTheme.purple.opacity(0.22), radius: 22, y: 12)
@@ -349,7 +349,7 @@ struct NativeHostStudioView: View {
                     HStack(spacing: 12) { Image(systemName: accessIcon(mode)).foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
                 }.buttonStyle(.plain)
             }
-            if accessMode.requiresPrice { field(accessMode == .cashAtDoor ? "Cash due at door" : "Online ticket price", text: $admissionPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
+            if let accessMode, accessMode.requiresPrice { field(accessMode == .cashAtDoor ? "Cash due at door" : "Online ticket price", text: $admissionPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "80", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 9) {
                 Text("MINIMUM MEMBERSHIP").studioLabel()
@@ -388,7 +388,7 @@ struct NativeHostStudioView: View {
 
     private func selectTemplate(_ id: NativePartyTemplateID) {
         templateID = id
-        if id == .privateParty { accessMode = .privateApproval }
+        if let accessMode, !templateConfiguration.allowedAccessModes.contains(accessMode) { self.accessMode = nil }
     }
 
     private var navigationButtons: some View {
@@ -403,7 +403,10 @@ struct NativeHostStudioView: View {
     private func advance() {
         message = ""
         if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { message = "Add a title and venue before setting the door."; return }
-        if step == .door && draft.validationMessage != nil { message = draft.validationMessage ?? "Review the door settings."; return }
+        if step == .door {
+            guard let draft else { message = NativePartyAccessMode.selectionMessage(accessMode) ?? "Choose how guests enter before publishing."; return }
+            if let validationMessage = draft.validationMessage { message = validationMessage; return }
+        }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
         guard !isPublishing else { return }
         isPublishing = true
@@ -412,6 +415,7 @@ struct NativeHostStudioView: View {
 
     @MainActor private func publish() async {
         guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { isPublishing = false; message = "Sign in before publishing this moment."; return }
+        guard let draft else { isPublishing = false; message = NativePartyAccessMode.selectionMessage(accessMode) ?? "Choose how guests enter before publishing."; return }
         defer { isPublishing = false; publishTask = nil }
         do {
             let api = NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { publishingToken }))
@@ -439,7 +443,8 @@ struct NativeHostStudioView: View {
         catch { message = (error as? LocalizedError)?.errorDescription ?? "The party could not be published." }
     }
 
-    private var draft: NativePartyDraftInput {
+    private var draft: NativePartyDraftInput? {
+        guard let accessMode else { return nil }
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(admissionPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)

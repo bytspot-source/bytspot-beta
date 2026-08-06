@@ -5,12 +5,18 @@ const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/
 function isNativeHandoffURL(url) {
   const parts = url.pathname.split('/').filter(Boolean);
   const first = (parts[0] || '').toLowerCase();
-  if ((first === 'party' || first === 'group') && parts[1]) return true;
+  if (first === 'party' && parts[1]) return url.searchParams.get('source') === 'app_clip' || url.searchParams.get('handoff') === '1';
+  if (first === 'group' && parts[1]) return true;
   if (first === 'access' || first === 'patch' || first === 'clip') return true;
   if ((first === 'p' || first === 'patch' || first === 't') && parts[1]) return true;
   if (/^byt[a-z0-9_-]{2,}$/i.test(parts[0] || '')) return true;
   if (url.searchParams.has('patchId') || url.searchParams.has('patch') || url.searchParams.has('p')) return true;
   return url.searchParams.get('source') === 'app_clip' || url.searchParams.get('handoff') === '1';
+}
+
+function isLivePartyPassURL(url) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  return parts[0]?.toLowerCase() === 'party' && Boolean(parts[1]);
 }
 
 // Install — cache app shell
@@ -40,7 +46,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  if (event.request.mode === 'navigate' && isNativeHandoffURL(url)) {
+  if (event.request.mode === 'navigate' && (isNativeHandoffURL(url) || isLivePartyPassURL(url))) {
     event.respondWith(fetch(event.request, { cache: 'no-store' }));
     return;
   }

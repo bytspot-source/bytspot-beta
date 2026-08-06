@@ -321,6 +321,15 @@ enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
     }
     var requiresPrice: Bool { self == .cashAtDoor || self == .paidTicket }
 
+    static func selectionMessage(_ mode: Self?) -> String? {
+        mode == nil ? "Choose how guests enter before publishing." : nil
+    }
+
+    static func cashDoorAmount(cents: Int) -> String {
+        let dollars = Double(cents) / 100
+        return cents.isMultiple(of: 100) ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+    }
+
     static func admissionLabel(rawValue: String, cashDoorPriceCents: Int? = nil) -> String {
         guard let mode = Self(rawValue: rawValue) else { return "Party access" }
         switch mode {
@@ -328,7 +337,7 @@ enum NativePartyAccessMode: String, CaseIterable, Codable, Identifiable {
         case .freeRSVP: return "Free RSVP"
         case .cashAtDoor:
             guard let cashDoorPriceCents, cashDoorPriceCents > 0 else { return "Cash at door" }
-            return "Cash at door · $\(cashDoorPriceCents / 100)"
+            return "Cash at door · \(cashDoorAmount(cents: cashDoorPriceCents))"
         case .paidTicket: return "Paid online ticket"
         case .privateApproval: return "Host approval required"
         }

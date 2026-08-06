@@ -1,3 +1,5 @@
+import { shouldRenderWebPartyPass } from './partyPassRoute.ts';
+
 export type NativeHandoffKind = 'party' | 'group' | 'patch' | 'access';
 
 export type NativeHandoffContext = {
@@ -113,5 +115,5 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
 }
 
 export function shouldBlockLegacyPwaFallback(rawUrl: string): boolean {
-  return nativeHandoffContext(rawUrl) !== null;
+  return nativeHandoffContext(rawUrl) !== null && !shouldRenderWebPartyPass(rawUrl);
 }

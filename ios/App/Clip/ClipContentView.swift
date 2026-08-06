@@ -272,17 +272,17 @@ struct PartyPassClipView: View {
     private var passSummary: some View {
         PartyGlassCard {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "ticket.fill").font(.system(size: 21, weight: .black)).foregroundColor(.white).frame(width: 48, height: 48).background(LinearGradient(colors: primaryBrandGradient, startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15))
+                Image(systemName: admissionIcon).font(.system(size: 21, weight: .black)).foregroundColor(.white).frame(width: 48, height: 48).background(LinearGradient(colors: primaryBrandGradient, startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("ENTRY CREDENTIAL").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1.05).foregroundColor(ClipTheme.cyan)
                     Text(accessLabel).font(.system(size: 18, weight: .black, design: .rounded)).foregroundColor(.white)
-                    Text("Availability is live and confirmed before secure checkout.").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
+                    Text(admissionDetail).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
                 }
             }
             HStack(spacing: 8) {
                 PartyMetric(value: invite.capacity.map { "\($0) max" } ?? "Limited", label: "CAPACITY")
                 PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "MEMBERSHIP")
-                PartyMetric(value: invite.ticketTiers.isEmpty ? "RSVP" : "TICKETS", label: "ACCESS")
+                PartyMetric(value: admissionMetric, label: "ACCESS")
             }
         }
     }
@@ -354,7 +354,39 @@ struct PartyPassClipView: View {
         default: return "Host approval required"
         }
     }
-    private var cashDoorAmount: String { "$\((invite.cashDoorPriceCents ?? 0) / 100) cash" }
+    private var cashDoorAmount: String { cashDoorAmount(cents: invite.cashDoorPriceCents ?? 0) }
+    private func cashDoorAmount(cents: Int) -> String {
+        let dollars = Double(cents) / 100
+        let formatted = cents.isMultiple(of: 100) ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+        return "\(formatted) cash"
+    }
+    private var admissionIcon: String {
+        switch invite.accessMode {
+        case "open-entry": return "door.left.hand.open"
+        case "cash-at-door": return "banknote.fill"
+        case "private-approval": return "lock.fill"
+        case "paid-ticket": return "ticket.fill"
+        default: return "person.badge.plus"
+        }
+    }
+    private var admissionMetric: String {
+        switch invite.accessMode {
+        case "open-entry": return "OPEN"
+        case "cash-at-door": return "CASH"
+        case "private-approval": return "APPROVAL"
+        case "paid-ticket": return "TICKETS"
+        default: return "RSVP"
+        }
+    }
+    private var admissionDetail: String {
+        switch invite.accessMode {
+        case "open-entry": return "Walk in—no reservation or payment is needed."
+        case "cash-at-door": return "Reserve your spot now; \(cashDoorAmount) is due at the door."
+        case "private-approval": return "Request access and wait for the host to approve it."
+        case "paid-ticket": return "Choose an available ticket before secure checkout."
+        default: return "Reserve a free spot for this Party."
+        }
+    }
     private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id); statusMessage = "" } catch { passState = nil; statusMessage = "We couldn’t verify ticket availability right now. Please try again." } }
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .reserveCash, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }

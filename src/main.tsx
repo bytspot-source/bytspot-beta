@@ -1,5 +1,6 @@
 import './index.css';
 import { nativeHandoffContext } from './utils/nativeHandoffGuard';
+import { partyIDFromURL, shouldRenderWebPartyPass } from './utils/partyPassRoute';
 
 function removeLegacyPwaHints() {
   document.querySelector('link[rel="manifest"]')?.remove();
@@ -27,7 +28,7 @@ function registerServiceWorkerAfterLoad() {
 
 function renderNativeHandoffOnly() {
   const context = nativeHandoffContext(window.location.href);
-  if (!context) return false;
+  if (!context || shouldRenderWebPartyPass(window.location.href)) return false;
 
   removeLegacyPwaHints();
   const banner = document.querySelector<HTMLMetaElement>('meta[name="apple-itunes-app"]');
@@ -55,12 +56,17 @@ function renderNativeHandoffOnly() {
 }
 
 async function bootReactApp() {
-  const [{ createRoot }, { createElement }, { default: App }] = await Promise.all([
+  const partyID = partyIDFromURL(window.location.href);
+  const webPartyPass = shouldRenderWebPartyPass(window.location.href) && partyID;
+  const [{ createRoot }, { createElement }, module] = await Promise.all([
     import('react-dom/client'),
     import('react'),
-    import('./App.tsx'),
+    webPartyPass ? import('./components/PartyPassPage.tsx') : import('./App.tsx'),
   ]);
-  createRoot(document.getElementById('root')!).render(createElement(App));
+  const element = webPartyPass
+    ? createElement((module as typeof import('./components/PartyPassPage.tsx')).PartyPassPage, { partyID })
+    : createElement((module as typeof import('./App.tsx')).default);
+  createRoot(document.getElementById('root')!).render(element);
 }
 
 if (!renderNativeHandoffOnly()) {

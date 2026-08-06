@@ -1552,6 +1552,8 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativePartyAdmissionModesSeparateOpenCashAndOnlinePayment() {
+        XCTAssertEqual(NativePartyAccessMode.selectionMessage(nil), "Choose how guests enter before publishing.")
+        XCTAssertNil(NativePartyAccessMode.selectionMessage(.freeRSVP))
         let open = partyDraft(accessMode: .openEntry)
         XCTAssertNil(open.validationMessage)
         XCTAssertEqual(open.ticketTiers, [])
@@ -1565,6 +1567,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(cash.rpcInput["cashDoorPriceCents"] as? Int, 2_500)
         XCTAssertEqual(cash.ticketTiers, [])
         XCTAssertEqual(NativePartyAccessMode.admissionLabel(rawValue: "cash-at-door", cashDoorPriceCents: 2_500), "Cash at door · $25")
+        XCTAssertEqual(NativePartyAccessMode.admissionLabel(rawValue: "cash-at-door", cashDoorPriceCents: 2_550), "Cash at door · $25.50")
         XCTAssertEqual(NativePartyAccessMode.admissionLabel(rawValue: "open-entry"), "Open entry · no payment")
     }
 

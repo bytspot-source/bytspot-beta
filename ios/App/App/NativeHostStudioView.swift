@@ -38,6 +38,10 @@ struct NativeHostStudioView: View {
     @State private var albumMedia: [NativePartyPendingImage] = []
     @State private var showCoverPicker = false
     @State private var showAlbumPicker = false
+    @State private var arrivalVenueCandidates: [NativePartyArrivalVenue] = []
+    @State private var boundArrivalVenueID: String?
+    @State private var isLoadingArrivalVenues = false
+    @State private var isBindingArrivalDestination = false
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -381,6 +385,9 @@ struct NativeHostStudioView: View {
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishedParty = result
+            isLoadingArrivalVenues = true
+            defer { isLoadingArrivalVenues = false }
+            arrivalVenueCandidates = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { publishingToken })).matchingVerifiedVenues(named: result.draft.venueName)
         }
         catch is CancellationError { if message.isEmpty { message = NativePartyStudioError.sessionChanged.localizedDescription } }
         catch { message = (error as? LocalizedError)?.errorDescription ?? "The party could not be published." }
@@ -415,9 +422,44 @@ struct NativeHostStudioView: View {
                     Text("\(party.draft.startsAt.formatted(date: .abbreviated, time: .shortened)) · \(party.draft.venueName)").font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.52))
                     VStack(spacing: 5) { Text("PASS CODE").font(.system(size: 9, weight: .black)).tracking(1.6).foregroundColor(.white.opacity(0.4)); Text(party.passCode).font(.system(size: 25, weight: .black, design: .monospaced)).tracking(4) }.frame(maxWidth: .infinity).padding(17).overlay(RoundedRectangle(cornerRadius: 18).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(.white.opacity(0.22)))
                 }.padding(20).background(Color.white.opacity(0.07)).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))).clipShape(RoundedRectangle(cornerRadius: 25)).accessibilityIdentifier("native-party-pass")
+                arrivalDestinationControls(for: party)
                 Button(action: { UIPasteboard.general.string = party.shareURL.absoluteString; message = "Party link copied." }) { Label("Copy Party Link", systemImage: "doc.on.doc.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.white).background(NativeTheme.purple).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
                 if !message.isEmpty { Text(message).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.emerald) }
             }.padding(20).padding(.top, 18)
+        }
+    }
+
+    @ViewBuilder private func arrivalDestinationControls(for party: NativePublishedParty) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("VERIFIED ARRIVAL DESTINATION").studioLabel()
+            if let boundArrivalVenueID, let venue = arrivalVenueCandidates.first(where: { $0.id == boundArrivalVenueID }) {
+                Label("Arrival enabled for \(venue.name)", systemImage: "checkmark.seal.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.emerald)
+                Text("Guests with Party access can plan an Apple Maps route. Pickup coordinates and ride dispatch are not collected.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+            } else if isLoadingArrivalVenues {
+                ProgressView("Checking verified venues…").tint(NativeTheme.cyan).font(.system(size: 12, weight: .bold))
+            } else if arrivalVenueCandidates.isEmpty {
+                Text("No verified Bytspot Venue exactly matches this Party venue. Arrival routing stays unavailable.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+            } else {
+                Text("Choose the verified venue before enabling guest arrival guidance.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                ForEach(arrivalVenueCandidates) { venue in
+                    Button(action: { Task { await bindArrivalDestination(venue, to: party) } }) {
+                        HStack { VStack(alignment: .leading, spacing: 2) { Text(venue.name).font(.system(size: 13, weight: .black)); Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
+                            .padding(12).studioSurface()
+                    }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
+                }
+            }
+        }.padding(14).studioSurface()
+    }
+
+    @MainActor private func bindArrivalDestination(_ venue: NativePartyArrivalVenue, to party: NativePublishedParty) async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { message = "Sign in before enabling arrival guidance."; return }
+        isBindingArrivalDestination = true
+        defer { isBindingArrivalDestination = false }
+        do {
+            try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindDestination(partyID: party.id, venueID: venue.id)
+            boundArrivalVenueID = venue.id
+        } catch {
+            message = "The verified arrival destination could not be enabled."
         }
     }
 

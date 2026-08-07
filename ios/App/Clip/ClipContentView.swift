@@ -313,7 +313,7 @@ struct PartyPassClipView: View {
             Button(action: primaryAction) { Label(primaryTitle, systemImage: passState?.action == .ticket ? "ticket.fill" : "checkmark.seal.fill").font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 55).background(LinearGradient(colors: primaryBrandGradient, startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 20)) }
                 .disabled(isBusy || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
             Button { openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) } label: {
-                Label("Get the full app", systemImage: "arrow.down.app.fill")
+                Label("Continue in app to plan arrival", systemImage: "arrow.down.app.fill")
                     .font(.system(size: 13, weight: .black, design: .rounded)).foregroundColor(ClipTheme.cyan)
                     .frame(maxWidth: .infinity).frame(height: 38)
                     .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 15))

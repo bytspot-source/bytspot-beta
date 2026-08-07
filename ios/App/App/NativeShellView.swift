@@ -842,6 +842,8 @@ private struct NativePartyPassPreview: View {
     let route: NativePartyPassRoute
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var state: LoadState = .loading
+    @State private var isOpeningArrival = false
+    @State private var arrivalMessage = ""
 
     var body: some View {
         NativeScreenScroll {
@@ -882,6 +884,15 @@ private struct NativePartyPassPreview: View {
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
             NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
+            Button(action: { Task { await planArrival(for: party) } }) {
+                Label(isOpeningArrival ? "Opening Apple Maps…" : "Plan arrival in Apple Maps", systemImage: "map.fill")
+                    .font(.system(size: 13, weight: .black)).frame(maxWidth: .infinity).frame(height: 46)
+                    .foregroundColor(NativeProfileStyle.onVibrant).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .disabled(isOpeningArrival)
+            .accessibilityIdentifier("native-party-plan-arrival")
+            if !arrivalMessage.isEmpty { Text(arrivalMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
         }
         .padding(16)
         .nativePanel()
@@ -896,6 +907,25 @@ private struct NativePartyPassPreview: View {
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do { state = .loaded(try await NativePartyPassAPI(client: client).invite(partyID: route.partyID)) }
         catch { state = .unavailable }
+    }
+
+    @MainActor private func planArrival(for party: NativePartyPassRecord) async {
+        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken else {
+            arrivalMessage = "Sign in after Party access is granted to plan your arrival."
+            return
+        }
+        isOpeningArrival = true
+        defer { isOpeningArrival = false }
+        do {
+            let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
+            guard let mapItem = try await NativePartyArrivalAPI(client: client).context(partyID: party.id).appleMapsItem else {
+                arrivalMessage = "Verified directions are unavailable for this Party."
+                return
+            }
+            mapItem.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+        } catch {
+            arrivalMessage = "Arrival guidance is available after Party access and a verified destination are confirmed."
+        }
     }
 }
 

@@ -38,12 +38,13 @@ export function roleLabel(role: ProviderRole): string {
 }
 
 export function readProviderDashboardAccess(): ProviderDashboardAccess {
-  let storedUser: Record<string, unknown> = {};
-  try {
-    storedUser = JSON.parse(localStorage.getItem('bytspot_user') || '{}') as Record<string, unknown>;
-  } catch {
-    storedUser = {};
-  }
+  const storedUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('bytspot_user') || '{}') as Record<string, unknown>;
+    } catch {
+      return {} as Record<string, unknown>;
+    }
+  })();
 
   const role = normalizeProviderRole(
     localStorage.getItem('bytspot_provider_role') ??

@@ -131,6 +131,10 @@ test.describe('Virtual Patch', () => {
 
     await page.getByTestId('open-profile-button').click();
 
+    const accessSummary = page.getByTestId('profile-access-summary');
+    await expect(accessSummary).toBeVisible({ timeout: 10_000 });
+    await accessSummary.click();
+
     const walletScreen = page.getByTestId('profile-access-wallet');
     await expect(walletScreen).toBeVisible({ timeout: 10_000 });
 
@@ -191,6 +195,10 @@ test.describe('Virtual Patch', () => {
     await expect(page.getByRole('tab', { name: 'Home tab' })).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId('open-profile-button').click();
+
+    const accessSummary = page.getByTestId('profile-access-summary');
+    await expect(accessSummary).toBeVisible({ timeout: 10_000 });
+    await accessSummary.click();
 
     const walletScreen = page.getByTestId('profile-access-wallet');
     await expect(walletScreen).toBeVisible({ timeout: 10_000 });

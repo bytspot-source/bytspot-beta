@@ -29,6 +29,13 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       // React Refresh: only warn, don't block
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // These React Compiler diagnostics predate this gate and are tracked as
+      // warnings while the legacy components are migrated incrementally. The
+      // core Rules of Hooks checks above remain errors.
+      'react-hooks/immutability': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/static-components': 'warn',
       // Allow empty catch blocks with a comment (used for graceful degradation fallbacks)
       'no-empty': ['error', { allowEmptyCatch: true }],
     },

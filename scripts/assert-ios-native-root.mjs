@@ -53,6 +53,7 @@ const expectedAasaComponents = [
   { '/': '/BYT424', '?': { patchId: 'BYT424-*' }, comment: 'Campaign root with serialized patchId query, e.g. /BYT424?patchId=BYT424-0301' },
   { '/': '/BYT*', comment: 'Root NTAG424 DNA production tag links, e.g. /BYT424-0301' },
   { '/': '/p/*', comment: 'Patch verify deep link' },
+  { '/': '/party/*', comment: 'Published Host Studio Party Pass' },
   { '/': '/access', comment: 'Native Access wallet' },
   { '/': '/access/*', comment: 'Full-app handoff path emitted by App Clip mainAppHandoffURL' },
   { '/': '/patch', comment: 'Compatibility path for older Smart App Banner defaults' },
@@ -77,7 +78,7 @@ const expectedAasaComponents = [
   { '/': '/', '?': { patch: '?*' }, comment: 'Legacy patch query parameter' },
 ];
 const requiredUniversalLinkPatterns = [
-  '/BYT424', '/BYT*', '/p/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
+  '/BYT424', '/BYT*', '/p/*', '/party/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
   '/profile', '/profile/*', '/map', '/map/*', '/discover', '/discover/*', '/venue/*', '/concierge', '/concierge/*',
   '/booking/*', '/privacy', '/terms', '/disclaimer', '/',
 ];

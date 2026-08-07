@@ -23,4 +23,14 @@ final class NativePartyArrivalTests: XCTestCase {
         XCTAssertNil(context(latitude: 91).appleMapsItem)
         XCTAssertNil(context(longitude: -181).appleMapsItem)
     }
+
+    func testVenueCandidateListRequiresThePublishedVerifiedVenueSignal() {
+        let payload: [String: Any] = ["venues": [
+            ["id": "unverified", "name": "The Loft", "address": "100 Peachtree St"],
+            ["id": "wrong-name", "name": "Other Loft", "address": "100 Peachtree St", "hardwarePatch": ["verifiedVenue": true]],
+            ["id": "verified", "name": "The Loft", "address": "100 Peachtree St", "hardwarePatch": ["verifiedVenue": true]],
+        ]]
+
+        XCTAssertEqual(NativePartyArrivalAPI.verifiedVenueCandidates(from: payload, named: " The   Loft ").map(\.id), ["verified"])
+    }
 }

@@ -55,21 +55,27 @@ struct NativePartyArrivalAPI {
 
     func matchingVerifiedVenues(named partyVenueName: String) async throws -> [NativePartyArrivalVenue] {
         let payload = try await client.trpcQueryPayload(path: "/trpc/venues.list", input: [:])
+        return Self.verifiedVenueCandidates(from: payload, named: partyVenueName)
+    }
+
+    static func verifiedVenueCandidates(from payload: Any, named partyVenueName: String) -> [NativePartyArrivalVenue] {
         guard let root = payload as? [String: Any], let rows = root["venues"] as? [[String: Any]] else { return [] }
         let target = normalizedVenueName(partyVenueName)
         return rows.compactMap { row -> NativePartyArrivalVenue? in
-            guard let id = clean(row["id"]), let name = clean(row["name"]), normalizedVenueName(name) == target else { return nil }
+            guard let id = clean(row["id"]), let name = clean(row["name"]),
+                  normalizedVenueName(name) == target,
+                  let hardwarePatch = row["hardwarePatch"] as? [String: Any], hardwarePatch["verifiedVenue"] as? Bool == true else { return nil }
             return NativePartyArrivalVenue(id: id, name: name, address: clean(row["address"]) ?? "Verified Bytspot Venue")
         }
     }
 
-    private func clean(_ value: Any?) -> String? {
+    private static func clean(_ value: Any?) -> String? {
         guard let text = value as? String else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func normalizedVenueName(_ value: String) -> String {
+    private static func normalizedVenueName(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .split(whereSeparator: \ .isWhitespace)

@@ -153,7 +153,7 @@ run_live_auth_panel() {
 
 tap_launch_journey() {
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_PREVIEW_LANDING=1 SIMCTL_CHILD_BYT_NATIVE_LAUNCH_AUTORUN=1 \
+  env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_LAUNCH_AUTORUN=1 \
     xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID" >/dev/null
   sleep "${SMOKE_TAP_SLEEP:-12}"
   xcrun simctl io "$UDID" screenshot "$OUT/tapthrough-main.png" >/dev/null

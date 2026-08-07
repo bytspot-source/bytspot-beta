@@ -1,4 +1,7 @@
 import Foundation
+import AuthenticationServices
+import UIKit
+import GoogleSignIn
 
 enum NativeAuthProvider: String, CaseIterable, Identifiable {
     case apple
@@ -30,6 +33,7 @@ enum NativeAuthIntent: Equatable {
 struct NativeAuthAdapterResult: Equatable {
     let provider: NativeAuthProvider
     let token: String
+    let userID: String?
     let displayName: String?
 }
 
@@ -40,7 +44,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     var status: NativeAuthStatus {
         switch self {
         case .requiresLegacyFallback(let provider): return .requiresLegacyFallback(provider: provider)
-        case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure. React auth fallback remains available.")
+        case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
 }
@@ -66,16 +70,26 @@ enum NativeAuthStatus: Equatable {
 
     var message: String {
         switch self {
-        case .ready: return "Native session is ready."
-        case .authenticating(let provider): return "Preparing \(provider.title) through the native adapter seam."
-        case .requiresLegacyFallback(let provider): return "\(provider.title) is still handled by the production React/Capacitor auth bridge."
-        case .signedIn(let provider, let displayName): return "DEBUG \(provider.title) mock signed in\(displayName.map { " as \($0)" } ?? "")."
-        case .guest: return "Guest session enabled for native migration preview."
-        case .signedOut: return "Signed out locally."
+        case .ready: return "Ready to sign in."
+        case .authenticating(let provider): return "Opening \(provider.title)."
+        case .requiresLegacyFallback(let provider): return "\(provider.title) isn't available right now. Use email or try again later."
+        case .signedIn(let provider, let displayName): return "Signed in with \(provider.title)\(displayName.map { " as \($0)" } ?? "")."
+        case .guest: return "Browsing as guest."
+        case .signedOut: return "Signed out."
         case .failed(let message): return message
         }
     }
 }
+
+@MainActor
+protocol NativeAuthSessionStoring: AnyObject {
+    @discardableResult func updateToken(_ newToken: String?) -> Bool
+    @discardableResult func updateSession(token: String?, userID: String?) -> Bool
+    func continueAsGuest()
+    func signOut()
+}
+
+extension BytspotSessionStore: NativeAuthSessionStoring {}
 
 @MainActor
 final class NativeAuthCoordinator: ObservableObject {
@@ -96,7 +110,7 @@ final class NativeAuthCoordinator: ObservableObject {
         self.googleAdapter = googleAdapter
     }
 
-    func handle(_ intent: NativeAuthIntent, sessionStore: BytspotSessionStore) {
+    func handle(_ intent: NativeAuthIntent, sessionStore: any NativeAuthSessionStoring) {
         switch intent {
         case .signIn(let provider):
             status = .authenticating(provider: provider)
@@ -111,7 +125,7 @@ final class NativeAuthCoordinator: ObservableObject {
     }
 
     #if DEBUG
-    func runDebugAutorunIfRequested(sessionStore: BytspotSessionStore) {
+    func runDebugAutorunIfRequested(sessionStore: any NativeAuthSessionStoring) {
         guard !didRunDebugAutorun, NativeMigrationConfig.isNativeRootEnabled else { return }
         guard let rawProvider = ProcessInfo.processInfo.environment[NativeMigrationConfig.authAutorunEnvironmentKey]?.lowercased(),
               let provider = NativeAuthProvider(rawValue: rawProvider) else { return }
@@ -120,19 +134,22 @@ final class NativeAuthCoordinator: ObservableObject {
     }
     #endif
 
-    private func signIn(provider: NativeAuthProvider, sessionStore: BytspotSessionStore) async {
+    private func signIn(provider: NativeAuthProvider, sessionStore: any NativeAuthSessionStoring) async {
         do {
             let result: NativeAuthAdapterResult
             switch provider {
             case .apple: result = try await appleAdapter.signIn()
             case .google: result = try await googleAdapter.signIn()
             }
-            sessionStore.updateToken(result.token)
-            status = .signedIn(provider: provider, displayName: result.displayName)
+            if sessionStore.updateSession(token: result.token, userID: result.userID) {
+                status = .signedIn(provider: provider, displayName: result.displayName)
+            } else {
+                status = .failed(message: "We couldn't save your sign-in. Please try again.")
+            }
         } catch let error as NativeAuthAdapterError {
             status = error.status
         } catch {
-            status = .failed(message: "Native auth adapter failed. React auth fallback remains available.")
+            status = .failed(message: "We couldn't sign you in with \(provider.title). Use email or try again later.")
         }
     }
 }
@@ -149,13 +166,145 @@ private struct LegacyFallbackGoogleAuthAdapter: GoogleAuthAdapter {
     }
 }
 
+@MainActor
+private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
+    func signIn() async throws -> NativeAuthAdapterResult {
+        guard let presentingViewController = Self.presentingViewController() else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        try Self.configureIfNeeded()
+        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+        let user = try await Self.refreshedUser(result.user)
+        guard let idToken = user.idToken?.tokenString, !idToken.isEmpty else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        let response = try await NativeAuthDataAPI(client: BytspotAPIClient()).googleSignIn(idToken: idToken)
+        guard let token = response.token, !token.isEmpty else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name)
+    }
+
+    private static func configureIfNeeded() throws {
+        guard let clientID = googleServiceString("CLIENT_ID") else {
+            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+            clientID: clientID,
+            serverClientID: infoString("GIDServerClientID")
+        )
+    }
+
+    private static func infoString(_ key: String) -> String? {
+        usable(Bundle.main.object(forInfoDictionaryKey: key) as? String)
+    }
+
+    private static func googleServiceString(_ key: String) -> String? {
+        guard let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
+              let dictionary = NSDictionary(contentsOf: url) as? [String: Any] else { return nil }
+        return usable(dictionary[key] as? String)
+    }
+
+    private static func usable(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+
+    private static func refreshedUser(_ user: GIDGoogleUser) async throws -> GIDGoogleUser {
+        try await withCheckedThrowingContinuation { continuation in
+            user.refreshTokensIfNeeded { refreshedUser, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let refreshedUser else {
+                    continuation.resume(throwing: NativeAuthAdapterError.requiresLegacyFallback(provider: .google))
+                    return
+                }
+                continuation.resume(returning: refreshedUser)
+            }
+        }
+    }
+
+    private static func presentingViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = (scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene) ?? scenes.first as? UIWindowScene
+        let root = windowScene?.keyWindow?.rootViewController ?? windowScene?.windows.first?.rootViewController
+        return topViewController(from: root)
+    }
+
+    private static func topViewController(from root: UIViewController?) -> UIViewController? {
+        if let navigation = root as? UINavigationController { return topViewController(from: navigation.visibleViewController) }
+        if let tab = root as? UITabBarController { return topViewController(from: tab.selectedViewController) }
+        if let presented = root?.presentedViewController { return topViewController(from: presented) }
+        return root
+    }
+}
+
+@MainActor
+private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private var continuation: CheckedContinuation<NativeAuthAdapterResult, Error>?
+
+    func signIn() async throws -> NativeAuthAdapterResult {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8) else {
+            finish(.failure(NativeAuthAdapterError.requiresLegacyFallback(provider: .apple)))
+            return
+        }
+        let displayName = [credential.fullName?.givenName, credential.fullName?.familyName]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                let api = NativeAuthDataAPI(client: BytspotAPIClient())
+                let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
+                guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.requiresLegacyFallback(provider: .apple) }
+                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
+            } catch {
+                finish(.failure(error))
+            }
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        finish(.failure(error))
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = (scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene) ?? scenes.first as? UIWindowScene
+        return windowScene?.keyWindow ?? windowScene?.windows.first ?? ASPresentationAnchor()
+    }
+
+    private func finish(_ result: Result<NativeAuthAdapterResult, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        switch result {
+        case .success(let value): continuation.resume(returning: value)
+        case .failure(let error): continuation.resume(throwing: error)
+        }
+    }
+}
+
 #if DEBUG
 private struct DebugMockAppleAuthAdapter: AppleAuthAdapter {
     let mode: String
 
     func signIn() async throws -> NativeAuthAdapterResult {
         if mode == "apple_error" || mode == "error" { throw NativeAuthAdapterError.mockedFailure(provider: .apple) }
-        return NativeAuthAdapterResult(provider: .apple, token: "debug_apple_native_auth_token", displayName: "Apple Preview")
+        return NativeAuthAdapterResult(provider: .apple, token: "debug_apple_native_auth_token", userID: "debug-apple-user", displayName: "Apple Preview")
     }
 }
 
@@ -164,7 +313,7 @@ private struct DebugMockGoogleAuthAdapter: GoogleAuthAdapter {
 
     func signIn() async throws -> NativeAuthAdapterResult {
         if mode == "google_error" || mode == "error" { throw NativeAuthAdapterError.mockedFailure(provider: .google) }
-        return NativeAuthAdapterResult(provider: .google, token: "debug_google_native_auth_token", displayName: "Google Preview")
+        return NativeAuthAdapterResult(provider: .google, token: "debug_google_native_auth_token", userID: "debug-google-user", displayName: "Google Preview")
     }
 }
 #endif
@@ -179,7 +328,7 @@ private enum NativeAuthAdapterFactory {
             return DebugMockAppleAuthAdapter(mode: mode)
         }
         #endif
-        return LegacyFallbackAppleAuthAdapter()
+        return NativeAppleSignInAdapter()
     }
 
     @MainActor
@@ -191,6 +340,6 @@ private enum NativeAuthAdapterFactory {
             return DebugMockGoogleAuthAdapter(mode: mode)
         }
         #endif
-        return LegacyFallbackGoogleAuthAdapter()
+        return NativeGoogleSignInAdapter()
     }
 }

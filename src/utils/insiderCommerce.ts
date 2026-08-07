@@ -1,24 +1,29 @@
 /**
- * insiderCommerce — local cache for backend-backed Insider membership + access wallet.
+ * Access-pass wallet plus a cached view of canonical Bytspot membership.
+ * The backend's legacy isPremium flag maps to Platinum; it never creates a
+ * separate consumer tier and legacy locally persisted Insider status is ignored.
  */
+import type { BytspotPatchTier } from './patchTiers.ts';
 
-export const INSIDER_COMMERCE_EVENT = 'bytspot:insider-commerce-updated';
+export const BYTSPOT_COMMERCE_EVENT = 'bytspot:commerce-updated';
+export const PLATINUM_SUBSCRIPTION_PLAN = 'insider-premium'; // Backend compatibility identifier.
 
-const MEMBERSHIP_KEY = 'bytspot_insider_membership';
+const MEMBERSHIP_KEY = 'bytspot_membership';
+const LEGACY_MEMBERSHIP_KEY = 'bytspot_insider_membership';
 const ACCESS_PASSES_KEY = 'bytspot_access_pass_wallet';
 const LEGACY_TICKETS_KEY = 'bytspot_ticket_wallet';
 
-export const INSIDER_PERKS = [
+export const PLATINUM_PERKS = [
   'Priority access cues',
   'Access wallet in Profile',
   'Faster paid-entry nights',
 ] as const;
 
-export interface InsiderMembership {
-  isActive: boolean;
-  label: 'Community Member' | 'Insider';
+export interface BytspotMembershipSnapshot {
+  tier: BytspotPatchTier;
+  label: 'Green' | 'Platinum' | 'Black';
   activatedAt: string | null;
-  source: 'local' | 'premium';
+  source: 'default' | 'subscription';
 }
 
 export interface AccessPass {
@@ -74,29 +79,42 @@ function writeJson<T>(key: string, value: T): void {
 }
 
 function emitCommerceUpdate(): void {
-  window.dispatchEvent(new Event(INSIDER_COMMERCE_EVENT));
+  window.dispatchEvent(new Event(BYTSPOT_COMMERCE_EVENT));
 }
 
-export function getInsiderMembership(): InsiderMembership {
-  return readJson<InsiderMembership>(MEMBERSHIP_KEY, {
-    isActive: false,
-    label: 'Community Member',
+function greenMembership(): BytspotMembershipSnapshot {
+  return {
+    tier: 'green',
+    label: 'Green',
     activatedAt: null,
-    source: 'local',
-  });
+    source: 'default',
+  };
 }
 
-export function syncInsiderMembershipFromPremium(isPremium: boolean): InsiderMembership {
-  if (!isPremium) return getInsiderMembership();
-  const current = getInsiderMembership();
-  if (current.isActive && current.source === 'premium') return current;
-  const membership: InsiderMembership = {
-    isActive: true,
-    label: 'Insider',
-    activatedAt: current.activatedAt ?? new Date().toISOString(),
-    source: 'premium',
+let currentMembership = greenMembership();
+
+export function getBytspotMembership(storage: Pick<Storage, 'removeItem'> = localStorage): BytspotMembershipSnapshot {
+  storage.removeItem(LEGACY_MEMBERSHIP_KEY);
+  storage.removeItem(MEMBERSHIP_KEY);
+  return currentMembership;
+}
+
+export function hasPlatinumAccess(membership: BytspotMembershipSnapshot): boolean {
+  return membership.tier === 'platinum' || membership.tier === 'black';
+}
+
+export function syncBytspotMembershipFromSubscription(isPremium: boolean): BytspotMembershipSnapshot {
+  const current = getBytspotMembership();
+  const membership: BytspotMembershipSnapshot = isPremium ? {
+    tier: 'platinum',
+    label: 'Platinum',
+    activatedAt: current.tier === 'platinum' ? current.activatedAt : new Date().toISOString(),
+    source: 'subscription',
+  } : {
+    ...greenMembership(),
+    source: 'subscription',
   };
-  writeJson(MEMBERSHIP_KEY, membership);
+  currentMembership = membership;
   emitCommerceUpdate();
   return membership;
 }

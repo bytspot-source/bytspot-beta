@@ -1,15 +1,6 @@
 {
-  "originHash" : "1016eb9070fec38518558a630ee67d3ba8e784a410949695f18cb9ac3e76f4c5",
+  "originHash" : "20e1efe8141acb2c550ed1b8ce6f29d0731910838163650ea94acfec2c0f5223",
   "pins" : [
-    {
-      "identity" : "alamofire",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Alamofire/Alamofire.git",
-      "state" : {
-        "revision" : "7595cbcf59809f9977c5f6378500de2ad73b7ddb",
-        "version" : "5.12.0"
-      }
-    },
     {
       "identity" : "app-check",
       "kind" : "remoteSourceControl",
@@ -26,24 +17,6 @@
       "state" : {
         "revision" : "145104f5ea9d58ae21b60add007c33c1cc0c948e",
         "version" : "2.0.0"
-      }
-    },
-    {
-      "identity" : "capacitor-swift-pm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ionic-team/capacitor-swift-pm.git",
-      "state" : {
-        "revision" : "6a2a3feb25fda8df2a284d0818bc9c83e57a7d56",
-        "version" : "8.3.0"
-      }
-    },
-    {
-      "identity" : "facebook-ios-sdk",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/facebook/facebook-ios-sdk.git",
-      "state" : {
-        "revision" : "8c90832bf2302d9ecd0d23cb63b81f1fb9a36497",
-        "version" : "18.0.3"
       }
     },
     {

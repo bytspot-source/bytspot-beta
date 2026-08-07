@@ -26,9 +26,33 @@ interface EnhancedHeaderProps {
   weatherLoading?: boolean;
 }
 
+function getMidtownContext(hour: number) {
+  if (hour >= 5 && hour < 9) return 'Coffee, work spots, and easy arrivals nearby';
+  if (hour >= 9 && hour < 12) return 'Coffee, errands, and low-friction parking';
+  if (hour >= 12 && hour < 14) return 'A good table, a short walk, and an easy return';
+  if (hour >= 14 && hour < 17) return 'Close stops, errands, and calm arrivals';
+  if (hour >= 17 && hour < 20) return 'Dinner, drinks, and easy arrivals nearby';
+  if (hour >= 20 && hour < 23) return 'Good rooms, late tables, and simpler routes';
+  return 'Food, rides, and a softer landing nearby';
+}
+
+function getTimeGreeting(hour: number) {
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 23) return 'Good evening';
+  return 'Late night';
+}
+
+function getGuestGreetingTitle(hour: number) {
+  if (hour >= 5 && hour < 12) return 'Morning in Midtown';
+  if (hour >= 12 && hour < 17) return 'Afternoon in Midtown';
+  if (hour >= 17 && hour < 20) return 'Evening in Midtown';
+  if (hour >= 20 && hour < 23) return 'Tonight is still open';
+  return 'Still out?';
+}
+
 export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [greeting, setGreeting] = useState('');
   const [spotsNearby, setSpotsNearby] = useState(12);
   const [aiRecs, setAiRecs] = useState(8);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -93,44 +117,18 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
 
   // Update time every minute
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
+    const syncTime = () => setCurrentTime(new Date());
+    syncTime();
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const timeout = setTimeout(() => {
+      syncTime();
+      interval = setInterval(syncTime, 60000);
+    }, 60000 - (Date.now() % 60000));
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
   }, []);
-
-  // Generate personalized greeting with Midtown context
-  useEffect(() => {
-    const hour = currentTime.getHours();
-    const userName = localStorage.getItem('bytspot_user_name') || '';
-
-    let timeGreeting = '';
-    let midtownContext = '';
-    if (hour >= 5 && hour < 9) {
-      timeGreeting = 'Good morning';
-      midtownContext = 'Midtown is waking up ☕';
-    } else if (hour >= 9 && hour < 12) {
-      timeGreeting = 'Good morning';
-      midtownContext = 'Perfect time to explore 🌤️';
-    } else if (hour >= 12 && hour < 14) {
-      timeGreeting = 'Good afternoon';
-      midtownContext = 'Lunch rush in Midtown 🍽️';
-    } else if (hour >= 14 && hour < 17) {
-      timeGreeting = 'Good afternoon';
-      midtownContext = 'Midtown is buzzing 🌆';
-    } else if (hour >= 17 && hour < 20) {
-      timeGreeting = 'Good evening';
-      midtownContext = 'Happy hour time 🍸';
-    } else if (hour >= 20 && hour < 23) {
-      timeGreeting = 'Good evening';
-      midtownContext = 'Midtown is live tonight 🔥';
-    } else {
-      timeGreeting = 'Late night';
-      midtownContext = 'Late night in Midtown 🌙';
-    }
-
-    setGreeting(userName ? `${timeGreeting}, ${userName}` : `${timeGreeting} · ${midtownContext}`);
-  }, [currentTime]);
 
   // Scroll-based animations
   const { scrollY } = useScroll({
@@ -148,6 +146,16 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
     damping: 30,
     mass: 0.8,
   };
+
+  const compactTime = currentTime.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const midtownContext = getMidtownContext(currentTime.getHours());
+  const timeGreeting = getTimeGreeting(currentTime.getHours());
+  const userName = localStorage.getItem('bytspot_user_name') || '';
+  const greeting = userName ? `${timeGreeting}, ${userName}` : getGuestGreetingTitle(currentTime.getHours());
 
   // Get weather icon
   const getWeatherIcon = () => {
@@ -171,61 +179,56 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
       className="relative"
       style={{ opacity: headerOpacity }}
     >
-      {/* Status Bar - Enhanced */}
+      {/* Status Bar + Quick Stats - 8pt grid glass cluster */}
       <motion.div 
-        className="px-4 mb-2.5"
+        className="px-4 pb-2"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springConfig}
       >
         <div 
-          className="rounded-[20px] overflow-hidden border border-white/20 shadow-2xl"
+          className="overflow-hidden rounded-[28px] border border-white/[0.15] bg-[#1C1C1E]/80 shadow-[0_18px_54px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.04]"
           style={{
             backdropFilter: `blur(${headerBlur}px)`,
             WebkitBackdropFilter: `blur(${headerBlur}px)`,
           }}
         >
           {/* Main Status Row */}
-          <div className="px-3.5 py-2.5 bg-[#1C1C1E]/85 backdrop-blur-xl">
-            <div className="flex items-center justify-between">
+          <div className="min-h-[56px] bg-[#1C1C1E]/[0.78] px-4 py-2 backdrop-blur-xl">
+            <div className="flex min-w-0 items-center justify-between gap-1.5">
               {/* Left: Time-sensitive info */}
-              <div className="flex items-center gap-2.5">
+              <div className="flex h-10 w-[124px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/[0.09] px-2.5 shadow-inner shadow-white/[0.03]">
                 {/* Weather */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-1">
                   {getWeatherIcon()}
-	                  <span className="text-[14px] text-white" style={{ fontWeight: 600 }} title={weather ? describeWeatherCode(weather.weatherCode) : 'Weather updating'}>
-	                    {weatherLoading && weather?.source === 'fallback' ? '…' : `${Math.round(weather?.temperatureF ?? 72)}°`}
+                  <span className="whitespace-nowrap text-[13px] leading-[18px] text-white" style={{ fontWeight: 700 }} title={weather ? describeWeatherCode(weather.weatherCode) : 'Weather updating'}>
+                    {weatherLoading && weather?.source === 'fallback' ? '…' : `${Math.round(weather?.temperatureF ?? 72)}°`}
                   </span>
                 </div>
                 
                 {/* Separator */}
-                <div className="w-px h-4 bg-white/20" />
+                <div className="h-4 w-px bg-white/20" />
                 
                 {/* Time */}
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-[14px] h-[14px] text-white/80" strokeWidth={2.5} />
-                  <span className="text-[12px] text-white/90" style={{ fontWeight: 500 }}>
-                    {currentTime.toLocaleTimeString('en-US', { 
-                      hour: 'numeric', 
-                      minute: '2-digit',
-                      hour12: true 
-                    })}
+                <div className="flex w-[52px] shrink-0 items-center justify-end gap-1">
+                  <Clock className="h-3.5 w-3.5 text-white/75" strokeWidth={2.5} />
+                  <span className="block w-[34px] shrink-0 whitespace-nowrap text-right text-[11px] leading-none text-white/90 [font-variant-numeric:tabular-nums]" style={{ fontWeight: 750 }}>
+                    {compactTime}
                   </span>
                 </div>
               </div>
 
               {/* Right: Location & Profile */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
                 {/* Zone Activity */}
-                <ZoneUserCount compact={true} />
-                
-                {/* Separator */}
-                <div className="w-px h-4 bg-white/20" />
+                <div className="min-w-0 shrink">
+                  <ZoneUserCount compact={true} />
+                </div>
                 
                 {/* Location */}
-                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00BFFF]/15 border border-[#00BFFF]/30">
-                  <MapPin className="w-[13px] h-[13px] text-[#00BFFF]" strokeWidth={2.5} />
-                  <span className="text-[11px] text-[#00BFFF]" style={{ fontWeight: 600 }}>
+                <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-[#00BFFF]/[0.25] bg-[#00BFFF]/[0.12] px-3">
+                  <MapPin className="h-[13px] w-[13px] text-[#00BFFF]" strokeWidth={2.5} />
+                  <span className="text-[12px] leading-4 text-[#7DE3FF]" style={{ fontWeight: 750 }}>
                     ATL
                   </span>
                 </div>
@@ -235,13 +238,13 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
                   onClick={onProfileClick}
                   aria-label="Open profile"
                   data-testid="open-profile-button"
-                  className="w-[34px] h-[34px] rounded-full flex items-center justify-center bg-gradient-to-br from-[#A855F7]/50 to-[#00BFFF]/50 border border-white/30 shadow-lg tap-target relative overflow-hidden"
+                  className="tap-target relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/25 bg-gradient-to-br from-[#A855F7]/[0.60] to-[#00BFFF]/[0.45] shadow-[0_10px_28px_rgba(168,85,247,0.36)]"
                   whileTap={{ scale: 0.9 }}
                   transition={springConfig}
                 >
                   {/* Animated gradient overlay */}
                   <motion.div
-                    className="absolute inset-0 bg-gradient-to-br from-[#00BFFF]/30 to-[#FF00FF]/30"
+                    className="absolute inset-0 bg-gradient-to-br from-[#00BFFF]/[0.30] to-[#FF00FF]/[0.30]"
                     animate={{
                       rotate: [0, 360],
                     }}
@@ -251,7 +254,7 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
                       ease: "linear",
                     }}
                   />
-                  <Menu className="w-[16px] h-[16px] text-white relative z-10" strokeWidth={2.5} />
+                  <Menu className="relative z-10 h-[18px] w-[18px] text-white" strokeWidth={2.5} />
                 </motion.button>
               </div>
             </div>
@@ -259,39 +262,39 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
 
           {/* Quick Stats Bar - Glassmorphism */}
           <motion.div 
-            className="px-3.5 py-1.5 bg-gradient-to-r from-[#00BFFF]/10 via-[#A855F7]/10 to-[#FF00FF]/10 backdrop-blur-sm border-t border-white/10"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
+            className="border-t border-white/10 bg-gradient-to-r from-[#00BFFF]/[0.09] via-white/[0.035] to-[#A855F7]/10 px-4 py-2 backdrop-blur-sm"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <div className="flex items-center justify-between text-[11px]">
+            <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-[11px] leading-[13px]">
               {/* Live parking availability */}
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-white/80" style={{ fontWeight: 500 }}>
-                  <span className="text-green-400" style={{ fontWeight: 700 }}>{spotsNearby}</span> spots nearby
+              <div className="flex min-w-0 items-center justify-start gap-1.5">
+                <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400 animate-pulse" />
+                <span className="min-w-0 truncate text-white/[0.78]" style={{ fontWeight: 600 }}>
+                  <span className="text-green-300" style={{ fontWeight: 800 }}>{spotsNearby}</span> spots nearby
                 </span>
               </div>
               
               {/* Separator */}
-              <div className="w-px h-3 bg-white/15" />
+              <div className="h-5 w-px bg-white/[0.12]" />
               
               {/* Peak hours indicator */}
-              <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3 h-3 text-orange-400" strokeWidth={2.5} />
-                <span className="text-white/80" style={{ fontWeight: 500 }}>
-                  <span className="text-orange-400" style={{ fontWeight: 700 }}>Peak</span> hours
+              <div className="flex min-w-0 items-center justify-center gap-1.5">
+                <TrendingUp className="h-3.5 w-3.5 shrink-0 text-orange-400" strokeWidth={2.5} />
+                <span className="min-w-0 truncate text-white/[0.78]" style={{ fontWeight: 600 }}>
+                  <span className="text-orange-400" style={{ fontWeight: 800 }}>Peak</span> hours
                 </span>
               </div>
               
               {/* Separator */}
-              <div className="w-px h-3 bg-white/15" />
+              <div className="h-5 w-px bg-white/[0.12]" />
               
               {/* AI recommendations */}
-              <div className="flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-[#A855F7]" strokeWidth={2.5} />
-                <span className="text-white/80" style={{ fontWeight: 500 }}>
-                  <span className="text-[#A855F7]" style={{ fontWeight: 700 }}>{aiRecs}</span> for you
+              <div className="flex min-w-0 items-center justify-end gap-1.5">
+                <Zap className="h-3.5 w-3.5 shrink-0 text-[#A855F7]" strokeWidth={2.5} />
+                <span className="min-w-0 truncate text-white/[0.78]" style={{ fontWeight: 600 }}>
+                  <span className="text-[#C084FC]" style={{ fontWeight: 800 }}>{aiRecs}</span> for you
                 </span>
               </div>
             </div>
@@ -301,42 +304,27 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
 
       {/* Greeting - Compact */}
       <motion.div
-        className="px-4 pt-2.5 pb-1.5"
+        className="origin-top-left px-4 pb-2 pt-2"
         style={{ scale: titleScale, opacity: titleOpacity }}
       >
         <motion.p
-          className="text-[14px] text-white/80"
-          style={{ fontWeight: 500 }}
+          className="text-[15px] leading-5 text-white/[0.88]"
+          style={{ fontWeight: 650, letterSpacing: '-0.01em' }}
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ ...springConfig, delay: 0.15 }}
         >
           {greeting}
         </motion.p>
-        {(() => {
-          const userName = localStorage.getItem('bytspot_user_name') || '';
-          const hour = new Date().getHours();
-          let ctx = '';
-          if (hour >= 5 && hour < 9) ctx = 'Midtown is waking up ☕';
-          else if (hour >= 9 && hour < 12) ctx = 'Perfect time to explore 🌤️';
-          else if (hour >= 12 && hour < 14) ctx = 'Lunch rush in Midtown 🍽️';
-          else if (hour >= 14 && hour < 17) ctx = 'Midtown is buzzing 🌆';
-          else if (hour >= 17 && hour < 20) ctx = 'Happy hour time 🍸';
-          else if (hour >= 20 && hour < 23) ctx = 'Midtown is live tonight 🔥';
-          else ctx = 'Late night in Midtown 🌙';
-          if (!userName) return null;
-          return (
-            <motion.p
-              className="text-[11px] text-white/50 mt-0.5"
-              style={{ fontWeight: 400 }}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...springConfig, delay: 0.25 }}
-            >
-              {ctx}
-            </motion.p>
-          );
-        })()}
+        <motion.p
+          className="mt-0.5 text-[12px] leading-4 text-white/[0.52]"
+          style={{ fontWeight: 500 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...springConfig, delay: 0.25 }}
+        >
+          {midtownContext}
+        </motion.p>
       </motion.div>
     </motion.div>
   );

@@ -31,6 +31,7 @@ import { MapSearchBar } from './map/MapSearchBar';
 import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
 import { useMapParkingData } from './map/useMapParkingData';
+import { BYTSPOT_COMMERCE_EVENT, PLATINUM_SUBSCRIPTION_PLAN } from '../utils/insiderCommerce';
 
 type ReservationSpot = {
   id: string;
@@ -48,6 +49,8 @@ type ReservationSpot = {
   iotEnabled: boolean;
   lastUpdate?: Date | string;
 };
+
+const PLATINUM_MAP_FUNCTIONS: readonly MapFunction[] = ['ai-navigation', 'spot-radar', 'traffic-intelligence'];
 
 interface MapSectionProps {
   isDarkMode: boolean;
@@ -302,13 +305,12 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     handleCloseQrScanner,
   } = useMapPatchScanner();
   const [showLiveUpdates, setShowLiveUpdates] = useState(true);
-  // Bytspot Premium gating: drives the perks panel inside the verified peek sheet
-  const [isPremium, setIsPremium] = useState(false);
-  const [showPremiumTeaser, setShowPremiumTeaser] = useState(false);
-  const [premiumCheckoutPending, setPremiumCheckoutPending] = useState(false);
+  // The backend's legacy isPremium flag maps to canonical Platinum membership.
+  const [hasPlatinumMembership, setHasPlatinumMembership] = useState(false);
+  const [showPlatinumTeaser, setShowPlatinumTeaser] = useState(false);
+  const [platinumCheckoutPending, setPlatinumCheckoutPending] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
-  const [usePremiumPoints, setUsePremiumPoints] = useState(false);
-  const [premiumCouponCode, setPremiumCouponCode] = useState('');
+  const membershipRefreshGeneration = useRef(0);
 
   // Refs so callbacks never close over stale values
   const parkingDataRef = useRef(parkingData);
@@ -332,19 +334,33 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     return () => clearTimeout(t);
   }, [showLiveUpdates]);
 
-  // Pull Bytspot Premium status — silently defaults to free on any error (e.g. guest)
-  useEffect(() => {
-    let cancelled = false;
+  const refreshMembership = useCallback(() => {
+    const generation = ++membershipRefreshGeneration.current;
+    setHasPlatinumMembership(false);
     trpc.subscription.status.query()
       .then((data) => {
-        if (!cancelled) {
-          setSubscriptionStatus(data);
-          setIsPremium(Boolean(data?.isPremium));
-        }
+        if (generation !== membershipRefreshGeneration.current) return;
+        setSubscriptionStatus(data);
+        setHasPlatinumMembership(Boolean(data?.isPremium));
       })
-      .catch(() => { if (!cancelled) setIsPremium(false); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (generation === membershipRefreshGeneration.current) setHasPlatinumMembership(false);
+      });
   }, []);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refreshMembership(); };
+    refreshMembership();
+    window.addEventListener(BYTSPOT_COMMERCE_EVENT, refreshMembership);
+    window.addEventListener('focus', refreshMembership);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      membershipRefreshGeneration.current += 1;
+      window.removeEventListener(BYTSPOT_COMMERCE_EVENT, refreshMembership);
+      window.removeEventListener('focus', refreshMembership);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshMembership]);
 
   const springConfig = { type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 };
   const triggerLightHaptic = useCallback(() => { void impactLight(); }, []);
@@ -535,38 +551,31 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     onOpenAccessWallet();
   }, [nearbyVerifiedVenue, nearestVerifiedVenue, onOpenAccessWallet, openMapQrScanner, peekVenue, peekVenueIsVerified, resetQrScannerContext, scanCapabilities]);
 
-  const premiumOffer = subscriptionStatus?.subscriptionOffers?.['insider-premium'];
-  const premiumAvailablePoints = Number(subscriptionStatus?.availablePoints ?? subscriptionStatus?.loyalty?.availablePoints ?? 0);
-  const premiumBaseCents = Number(premiumOffer?.baseUnitAmountCents ?? 999);
-  const premiumMaxPointsDiscountCents = Number(premiumOffer?.maxPointsDiscountCents ?? 0);
-  const premiumPointsDiscountCents = usePremiumPoints ? premiumMaxPointsDiscountCents : 0;
-  const premiumEstimatedCents = Math.max(50, premiumBaseCents - premiumPointsDiscountCents);
-  const formatPremiumCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const platinumOffer = subscriptionStatus?.subscriptionOffers?.[PLATINUM_SUBSCRIPTION_PLAN];
+  const platinumBaseCents = Number(platinumOffer?.baseUnitAmountCents ?? 999);
+  const formatPlatinumCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-  // Premium upgrade flow — kicks off Stripe Checkout via tRPC, falls back to a toast in demo mode
-  const handleUpgradeToPremium = useCallback(async () => {
-    if (premiumCheckoutPending) return;
-    setPremiumCheckoutPending(true);
+  const handleUpgradeToPlatinum = useCallback(async () => {
+    if (platinumCheckoutPending) return;
+    setPlatinumCheckoutPending(true);
     try {
       const result = await trpc.subscription.createCheckout.mutate({
-        plan: 'insider-premium',
-        usePoints: usePremiumPoints,
-        couponCode: premiumCouponCode.trim() || undefined,
+        plan: PLATINUM_SUBSCRIPTION_PLAN,
       });
       if (result?.url) {
         window.location.href = result.url;
         return;
       }
-      toast('Premium preview', {
+      toast('Platinum preview', {
         description: result?.message ?? 'Stripe is not configured in this build — perks unlock will be available soon.',
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not start checkout';
-      toast.error('Upgrade unavailable', { description: message });
+      toast.error('Platinum upgrade unavailable', { description: message });
     } finally {
-      setPremiumCheckoutPending(false);
+      setPlatinumCheckoutPending(false);
     }
-  }, [premiumCheckoutPending, premiumCouponCode, usePremiumPoints]);
+  }, [platinumCheckoutPending]);
 
   useEffect(() => {
     if (destination) {
@@ -586,10 +595,19 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       'spot-radar': 'Spot Radar Active',
     };
     if (selectedFunction && toasts[selectedFunction]) {
+      if (PLATINUM_MAP_FUNCTIONS.includes(selectedFunction) && !hasPlatinumMembership) {
+        setShowTrafficIntel(false);
+        setShowPlatinumTeaser(true);
+        return;
+      }
       if (selectedFunction === 'traffic-intelligence') setShowTrafficIntel(true);
       toast.success(toasts[selectedFunction], { duration: 2000 });
     }
-  }, [selectedFunction]);
+  }, [hasPlatinumMembership, selectedFunction]);
+
+  useEffect(() => {
+    if (!hasPlatinumMembership) setShowTrafficIntel(false);
+  }, [hasPlatinumMembership]);
 
   // Stable reserve callback — reads from refs so never stale
   const handleSpotReserve = useCallback((spotId: number) => {
@@ -742,7 +760,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     if (partnerFocusActive || routeDestination || selectedFunction) setNearbySheetDismissed(false);
   }, [partnerFocusActive, routeDestination, selectedFunction]);
-  const trafficPanelActive = showTrafficIntel || selectedFunction === 'traffic-intelligence';
+  const trafficPanelActive = showTrafficIntel;
   const hasActiveSpatialQuery = normalizedMapQuery.length > 0;
   const shouldShowSpatialSheet = !trafficPanelActive && (peekVenue || droppedRequestPin || hasActiveSpatialQuery || (!nearbySheetDismissed && (partnerFocusActive || spatialResults.length > 0)));
   const mapMode: MapMode = isRideBookingOpen
@@ -778,6 +796,10 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
   const toggleTrafficIntel = useCallback(() => {
     const nextTrafficState = !showTrafficIntel;
+    if (nextTrafficState && !hasPlatinumMembership) {
+      setShowPlatinumTeaser(true);
+      return;
+    }
     if (nextTrafficState) {
       setShowLayerMenu(false);
       setNearbySheetDismissed(true);
@@ -789,7 +811,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       setSelectedSpot(null);
     }
     setShowTrafficIntel(nextTrafficState);
-  }, [showTrafficIntel]);
+  }, [hasPlatinumMembership, showTrafficIntel]);
 
   const visibleLayerControls = [
     { group: 'Explore', icon: 'P', label: 'Parking', detail: 'Include parking in results', checked: showParkingSpots, onToggle: () => setShowParkingSpots(v => !v), modes: ['default', 'navigation'] },
@@ -907,6 +929,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         showLayerMenu={showLayerMenu}
         showFullRightActionStack={showFullRightActionStack}
         showTrafficIntel={showTrafficIntel}
+        trafficUnlocked={hasPlatinumMembership}
         showVerifiedOnly={showVerifiedOnly}
         onToggleLayers={(event) => {
           event.currentTarget.blur();
@@ -1333,15 +1356,15 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
 
                     {peekVenueIsVerified && (
                       <div className="rounded-2xl border border-cyan-300/45 bg-[#06242B] p-3">
-                        {isPremium ? (
+                        {hasPlatinumMembership ? (
                           <>
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 950 }}>MEMBER PERKS · ACTIVE</p>
+                            <p className="text-[10px] uppercase tracking-[0.12em] text-cyan-100" style={{ fontWeight: 950 }}>PLATINUM · ACTIVE</p>
                             <p className="mt-1 text-[13px] text-white" style={{ fontWeight: 900 }}>10% off your tab</p>
                           </>
                         ) : (
                           <>
                             <p className="text-[13px] text-white" style={{ fontWeight: 900 }}>Unlock perks at this Verified venue</p>
-                            <button type="button" onClick={() => setShowPremiumTeaser(true)} className="mt-2 rounded-xl bg-white px-3 py-2 text-[12px] text-black" style={{ fontWeight: 900 }} aria-label="Unlock Bytspot Premium perks for this venue">Unlock perks</button>
+                            <button type="button" onClick={() => setShowPlatinumTeaser(true)} className="mt-2 rounded-xl bg-white px-3 py-2 text-[12px] text-black" style={{ fontWeight: 900 }} aria-label="Unlock Bytspot Platinum perks for this venue">Unlock perks</button>
                           </>
                         )}
                       </div>
@@ -1515,21 +1538,21 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                 )}
       </SpatialBottomSheetFrame>
 
-      {/* ── Premium Teaser Sheet — single keyed motion child so AnimatePresence treats it as one unit ── */}
+      {/* Platinum membership teaser. */}
       <AnimatePresence>
-        {showPremiumTeaser && (
+        {showPlatinumTeaser && (
           <motion.div
-            key="premium-teaser"
+            key="platinum-teaser"
             className="absolute inset-0 z-[1003]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             role="dialog"
-            aria-label="Unlock Bytspot Premium"
+            aria-label="Unlock Bytspot Platinum"
           >
             <div
               className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-              onClick={() => !premiumCheckoutPending && setShowPremiumTeaser(false)}
+              onClick={() => !platinumCheckoutPending && setShowPlatinumTeaser(false)}
             />
             <motion.div
               className="absolute bottom-0 left-0 right-0 z-[1004]"
@@ -1548,13 +1571,13 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                       <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
                     </div>
                     <div>
-                      <p className="text-[11px] text-cyan-200 tracking-[0.1em]" style={{ fontWeight: 800 }}>BYTSPOT PREMIUM</p>
+                      <p className="text-[11px] text-cyan-200 tracking-[0.1em]" style={{ fontWeight: 800 }}>BYTSPOT PLATINUM</p>
                       <h3 className="text-[19px] text-white leading-tight" style={{ fontWeight: 800 }}>Unlock Verified perks</h3>
                     </div>
                   </div>
                   <motion.button
-                    onClick={() => setShowPremiumTeaser(false)}
-                    disabled={premiumCheckoutPending}
+                    onClick={() => setShowPlatinumTeaser(false)}
+                    disabled={platinumCheckoutPending}
                     className="w-8 h-8 rounded-full flex items-center justify-center bg-white/8 border border-white/15 disabled:opacity-50"
                     whileTap={{ scale: 0.9 }}
                   >
@@ -1562,13 +1585,13 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                   </motion.button>
                 </div>
                 <p className="text-[13px] text-white leading-snug mb-4" style={{ fontWeight: 600 }}>
-                  Premium turns every Bytspot Verified venue into a perks venue — discounts, skip-the-line entry, and exclusive Tap / Scan rewards.
+                  Platinum adds elevated access and participation at Bytspot Verified venues.
                 </p>
                 <ul className="space-y-2 mb-5">
                   {[
                     { icon: '💸', label: '10% off your tab at every Verified venue' },
                     { icon: '🚪', label: 'Skip-the-line at participating partners' },
-                    { icon: '🎁', label: 'Member-only Tap / Scan rewards' },
+                    { icon: '🎟️', label: 'Platinum Tap / Scan access' },
                   ].map((perk) => (
                     <li key={perk.label} className="flex items-center gap-2.5 px-3 py-2 rounded-[12px] bg-white/5 border border-white/10">
                       <span className="text-[18px]">{perk.icon}</span>
@@ -1578,40 +1601,18 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                 </ul>
                 <div className="mb-4 rounded-[14px] border border-white/35 bg-[#080A10] p-3">
                   <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-white">
-                    <span style={{ fontWeight: 800 }}>Loyalty price</span>
-                    <span className="text-white" style={{ fontWeight: 900 }}>{formatPremiumCents(premiumEstimatedCents)} / month</span>
+                    <span style={{ fontWeight: 800 }}>Platinum membership</span>
+                    <span className="text-white" style={{ fontWeight: 900 }}>{formatPlatinumCents(platinumBaseCents)} / month</span>
                   </div>
-                  <label className="mb-2 flex items-center justify-between gap-3 rounded-[12px] bg-white/5 px-3 py-2 text-[12px] text-white/75" style={{ fontWeight: 700 }}>
-                    <span>Use {premiumAvailablePoints.toLocaleString()} points</span>
-                    <input
-                      type="checkbox"
-                      checked={usePremiumPoints}
-                      disabled={premiumAvailablePoints <= 0 || premiumMaxPointsDiscountCents <= 0}
-                      onChange={(event) => setUsePremiumPoints(event.target.checked)}
-                      className="h-4 w-4 accent-cyan-400"
-                    />
-                  </label>
-                  <input
-                    value={premiumCouponCode}
-                    onChange={(event) => setPremiumCouponCode(event.target.value)}
-                    placeholder="Coupon code"
-                    className="w-full rounded-[12px] border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-cyan-300/60"
-                    style={{ fontWeight: 700 }}
-                  />
-                  {premiumPointsDiscountCents > 0 && (
-                    <p className="mt-2 text-[11px] text-emerald-200/80" style={{ fontWeight: 700 }}>
-                      Points save {formatPremiumCents(premiumPointsDiscountCents)} before any Stripe coupon is applied.
-                    </p>
-                  )}
                 </div>
                 <motion.button
-                  onClick={handleUpgradeToPremium}
-                  disabled={premiumCheckoutPending}
+                  onClick={handleUpgradeToPlatinum}
+                  disabled={platinumCheckoutPending}
                   className="w-full py-3.5 rounded-[16px] border border-white/25 shadow-2xl text-white text-[15px] disabled:opacity-60"
                   style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.96), rgba(124,58,237,0.96) 58%, rgba(236,72,153,0.95))', fontWeight: 800 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  {premiumCheckoutPending ? 'Opening checkout…' : `Upgrade · ${formatPremiumCents(premiumEstimatedCents)} / month`}
+                  {platinumCheckoutPending ? 'Opening checkout…' : `Upgrade to Platinum · ${formatPlatinumCents(platinumBaseCents)} / month`}
                 </motion.button>
                 <p className="text-[10.5px] text-white/45 text-center mt-2.5" style={{ fontWeight: 500 }}>
                   Cancel anytime · Powered by Stripe

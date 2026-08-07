@@ -8,6 +8,30 @@ interface ParkingPreferencesProps {
   onBack: () => void;
 }
 
+const springConfig = {
+  type: "spring" as const,
+  stiffness: 320,
+  damping: 30,
+  mass: 0.8,
+};
+
+const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
+  <motion.button
+    onClick={onToggle}
+    className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
+      enabled ? 'bg-green-500' : 'bg-white/20'
+    }`}
+    whileTap={{ scale: 0.95 }}
+    transition={springConfig}
+  >
+    <motion.div
+      className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
+      animate={{ x: enabled ? 20 : 0 }}
+      transition={springConfig}
+    />
+  </motion.button>
+);
+
 export function ParkingPreferences({ isDarkMode, onBack }: ParkingPreferencesProps) {
   const [preferences, setPreferences] = useState({
     // Parking Type Preferences
@@ -37,30 +61,6 @@ export function ParkingPreferences({ isDarkMode, onBack }: ParkingPreferencesPro
     maxWalkingDistance: '0.5',
     prioritizeClosest: true,
   });
-
-  const springConfig = {
-    type: "spring" as const,
-    stiffness: 320,
-    damping: 30,
-    mass: 0.8,
-  };
-
-  const ToggleSwitch = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
-    <motion.button
-      onClick={onToggle}
-      className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors ${
-        enabled ? 'bg-green-500' : 'bg-white/20'
-      }`}
-      whileTap={{ scale: 0.95 }}
-      transition={springConfig}
-    >
-      <motion.div
-        className="w-[27px] h-[27px] rounded-full bg-white shadow-lg"
-        animate={{ x: enabled ? 20 : 0 }}
-        transition={springConfig}
-      />
-    </motion.button>
-  );
 
   const handleSave = () => {
     toast.success('Parking preferences saved');

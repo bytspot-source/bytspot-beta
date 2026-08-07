@@ -27,7 +27,7 @@ async function mockConsumerApis(page: Page) {
       const procedures = match ? match[1].split(',') : ['unknown'];
       const results = procedures.map((procedure) => {
         if (procedure.includes('venues.list')) return { result: { data: { venues: mockVenues } } };
-        if (procedure.includes('subscription.status')) return { result: { data: { isPremium: false } } };
+        if (procedure.includes('subscription.status')) return { result: { data: { isPremium: true } } };
         if (procedure.includes('auth.me')) return { result: { data: { referralCount: 0 } } };
         if (procedure.includes('providers.getStatus')) return { result: { data: { host: null } } };
         if (procedure.includes('patch.revocations.list')) return { result: { data: { revokedIds: [] } } };
@@ -204,6 +204,7 @@ test.describe('Map Spatial Intelligence sheet', () => {
 
     const rightActionStack = page.getByTestId('map-right-action-stack');
     await expect(rightActionStack).toHaveCSS('pointer-events', 'auto');
+    await expect(page.getByRole('button', { name: 'Traffic intelligence', exact: true })).toBeVisible();
 
     await activateHiddenControl(page.getByTestId('traffic-intelligence-fab'));
     const trafficPanel = page.getByTestId('traffic-intelligence-panel');

@@ -53,14 +53,14 @@ test('web contact picker hashes selected values locally and de-duplicates raw co
   ].sort());
 });
 
-test('suggestion reasons and ranking prioritize mutual edges, contacts, then verified venues', () => {
+test('suggestion reasons and ranking use relationship status only', () => {
   const ranked = social.rankFriendSuggestions([
-    { userId: 'venues', name: 'Venue', profileImage: null, source: 'google', mutual: false, mutualContacts: 0, sharedVerifiedVenues: 3 },
-    { userId: 'mutual', name: 'Mutual', profileImage: null, source: 'apple', mutual: true, mutualContacts: 0, sharedVerifiedVenues: 0 },
-    { userId: 'contacts', name: 'Contacts', profileImage: null, source: 'apple', mutual: false, mutualContacts: 2, sharedVerifiedVenues: 0 },
+    { userId: 'suggested', name: 'Suggested', profileImage: null, relationshipStatus: 'suggested', circleIds: [] },
+    { userId: 'connected', name: 'Connected', profileImage: null, relationshipStatus: 'connected', circleIds: ['crew'] },
+    { userId: 'incoming', name: 'Incoming', profileImage: null, relationshipStatus: 'invite_received', circleIds: [] },
   ]);
-  assert.deepEqual(ranked.map((s) => s.userId), ['mutual', 'contacts', 'venues']);
-  assert.equal(social.suggestionReason(ranked[0]), 'Mutual contact');
-  assert.equal(social.suggestionReason(ranked[1]), '2 contacts in common');
-  assert.equal(social.suggestionReason(ranked[2]), '3 shared verified spots');
+  assert.deepEqual(ranked.map((s) => s.userId), ['incoming', 'connected', 'suggested']);
+  assert.equal(social.suggestionReason(ranked[0]), 'Invited you');
+  assert.equal(social.suggestionReason(ranked[1]), 'Connected');
+  assert.equal(social.suggestionReason(ranked[2]), 'Suggested from your contacts');
 });

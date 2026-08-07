@@ -432,8 +432,12 @@ export class GeofencingService {
 
 // React hook for geofencing
 export function useGeofencing(autoStart: boolean = true) {
-  const [activeZones, setActiveZones] = useState<GeofenceZone[]>([]);
-  const [recentEvents, setRecentEvents] = useState<GeofenceEvent[]>([]);
+  const [activeZones, setActiveZones] = useState<GeofenceZone[]>(
+    () => GeofencingService.getInstance().getActiveZones()
+  );
+  const [recentEvents, setRecentEvents] = useState<GeofenceEvent[]>(
+    () => GeofencingService.getInstance().getEventHistory().slice(0, 10)
+  );
   
   useEffect(() => {
     const service = GeofencingService.getInstance();
@@ -449,11 +453,7 @@ export function useGeofencing(autoStart: boolean = true) {
       // Update active zones
       setActiveZones(service.getActiveZones());
     });
-    
-    // Initial state
-    setActiveZones(service.getActiveZones());
-    setRecentEvents(service.getEventHistory().slice(0, 10));
-    
+
     return () => {
       unsubscribe();
       if (autoStart) {

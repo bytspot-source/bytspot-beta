@@ -27,32 +27,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      # ── 2. Node.js + Web build ──────────────────────────────────
+      # ── 2. Node.js + native iOS release gates ───────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'npm'
 
-      - name: Install JS dependencies
-        # npm ci is currently tripping on cross-platform optional package
-        # entries in package-lock.json on macOS runners, while npm install
-        # resolves the tree correctly for this build job.
-        run: npm install
+      - name: Native iOS release gates
+        run: npm run ios:gate
 
-      - name: Lint
-        run: npm run lint
-        # Note: type-check is skipped in CI because tRPC types require
-        # the sibling bytspot-api repo. vite build catches real errors.
+      - name: Lint iOS manifests
+        run: plutil -lint ios/App/App/Info.plist ios/App/Clip/Info.plist ios/App/App/PrivacyInfo.xcprivacy ios/App/Clip/PrivacyInfo.xcprivacy
 
-      - name: Build app-store web assets
-        run: npm run build:app-store
-
-      # ── 3. Capacitor sync ───────────────────────────────────────
-      - name: Sync Capacitor → iOS
-        run: npx cap sync ios
-
-      # ── 4. Xcode selection ──────────────────────────────────────
+      # ── 3. Xcode selection ──────────────────────────────────────
       - name: Select Xcode
         run: |
           # Use latest available Xcode on the runner
@@ -147,6 +134,7 @@ jobs:
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "Installed profile UUID: $UUID"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "PROVISIONING_PROFILE_PATH=$PP_PATH" >> $GITHUB_ENV
 
       - name: Install App Clip provisioning profile
         env:
@@ -177,6 +165,14 @@ jobs:
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "Installed App Clip profile UUID: $UUID"
           echo "APP_CLIP_PROVISIONING_PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "APP_CLIP_PROVISIONING_PROFILE_PATH=$PP_PATH" >> $GITHUB_ENV
+
+      - name: Validate production signing assets
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROVISIONING_PROFILE_PATH: ${{ env.PROVISIONING_PROFILE_PATH }}
+          APP_CLIP_PROVISIONING_PROFILE_PATH: ${{ env.APP_CLIP_PROVISIONING_PROFILE_PATH }}
+        run: python3 scripts/ci/validate_ios_signing_assets.py
 
       # ── 7. Build + Upload to TestFlight ─────────────────────────
       - name: Fastlane → TestFlight
@@ -189,6 +185,7 @@ jobs:
           PROVISIONING_PROFILE_UUID: ${{ env.PROVISIONING_PROFILE_UUID }}
           APP_CLIP_PROVISIONING_PROFILE_UUID: ${{ env.APP_CLIP_PROVISIONING_PROFILE_UUID }}
           STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID || vars.VITE_GOOGLE_CLIENT_ID || secrets.VITE_GOOGLE_CLIENT_ID }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bundle exec fastlane beta

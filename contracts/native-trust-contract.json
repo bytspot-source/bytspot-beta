@@ -140,7 +140,7 @@
       "spot-radar",
       "traffic-intelligence"
     ],
-    "premiumEntitlement": "insider-premium"
+    "requiredMembershipTier": "platinum"
   },
   "venueDetail": {
     "surfaceCapability": "viewVenue",

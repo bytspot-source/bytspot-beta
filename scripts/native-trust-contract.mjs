@@ -88,17 +88,15 @@ const tierResolutionPriority = matchUnion(SRC.patchTiers, pt, 'BytspotTierResolu
 const tierMinCents = Object.fromEntries(tierOrder.map((t) => [t, matchMinCents(SRC.patchTiers, pt, t)]));
 const mapFunctionTokens = matchUnion(SRC.mapTypes, mt, 'type MapFunction');
 
-// Net-new native premium-membership gating for the Map Functions sheet. Premium
-// is an "Insider Premium" subscription (React: trpc.subscription.status.isPremium)
-// that is ORTHOGONAL to the black/platinum/green service tier. The beta-shipped
+// Native membership gating for the Map Functions sheet. The backend's legacy
+// isPremium field maps to canonical Platinum membership. The beta-shipped
 // MapMenuSlideUp surfaces three free functions; AI Navigation, Spot Radar, and
 // Traffic Intelligence are reserved as premium privileges. The token sets are a
 // native design decision (no single React leaf), so they are validated against
 // the verbatim MapFunction union below rather than copied blind.
 const freeMapFunctions = ['smart-parking', 'live-venue-data', 'trending-hotspots'];
 const premiumMapFunctions = ['ai-navigation', 'spot-radar', 'traffic-intelligence'];
-// React upgrade flow plan id (MapSection.handleUpgradeToPremium → 'insider-premium').
-const premiumEntitlementPlan = 'insider-premium';
+const requiredMembershipTier = 'platinum';
 
 // Every gated/free function MUST be a real MapFunction token, and the two sets
 // must be disjoint — otherwise the native sheet could gate (or free) a function
@@ -259,15 +257,15 @@ const contract = {
   parking: { dedupeDegrees, dedupeApproxMeters: 30 },
   webTrustLevels,
   mapModes,
-  // Premium-gated Map Functions sheet. `all` is the verbatim MapFunction union;
-  // `free` surfaces without an entitlement; `premium` requires an active
-  // membership (`premiumEntitlement` plan). Native reads this so the sheet's
+  // Platinum-gated Map Functions sheet. `all` is the verbatim MapFunction union;
+  // `free` surfaces without elevated access; `premium` requires canonical
+  // Platinum or Black membership. Native reads this so the sheet's
   // lock affordance can't drift from the web function set.
   mapFunctions: {
     all: mapFunctionTokens,
     free: freeMapFunctions,
     premium: premiumMapFunctions,
-    premiumEntitlement: premiumEntitlementPlan,
+    requiredMembershipTier,
   },
   // Native Venue Details read surface (WS-C). `surfaceCapability` is the L0 view
   // gate; `checkinEndpoint` is the verbatim venues.checkin write path; `actions`

@@ -56,8 +56,493 @@ struct BytspotClipApp: App {
     }
 }
 
+#if false // Legacy Group domain retained only as source material for its future project; not compiled into this App Clip.
+enum ClipGroupEventTimingState: String, Equatable {
+    case now, today, thisWeek, weekly
+
+    var eyebrow: String {
+        switch self {
+        case .now: return "LIVE NOW"
+        case .today: return "TODAY"
+        case .thisWeek: return "THIS WEEK"
+        case .weekly: return "WEEKLY"
+        }
+    }
+}
+
+enum ClipPartyTemplate: String, Equatable {
+    case listeningParty = "listening-party"
+    case comedyNight = "comedy-night"
+    case premiere
+    case privateParty = "private-party"
+    case fanMeetup = "fan-meetup"
+    case releaseParty = "release-party"
+    case popUp = "pop-up"
+
+    var configurationKind: String {
+        switch self {
+        case .comedyNight, .premiere: return "standard"
+        case .listeningParty: return "listening-party"
+        case .privateParty: return "private-party"
+        case .fanMeetup: return "fan-meetup"
+        case .releaseParty: return "release-party"
+        case .popUp: return "pop-up"
+        }
+    }
+}
+
+enum ClipPartyTemplateConfiguration: Equatable {
+    case standard
+    case listeningParty(format: String)
+    case fanMeetup(format: String)
+    case releaseParty(type: String, title: String)
+    case popUp(locationDisclosure: String)
+    case privateParty(guestPolicy: String)
+
+    static func from(_ value: Any?, for template: ClipPartyTemplate?) -> Self? {
+        guard let template, let row = value as? [String: Any], let kind = row["kind"] as? String,
+              kind == template.configurationKind else { return nil }
+        switch template {
+        case .comedyNight, .premiere:
+            return kind == "standard" ? .standard : nil
+        case .listeningParty:
+            guard let format = row["format"] as? String,
+                  ["listening-session", "dj-mix-premiere", "live-performance", "label-showcase"].contains(format) else { return nil }
+            return .listeningParty(format: format)
+        case .fanMeetup:
+            guard let format = row["format"] as? String,
+                  ["meet-and-greet", "creator-conversation", "community-photo"].contains(format) else { return nil }
+            return .fanMeetup(format: format)
+        case .releaseParty:
+            guard let type = row["releaseType"] as? String,
+                  ["single", "ep", "album", "mix", "video"].contains(type),
+                  let title = row["releaseTitle"] as? String,
+                  (2...120).contains(title.trimmingCharacters(in: .whitespacesAndNewlines).count) else { return nil }
+            return .releaseParty(type: type, title: title.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .popUp:
+            guard let disclosure = row["locationDisclosure"] as? String,
+                  ["public", "after-approval"].contains(disclosure) else { return nil }
+            return .popUp(locationDisclosure: disclosure)
+        case .privateParty:
+            guard let policy = row["guestPolicy"] as? String,
+                  ["named-guests", "named-guests-plus-one"].contains(policy) else { return nil }
+            return .privateParty(guestPolicy: policy)
+        }
+    }
+}
+
+#endif
+
+enum ClipPartyPassAction: String, Equatable {
+    case authenticate
+    case rsvp
+    case requestApproval = "request-approval"
+    case ticket
+    case viewPass = "view-pass"
+    case unavailable
+}
+
+struct ClipPartyPassState: Equatable {
+    let partyID: String
+    let action: ClipPartyPassAction
+    let guestStatus: String
+    let accessGranted: Bool
+}
+
+struct ClipPartyTicketTier: Identifiable, Equatable {
+    let name: String
+    let priceCents: Int
+    let quantity: Int
+    let requiredMembershipTier: String
+
+    var id: String { name }
+
+    static func from(_ value: Any?) -> Self? {
+        guard let row = value as? [String: Any],
+              let rawName = row["name"] as? String,
+              let priceCents = (row["priceCents"] as? NSNumber)?.intValue, priceCents > 0,
+              let quantity = (row["quantity"] as? NSNumber)?.intValue, quantity > 0,
+              let tier = row["requiredMembershipTier"] as? String,
+              ["green", "platinum", "black"].contains(tier) else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...80).contains(name.count) else { return nil }
+        return Self(name: name, priceCents: priceCents, quantity: quantity, requiredMembershipTier: tier)
+    }
+}
+
+/// The authoritative, Party-only representation used by `/party/<id>`.
+/// It intentionally has no Group Event fallback, fields, or API semantics.
+struct PartyPassInvite: Equatable {
+    let id: String
+    let title: String
+    let tier: BytspotTier
+    let hostName: String
+    let scheduledDate: String
+    let locationLabel: String
+    let locationIsWithheld: Bool
+    let accessMode: String
+    let capacity: Int?
+    let attendeeCount: Int
+    let ticketTiers: [ClipPartyTicketTier]
+    let itinerary: [String]
+    let note: String?
+    let heroImageURL: URL?
+    let thumbnailURL: URL?
+
+    var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
+    var canonicalURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)") }
+    var handoffURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)?source=host-studio-party&handoff=1") }
+
+    static func partyID(from pathParts: [String]) -> String? {
+        guard pathParts.count == 2, pathParts[0].lowercased() == "party" else { return nil }
+        let id = pathParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty || id.count > 200 ? nil : id
+    }
+
+    static func fromPayload(_ value: Any) -> Self? {
+        guard let row = value as? [String: Any],
+              let id = string(row["id"]),
+              let title = string(row["title"]),
+              let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
+              string(row["source"]) == "host-studio-party" else { return nil }
+        let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
+        return Self(
+            id: id, title: title, tier: tier,
+            hostName: string(row["hostName"]) ?? "Bytspot Host",
+            scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : "Location shared after approval",
+            locationIsWithheld: !locationIsPublic,
+            accessMode: string(row["accessMode"]) ?? "free-rsvp",
+            capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
+            ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
+            itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
+            note: string(row["inviteNote"]),
+            heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
+            thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))
+        )
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    private static func int(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+    private static func displayDate(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return date?.formatted(date: .abbreviated, time: .shortened) ?? value
+    }
+}
+
+#if false // Legacy Group domain retained only as source material for its future project; not compiled into this App Clip.
+struct ClipGroupEventInvite: Equatable {
+    let id: String
+    let title: String
+    let tier: BytspotTier
+    let timing: ClipGroupEventTimingState
+    let participantCount: Int
+    let capacity: Int?
+    let accessMode: String?
+    let ticketTiers: [ClipPartyTicketTier]
+    let groupType: String
+    let partyTemplate: ClipPartyTemplate?
+    let partyTemplateConfig: ClipPartyTemplateConfiguration?
+    let scheduledDate: String
+    let hostName: String
+    let locationLabel: String
+    let theme: String
+    let guestSummary: String
+    let activityHighlights: [String]
+    let audienceCircle: String
+    let privacyStatus: String
+    let locationDisclosure: String
+    let rsvpCutoff: String?
+    let requiresApproval: Bool
+    let inviteNote: String?
+    let videoURL: URL?
+    let heroImageURL: URL?
+    let thumbnailURL: URL?
+    let photoURLs: [URL]
+    let instagramHandle: String?
+    let source: String
+
+    var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
+    var hasPlayableVideo: Bool { videoURL != nil }
+    var isHostStudioParty: Bool { source == "host-studio-party" }
+    var partyPassURL: URL? {
+        guard isHostStudioParty else { return handoffURL }
+        return URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)")
+    }
+    var handoffURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bytspot.app"
+        components.path = "/\(isHostStudioParty ? "party" : "group")/\(id)"
+        if isHostStudioParty {
+            components.queryItems = [
+                URLQueryItem(name: "source", value: source),
+                URLQueryItem(name: "handoff", value: "1")
+            ]
+            return components.url
+        }
+        components.queryItems = [
+            URLQueryItem(name: "tier", value: tier.rawValue),
+            URLQueryItem(name: "title", value: title),
+            URLQueryItem(name: "type", value: groupType),
+            URLQueryItem(name: "participants", value: "\(participantCount)"),
+            URLQueryItem(name: "capacity", value: capacity.map(String.init)),
+            URLQueryItem(name: "accessMode", value: accessMode),
+            URLQueryItem(name: "timing", value: timing.rawValue),
+            URLQueryItem(name: "scheduled", value: scheduledDate),
+            URLQueryItem(name: "host", value: hostName),
+            URLQueryItem(name: "location", value: locationLabel),
+            URLQueryItem(name: "theme", value: theme),
+            URLQueryItem(name: "guestSummary", value: guestSummary),
+            URLQueryItem(name: "activities", value: activityHighlights.joined(separator: ",")),
+            URLQueryItem(name: "circle", value: audienceCircle),
+            URLQueryItem(name: "visibility", value: privacyStatus),
+            URLQueryItem(name: "locationDisclosure", value: locationDisclosure),
+            URLQueryItem(name: "rsvpCutoff", value: rsvpCutoff),
+            URLQueryItem(name: "approval", value: requiresApproval ? "1" : "0"),
+            URLQueryItem(name: "note", value: inviteNote),
+            URLQueryItem(name: "hero", value: heroImageURL?.absoluteString),
+            URLQueryItem(name: "thumbnail", value: thumbnailURL?.absoluteString),
+            URLQueryItem(name: "photos", value: photoURLs.map { $0.absoluteString }.joined(separator: ",")),
+            URLQueryItem(name: "video", value: videoURL?.absoluteString),
+            URLQueryItem(name: "instagram", value: instagramHandle),
+            URLQueryItem(name: "source", value: source),
+            URLQueryItem(name: "handoff", value: "1")
+        ].filter { $0.value?.isEmpty == false }
+        return components.url
+    }
+
+    static func from(pathParts: [String], queryItems: [URLQueryItem], tier: BytspotTier) -> Self? {
+        guard pathParts.count >= 2, pathParts[0].lowercased() == "group" else { return nil }
+        let id = pathParts[1]
+        let title = queryValue(in: queryItems, names: ["title", "event"]) ?? id.replacingOccurrences(of: "-", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
+        let timingRaw = queryValue(in: queryItems, names: ["timing", "when"]) ?? "now"
+        let timing = ClipGroupEventTimingState(rawValue: timingRaw) ?? .now
+        let participantCount = Int(queryValue(in: queryItems, names: ["participants", "p"]) ?? "1") ?? 1
+        let groupType = queryValue(in: queryItems, names: ["type", "groupType"]) ?? inferredGroupType(from: title)
+        let fallback = tierFallback(tier: tier, timing: timing, participantCount: participantCount, groupType: groupType)
+        let heroImageURL = queryURL(in: queryItems, names: ["hero", "heroImage", "heroImageUrl", "image"])
+        let thumbnailURL = queryURL(in: queryItems, names: ["thumbnail", "thumbnailUrl", "poster", "posterUrl"]) ?? fallback.poster
+        var seenPhotos = Set<URL>()
+        let photoURLs = (queryURLs(in: queryItems, names: ["photos", "album", "gallery"]) ?? [heroImageURL, thumbnailURL].compactMap { $0 })
+            .filter { seenPhotos.insert($0).inserted }
+        return Self(
+            id: id,
+            title: title,
+            tier: tier,
+            timing: timing,
+            participantCount: participantCount,
+            capacity: Int(queryValue(in: queryItems, names: ["capacity"]) ?? ""),
+            accessMode: queryValue(in: queryItems, names: ["accessMode", "access"]),
+            ticketTiers: [],
+            groupType: groupType,
+            partyTemplate: nil,
+            partyTemplateConfig: nil,
+            scheduledDate: queryValue(in: queryItems, names: ["scheduled", "scheduledDate", "date", "startTime"]) ?? fallback.schedule,
+            hostName: queryValue(in: queryItems, names: ["host", "hostName"]) ?? fallback.host,
+            locationLabel: queryValue(in: queryItems, names: ["location", "locationLabel", "address"]) ?? fallback.location,
+            theme: queryValue(in: queryItems, names: ["theme", "eventTheme"]) ?? fallback.theme,
+            guestSummary: queryValue(in: queryItems, names: ["guestSummary", "guests"]) ?? fallback.guests,
+            activityHighlights: queryArray(in: queryItems, names: ["activities", "activityHighlights", "highlights"]) ?? fallback.highlights,
+            audienceCircle: queryValue(in: queryItems, names: ["circle", "audienceCircle", "audience"]) ?? (queryValue(in: queryItems, names: ["visibility"]) == "publicDiscovery" ? "Public" : "Close Friends"),
+            privacyStatus: queryValue(in: queryItems, names: ["visibility", "privacy"]) ?? "privateInvite",
+            locationDisclosure: queryValue(in: queryItems, names: ["locationDisclosure"]) ?? "public",
+            rsvpCutoff: queryValue(in: queryItems, names: ["rsvpCutoff", "rsvpDeadline", "deadline"]),
+            requiresApproval: ["1", "true", "approval"].contains((queryValue(in: queryItems, names: ["approval", "approvalMode", "requiresApproval"]) ?? "").lowercased()),
+            inviteNote: queryValue(in: queryItems, names: ["note", "inviteNote", "description"]),
+            videoURL: queryURL(in: queryItems, names: ["video", "videoUrl", "hls", "hlsUrl"]) ?? fallback.video,
+            heroImageURL: heroImageURL,
+            thumbnailURL: thumbnailURL,
+            photoURLs: photoURLs,
+            instagramHandle: normalizedInstagram(queryValue(in: queryItems, names: ["instagram", "ig", "instagramHandle", "social"])),
+            source: queryValue(in: queryItems, names: ["source"]) ?? "group-event-link"
+        )
+    }
+
+    static func partyID(from pathParts: [String]) -> String? {
+        guard pathParts.count >= 2, pathParts[0].lowercased() == "party" else { return nil }
+        let id = pathParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
+    static func fromPartyPayload(_ value: Any) -> Self? {
+        guard let row = value as? [String: Any],
+              let id = cleanString(row["id"]),
+              let title = cleanString(row["title"]),
+              let tierRaw = cleanString(row["tier"])?.lowercased(),
+              let tier = BytspotTier(rawValue: tierRaw),
+              cleanString(row["source"])?.lowercased() == "host-studio-party" else { return nil }
+        let timing = cleanString(row["timing"]).flatMap(ClipGroupEventTimingState.init(rawValue:)) ?? .thisWeek
+        let scheduled = cleanString(row["scheduledDate"]).map(displaySchedule) ?? timing.eyebrow.capitalized
+        let decodedTemplate = cleanString(row["templateId"]).flatMap(ClipPartyTemplate.init(rawValue:))
+        let decodedTemplateConfig = ClipPartyTemplateConfiguration.from(row["templateConfig"], for: decodedTemplate)
+        let template = decodedTemplateConfig == nil ? nil : decodedTemplate
+        let templateProtectsLocation: Bool
+        if case .popUp(let disclosure) = decodedTemplateConfig {
+            templateProtectsLocation = disclosure != "public"
+        } else {
+            templateProtectsLocation = false
+        }
+        // Party locations are public only with an explicit public declaration.
+        // Missing/malformed disclosure and a protected Pop-Up config both redact
+        // the value client-side, even if a malformed DTO includes a venue label.
+        let locationDisclosure = (row["locationDisclosure"] as? String) == "public" && !templateProtectsLocation
+            ? "public"
+            : "after-approval"
+        let locationLabel = locationDisclosure == "public"
+            ? cleanString(row["locationLabel"]) ?? "Location pending"
+            : "Location shared after approval"
+        return Self(
+            id: id,
+            title: title,
+            tier: tier,
+            timing: timing,
+            participantCount: intValue(row["participantCount"]) ?? 0,
+            capacity: intValue(row["capacity"]),
+            accessMode: cleanString(row["accessMode"]),
+            ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
+            groupType: cleanString(row["groupType"]) ?? "Private Party",
+            partyTemplate: template,
+            partyTemplateConfig: decodedTemplateConfig,
+            scheduledDate: scheduled,
+            hostName: cleanString(row["hostName"]) ?? "Bytspot Host",
+            locationLabel: locationLabel,
+            theme: cleanString(row["theme"]) ?? "Host Studio Party",
+            guestSummary: cleanString(row["guestSummary"]) ?? "Guest list open",
+            activityHighlights: stringArray(row["activityHighlights"]),
+            audienceCircle: cleanString(row["audienceCircle"]) ?? "Shared Party Pass",
+            privacyStatus: cleanString(row["privacyStatus"]) ?? "privateInvite",
+            locationDisclosure: locationDisclosure,
+            rsvpCutoff: cleanString(row["rsvpCutoff"]),
+            requiresApproval: boolValue(row["requiresApproval"]),
+            inviteNote: cleanString(row["inviteNote"]),
+            videoURL: cleanString(row["videoURL"]).flatMap(URL.init(string:)),
+            heroImageURL: cleanString(row["heroImageURL"]).flatMap(URL.init(string:)),
+            thumbnailURL: cleanString(row["thumbnailURL"]).flatMap(URL.init(string:)),
+            photoURLs: stringArray(row["photoURLs"]).compactMap(URL.init(string:)),
+            instagramHandle: normalizedInstagram(cleanString(row["instagramHandle"])),
+            source: "host-studio-party"
+        )
+    }
+
+    private static func displaySchedule(_ raw: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+        guard let date else { return raw }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private static func cleanString(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return cleanString(value).flatMap(Int.init)
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let value = value as? Bool { return value }
+        if let value = value as? NSNumber { return value.boolValue }
+        return ["1", "true", "yes"].contains(cleanString(value)?.lowercased() ?? "")
+    }
+
+    private static func stringArray(_ value: Any?) -> [String] {
+        if let values = value as? [String] { return values.filter { !$0.isEmpty } }
+        return cleanString(value)?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } ?? []
+    }
+
+    private static func normalizedInstagram(_ raw: String?) -> String? {
+        guard var handle = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else { return nil }
+        if let url = URL(string: handle), let host = url.host, host.lowercased().contains("instagram.com") {
+            handle = url.path.split(separator: "/").first.map(String.init) ?? handle
+        }
+        handle = handle.replacingOccurrences(of: "@", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        return handle.isEmpty ? nil : handle
+    }
+
+    private static func queryValue(in items: [URLQueryItem], names: [String]) -> String? {
+        let normalized = Set(names.map { $0.lowercased() })
+        return items.first { item in normalized.contains(item.name.lowercased()) }?.value
+    }
+
+    private static func queryURL(in items: [URLQueryItem], names: [String]) -> URL? {
+        queryValue(in: items, names: names).flatMap(URL.init(string:))
+    }
+
+    private static func queryArray(in items: [URLQueryItem], names: [String]) -> [String]? {
+        guard let raw = queryValue(in: items, names: names) else { return nil }
+        let values = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return values.isEmpty ? nil : values
+    }
+
+    private static func queryURLs(in items: [URLQueryItem], names: [String]) -> [URL]? {
+        guard let raw = queryValue(in: items, names: names) else { return nil }
+        let urls = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { URL(string: $0) }
+        return urls.isEmpty ? nil : urls
+    }
+
+    private static func inferredGroupType(from title: String) -> String {
+        let lower = title.lowercased()
+        if lower.contains("family") { return "Family" }
+        if lower.contains("dinner") { return "Dinner" }
+        if lower.contains("birthday") { return "Birthday" }
+        return "Private"
+    }
+
+    private static func tierFallback(tier: BytspotTier, timing: ClipGroupEventTimingState, participantCount: Int, groupType: String) -> (schedule: String, host: String, location: String, theme: String, guests: String, highlights: [String], video: URL?, poster: URL?) {
+        let schedule = timing == .now ? "Tonight · live now" : timing.eyebrow.capitalized
+        let guests = "\(participantCount) joined · invite-only"
+        let privateType = groupType.isEmpty ? "Private" : groupType
+        switch tier {
+        case .black:
+            return (schedule, "Bytspot Black Host", "Private arrival lounge", "Elite Guarantee · \(privateType)", guests, ["48h+ live window", "42+ guest capacity", "Concierge verified"], previewLoopURL(), URL(string: "https://bytspot.app/media/app-clip/black-private-group-poster.jpg"))
+        case .platinum:
+            return (schedule, "Platinum Dinner Host", "Host-selected table", "Premium \(privateType.lowercased())", guests, ["12h live window", "Up to 12 guests", "Host-led arrival"], previewLoopURL(), URL(string: "https://bytspot.app/media/app-clip/platinum-private-group-poster.jpg"))
+        case .green:
+            return (schedule, "Neighborhood Host", "Local private spot", "Local \(privateType.lowercased())", guests, ["2h local window", "Up to 5 guests", "Neighbor verified"], nil, URL(string: "https://bytspot.app/media/app-clip/green-private-group-poster.jpg"))
+        }
+    }
+
+    private static func previewLoopURL() -> URL? {
+        #if DEBUG
+        return URL(string: "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8")
+        #else
+        return nil
+        #endif
+    }
+}
+
+/// Host Studio Parties use only Party-specific server contracts. Legacy Group
+/// Event APIs cannot be a fallback because they have different eligibility.
+enum ClipPartyPassActionPolicy {
+    static func usesLegacyGroupEventRoute(for invite: ClipGroupEventInvite) -> Bool {
+        !invite.isHostStudioParty
+    }
+}
+
+#endif
+
 enum ClipFlowStep: Equatable {
     case catalog
+    case partyLoading(partyID: String)
+    case partyFailed(partyID: String, message: String)
+    case party(PartyPassInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
@@ -124,6 +609,12 @@ final class ClipInvocationModel: ObservableObject {
         let items = components.queryItems ?? []
         let pathParts = Self.pathParts(from: components)
 
+        #if DEBUG
+        if let previewAPI = Self.queryValue(in: items, names: ["debugPreviewAPI"]) {
+            UserDefaults.standard.set(previewAPI == "1", forKey: ClipPatchVerifier.debugPreviewAPIKey)
+        }
+        #endif
+
         venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
         patchId = Self.queryValue(in: items, names: ["patch", "patchid", "p"])
             ?? Self.patchId(from: pathParts)
@@ -131,6 +622,12 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
+        if let partyID = PartyPassInvite.partyID(from: pathParts) {
+            flow = .partyLoading(partyID: partyID)
+            isLoadingContext = true
+            loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
+            return
+        }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
         services = ClipLocalService.fallbacks(for: detectedTier)
@@ -167,6 +664,9 @@ final class ClipInvocationModel: ObservableObject {
     /// Universal Link used when the Clip hands off to the installed full app.
     /// If the full app is not installed, the view layer falls back to SKOverlay.
     var mainAppHandoffURL: URL? {
+        if case .party(let invite) = flow {
+            return invite.handoffURL
+        }
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
         components.scheme = "https"
@@ -201,6 +701,25 @@ final class ClipInvocationModel: ObservableObject {
         switch step.lowercased() {
         case "catalog":
             flow = .catalog
+            return true
+        case "party_loop", "host_party", "host_studio_party":
+            let payload: [String: Any] = [
+                "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
+                "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
+                "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
+                "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
+                "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
+                "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public",
+                "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
+                "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
+                "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
+                "requiresApproval": false,
+                "heroImageURL": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
+                "photoURLs": ["https://res.cloudinary.com/demo/image/upload/sample.jpg", "https://res.cloudinary.com/demo/image/upload/woman.jpg"]
+            ]
+            guard let invite = PartyPassInvite.fromPayload(payload) else { return false }
+            tier = invite.tier
+            flow = .party(invite)
             return true
         case "vendors":
             guard let service = services.first else { return false }
@@ -375,6 +894,20 @@ final class ClipInvocationModel: ObservableObject {
         Task { await verify(token: token) }
     }
 
+    private func loadPartyInvite(partyID: String) async {
+        defer { isLoadingContext = false; loadTask = nil }
+        do {
+            let invite = try await api.partyInvite(partyID: partyID)
+            try Task.checkCancellation()
+            tier = invite.tier
+            flow = .party(invite)
+        } catch is CancellationError {
+            return
+        } catch {
+            flow = .partyFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
+        }
+    }
+
     private func loadContextAndVerify(patchId: String, token: String?) async {
         verificationState = .idle
         contextError = nil
@@ -465,7 +998,7 @@ final class ClipInvocationModel: ObservableObject {
         do {
             let result = try await api.verify(token: token)
             let label = result.patch.label ?? patchContext?.title ?? venueSlug ?? "Patch \(result.patch.id)"
-            verificationState = .verified(label: label, bindingType: result.binding?.type)
+            verificationState = Self.verificationState(for: result, label: label)
         } catch {
             let msg: String
             switch error {
@@ -474,8 +1007,22 @@ final class ClipInvocationModel: ObservableObject {
             case ClipPatchVerifier.VerifyError.network(let m): msg = m
             default: msg = "Could not verify this patch. Try again."
             }
-            verificationState = .failed(message: msg)
+            verificationState = .unavailable(message: msg)
         }
+    }
+
+    nonisolated static func verificationState(for result: ClipPatchVerifier.VerifyResult, label: String) -> ClipVerifyState {
+        let status = result.patch.status.lowercased()
+        if !result.verified || ["denied", "revoked", "expired", "disabled", "inactive"].contains(status) {
+            return .denied(message: "This secure tap did not grant access.")
+        }
+        if ["pending", "provisioning", "review"].contains(status) {
+            return .pending(label: label, status: result.patch.status)
+        }
+        if ["active", "verified", "enabled"].contains(status) {
+            return .success(label: label, bindingType: result.binding?.type)
+        }
+        return .denied(message: "This pass returned an unsupported status and was not accepted.")
     }
 
     private static func isRideLogisticsService(_ service: ClipLocalService) -> Bool {

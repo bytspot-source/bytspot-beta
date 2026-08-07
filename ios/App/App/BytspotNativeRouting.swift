@@ -4,16 +4,18 @@ import SwiftUI
 enum NativeContextualDestination: Identifiable, Equatable {
     case profile
     case accessWallet
+    case party(NativePartyPassRoute)
     case patch(BytspotPatchRoute)
-    case booking(status: String, url: URL)
+    case booking(status: String, url: URL, ride: NativeMobilityRideRecord? = nil)
     case legal(title: String, url: URL)
 
     var id: String {
         switch self {
         case .profile: return "profile"
         case .accessWallet: return "access-wallet"
+        case .party(let route): return "party-\(route.partyID)"
         case .patch(let route): return "patch-\(route.patchId)"
-        case .booking(let status, let url): return "booking-\(status)-\(url.absoluteString)"
+        case .booking(let status, let url, let ride): return "booking-\(status)-\(ride?.id ?? url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
         }
     }
@@ -22,8 +24,9 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Profile"
         case .accessWallet: return "Access Wallet"
+        case .party: return "Party Pass"
         case .patch(let route): return "Patch \(route.patchId)"
-        case .booking(let status, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
+        case .booking(let status, _, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
         }
     }
@@ -32,8 +35,9 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "Account, payments, preferences, and saved access."
         case .accessWallet: return "Tickets, reservations, patch access, and App Clip handoffs live here."
+        case .party: return "Secure Party Pass continuation"
         case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
-        case .booking(let status, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
+        case .booking(let status, _, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
         }
     }
@@ -41,7 +45,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
     var fallbackRoute: BytspotHybridRoute {
         switch self {
         case .profile: return .profile
-        case .accessWallet, .patch, .booking: return .access
+        case .accessWallet, .party, .patch, .booking: return .access
         case .legal: return .home
         }
     }
@@ -50,10 +54,38 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return "ACCOUNT"
         case .accessWallet: return "WALLET"
+        case .party: return "PARTY PASS"
         case .patch(let route): return route.tier.eyebrow
-        case .booking(let status, _): return status == "success" ? "CONFIRMED" : "BOOKING"
+        case .booking(let status, _, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
         }
+    }
+}
+
+/// Canonical native Party Pass URL. The App accepts only Bytspot's custom
+/// scheme or production universal-link host; legacy `/group` is never a Party.
+struct NativePartyPassRoute: Equatable {
+    let partyID: String
+    let url: URL
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = url.scheme?.lowercased()
+        let isCustomScheme = scheme == "bytspot"
+        let isUniversalLink = scheme == "https" && components.host?.lowercased() == "bytspot.app"
+        guard isCustomScheme || isUniversalLink else { return nil }
+
+        let pathComponents: [Substring]
+        if isCustomScheme, let host = components.host, !host.isEmpty {
+            pathComponents = ([Substring(host)] + components.path.split(separator: "/"))
+        } else {
+            pathComponents = components.path.split(separator: "/")
+        }
+        guard pathComponents.count == 2, pathComponents[0].lowercased() == "party" else { return nil }
+        let partyID = String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !partyID.isEmpty, partyID.count <= 200, !partyID.contains("/") else { return nil }
+        self.partyID = partyID
+        self.url = url
     }
 }
 
@@ -93,13 +125,19 @@ final class NativeNavigationCoordinator: ObservableObject {
         let path = normalizedPath(url: url, components: components)
 
         if path == "map" || path.hasPrefix("map/") { requestedTab = .map; return true }
-        if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
+        if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("v/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
-        if path == "booking/success" || path == "booking/cancelled" {
+        if let partyRoute = NativePartyPassRoute(url: url) {
             requestedTab = .home
-            requestedDestination = .booking(status: path.hasSuffix("success") ? "success" : "cancelled", url: url)
+            requestedDestination = .party(partyRoute)
+            return true
+        }
+        if path.hasPrefix("booking/") {
+            requestedTab = .home
+            let status = path.split(separator: "/").dropFirst().first.map(String.init) ?? "update"
+            requestedDestination = .booking(status: status, url: url)
             return true
         }
         if ["privacy", "terms", "disclaimer"].contains(path) {
@@ -112,6 +150,7 @@ final class NativeNavigationCoordinator: ObservableObject {
             requestedDestination = .patch(patchRoute)
             return true
         }
+        if path == "patch" || path == "clip" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         return false
     }
 
@@ -120,6 +159,22 @@ final class NativeNavigationCoordinator: ObservableObject {
             _ = notifyPatchScanned(url: url, source: source)
             if BytspotPatchRoute(url: url) == nil { _ = handle(url: url) }
         }
+    }
+
+    /// Routes a native-created reservation through the same booking destination
+    /// used by verified booking links while preserving the decoded ride record.
+    func presentBooking(ride: NativeMobilityRideRecord) {
+        let rideID = ride.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rideID.isEmpty else { return }
+        let status = ride.normalizedStatus
+        var components = URLComponents()
+        components.scheme = "bytspot"
+        components.host = "booking"
+        components.path = "/\(status)"
+        components.queryItems = [URLQueryItem(name: "rideId", value: rideID)]
+        guard let url = components.url else { return }
+        requestedTab = .home
+        requestedDestination = .booking(status: status, url: url, ride: ride)
     }
 
     private func normalizedPath(url: URL, components: URLComponents) -> String {

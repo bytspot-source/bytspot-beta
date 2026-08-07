@@ -2,6 +2,7 @@ import SwiftUI
 import AppClip
 import StoreKit
 import UIKit
+import AuthenticationServices
 import PassKit
 import Contacts
 import AVFoundation
@@ -13,8 +14,10 @@ import SafariServices
 enum ClipVerifyState: Equatable {
     case idle
     case verifying
-    case verified(label: String, bindingType: String?)
-    case failed(message: String)
+    case success(label: String, bindingType: String?)
+    case pending(label: String, status: String)
+    case denied(message: String)
+    case unavailable(message: String)
 }
 
 enum ClipTheme {
@@ -27,6 +30,7 @@ enum ClipTheme {
     static let violet = Color(red: 0.659, green: 0.333, blue: 0.969) // #A855F7
     static let pink = Color(red: 0.851, green: 0.275, blue: 0.937) // #D946EF
     static let magenta = Color(red: 1.000, green: 0.000, blue: 1.000) // #FF00FF
+    static let orange = Color(red: 1.000, green: 0.271, blue: 0.000) // #FF4500
     static let emerald = Color(red: 0.133, green: 0.773, blue: 0.369)
     static let gold = Color(red: 0.847, green: 0.729, blue: 0.384) // Black-tier accent only
 
@@ -77,6 +81,15 @@ struct ClipContentView: View {
                 case .catalog:
                     ClipCatalogView(showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
+                case .partyLoading:
+                    ClipPartyInviteStateView(title: "Loading Party Pass…", message: "Getting the moment directly from its Host Studio party.", isLoading: true)
+                        .transition(.opacity)
+                case .partyFailed(_, let message):
+                    ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false)
+                        .transition(.opacity)
+                case .party(let invite):
+                    PartyPassClipView(invite: invite, showOverlay: $showOverlay)
+                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -102,6 +115,230 @@ struct ClipContentView: View {
         }
     }
 }
+
+private struct ClipPartyInviteStateView: View {
+    let title: String
+    let message: String
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if isLoading { ProgressView().tint(ClipTheme.cyan).scaleEffect(1.2) }
+            Image(systemName: isLoading ? "sparkles" : "exclamationmark.circle.fill")
+                .font(.system(size: 34, weight: .black)).foregroundColor(isLoading ? ClipTheme.cyan : ClipTheme.pink)
+            Text(title).font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(.white)
+            Text(message).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center)
+        }
+        .padding(26).frame(maxWidth: 360)
+        .background(RoundedRectangle(cornerRadius: 28).fill(ClipTheme.panelElevated.opacity(0.92)))
+        .padding(22)
+    }
+}
+
+// MARK: - Party Pass
+
+/// Dedicated paid-party App Clip surface. It is intentionally separate from
+/// `ClipInviteView`, which remains the legacy `/group/<id>` implementation.
+struct PartyPassClipView: View {
+    let invite: PartyPassInvite
+    @Binding var showOverlay: Bool
+    @EnvironmentObject private var invocation: ClipInvocationModel
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    @State private var passState: ClipPartyPassState?
+    @State private var isResolving = true
+    @State private var isPerformingAction = false
+    @State private var statusMessage = ""
+    @State private var showTicketTiers = false
+    @State private var showShareSheet = false
+    @State private var viewerName = ClipAuthStore.displayName
+    @State private var authController = ClipGuestAuthController()
+
+    private var accent: Color { ClipTheme.accent(for: invite.tier) }
+    private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
+    private var primaryBrandGradient: [Color] { [ClipTheme.magenta, ClipTheme.violet, ClipTheme.cyan] }
+    private var isBusy: Bool { isResolving || isPerformingAction }
+    private var primaryTitle: String {
+        guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
+        switch action {
+        case .authenticate: return "Sign in to get tickets"
+        case .ticket: return "Choose a ticket"
+        case .rsvp: return "RSVP to this Party"
+        case .requestApproval: return "Request host approval"
+        case .viewPass: return "Party Pass confirmed"
+        case .unavailable: return "Party Pass unavailable"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            partyBackdrop
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    hero
+                    passSummary
+                    details
+                    if !invite.itinerary.isEmpty { program }
+                    guestStack
+                }
+                .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 114)
+            }
+        }
+        .safeAreaInset(edge: .bottom) { ticketActionBar }
+        .sheet(isPresented: $showTicketTiers) {
+            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title) { tier in
+                showTicketTiers = false
+                createCheckout(for: tier)
+            }
+        }
+        .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: [invite.canonicalURL].compactMap { $0 }) }
+        .accessibilityIdentifier("party-pass-clip")
+        .task(id: invite.id) { await resolvePass() }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await resolvePass() }
+        }
+    }
+
+    private var partyBackdrop: some View {
+        ZStack {
+            ClipTheme.background.ignoresSafeArea()
+            if let poster = invite.displayPosterURL {
+                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .opacity(0.18).ignoresSafeArea()
+            }
+            LinearGradient(colors: [Color.black.opacity(0.18), Color(red: 0.059, green: 0.090, blue: 0.165).opacity(0.86), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.cyan.opacity(0.20), .clear], center: .topLeading, startRadius: 10, endRadius: 390).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.magenta.opacity(0.10), .clear], center: .bottomTrailing, startRadius: 10, endRadius: 410).ignoresSafeArea()
+            RadialGradient(colors: [ClipTheme.orange.opacity(0.08), .clear], center: .bottom, startRadius: 10, endRadius: 260).ignoresSafeArea()
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("BYTSPOT").font(.system(size: 12, weight: .black, design: .rounded)).tracking(1.4)
+                    .foregroundColor(.white)
+                HStack(spacing: 5) {
+                    Circle().fill(ClipTheme.cyan).frame(width: 5, height: 5)
+                    Text(viewerName.map { "WELCOME, \($0.uppercased())" } ?? "PRIVATE ACCESS · HOST STUDIO").font(.system(size: 8, weight: .black, design: .rounded)).tracking(1.1).foregroundColor(.white.opacity(0.54))
+                }
+            }
+            Spacer()
+            Button { showShareSheet = true } label: { Image(systemName: "square.and.arrow.up.fill") }
+                .buttonStyle(PartyGlassIconButton()).accessibilityLabel("Share Party Pass")
+        }
+    }
+
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.059, green: 0.090, blue: 0.165), ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
+            if let poster = invite.displayPosterURL {
+                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+            }
+            LinearGradient(colors: [Color.black.opacity(0.04), Color.black.opacity(0.32), Color.black.opacity(0.96)], startPoint: .top, endPoint: .bottom)
+            VStack {
+                HStack {
+                    Text("PRIVATE INVITATION").font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.35)
+                        .foregroundColor(.white.opacity(0.94)).padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Capsule().fill(Color.black.opacity(0.42))).overlay(Capsule().stroke(Color.white.opacity(0.22)))
+                    Spacer()
+                    Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.90))
+                        .padding(11).background(Circle().fill(Color.black.opacity(0.38))).overlay(Circle().stroke(Color.white.opacity(0.18)))
+                }
+                Spacer()
+            }.padding(17)
+            VStack(alignment: .leading, spacing: 9) {
+                Text(invite.title).font(.system(size: 34, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(3).minimumScaleFactor(0.82)
+                HStack(spacing: 7) {
+                    Image(systemName: "person.crop.circle.fill").foregroundColor(ClipTheme.cyan)
+                    Text("Hosted by \(invite.hostName)").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.86))
+                }
+                HStack(spacing: 7) {
+                    Image(systemName: "calendar").foregroundColor(.white.opacity(0.62))
+                    Text(invite.scheduledDate).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.76)).lineLimit(1)
+                }
+            }.padding(19)
+        }
+        .frame(height: 330).clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color.white.opacity(0.18)))
+    }
+
+    private var passSummary: some View {
+        PartyGlassCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "ticket.fill").font(.system(size: 21, weight: .black)).foregroundColor(.white).frame(width: 48, height: 48).background(LinearGradient(colors: primaryBrandGradient, startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 15))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ENTRY CREDENTIAL").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1.05).foregroundColor(ClipTheme.cyan)
+                    Text(accessLabel).font(.system(size: 18, weight: .black, design: .rounded)).foregroundColor(.white)
+                    Text("Availability is live and confirmed before secure checkout.").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62))
+                }
+            }
+            HStack(spacing: 8) {
+                PartyMetric(value: invite.capacity.map { "\($0) max" } ?? "Limited", label: "CAPACITY")
+                PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "MEMBERSHIP")
+                PartyMetric(value: invite.ticketTiers.isEmpty ? "RSVP" : "TICKETS", label: "ACCESS")
+            }
+        }
+    }
+
+    private var details: some View {
+        PartyGlassCard {
+            Text("The invitation").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
+            PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationIsWithheld ? "LOCATION AFTER APPROVAL" : "WHERE", value: invite.locationLabel)
+            if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
+        }
+    }
+
+    private var program: some View {
+        PartyGlassCard {
+            Text("Tonight's plan").font(.system(size: 21, weight: .black, design: .rounded)).foregroundColor(.white)
+            ForEach(Array(invite.itinerary.prefix(4).enumerated()), id: \.offset) { index, item in
+                HStack(spacing: 11) { Text("\(index + 1)").font(.system(size: 11, weight: .black)).foregroundColor(accent).frame(width: 24, height: 24).background(accent.opacity(0.15)).clipShape(Circle()); Text(item).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)); Spacer() }
+            }
+        }
+    }
+
+    private var guestStack: some View {
+        PartyGlassCard {
+            HStack { VStack(alignment: .leading, spacing: 3) { Text("THE ROOM").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1).foregroundColor(ClipTheme.cyan); Text(invite.attendeeCount == 1 ? "1 guest is in" : "\(invite.attendeeCount) guests are in").font(.system(size: 17, weight: .black, design: .rounded)).foregroundColor(.white) }; Spacer(); PartyGuestStack(count: invite.attendeeCount, accent: ClipTheme.cyan, secondary: ClipTheme.magenta) }
+        }
+    }
+
+    private var ticketActionBar: some View {
+        VStack(spacing: 8) {
+            Button(action: primaryAction) { Label(primaryTitle, systemImage: passState?.action == .ticket ? "ticket.fill" : "checkmark.seal.fill").font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 55).background(LinearGradient(colors: primaryBrandGradient, startPoint: .leading, endPoint: .trailing)).clipShape(RoundedRectangle(cornerRadius: 20)) }
+                .disabled(isBusy || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
+            Button { openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) } label: {
+                Label("Get the full app", systemImage: "arrow.down.app.fill")
+                    .font(.system(size: 13, weight: .black, design: .rounded)).foregroundColor(ClipTheme.cyan)
+                    .frame(maxWidth: .infinity).frame(height: 38)
+                    .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 15))
+                    .overlay(RoundedRectangle(cornerRadius: 15).stroke(ClipTheme.cyan.opacity(0.22)))
+            }.buttonStyle(.plain).accessibilityIdentifier("party-full-app-handoff")
+            if !statusMessage.isEmpty {
+                Text(statusMessage).font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.76)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 12).background(.ultraThinMaterial)
+    }
+
+    private var accessLabel: String { invite.accessMode == "paid-ticket" ? "Paid ticket access" : invite.accessMode == "private-approval" ? "Host approval required" : "RSVP access" }
+    private func resolvePass() async { isResolving = true; defer { isResolving = false }; do { passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id); statusMessage = "" } catch { passState = nil; statusMessage = "We couldn’t verify ticket availability right now. Please try again." } }
+    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
+    private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
+    private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
+}
+
+private struct PartyGlassCard<Content: View>: View { let content: Content; init(@ViewBuilder content: () -> Content) { self.content = content() }; var body: some View { VStack(alignment: .leading, spacing: 13) { content }.padding(17).background(RoundedRectangle(cornerRadius: 25).fill(LinearGradient(colors: [Color(red: 0.045, green: 0.059, blue: 0.094).opacity(0.96), ClipTheme.panel.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))) } }
+private struct PartyMetric: View { let value: String; let label: String; var body: some View { VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 8, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 11, weight: .black, design: .rounded)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth: .infinity, alignment: .leading) } }
+private struct PartyDetailRow: View { let icon: String; let label: String; let value: String; var body: some View { HStack(alignment: .top, spacing: 12) { Image(systemName: icon).foregroundColor(ClipTheme.cyan).frame(width: 22); VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 9, weight: .black)).tracking(0.8).foregroundColor(.white.opacity(0.48)); Text(value).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)) } } } }
+private struct PartyGuestStack: View { let count: Int; let accent: Color; let secondary: Color; var body: some View { HStack(spacing: -11) { ForEach(0..<min(max(count, 1), 4), id: \.self) { index in Circle().fill(index.isMultiple(of: 2) ? accent : secondary).frame(width: 38, height: 38).overlay(Circle().stroke(ClipTheme.panel, lineWidth: 2)).overlay(Text("•").font(.system(size: 22, weight: .black)).foregroundColor(.white.opacity(0.75))) }; if count > 4 { Text("+\(count - 4)").font(.system(size: 10, weight: .black)).foregroundColor(.white).frame(width: 38, height: 38).background(ClipTheme.panelElevated).clipShape(Circle()) } } } }
+private struct PartyGlassIconButton: ButtonStyle { func makeBody(configuration: Configuration) -> some View { configuration.label.foregroundColor(.white).frame(width: 42, height: 42).background(Color.white.opacity(configuration.isPressed ? 0.20 : 0.12)).clipShape(Circle()) } }
 
 // MARK: - Shared helpers
 
@@ -168,6 +405,1244 @@ private struct ClipBookingContext {
     }
 }
 
+#if false // Legacy Group surface retained for extraction into its future project; not compiled into this Party App Clip.
+struct ClipInviteView: View {
+    enum JoinState: Equatable { case idle, joining, joined, pending, declined, failed(String) }
+
+    let invite: ClipGroupEventInvite
+    @Binding var showOverlay: Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    @State private var membership: JoinState = .idle
+    @State private var statusMessage = ""
+    @State private var showShareSheet = false
+    @State private var authController = ClipGuestAuthController()
+    @State private var liveGuests: [ClipGroupEventGuest] = []
+    @State private var liveGuestCount = 0
+    @State private var partyHasArrived = false
+    @State private var partyPass: ClipPartyPassState?
+    @State private var isResolvingPartyPass = false
+    @State private var showTicketTiers = false
+    @State private var resolverGeneration = 0
+    @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 31
+    @ScaledMetric(relativeTo: .title2) private var sectionTitleFontSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .headline) private var bodyFontSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .caption) private var chipFontSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .body) private var topControlSize: CGFloat = 50
+    @ScaledMetric(relativeTo: .body) private var guestAvatarSize: CGFloat = 56
+    @ScaledMetric(relativeTo: .body) private var hostAvatarSize: CGFloat = 62
+    @ScaledMetric(relativeTo: .body) private var ctaHeight: CGFloat = 54
+
+    private var accent: Color { ClipTheme.accent(for: invite.tier) }
+    private var secondary: Color { ClipTheme.secondaryAccent(for: invite.tier) }
+    private var inviteURL: URL? { invite.isHostStudioParty ? invite.partyPassURL : invite.handoffURL }
+    private var ink: Color { Color.white }
+    private var mutedInk: Color { Color.white.opacity(0.60) }
+    private var avatarCount: Int { min(max(invite.participantCount, 0), 5) }
+    private var overflowCount: Int { max(invite.participantCount - avatarCount, 0) }
+    private var hasLiveGuests: Bool { !liveGuests.isEmpty }
+    private var shownGuests: [ClipGroupEventGuest] { Array(liveGuests.prefix(5)) }
+    private var liveOverflowCount: Int { max(liveGuestCount - shownGuests.count, 0) }
+    private var guestListSubtitle: String {
+        hasLiveGuests
+            ? (liveGuestCount == 1 ? "1 guest" : "\(liveGuestCount) guests")
+            : invite.guestSummary
+    }
+    private var privacyLabel: String { invite.privacyStatus == "publicDiscovery" ? "Public" : "Private Invite" }
+    private var locationLabel: String { invite.locationDisclosure == "after-approval" ? "LOCATION AFTER APPROVAL" : "WHERE" }
+
+    var body: some View {
+        ZStack {
+            eventBackdrop
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 21) {
+                    topControls
+                    if invite.isHostStudioParty {
+                        partyHero
+                        partyCredential
+                        partyEssentials
+                        partyPlan
+                        guestList
+                        if !invite.photoURLs.isEmpty { photoAlbum }
+                    } else {
+                        eventHeader
+                        eventDetails
+                        rsvpPanel
+                        guestList
+                        photoAlbum
+                        activityFeed
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+        }
+        .safeAreaInset(edge: .bottom) { primaryActions }
+        .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: shareInviteItems) }
+        .sheet(isPresented: $showTicketTiers) {
+            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title) { tier in
+                showTicketTiers = false
+                startPartyTicketCheckout(tier)
+            }
+        }
+        .accessibilityIdentifier(invite.isHostStudioParty ? "clip-party-pass" : "clip-group-event-join")
+        .task(id: invite.id) {
+            partyHasArrived = false
+            await loadGuests()
+            guard invite.isHostStudioParty else { return }
+            await refreshPartyPass()
+            withAnimation(.spring(response: 0.62, dampingFraction: 0.82).delay(0.08)) { partyHasArrived = true }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, invite.isHostStudioParty else { return }
+            Task { await refreshPartyPass() }
+        }
+    }
+
+    private var eventBackdrop: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ClipTheme.background
+                if invite.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: invite.videoURL, posterURL: invite.displayPosterURL, tint: accent)
+                        .opacity(0.26)
+                } else if let url = invite.displayPosterURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                        .opacity(0.22)
+                }
+                RadialGradient(colors: [accent.opacity(0.32), .clear], center: .topLeading, startRadius: 12, endRadius: 420)
+                RadialGradient(colors: [secondary.opacity(0.26), .clear], center: .bottomTrailing, startRadius: 20, endRadius: 460)
+                LinearGradient(colors: [Color.black.opacity(0.55), Color.black.opacity(0.18), Color.black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
+    }
+
+    private var topControls: some View {
+        HStack(spacing: 12) {
+            if !invite.isHostStudioParty {
+                glassIconButton(systemName: "chevron.left", label: "Open full event") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
+                Spacer()
+            }
+            if invite.isHostStudioParty {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 9, height: 9)
+                    Text("BYTSPOT / PARTY")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                }
+                .foregroundColor(ink)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
+                .background(glassCapsule(tint: ClipTheme.magenta.opacity(0.10)))
+            } else {
+                Text("Bytspot")
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundStyle(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.violet, ClipTheme.pink], startPoint: .leading, endPoint: .trailing))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(glassCapsule())
+            }
+            Spacer()
+            glassIconButton(systemName: "arrowshape.turn.up.right.fill", label: invite.isHostStudioParty ? "Share App Clip Party Pass" : "Share invite", action: shareInvite)
+            glassIconButton(systemName: "ellipsis", label: "More") { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }
+        }
+    }
+
+    private var partyHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 32, style: .continuous).fill(ClipTheme.panelElevated)
+            if let poster = invite.displayPosterURL {
+                GeometryReader { proxy in
+                    AsyncImage(url: poster) { image in
+                        image.resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                    } placeholder: { Color.clear }
+                }
+            } else {
+                LinearGradient(colors: [ClipTheme.cyan.opacity(0.82), ClipTheme.magenta.opacity(0.58), ClipTheme.orange.opacity(0.38), ClipTheme.panelElevated], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            LinearGradient(colors: [.clear, Color.black.opacity(0.12), Color.black.opacity(0.94)], startPoint: .top, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    Label(partyTemplateEyebrow, systemImage: "sparkles")
+                        .font(.system(size: chipFontSize, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.black.opacity(0.28)))
+                    Spacer()
+                    Image(systemName: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.ultraThinMaterial))
+                        .accessibilityLabel(privacyLabel)
+                }
+                Spacer(minLength: 14)
+                Text(invite.title)
+                    .font(.system(size: titleFontSize + 3, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                Text(invite.inviteNote ?? invite.theme)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.76))
+                    .lineLimit(2)
+                HStack(spacing: 7) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(ClipTheme.emerald)
+                        .accessibilityHidden(true)
+                    Text("CURATED BY \(invite.hostName.uppercased())")
+                }
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(.white.opacity(0.78))
+            }
+            .padding(20)
+        }
+        .frame(maxWidth: .infinity).frame(height: 316).clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).stroke(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        .shadow(color: ClipTheme.magenta.opacity(0.20), radius: 28, x: 0, y: 16)
+        .scaleEffect(partyHasArrived ? 1 : 0.965)
+        .opacity(partyHasArrived ? 1 : 0)
+    }
+
+    private var partyCredential: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    sectionMiniTitle("Access status")
+                    Text("Your Party access").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+                }
+                Spacer()
+                Image(systemName: "ticket.fill")
+                    .font(.system(size: 21, weight: .black))
+                    .foregroundColor(.white)
+                    .frame(width: 46, height: 46)
+                    .background(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .accessibilityHidden(true)
+            }
+            Text("Bytspot verifies access before it creates or updates your Party Pass.")
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .foregroundColor(mutedInk)
+            Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
+            HStack(spacing: 10) {
+                partyCredentialMetric(accessModeLabel(invite.accessMode ?? "free-rsvp"), "ACCESS")
+                partyCredentialMetric(invite.capacity.map { "\($0) max" } ?? "Open", "CAPACITY")
+                partyCredentialMetric(invite.tier.displayName, "MEMBERSHIP")
+            }
+        }.padding(18).background(glassPanel(cornerRadius: 26, tint: ClipTheme.magenta.opacity(0.09)))
+    }
+
+    private func partyCredentialMetric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 8, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(mutedInk)
+            Text(value).font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ink).lineLimit(1).minimumScaleFactor(0.75)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var partyEssentials: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("At a glance").font(.system(size: 22, weight: .black, design: .rounded)).foregroundColor(ink)
+                Spacer()
+                Text("PRIVATE DETAILS")
+                    .font(.system(size: 9, weight: .black, design: .rounded))
+                    .foregroundColor(mutedInk)
+            }
+            partyEssentialRow("calendar.badge.clock", "WHEN", invite.scheduledDate)
+            partyEssentialRow("mappin.and.ellipse", locationLabel, invite.locationLabel)
+            partyEssentialRow("person.2.fill", "INVITED THROUGH", invite.audienceCircle)
+        }
+    }
+
+    private func partyEssentialRow(_ icon: String, _ eyebrow: String, _ value: String) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon).font(.system(size: 15, weight: .black)).foregroundColor(accent).frame(width: 36, height: 36).background(glassCircle(tint: accent.opacity(0.12)))
+            detailRow(eyebrow: eyebrow, title: value)
+        }.padding(13).background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.03)))
+    }
+
+    @ViewBuilder private var partyPlan: some View {
+        let moment = partyTemplateMoment
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: moment.symbol)
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundColor(.white)
+                    .frame(width: 42, height: 42)
+                    .background(LinearGradient(colors: [ClipTheme.cyan, ClipTheme.magenta, ClipTheme.orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionMiniTitle(moment.eyebrow)
+                    Text(moment.title).font(.system(size: 19, weight: .black, design: .rounded)).foregroundColor(ink)
+                    Text(moment.detail).font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundColor(mutedInk).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if !invite.activityHighlights.isEmpty {
+                Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
+                VStack(alignment: .leading, spacing: 11) {
+                    Text(partyProgramTitle).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(ink)
+                    ForEach(Array(invite.activityHighlights.prefix(5).enumerated()), id: \.offset) { index, item in
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 25, height: 25).background(accent).clipShape(Circle())
+                            Text(item).font(.system(size: 14, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.84))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(glassPanel(cornerRadius: 22, tint: secondary.opacity(0.07)))
+    }
+
+    private var partyTemplateEyebrow: String {
+        switch invite.partyTemplate {
+        case .listeningParty: return "LISTENING SESSION"
+        case .comedyNight: return "COMEDY NIGHT"
+        case .premiere: return "PREMIERE"
+        case .privateParty: return "PRIVATE PARTY"
+        case .fanMeetup: return "FAN MEETUP"
+        case .releaseParty: return "RELEASE PARTY"
+        case .popUp: return "POP-UP"
+        case nil: return "PARTY PASS"
+        }
+    }
+
+    private var partyProgramTitle: String {
+        switch invite.partyTemplate {
+        case .listeningParty, .releaseParty: return "The set"
+        case .comedyNight: return "Show order"
+        case .premiere: return "Screening sequence"
+        case .fanMeetup: return "Meetup flow"
+        case .privateParty: return "The evening"
+        case .popUp: return "The drop"
+        case nil: return "The plan"
+        }
+    }
+
+    private var partyTemplateMoment: (eyebrow: String, title: String, detail: String, symbol: String) {
+        guard let config = invite.partyTemplateConfig else {
+            return ("PARTY FORMAT", invite.groupType, "The host will reveal the full format through this Party Pass.", "sparkles")
+        }
+        switch config {
+        case .listeningParty(let format):
+            return ("LISTENING FORMAT", displayTemplateValue(format), "A curated first listen with \(invite.hostName).", "headphones")
+        case .fanMeetup(let format):
+            return ("MEETUP FORMAT", displayTemplateValue(format), "A real-world moment for the community around \(invite.hostName).", "person.3.fill")
+        case .releaseParty(let type, let title):
+            return ("RELEASE MOMENT", "\(displayTemplateValue(type)) · \(title)", "The first room for this release, curated by \(invite.hostName).", "music.note.list")
+        case .popUp(let disclosure):
+            let detail = disclosure == "after-approval" ? "The location remains protected until approval." : "Location and timing are live in this Party Pass."
+            return ("LOCATION DROP", disclosure == "after-approval" ? "Protected reveal" : "Live reveal", detail, "mappin.and.ellipse")
+        case .privateParty(let policy):
+            return ("GUEST POLICY", displayTemplateValue(policy), "A deliberately private room hosted by \(invite.hostName).", "lock.fill")
+        case .standard:
+            switch invite.partyTemplate {
+            case .comedyNight: return ("LIVE FORMAT", "Comedy night", "A room built for the set, the headliner, and the afterglow.", "theatermasks.fill")
+            case .premiere: return ("FIRST SCREENING", "Premiere moment", "Arrive for the first watch and stay for the conversation.", "film.fill")
+            default: return ("PARTY FORMAT", invite.groupType, "The host will reveal the full format through this Party Pass.", "sparkles")
+            }
+        }
+    }
+
+    private func displayTemplateValue(_ value: String) -> String {
+        value.replacingOccurrences(of: "-", with: " ").capitalized
+    }
+
+    private var eventHeader: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(colors: [accent.opacity(0.76), secondary.opacity(0.46), ClipTheme.panelElevated.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image(systemName: "person.3.sequence.fill").font(.system(size: 94, weight: .black)).foregroundColor(Color.black.opacity(0.18)).offset(x: 178, y: -20)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    glassChip(invite.isHostStudioParty ? "PARTY PASS" : "APP CLIP", icon: "bolt.fill")
+                    glassChip(privacyLabel, icon: invite.privacyStatus == "publicDiscovery" ? "globe" : "lock.fill")
+                }
+                Text(invite.title).font(.system(size: titleFontSize, weight: .black, design: .rounded)).foregroundColor(ink).lineLimit(2)
+                Text("\(invite.groupType) · \(invite.audienceCircle)").font(.system(size: bodyFontSize, weight: .heavy, design: .rounded)).foregroundColor(ink.opacity(0.80))
+                Text(invite.inviteNote ?? eventBlurb).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(ink.opacity(0.72)).lineLimit(2)
+            }.padding(18)
+        }
+        .frame(height: 258)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1))
+        .padding(.top, 8)
+    }
+
+    private var eventDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Essentials")
+                .font(.system(size: 18, weight: .black, design: .rounded))
+                .foregroundColor(ink)
+
+            VStack(alignment: .leading, spacing: 12) {
+                detailCard(eyebrow: "Date & time", title: invite.scheduledDate, icon: "calendar.badge.clock")
+                detailCard(eyebrow: "Hosted by", title: invite.hostName, icon: "person.crop.circle.badge.checkmark")
+                detailCard(eyebrow: invite.locationDisclosure == "after-approval" ? "Location after approval" : invite.isHostStudioParty || invite.privacyStatus == "publicDiscovery" ? "Location" : "Location after join", title: invite.locationLabel, icon: "mappin.and.ellipse")
+                detailCard(eyebrow: "Circle", title: invite.audienceCircle, icon: "person.2.fill")
+                if let accessMode = invite.accessMode {
+                    detailCard(eyebrow: "Access", title: accessModeLabel(accessMode), icon: "person.badge.key.fill")
+                }
+                if let capacity = invite.capacity {
+                    detailCard(eyebrow: "Capacity", title: "\(capacity) guests", icon: "person.3.fill")
+                }
+            }
+
+            if !invite.activityHighlights.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(invite.activityHighlights.prefix(4), id: \.self) { item in
+                        Text(item)
+                            .font(.system(size: max(bodyFontSize - 1, 13), weight: .bold, design: .rounded))
+                            .foregroundColor(ink.opacity(0.76))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            if let handle = invite.instagramHandle {
+                followHostButton(handle: handle)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var rsvpPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                sectionMiniTitle("RSVP Options")
+                Spacer()
+                Text(invite.rsvpCutoff ?? "Open now").font(.system(size: 12, weight: .black, design: .rounded)).foregroundColor(mutedInk)
+            }
+            HStack(spacing: 10) { rsvpChoice("👍", "Going"); rsvpChoice("🤔", "Maybe"); rsvpChoice("😢", "Can't Go") }
+            Text("Contacts stay private unless you choose to match.").font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(mutedInk)
+        }
+        .padding(14)
+        .background(glassPanel(cornerRadius: 24, tint: accent.opacity(0.08)))
+    }
+
+    private func rsvpChoice(_ emoji: String, _ title: String) -> some View {
+        VStack(spacing: 6) { Text(emoji).font(.system(size: 28)); Text(title).font(.system(size: 11.5, weight: .black, design: .rounded)).foregroundColor(ink.opacity(0.74)) }
+            .frame(maxWidth: .infinity).frame(height: 78).background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.05)))
+    }
+
+    private func detailCard(eyebrow: String, title: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 14, weight: .black)).foregroundColor(accent).frame(width: 34, height: 34).background(glassCircle(tint: accent.opacity(0.10)))
+            detailRow(eyebrow: eyebrow, title: title)
+        }
+        .padding(13)
+        .background(glassPanel(cornerRadius: 18, tint: .white.opacity(0.04)))
+    }
+
+    private func accessModeLabel(_ value: String) -> String {
+        switch value {
+        case "free-rsvp": return "Free RSVP"
+        case "paid-ticket": return "Paid Ticket"
+        case "private-approval": return "Private Approval"
+        default: return value.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    private func sectionMiniTitle(_ title: String) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .black, design: .rounded)).foregroundColor(mutedInk).tracking(1.0)
+    }
+
+    private func followHostButton(handle: String) -> some View {
+        Button(action: openInstagram) {
+            HStack(spacing: 8) {
+                instagramGlyph
+                Text("@\(handle)")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(ink)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(glassPanel(cornerRadius: 16, tint: accent.opacity(0.20)))
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+        .accessibilityLabel("Follow @\(handle) on Instagram")
+        .accessibilityHint("Opens the host's Instagram profile")
+    }
+
+    private var instagramGlyph: some View {
+        let gradient = LinearGradient(
+            colors: [Color(red: 0.98, green: 0.36, blue: 0.34), Color(red: 0.79, green: 0.19, blue: 0.63), Color(red: 0.40, green: 0.28, blue: 0.86)],
+            startPoint: .bottomLeading,
+            endPoint: .topTrailing
+        )
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(gradient, lineWidth: 2)
+            Circle().strokeBorder(gradient, lineWidth: 2).frame(width: 9, height: 9)
+            Circle().fill(gradient).frame(width: 3, height: 3).offset(x: 5, y: -5)
+        }
+        .frame(width: 20, height: 20)
+    }
+
+    private func detailRow(eyebrow: String, title: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(eyebrow.uppercased())
+                .font(.system(size: 9.5, weight: .black, design: .rounded))
+                .tracking(1.0)
+                .foregroundColor(mutedInk)
+            Text(title)
+                .font(.system(size: 14.5, weight: .black, design: .rounded))
+                .foregroundColor(ink.opacity(0.88))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var guestList: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(title: "Guest List", subtitle: guestListSubtitle) {
+                Button(action: { openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                    Text("View all")
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .foregroundColor(ink.opacity(0.82))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: accent.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if hasLiveGuests {
+                HStack(spacing: -10) {
+                    ForEach(Array(shownGuests.enumerated()), id: \.element.id) { index, guest in
+                        realGuestBubble(guest, index: index, size: guestAvatarSize)
+                    }
+                    if liveOverflowCount > 0 {
+                        overflowBubble(count: liveOverflowCount)
+                    }
+                }
+            } else if !invite.isHostStudioParty && avatarCount > 0 {
+                HStack(spacing: -10) {
+                    ForEach(0..<avatarCount, id: \.self) { index in
+                        avatarBubble(index: index, size: guestAvatarSize)
+                    }
+                    if overflowCount > 0 {
+                        overflowBubble(count: overflowCount)
+                    }
+                }
+            } else {
+                Text(invite.isHostStudioParty ? "Guest identities stay private until the live list is available." : "Host is setting up the guest list")
+                    .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(glassCapsule(tint: .white.opacity(0.14)))
+            }
+        }
+    }
+
+    // Real guest bubble: async profile photo when available, initials otherwise.
+    private func realGuestBubble(_ guest: ClipGroupEventGuest, index: Int, size: CGFloat) -> some View {
+        ZStack {
+            if let photo = guest.profileImage {
+                AsyncImage(url: photo) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Circle().fill(LinearGradient(colors: avatarColors(index), startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            } else {
+                Circle().fill(LinearGradient(colors: avatarColors(index), startPoint: .topLeading, endPoint: .bottomTrailing))
+                Text(guest.initials)
+                    .font(.system(size: size * 0.32, weight: .heavy, design: .rounded))
+                    .foregroundColor(ink.opacity(0.84))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 1.4))
+        .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
+        .accessibilityLabel(guest.name)
+    }
+
+    private func overflowBubble(count: Int) -> some View {
+        Text("+\(count)")
+            .font(.system(size: min(guestAvatarSize * 0.38, 24), weight: .black, design: .rounded))
+            .foregroundColor(ink)
+            .frame(width: guestAvatarSize, height: guestAvatarSize)
+            .background(glassCircle(tint: .white.opacity(0.18)))
+            .overlay(Circle().stroke(Color.white.opacity(0.48), lineWidth: 1.2))
+    }
+
+    // Party albums render only Host Studio media. Legacy group links retain their
+    // fillable placeholders until that compatibility surface is retired.
+    private var photoAlbum: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(title: "Photo Album", subtitle: albumSubtitle) {
+                Button(action: shareInvite) {
+                    Text("Share")
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .foregroundColor(ink.opacity(0.86))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: secondary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Array(invite.photoURLs.enumerated()), id: \.offset) { _, url in
+                        albumTile(url: url)
+                    }
+                    ForEach(0..<placeholderTileCount, id: \.self) { index in
+                        albumPlaceholderTile(index: index)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var albumSubtitle: String {
+        let count = invite.photoURLs.count
+        if count == 0 { return "Ready for memories" }
+        return count == 1 ? "1 photo" : "\(count) photos"
+    }
+
+    private var placeholderTileCount: Int { invite.isHostStudioParty ? 0 : (invite.photoURLs.isEmpty ? 4 : 1) }
+
+    private func albumTile(url: URL) -> some View {
+        AsyncImage(url: url) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(ClipTheme.panelElevated.opacity(0.72))
+        }
+        .frame(width: albumTileWidth, height: albumTileHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.30), lineWidth: 1))
+    }
+
+    private func albumPlaceholderTile(index: Int) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(ClipTheme.panelElevated.opacity(0.72))
+            LinearGradient(colors: [accent.opacity(0.20), secondary.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 8) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundColor(.white.opacity(0.70))
+                Text(index == 0 && invite.photoURLs.isEmpty ? "First memory" : "Add photo")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(mutedInk)
+            }
+        }
+        .frame(width: albumTileWidth, height: albumTileHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.30), lineWidth: 1))
+    }
+
+    private var albumTileWidth: CGFloat { 128 }
+    private var albumTileHeight: CGFloat { 168 }
+
+    private var activityFeed: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(title: "Activity", subtitle: "1 update") {
+                Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                    Label("Comment", systemImage: "lock.fill")
+                        .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
+                        .foregroundColor(mutedInk)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 13)
+                        .background(glassCapsule(tint: .white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Comments locked in App Clip")
+                .accessibilityHint("Open full Bytspot to comment")
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                avatarBubble(index: 0, size: hostAvatarSize)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(.white)
+                            .frame(width: 25, height: 25)
+                            .background(Circle().fill(Color.black))
+                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("\(invite.hostName) sent a Text Blast 📣")
+                        .font(.system(size: 21, weight: .regular, design: .rounded))
+                        .foregroundColor(ink.opacity(0.88))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(invite.title)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundColor(ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(invite.locationLabel, systemImage: "mappin.and.ellipse")
+                        Label(invite.scheduledDate, systemImage: "clock")
+                        ForEach(invite.activityHighlights.prefix(3), id: \.self) { item in
+                            Label(item, systemImage: "checkmark.seal.fill")
+                        }
+                    }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                }
+            }
+        }
+    }
+
+    private var primaryActions: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Button(action: primaryPartyAction) {
+                    Label(primaryButtonTitle, systemImage: primaryButtonIcon)
+                        .font(.system(size: bodyFontSize, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: ctaHeight)
+                        .background(LinearGradient(colors: [accent, secondary], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+                        .shadow(color: accent.opacity(0.30), radius: 18, x: 0, y: 10)
+                        .opacity(membership == .joining && ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) ? 0.7 : 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(isPrimaryActionDisabled)
+
+                Button(action: shareInvite) {
+                    VStack(spacing: 2) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18, weight: .black))
+                    }
+                        .foregroundColor(ink)
+                        .frame(width: ctaHeight + 6, height: ctaHeight)
+                        .background(glassPanel(cornerRadius: 20, tint: .white.opacity(0.16)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(invite.isHostStudioParty ? "Share Party Pass" : "Share invite")
+                .accessibilityHint("Opens the iOS share sheet")
+            }
+            Button(action: { impactLight(); openFullApp(url: invite.handoffURL, showOverlay: $showOverlay) }) {
+                Text(invite.isHostStudioParty ? "Share the App Clip above · continue in the full app here" : "Open Bytspot to unlock nearby offers & perks for this event")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(ink.opacity(0.68))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(invite.isHostStudioParty ? "Opens this Party in the full Bytspot app" : "Opens this group in the full Bytspot app")
+            if !statusMessage.isEmpty {
+                Text(statusMessage)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 13)
+        .padding(.bottom, 12)
+        .background(
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay(ClipTheme.background.opacity(0.55))
+                .overlay(Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1), alignment: .top)
+        )
+    }
+
+    private var eventBlurb: String {
+        let highlights = invite.activityHighlights.prefix(2).joined(separator: " · ")
+        let groupDescriptor = invite.groupType.lowercased() == "private" ? "invite-only" : "private \(invite.groupType.lowercased())"
+        if highlights.isEmpty {
+            return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). RSVP from the App Clip and keep contacts private."
+        }
+        return "A \(groupDescriptor) moment hosted by \(invite.hostName) · \(guestCountLabel). \(highlights)."
+    }
+
+    private var guestCountLabel: String {
+        invite.participantCount == 1 ? "1 guest" : "\(invite.participantCount) guests"
+    }
+
+    private var shareInviteItems: [Any] {
+        var items: [Any] = ["Join \(invite.title) on Bytspot"]
+        if let inviteURL { items.append(inviteURL) }
+        return items
+    }
+
+    private func avatarBubble(index: Int, size: CGFloat) -> some View {
+        let initials = ["B", "Y", "T", "S", "P"][index % 5]
+        return ZStack {
+            Circle().fill(LinearGradient(colors: avatarColors(index), startPoint: .topLeading, endPoint: .bottomTrailing))
+            Circle().fill(.ultraThinMaterial).opacity(0.12)
+            Text(initials)
+                .font(.system(size: size * 0.34, weight: .heavy, design: .rounded))
+                .foregroundColor(ink.opacity(0.84))
+        }
+        .frame(width: size, height: size)
+        .overlay(Circle().stroke(Color.white.opacity(0.62), lineWidth: 1.4))
+        .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
+    }
+
+    private func avatarColors(_ index: Int) -> [Color] {
+        let palettes: [[Color]] = [[accent, .white], [secondary, ClipTheme.cyan], [ClipTheme.pink, accent], [Color.white, ClipTheme.emerald], [ClipTheme.violet, Color.white]]
+        return palettes[index % palettes.count]
+    }
+
+    private func glassIconButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 20, weight: .black))
+                .foregroundColor(ink)
+                .frame(width: topControlSize, height: topControlSize)
+                .background(glassCircle(tint: .white.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func glassChip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.system(size: chipFontSize, weight: .black, design: .rounded))
+            .foregroundColor(ink.opacity(0.78))
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(glassCapsule(tint: accent.opacity(0.06)))
+    }
+
+    private func sectionHeader<Trailing: View>(title: String, subtitle: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: sectionTitleFontSize, weight: .black, design: .rounded))
+                    .foregroundColor(ink)
+                Text(subtitle)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(mutedInk)
+            }
+            Spacer()
+            trailing()
+        }
+    }
+
+    // Shared dark-glass tokens — brand spec (src/BRAND_COLORS.md):
+    // surface rgba(28,28,30,0.95) over #1C1C1E, subtle white borders at 0.30.
+    private func glassPanel(cornerRadius: CGFloat, tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(ClipTheme.panelElevated.opacity(0.72)))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(tint))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color.white.opacity(0.30), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.38), radius: 20, x: 0, y: 12)
+    }
+
+    private func glassCapsule(tint: Color = .white.opacity(0.06)) -> some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(ClipTheme.panelElevated.opacity(0.60)))
+            .overlay(Capsule().fill(tint))
+            .overlay(Capsule().stroke(Color.white.opacity(0.30), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.28), radius: 12, x: 0, y: 6)
+    }
+
+    private func glassCircle(tint: Color) -> some View {
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay(Circle().fill(ClipTheme.panelElevated.opacity(0.60)))
+            .overlay(Circle().fill(tint))
+            .overlay(Circle().stroke(Color.white.opacity(0.30), lineWidth: 1))
+    }
+
+    private var joinButtonTitle: String {
+        switch membership {
+        case .joining: return "Joining…"
+        case .joined: return "You're in"
+        case .pending: return "Request sent"
+        case .declined: return "Not approved"
+        default: return invite.requiresApproval ? "Request Access" : "Join guest list"
+        }
+    }
+
+    private var joinButtonIcon: String {
+        switch membership {
+        case .joining: return "hourglass"
+        case .joined: return "checkmark.circle.fill"
+        case .pending: return "clock.badge.checkmark"
+        case .declined: return "xmark.circle.fill"
+        default: return "sparkles"
+        }
+    }
+
+    private var primaryButtonTitle: String {
+        guard invite.isHostStudioParty else { return joinButtonTitle }
+        guard let action = partyPass?.action else { return isResolvingPartyPass ? "Checking access…" : "Party Pass unavailable" }
+        switch action {
+        case .authenticate: return "Sign in to continue"
+        case .rsvp: return "RSVP to this Party"
+        case .requestApproval: return "Request host approval"
+        case .ticket: return "Choose a ticket"
+        case .viewPass: return "Party Pass confirmed"
+        case .unavailable: return "Party Pass unavailable"
+        }
+    }
+
+    private var primaryButtonIcon: String {
+        guard invite.isHostStudioParty else { return joinButtonIcon }
+        guard let action = partyPass?.action else { return isResolvingPartyPass ? "hourglass" : "xmark.shield" }
+        switch action {
+        case .authenticate: return "person.crop.circle.badge.checkmark"
+        case .rsvp: return "checkmark.circle.fill"
+        case .requestApproval: return "lock.badge.plus"
+        case .ticket: return "ticket.fill"
+        case .viewPass: return "checkmark.seal.fill"
+        case .unavailable: return "xmark.shield"
+        }
+    }
+
+    private func primaryPartyAction() {
+        if ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) { joinGroup() }
+        else {
+            Task { await performPartyAction() }
+        }
+    }
+
+    private var isPrimaryActionDisabled: Bool {
+        if invite.isHostStudioParty {
+            guard let action = partyPass?.action else { return true }
+            return isResolvingPartyPass || action == .unavailable || action == .viewPass
+        }
+        return membership == .joining || membership == .joined || membership == .declined
+    }
+
+    @MainActor
+    private func refreshPartyPass() async {
+        guard invite.isHostStudioParty else { return }
+        resolverGeneration &+= 1
+        let generation = resolverGeneration
+        isResolvingPartyPass = true
+        defer {
+            if resolverGeneration == generation { isResolvingPartyPass = false }
+        }
+        do {
+            let resolved = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            guard resolverGeneration == generation else { return }
+            partyPass = resolved
+            statusMessage = partyStatusMessage
+        } catch {
+            guard resolverGeneration == generation else { return }
+            partyPass = nil
+            statusMessage = "We couldn't verify this Party Pass. Try again shortly."
+        }
+    }
+
+    private var partyStatusMessage: String {
+        guard let state = partyPass else { return "" }
+        switch state.action {
+        case .authenticate: return "Sign in with Apple to see your authorized Party action."
+        case .rsvp: return "RSVP is available for this Party."
+        case .requestApproval: return "The host reviews access requests before sharing the full Party Pass."
+        case .ticket: return "Choose a server-published ticket tier to continue securely."
+        case .viewPass: return "Your access is confirmed. Keep this Party Pass handy."
+        case .unavailable:
+            return state.guestStatus == "pending" ? "Your access request is with the host." : "This Party Pass is not available for a new action."
+        }
+    }
+
+    @MainActor
+    private func performPartyAction() async {
+        guard let action = partyPass?.action, !isResolvingPartyPass else { return }
+        impactMedium()
+        switch action {
+        case .authenticate:
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                let credential = try await authController.requestAppleCredential()
+                _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName)
+                partyPass = nil
+                await refreshPartyPass()
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
+        case .rsvp, .requestApproval:
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString)
+                partyPass = nil
+                await refreshPartyPass()
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
+        case .ticket:
+            guard !invite.ticketTiers.isEmpty else {
+                statusMessage = "Ticket options are unavailable right now. Try again shortly."
+                return
+            }
+            showTicketTiers = true
+        case .viewPass:
+            statusMessage = "Your Party Pass is confirmed."
+        case .unavailable:
+            statusMessage = partyStatusMessage
+        }
+    }
+
+    private func startPartyTicketCheckout(_ tier: ClipPartyTicketTier) {
+        Task { @MainActor in
+            guard partyPass?.action == .ticket, !isResolvingPartyPass else { return }
+            isResolvingPartyPass = true
+            defer { isResolvingPartyPass = false }
+            do {
+                let checkoutURL = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString)
+                statusMessage = "Secure checkout opened. We'll refresh your Party Pass when you return."
+                openURL(checkoutURL)
+            } catch {
+                statusMessage = joinErrorText(from: error)
+            }
+        }
+    }
+
+    // Sign in with Apple -> auth.appleSignIn (persists the JWT) -> groupEvents.join.
+    // Open events return "joined"; approval-gated events return "pending". A guest
+    // the host previously declined stays "declined" on re-join (no fall-through).
+    private func joinGroup() {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else {
+            primaryPartyAction()
+            return
+        }
+        guard membership != .joining, membership != .joined, membership != .declined else { return }
+        impactMedium()
+        membership = .joining
+        statusMessage = "Signing you in with Apple…"
+        Task { await performJoin() }
+    }
+
+    @MainActor
+    private func performJoin() async {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else { return }
+        do {
+            let credential = try await authController.requestAppleCredential()
+            statusMessage = "Joining \(invite.title)…"
+            let verifier = ClipPatchVerifier()
+            _ = try await verifier.appleSignIn(
+                identityToken: credential.identityToken,
+                email: credential.email,
+                name: credential.fullName
+            )
+            let status = try await verifier.joinGroupEvent(eventId: invite.id)
+            switch status {
+            case "joined":
+                membership = .joined
+                statusMessage = "You're in. Guest updates, photos, and matched offers will appear here."
+                await loadGuests()
+            case "pending":
+                membership = .pending
+                statusMessage = "Request sent. \(invite.hostName) will approve you shortly."
+            case "declined":
+                membership = .declined
+                statusMessage = "\(invite.hostName) isn't accepting this request. Reach out to the host directly."
+            default:
+                membership = .failed("Unexpected response. Try again.")
+                statusMessage = "Unexpected response. Try again."
+            }
+        } catch {
+            let message = joinErrorText(from: error)
+            membership = .failed(message)
+            statusMessage = message
+        }
+    }
+
+    // Pull-on-open: fetch the real joined guest list. On any failure the view
+    // keeps its existing placeholder bubbles, so the section never reads empty.
+    @MainActor
+    private func loadGuests() async {
+        guard ClipPartyPassActionPolicy.usesLegacyGroupEventRoute(for: invite) else {
+            liveGuests = []
+            liveGuestCount = 0
+            return
+        }
+        guard let list = try? await ClipPatchVerifier().groupEventGuests(eventId: invite.id) else { return }
+        liveGuests = list.guests
+        liveGuestCount = list.count
+    }
+
+    private func joinErrorText(from error: Error) -> String {
+        if let authError = error as? ClipGuestAuthController.AuthError {
+            return authError.errorDescription ?? "Sign in failed. Try again."
+        }
+        switch error {
+        case ClipPatchVerifier.VerifyError.server(let message): return message
+        case ClipPatchVerifier.VerifyError.network(let message): return message
+        default: return "Couldn't join right now. Try again."
+        }
+    }
+
+    private func shareInvite() { impactLight(); showShareSheet = true }
+    private func openInstagram() {
+        guard let handle = invite.instagramHandle else { return }
+        impactLight()
+        let appURL = URL(string: "instagram://user?username=\(handle)")
+        let webURL = URL(string: "https://instagram.com/\(handle)")
+        if let appURL {
+            UIApplication.shared.open(appURL) { opened in
+                if !opened, let webURL { UIApplication.shared.open(webURL) }
+            }
+        } else if let webURL {
+            UIApplication.shared.open(webURL)
+        }
+    }
+    private func copyInvite() { impactLight(); UIPasteboard.general.string = inviteURL?.absoluteString; statusMessage = "Invite copied — perfect for sharing the private App Clip." }
+}
+
+#endif
+
+private struct ClipPartyTicketTierPicker: View {
+    let tiers: [ClipPartyTicketTier]
+    let partyTitle: String
+    let select: (ClipPartyTicketTier) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                ClipTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("SECURE TICKETS")
+                            .font(.system(size: 11, weight: .black, design: .rounded))
+                            .foregroundColor(.white.opacity(0.58))
+                        Text(partyTitle)
+                            .font(.system(size: 28, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("Choose a server-published tier. Your price and eligibility are verified again before Checkout opens.")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.68))
+                        ForEach(tiers) { tier in
+                            Button { select(tier) } label: {
+                                HStack(spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(tier.name).font(.system(size: 17, weight: .black, design: .rounded))
+                                        Text("\(tier.quantity) available · \(tier.requiredMembershipTier.capitalized) access")
+                                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                                            .foregroundColor(.white.opacity(0.62))
+                                    }
+                                    Spacer()
+                                    Text(price(tier.priceCents))
+                                        .font(.system(size: 17, weight: .black, design: .rounded))
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .font(.system(size: 20, weight: .black))
+                                }
+                                .foregroundColor(.white)
+                                .padding(16)
+                                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(ClipTheme.panelElevated))
+                                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.20)))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(tier.name), \(price(tier.priceCents)), \(tier.quantity) available, \(tier.requiredMembershipTier.capitalized) access")
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Ticket tiers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Not now") { dismiss() }.foregroundColor(.white)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func price(_ cents: Int) -> String {
+        String(format: "$%.2f", Double(cents) / 100)
+    }
+}
+
+// MARK: - Sign in with Apple controller
+
+/// Bridges the callback-based `ASAuthorizationController` to async/await so the
+/// Clip's join flow can request an Apple identity token in one line. The token
+/// is exchanged server-side by `ClipPatchVerifier.appleSignIn`.
+@MainActor
+final class ClipGuestAuthController: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    struct Credential {
+        let identityToken: String
+        let email: String?
+        let fullName: String?
+    }
+
+    enum AuthError: LocalizedError {
+        case cancelled
+        case missingToken
+        case failed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .cancelled: return "Sign in was cancelled."
+            case .missingToken: return "Apple didn't return a secure token. Try again."
+            case .failed(let message): return message
+            }
+        }
+    }
+
+    private var continuation: CheckedContinuation<Credential, Error>?
+
+    func requestAppleCredential() async throws -> Credential {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        defer { continuation = nil }
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8) else {
+            continuation?.resume(throwing: AuthError.missingToken)
+            return
+        }
+        let name = [credential.fullName?.givenName, credential.fullName?.familyName]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        continuation?.resume(returning: Credential(
+            identityToken: identityToken,
+            email: credential.email,
+            fullName: name.isEmpty ? nil : name
+        ))
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        defer { continuation = nil }
+        if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+            continuation?.resume(throwing: AuthError.cancelled)
+        } else {
+            continuation?.resume(throwing: AuthError.failed(error.localizedDescription))
+        }
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = (scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene)
+            ?? scenes.first as? UIWindowScene
+        return windowScene?.keyWindow ?? windowScene?.windows.first ?? ASPresentationAnchor()
+    }
+}
+
 // MARK: - Screen 1: Catalog
 
 struct ClipCatalogView: View {
@@ -187,6 +1662,7 @@ struct ClipCatalogView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 partnerCardChromeHeader
+                verificationBanner
                 catalogHeader
                 membershipGateBanner
                 serviceSectionEyebrow
@@ -216,6 +1692,39 @@ struct ClipCatalogView: View {
             .padding(.top, 14)
             .padding(.bottom, 28)
         }
+    }
+
+    @ViewBuilder private var verificationBanner: some View {
+        switch invocation.verificationState {
+        case .idle:
+            EmptyView()
+        case .verifying:
+            verificationCard(icon: "shield.lefthalf.filled", title: "Verifying secure tap", detail: "Checking this pass with Bytspot…", color: ClipTheme.cyan, showsProgress: true)
+        case .success(let label, let bindingType):
+            verificationCard(icon: "checkmark.seal.fill", title: "Pass verified", detail: [label, bindingType].compactMap { $0 }.joined(separator: " · "), color: ClipTheme.emerald)
+        case .pending(let label, let status):
+            verificationCard(icon: "clock.badge.questionmark.fill", title: "Verification pending", detail: "\(label) · \(status). No access has been granted yet.", color: .orange)
+        case .denied(let message):
+            verificationCard(icon: "xmark.shield.fill", title: "Pass not valid", detail: message, color: .pink)
+        case .unavailable(let message):
+            verificationCard(icon: "exclamationmark.shield.fill", title: "Verification unavailable", detail: message, color: .gray)
+        }
+    }
+
+    private func verificationCard(icon: String, title: String, detail: String, color: Color, showsProgress: Bool = false) -> some View {
+        HStack(spacing: 13) {
+            ZStack {
+                Circle().fill(color.opacity(0.16)).frame(width: 46, height: 46)
+                if showsProgress { ProgressView().tint(color) } else { Image(systemName: icon).font(.system(size: 19, weight: .black)).foregroundColor(color) }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(.white)
+                Text(detail).font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.66)).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14).background(RoundedRectangle(cornerRadius: 20).fill(ClipTheme.panelElevated).overlay(RoundedRectangle(cornerRadius: 20).stroke(color.opacity(0.38))))
+        .accessibilityElement(children: .combine)
     }
 
     private var catalogHeader: some View {
@@ -250,7 +1759,9 @@ struct ClipCatalogView: View {
                     colors: [service.tintColor.opacity(0.78), service.tintColor.opacity(0.18), Color.black.opacity(0.55)],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
-                if let url = service.heroImageURL {
+                if service.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: service.videoURL, posterURL: service.displayPosterURL, tint: service.tintColor)
+                } else if let url = service.displayPosterURL {
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFill()
                     } placeholder: { Color.clear }
@@ -259,7 +1770,7 @@ struct ClipCatalogView: View {
                 LinearGradient(colors: [.clear, Color.black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
                 VStack {
                     HStack {
-                        Text(service.source == "live" ? "LIVE" : "MEMBER SERVICE")
+                        Text(serviceBadgeText(service))
                                 .font(.system(size: 9, weight: .black))
                                 .tracking(0.8)
                                 .foregroundColor(invocation.hasPremiumMembershipAccess ? .black : .white)
@@ -300,6 +1811,12 @@ struct ClipCatalogView: View {
                         .font(.system(size: 12, weight: .black, design: .monospaced))
                         .foregroundColor(service.tintColor)
                 }
+                if let context = serviceTileContext(service) {
+                    Text(context)
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(.white.opacity(0.66))
+                        .lineLimit(1)
+                }
                 Text(service.subtitle)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(.white.opacity(0.62))
@@ -317,9 +1834,17 @@ struct ClipCatalogView: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [Color.black, ClipTheme.violet.opacity(0.34), ClipTheme.magenta.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if service.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: service.videoURL, posterURL: service.displayPosterURL, tint: ClipTheme.gold)
+                        .opacity(0.62)
+                } else if let url = service.displayPosterURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                        .opacity(0.54)
+                }
                 RadialGradient(colors: [ClipTheme.gold.opacity(0.16), .clear], center: .topTrailing, startRadius: 12, endRadius: 150)
+                LinearGradient(colors: [.clear, Color.black.opacity(0.70)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack { Text("BLACK · FLIGHT DESK").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
+                    HStack { Text("BLACK · ELITE GUARANTEE").tracking(1.1); Spacer(); Image(systemName: "airplane.departure") }
                         .font(.system(size: 9.5, weight: .black))
                         .foregroundColor(ClipTheme.gold)
                     Spacer()
@@ -335,7 +1860,7 @@ struct ClipCatalogView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.title).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
                 Text(service.priceLabel ?? "Quote ready").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
-                Text("Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
+                Text(serviceTileContext(service) ?? "Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
             }.padding(12)
         }
         .background(LinearGradient(colors: [ClipTheme.panelElevated, Color.black.opacity(0.96)], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -441,7 +1966,7 @@ struct ClipCatalogView: View {
     }
 
     private var eyebrow: String {
-        if case .verified = invocation.verificationState { return "VERIFIED ACCESS" }
+        if case .success = invocation.verificationState { return "VERIFIED ACCESS" }
         return invocation.services.first?.source == "live" ? "LIVE SERVICES FEED" : invocation.tier.eyebrow
     }
     private var venueTitle: String { invocation.patchContext?.title ?? formattedSlug(invocation.venueSlug) ?? "Bytspot Patch" }
@@ -449,6 +1974,22 @@ struct ClipCatalogView: View {
 
     private func isBlackAviation(_ service: ClipLocalService) -> Bool {
         invocation.tier == .black && ((service.category ?? service.id).lowercased().contains("aviation") || service.id.lowercased().contains("jet"))
+    }
+
+    private func serviceBadgeText(_ service: ClipLocalService) -> String {
+        if service.source == "live" { return "LIVE" }
+        switch invocation.tier {
+        case .black: return "ELITE GUARANTEE"
+        case .platinum: return "PLATINUM HOST"
+        case .green: return "LOCAL"
+        }
+    }
+
+    private func serviceTileContext(_ service: ClipLocalService) -> String? {
+        let parts = [service.scheduledDate, service.guestSummary, service.theme]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
     }
 }
 
@@ -548,20 +2089,22 @@ struct ClipVendorListView: View {
         return AnyView(VStack(alignment: .leading, spacing: 11) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [service.tintColor.opacity(0.75), service.tintColor.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let url = posterURL(for: vendor) {
+                if vendor.hasPlayableVideo {
+                    ClipAutoLoopingPlayer(videoURL: vendor.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
+                } else if let url = posterURL(for: vendor) {
                     AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                         .clipped()
                 }
                 LinearGradient(colors: [.clear, Color.black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
-                        Text("SERVICES").clipChip(color: Color.black.opacity(0.60), foreground: .white)
+                        Text(vendor.theme ?? "SERVICES").clipChip(color: Color.black.opacity(0.60), foreground: .white)
                         Spacer()
-                        Text("MEMBER SERVICE").clipChip(color: service.tintColor, foreground: .black)
+                        Text(vendorTierBadge).clipChip(color: service.tintColor, foreground: .black)
                     }
                     Spacer()
                     HStack(spacing: 8) {
-                        Image(systemName: vendor.media?.hasPlayableVideo == true ? "play.circle.fill" : service.iconName)
+                        Image(systemName: vendor.hasPlayableVideo ? "play.circle.fill" : service.iconName)
                             .font(.system(size: 19, weight: .black))
                             .foregroundColor(.white)
                         Text(vendor.name).font(.system(size: 20, weight: .heavy)).foregroundColor(.white).lineLimit(2)
@@ -577,6 +2120,9 @@ struct ClipVendorListView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(vendor.tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.70)).lineLimit(2)
+                if let context = vendorContextLine(vendor) {
+                    Text(context).font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.58)).lineLimit(1)
+                }
                 HStack(spacing: 8) {
                     if let rating = vendor.rating {
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
@@ -591,7 +2137,7 @@ struct ClipVendorListView: View {
                 }.padding(.top, 2)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 7)], alignment: .leading, spacing: 7) {
-                ForEach(vendor.includedHighlights.prefix(4), id: \.self) { highlight in
+                ForEach(vendorDisplayHighlights(vendor).prefix(4), id: \.self) { highlight in
                     Text(highlight).clipChip(color: Color.white.opacity(0.08), foreground: .white.opacity(0.86))
                 }
             }
@@ -626,6 +2172,27 @@ struct ClipVendorListView: View {
 
     private func posterURL(for vendor: ClipVendor) -> URL? {
         vendor.displayPosterURL ?? service.heroImageURL
+    }
+
+    private var vendorTierBadge: String {
+        switch invocation.tier {
+        case .black: return "ELITE GUARANTEE"
+        case .platinum: return "PLATINUM"
+        case .green: return "LOCAL"
+        }
+    }
+
+    private func vendorContextLine(_ vendor: ClipVendor) -> String? {
+        let parts = [vendor.scheduledDate, vendor.hostName, vendor.locationLabel, vendor.guestSummary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
+    }
+
+    private func vendorDisplayHighlights(_ vendor: ClipVendor) -> [String] {
+        let combined = vendor.activityHighlights + vendor.includedHighlights
+        var seen = Set<String>()
+        return combined.filter { seen.insert($0).inserted }
     }
 
     private func blackAviationVendorRow(_ vendor: ClipVendor) -> some View {
@@ -773,7 +2340,7 @@ struct ClipCheckoutView: View {
     private var vendorHero: some View {
         if isGhAkwaabaProduct {
             ghAkwaabaProductBanner
-        } else if vendor.media?.hasPlayableVideo == true {
+        } else if vendor.hasPlayableVideo {
             vendorHeroVideo
         } else {
             vendorHeroCompact
@@ -810,8 +2377,8 @@ struct ClipCheckoutView: View {
     private var ghAkwaabaProductBanner: some View {
         ZStack(alignment: .bottomLeading) {
             LinearGradient(colors: [ClipTheme.violet.opacity(0.72), ClipTheme.cyan.opacity(0.32), Color.black.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if vendor.media?.hasPlayableVideo == true {
-                ClipAutoLoopingPlayer(videoURL: vendor.media?.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
+            if vendor.hasPlayableVideo {
+                ClipAutoLoopingPlayer(videoURL: vendor.videoPlaybackURL, posterURL: posterURL(for: vendor), tint: service.tintColor)
             } else if let url = posterURL(for: vendor) {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .clipped()
@@ -854,6 +2421,9 @@ struct ClipCheckoutView: View {
                 Text(vendor.name).font(.system(size: 17, weight: .heavy)).foregroundColor(.white).lineLimit(1)
                 Text(service.title).font(.system(size: 12.5, weight: .black)).foregroundColor(service.tintColor)
                 Text(vendor.availability).font(.system(size: 11.5, weight: .bold)).foregroundColor(.white.opacity(0.65))
+                if let context = checkoutVendorContextLine {
+                    Text(context).font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.58)).lineLimit(1)
+                }
             }
             Spacer()
         }
@@ -866,7 +2436,7 @@ struct ClipCheckoutView: View {
     private var vendorHeroVideo: some View {
         ZStack(alignment: .bottomLeading) {
             ClipAutoLoopingPlayer(
-                videoURL: vendor.media?.videoPlaybackURL,
+                videoURL: vendor.videoPlaybackURL,
                 posterURL: posterURL(for: vendor),
                 tint: service.tintColor
             )
@@ -889,6 +2459,12 @@ struct ClipCheckoutView: View {
                 Text(vendor.availability)
                     .font(.system(size: 11.5, weight: .bold))
                     .foregroundColor(.white.opacity(0.78))
+                if let context = checkoutVendorContextLine {
+                    Text(context)
+                        .font(.system(size: 10.5, weight: .black))
+                        .foregroundColor(.white.opacity(0.70))
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
@@ -899,6 +2475,13 @@ struct ClipCheckoutView: View {
 
     private func posterURL(for vendor: ClipVendor) -> URL? {
         vendor.displayPosterURL ?? service.heroImageURL
+    }
+
+    private var checkoutVendorContextLine: String? {
+        let parts = [vendor.scheduledDate, vendor.hostName, vendor.locationLabel, vendor.guestSummary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.prefix(3).joined(separator: " · ")
     }
 
     private var includedCard: some View {

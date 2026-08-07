@@ -22,7 +22,7 @@ in order:
 | Feature | React source behavior | Native product job |
 | --- | --- | --- |
 | Identity header | name/guest, tier, following, points, badges | Passport identity and status |
-| Parker progress | booking count, points, check-ins, insider state, next unlock | Progress toward benefits |
+| Your Bytspot benefits | booking count, points, check-ins, insider state, next unlock | Progress toward benefits |
 | Insider membership | active/available, Stripe checkout, review-build handling | Subscription/access state, not random promo |
 | My Reservations | parking pass count, spot, address, window, price, pass code | Active arrival logistics |
 | My Access | access passes, virtual patch, NFC/QR, service requests | Wallet for access and patch context |
@@ -116,40 +116,37 @@ Theme is an app setting, not a Profile identity feature.
   - Dark: keeps Bytspot in premium night interface.
   - Light: high-contrast daytime surfaces.
 
-## Main Profile Wireframe v0
+## Main Profile Wireframe v1 — Professional Passport
 
 ```text
-[BYTSPOT PASSPORT]
-Avatar  Name / Guest        Tier pill
+[ACCOUNT CENTER]
+Avatar  Name / Guest       Tier + theme status
 Following   Points   Badges
-Small status: Auto theme
 
-[TODAY]
-[ My Reservations ]    count / next pass / parking copy
-[ My Access ]          patches / QR / NFC / requests
+[QUICK ACTIONS]
+Wallet          Bookings
+Rewards         Saved
 
-[PROGRESS]
-[ Parker Progress ]    tier, progress bar, next unlock
-[ Rewards & Badges ]   points, badges, earned perks
-
-[SOCIAL]
-[ Invite a Friend ]    referral count + share
-[ Find Friends ]       privacy-first contact sync + suggestions
-
-[PLACES & ACTIVITY]
-Saved Spots
-Places I've Been
-
-[ACCOUNT]
-Personal Information
-Payment Methods
-My Vehicles
+[ACCOUNT ESSENTIALS]
+Identity        name, email, phone, city
+Payment         methods and secure setup
+Vehicle         parking handoff cars
+Note: Account Essentials owns the Personal Information, Payment Methods, and My Vehicles destinations. Do not repeat these rows in a second Account menu group.
 
 [PREFERENCES]
 Vibe Preferences
 Parking Preferences
 Notifications
 Location & Privacy
+
+[PLACES & ACTIVITY]
+Saved Spots
+Places I've Been
+
+[NETWORK]
+Invite & Find Friends     one fused card
+  - Invite a Friend       referral link + share CTA
+  - Find Friends          private contact matching + sign-in/sync CTA
 
 [APP]
 General
@@ -164,6 +161,15 @@ Disclaimer
 
 [Log Out / Sign In]
 ```
+
+Professional guardrails:
+
+- Do not show noisy implementation badges like `NATIVE` on normal menu rows.
+- Keep the top visible area focused on universally understood actions: Wallet, Bookings, Rewards, Saved, Identity, Payment, Vehicle.
+- Keep destructive/legal/session actions isolated at the bottom.
+- Menus need short subtitles so rows explain outcomes without feeling like a settings dump.
+- Network must stay visually unified: Invite and Find Friends belong in one card, not two mismatched cards.
+- Do not duplicate Account Readiness with a second Account menu containing the same identity/payment/vehicle actions.
 
 ## Native/Web Boundary Rules
 
@@ -221,36 +227,39 @@ React source of truth:
 
 | Native surface | React source | Locked copy / contract |
 | --- | --- | --- |
-| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 3-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
-| Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, Midtown crowd/parking/ride subtitle, `Let's Go`, Terms & Privacy footer. |
-| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Bottom-sheet quiz: `What's your vibe tonight?`, `How far will you walk?`, `Solo or with crew?`, then `Here's your Atlanta` recommendations. |
+| Splash | `src/components/SplashScreen.tsx` + provided launch imagery | 1.8-second post-launch brand impression, native-drawn Bytspot mark, gradient BYTSPOT wordmark, `Your perfect spot awaits`, chips: Parking, Venues, AI-Powered. |
+| Landing | `src/components/LandingPage.tsx` | `Know Before You Go.`, location-safe product value, `Get Started`, Terms & Privacy footer. |
+| Location | Native value-first permission seam | Explain nearby recommendations, arrival context, and privacy before offering `Use My Location` or `Not Now`. |
+| Personalization | `src/App.tsx` onboarding quiz + provided imagery | Short context-aware Vibe → Walk → Crew quiz followed by a complete ready screen with verified live picks or capability previews. |
 | Auth | `src/components/AuthenticationFlow.tsx`, `AppleSignInButton.tsx`, `GoogleSignInButton.tsx` | Sign Up / Log In toggle, Apple/Google buttons, email form, full name + optional invite code for signup, forgot password for login. |
 
 Native frontend/API boundary:
 
 - Native auth route contracts are `auth.signup`, `auth.login`, `auth.googleSignIn`, and `auth.appleSignIn`; no backend route changes are part of P1.
-- Native signup uses the stricter 8-character password minimum even though the React frontend currently allows 6; this matches backend safety.
-- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|atlanta`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
-- `BYT_NATIVE_LAUNCH_AUTORUN=1` is DEBUG smoke-only and auto-advances Landing → Vibe → Walk → Crew → Atlanta → Main using the same state actions because this Xcode simulator runtime does not expose a `simctl io tap` operation.
+- Native signup uses the shared 6-character account minimum enforced by the current authentication contract.
+- DEBUG smoke hooks are `BYT_NATIVE_PREVIEW_SPLASH=1`, `BYT_NATIVE_PREVIEW_LANDING=1`, `BYT_NATIVE_PREVIEW_LOCATION=1`, `BYT_NATIVE_PREVIEW_PERSONALIZATION=vibe|walk|crew|recommendations`, and `BYT_NATIVE_PREVIEW_AUTH=signup|login`.
+- Crash-on-drift DEBUG contract self-tests are opt-in via `BYT_NATIVE_SELF_TESTS=1`; ordinary simulator, XCTest, and visual-smoke launches rely on their dedicated assertions without risking a pre-UI process exit.
+- `BYT_NATIVE_LAUNCH_AUTORUN=1` is DEBUG smoke-only and auto-advances Landing → Location → Vibe → Walk → Crew → Recommendations → Main using the same state actions because this Xcode simulator runtime does not expose a `simctl io tap` operation.
 - Existing Profile/tab smoke hooks bypass the launch journey so account-panel validation stays deterministic.
-- Signed-out launch CTA path is frontend-only: Splash → Landing → personalization → Atlanta picks → Main as a guest session. Auth remains available through the native auth screen/entry seams without adding backend routes.
+- Signed-out launch CTA path is frontend-only: Splash → Landing → Location → personalization → Recommendations → Main as a guest session. Auth remains available through the native auth screen/entry seams without adding backend routes.
+- The ready screen and Home venue rails use venue rows only when venue-specific provenance confirms live inventory with no refresh error. Bootstrap payloads must explicitly provide `hasLiveVenueInventory`; source labels alone never establish venue trust. Home events follow the same boundary through `hasLiveEventInventory`, and known venue/event fallback fixture identities are removed even if a snapshot flag is incorrectly set. Generic Home cards are regenerated from those trustworthy venue/event models rather than accepted from opaque card IDs. Provider-backed local cards remain independently eligible on provider-labeled Discover surfaces; they cannot enter Today's Pick, generic recommendations, venue rails, or event rails. The `Available Tonight` Home claim remains hidden until dedicated availability provenance exists. Fallback, loading, unresolved, or unproven inventory uses capability previews and fail-closed Home sections. The ready screen's secondary action is `Sign in to save your experience`.
 - Personalization selections persist locally under `bytspot_native_launch_vibe`, `bytspot_native_launch_walk`, `bytspot_native_launch_crew`, and `bytspot_native_launch_completed` so the main shell can later consume them without backend work.
-- Atlanta picks includes a secondary `Sign in to save these picks` action that routes to native auth without losing the frontend-only boundary.
+- The ready screen's sign-in action routes to native auth without losing the frontend-only boundary.
 - Password recovery is a native shell that mirrors route intent without logging credentials or accepting token flags.
 
 Auth P2 polish contract:
 
 - Email validation copy mirrors React: `Enter a valid email address.`
-- Native signup password copy uses stricter backend-safe parity: `Use at least 8 characters.`
-- Invalid signup submit copy is `Please enter your name, a valid email address, and a password with at least 8 characters.`
+- Native signup password copy is `Use at least 6 characters.`
+- Invalid signup submit copy is `Enter your name, a valid email address, and a password with at least 6 characters.`
 - Native auth fields use keyboard submit progression, focus restoration on mode switch, VoiceOver labels/hints, Dynamic Type-aware spacing, and a reduced-motion-safe launch stage transition.
 
 Launch Visual QA contract:
 
-- Launch and auth surfaces must use geometry-aware sizing rather than single-device fixed hero sizes, with compact-height spacing for small phones and scroll-safe cards for Landing, Atlanta picks, and Auth.
-- VoiceOver read-through must keep the launch order clear: brand impression, landing CTA, personalization progress/question/options, Atlanta picks, then auth mode/provider/email controls.
+- Launch and auth surfaces must use geometry-aware sizing rather than single-device fixed hero sizes, with compact-height spacing for small phones and scroll-safe cards for Landing, Recommendations, and Auth.
+- VoiceOver read-through must keep the launch order clear: brand impression, landing CTA, location value/actions, personalization progress/question/options, Recommendations, then auth mode/provider/email controls.
 - Apple/Google native buttons must clearly expose provider-ready/connecting state and keep email sign-in available when production provider setup is unavailable on the current build.
-- Multi-device visual smoke may run the launch-only capture path with `LAUNCH_VISUAL_ONLY=1` and an overridden `UDID`/`OUT` directory, reusing the same Splash → Landing → Personalization → Atlanta → Main autorun guard.
+- Multi-device visual smoke may run the launch-only capture path with `LAUNCH_VISUAL_ONLY=1` and an overridden `UDID`/`OUT` directory, reusing the same Splash → Landing → Location → Vibe → Walk → Crew → Recommendations → Main autorun guard.
 
 ## Native Fallback Audit
 

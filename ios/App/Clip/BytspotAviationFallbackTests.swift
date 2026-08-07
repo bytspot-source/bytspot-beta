@@ -49,6 +49,16 @@ enum BytspotAviationFallbackTests {
     /// Pulls the actual Black aviation service out of the production fallback
     /// catalog and asserts the vendor pool matches the locked spec verbatim.
     static func run() {
+        let greetingSuite = "com.bytspot.app.Clip.greeting-tests"
+        let greetingDefaults = UserDefaults(suiteName: greetingSuite)!
+        greetingDefaults.removePersistentDomain(forName: greetingSuite)
+        ClipAuthStore.store(displayName: "Ada Lovelace", userID: "user-1", in: greetingDefaults)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == "Ada")
+        ClipAuthStore.store(displayName: nil, userID: "user-2", in: greetingDefaults)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == nil)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameUserIDKey) == nil)
+        greetingDefaults.removePersistentDomain(forName: greetingSuite)
+
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-B"), patchId: "BYT424-0301-B") == .black)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-P"), patchId: "BYT424-0301-P") == .platinum)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-G"), patchId: "BYT424-0301-G") == .green)
@@ -100,6 +110,8 @@ enum BytspotAviationFallbackTests {
         }
 
         runPhase3LuxuryFlowContract()
+        assertRichMediaContextContract()
+        assertHostStudioPartyMappingContract()
         assertPartnerCardParity()
     }
 
@@ -163,6 +175,102 @@ enum BytspotAviationFallbackTests {
         precondition(items == ClipLineItem.broniHomeTasteFavorites, "Phase3 App Clip: Broni Home Taste line item table drifted.")
         precondition(items.first?.label == "Jollof Rice with Chicken", "Phase3 App Clip: Broni first favorite must stay Jollof Rice with Chicken.")
         precondition(items.contains { $0.label == "Banku and Fried Fish/Tilapia" }, "Phase3 App Clip: Broni fish/tilapia favorite missing.")
+    }
+
+    private static func assertRichMediaContextContract() {
+        guard let black = ClipLocalService.fallbacks(for: .black).first,
+              let platinum = ClipLocalService.fallbacks(for: .platinum).first(where: { $0.id == "platinum-entry" }),
+              let green = ClipLocalService.fallbacks(for: .green).first else {
+            preconditionFailure("Phase4E App Clip: tier fallback catalogs missing rich-media fixtures.")
+        }
+        precondition(black.theme == "Elite Guarantee", "Phase4E App Clip: Black service must expose Elite Guarantee theme.")
+        precondition(black.videoURL != nil, "Phase4E App Clip: Black service must expose DEBUG HLS preview loop.")
+        precondition(platinum.hostName == "Platinum Host Team", "Phase4E App Clip: Platinum service must expose host metadata.")
+        precondition(platinum.guestSummary == "Up to 12 guests", "Phase4E App Clip: Platinum guest summary drifted.")
+        precondition(green.theme == "Local community", "Phase4E App Clip: Green service must keep Local theme.")
+        precondition(green.videoURL == nil, "Phase4E App Clip: Green catalog should use photo-first local thumbnails, not autoplay video.")
+
+        let vendors = ClipVendor.fallbacks(for: platinum, tier: .platinum)
+        precondition(vendors.first?.hasPlayableVideo == true, "Phase4E App Clip: Platinum first vendor must expose playable HLS metadata.")
+        precondition(vendors.first?.locationLabel == "Premium entry gate", "Phase4E App Clip: Platinum event vendor location context drifted.")
+    }
+
+#if false // Legacy Group self-test retained for future project extraction.
+    private static func assertPrivateGroupRichInviteContract() {
+        let platinum = ClipGroupEventInvite.from(pathParts: ["group", "platinum-private-dinner"], queryItems: [
+            URLQueryItem(name: "title", value: "Platinum Dinner Group"),
+            URLQueryItem(name: "type", value: "Dinner"),
+            URLQueryItem(name: "participants", value: "12"),
+            URLQueryItem(name: "timing", value: "now")
+        ], tier: .platinum)
+        precondition(platinum?.theme == "Premium dinner", "Phase4F App Clip: Platinum private group theme drifted.")
+        precondition(platinum?.hostName == "Platinum Dinner Host", "Phase4F App Clip: Platinum private group host metadata missing.")
+        precondition(platinum?.hasPlayableVideo == true, "Phase4F App Clip: Platinum private group must expose DEBUG HLS loop.")
+        precondition(platinum?.activityHighlights.contains("12h live window") == true, "Phase4F App Clip: Platinum private group highlights missing live window.")
+        precondition(platinum?.handoffURL?.path == "/group/platinum-private-dinner", "Phase4F App Clip: private group handoff must preserve /group route.")
+        precondition(platinum?.handoffURL?.absoluteString.contains("handoff=1") == true, "Phase4F App Clip: private group handoff URL must mark handoff intent.")
+        precondition(platinum?.handoffURL?.absoluteString.contains("activities=12h%20live%20window") == true || platinum?.handoffURL?.absoluteString.contains("activities=12h+live+window") == true, "Phase4F App Clip: handoff URL must carry private group activity metadata.")
+
+        let green = ClipGroupEventInvite.from(pathParts: ["group", "green-family"], queryItems: [
+            URLQueryItem(name: "title", value: "Green Family Group"),
+            URLQueryItem(name: "type", value: "Family"),
+            URLQueryItem(name: "participants", value: "5")
+        ], tier: .green)
+        precondition(green?.hasPlayableVideo == false, "Phase4F App Clip: Green private groups should remain photo-first.")
+        precondition(green?.theme == "Local family", "Phase4F App Clip: Green private group theme drifted.")
+    }
+#endif
+
+    private static func assertHostStudioPartyMappingContract() {
+        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
+        let invite = PartyPassInvite.fromPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
+        precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
+        precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
+        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
+        precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
+        precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
+        precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("cs_test_123_ABC")?.host == "checkout.stripe.com", "Party Loop: Stripe Checkout session IDs must normalize to Stripe Checkout.")
+        precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://checkout.stripe.com/c/pay/cs_test_123") != nil, "Party Loop: Stripe-hosted Checkout URLs must be accepted.")
+        precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://payments.example.com/checkout") == nil, "Party Loop: non-Stripe HTTPS checkout redirects must be rejected.")
+        precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
+        precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
+        var protectedPopUp = dto
+        protectedPopUp["templateId"] = "pop-up"
+        protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
+        protectedPopUp["locationLabel"] = "Secret rooftop"
+        protectedPopUp.removeValue(forKey: "locationDisclosure")
+        let protectedInvite = PartyPassInvite.fromPayload(protectedPopUp)
+        precondition(protectedInvite?.locationIsWithheld == true && protectedInvite?.locationLabel == "Location shared after approval", "Party Loop: missing or malformed Party disclosure must redact the venue fail-closed.")
+        var whitespaceDisclosure = dto
+        whitespaceDisclosure["locationDisclosure"] = " public "
+        whitespaceDisclosure["locationLabel"] = "Secret rooftop"
+        let whitespaceInvite = PartyPassInvite.fromPayload(whitespaceDisclosure)
+        precondition(whitespaceInvite?.locationIsWithheld == true && whitespaceInvite?.locationLabel == "Location shared after approval", "Party Loop: only the exact raw public disclosure may reveal a venue.")
+        precondition(invite?.displayPosterURL?.host == "res.cloudinary.com", "Party Loop: Host Studio poster media must map authoritatively.")
+        precondition(invite?.canonicalURL?.absoluteString == "https://bytspot.app/party/party-1", "Party Loop: shared App Clip link must stay clean and canonical.")
+        precondition(invite?.handoffURL?.host == "bytspot.app" && invite?.handoffURL?.path == "/party/party-1", "Party Loop: handoff must stay on the authoritative Party route.")
+        precondition(URLComponents(url: invite?.handoffURL ?? URL(string: "https://bytspot.app")!, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "handoff", value: "1")) == true, "Party Loop: secure Party handoff marker drifted.")
+        var hiddenLocation = dto
+        hiddenLocation["locationLabel"] = "Location shared after approval"
+        hiddenLocation["locationDisclosure"] = "after-approval"
+        precondition(PartyPassInvite.fromPayload(hiddenLocation)?.locationIsWithheld == true, "Party Loop: protected Party locations must remain redacted.")
+        precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
+        precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
+        var missingSource = dto
+        missingSource.removeValue(forKey: "source")
+        precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
+        let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
+        precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
+        let verifyEnvelope: [String: Any] = ["result": ["data": ["json": ["verified": true, "patch": ["id": "patch-1", "status": "active"]]]]]
+        let verify = try? ClipPatchVerifier.decodeVerifyResult(ClipPatchVerifier.unwrapTRPCValue(verifyEnvelope))
+        precondition(verify?.verified == true && verify?.patch.id == "patch-1", "Party Loop: patch verification must decode standard result.data.json envelopes.")
+        if let verify {
+            precondition(ClipInvocationModel.verificationState(for: verify, label: "Patch") == .success(label: "Patch", bindingType: nil), "Party Loop: active verified taps must succeed.")
+            let denied = ClipPatchVerifier.VerifyResult(verified: false, patch: verify.patch, binding: nil)
+            guard case .denied = ClipInvocationModel.verificationState(for: denied, label: "Patch") else { preconditionFailure("Party Loop: unverified taps must fail closed.") }
+        }
     }
 }
 #endif

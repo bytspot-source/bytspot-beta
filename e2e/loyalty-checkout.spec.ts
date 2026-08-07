@@ -44,7 +44,7 @@ const STATUS_GUEST: SubscriptionStatus = {
   },
 };
 
-const STATUS_INSIDER: SubscriptionStatus = {
+const STATUS_PLATINUM: SubscriptionStatus = {
   ...STATUS_GUEST,
   isPremium: true,
   subscriptionOffers: {
@@ -175,40 +175,34 @@ async function openVerifiedPremiumTeaser(page: Page) {
   const venueResult = page.getByRole('button', { name: new RegExp(VERIFIED_VENUE.name, 'i') }).first();
   await expect(venueResult).toBeVisible({ timeout: 15_000 });
   await robustClick(venueResult);
-  const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Premium perks for this venue' });
+  const unlockBtn = page.getByRole('button', { name: 'Unlock Bytspot Platinum perks for this venue' });
   await expect(unlockBtn).toBeVisible({ timeout: 15_000 });
   await robustClick(unlockBtn);
-  const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Premium' });
+  const teaser = page.getByRole('dialog', { name: 'Unlock Bytspot Platinum' });
   await expect(teaser).toBeVisible({ timeout: 5_000 });
   return teaser;
 }
 
-test.describe('Loyalty subscription checkout proof', () => {
-  test('Insider premium teaser sends points and coupon payload', async ({ page }) => {
+test.describe('Canonical membership checkout proof', () => {
+  test('Platinum checkout sends no points or discount payload', async ({ page }) => {
     await installCheckoutMocks(page, STATUS_GUEST);
     await enterMainApp(page);
 
     const teaser = await openVerifiedPremiumTeaser(page);
-    await expect(teaser.getByText(/Use 1,000 points/)).toBeVisible({ timeout: 10_000 });
-    const pointsCheckbox = teaser.getByRole('checkbox');
-    await expect(pointsCheckbox).toBeEnabled({ timeout: 5_000 });
-    await pointsCheckbox.click();
-    await expect(pointsCheckbox).toBeChecked({ timeout: 5_000 });
-    await teaser.getByPlaceholder('Coupon code').fill('FIRST1000');
+    await expect(teaser.getByRole('checkbox')).toHaveCount(0);
+    await expect(teaser.getByPlaceholder('Coupon code')).toHaveCount(0);
     const upgradeCta = teaser.getByRole('button', { name: /^Upgrade/i }).first();
     await upgradeCta.focus();
     await upgradeCta.press('Enter');
 
     await expect.poll(() => checkoutPayloads(page)).toHaveLength(1);
-    await expect.poll(async () => (await checkoutPayloads(page))[0]).toMatchObject({
-      plan: 'insider-premium',
-      usePoints: true,
-      couponCode: 'FIRST1000',
-    });
+    await expect.poll(async () => (await checkoutPayloads(page))[0]).toMatchObject({ plan: 'insider-premium' });
+    expect((await checkoutPayloads(page))[0]).not.toHaveProperty('usePoints');
+    expect((await checkoutPayloads(page))[0]).not.toHaveProperty('couponCode');
   });
 
   test('Provider Premium gate sends ecosystem upgrade checkout payload', async ({ page }) => {
-    await installCheckoutMocks(page, STATUS_INSIDER);
+    await installCheckoutMocks(page, STATUS_PLATINUM);
     await page.goto('/provider/onboarding');
 
     const patchesButton = page.getByRole('button', { name: 'Patches' });

@@ -6,19 +6,16 @@ import Contacts
 struct NativeFriendSuggestion: Identifiable, Equatable {
     let userId: String
     let name: String
-    let source: String
-    let mutual: Bool
-    let mutualContacts: Int
-    let sharedVerifiedVenues: Int
+    let relationshipStatus: String
+    let circleIDs: [String]
 
     var id: String { userId }
 
-    /// Human reason string, ranked the same way the server sorts suggestions.
     var reason: String {
-        if mutual { return "Mutual contact" }
-        if mutualContacts > 0 { return "\(mutualContacts) contact\(mutualContacts == 1 ? "" : "s") in common" }
-        if sharedVerifiedVenues > 0 { return "\(sharedVerifiedVenues) shared verified spot\(sharedVerifiedVenues == 1 ? "" : "s")" }
-        return source == "google" ? "From your Google contacts" : "From your contacts"
+        if relationshipStatus == "connected" { return "Connected" }
+        if relationshipStatus == "invite_sent" { return "Invite sent" }
+        if relationshipStatus == "invite_received" { return "Invited you" }
+        return "Suggested from your contacts"
     }
 }
 
@@ -33,9 +30,9 @@ final class BytspotContactSyncStore: ObservableObject {
     #if DEBUG
     static let previewSuggestionsEnvironmentKey = "BYT_NATIVE_CONTACT_PREVIEW"
     static let previewSuggestions: [NativeFriendSuggestion] = ranked([
-        NativeFriendSuggestion(userId: "preview-venues", name: "Ama at Akwaaba", source: "google", mutual: false, mutualContacts: 0, sharedVerifiedVenues: 3),
-        NativeFriendSuggestion(userId: "preview-mutual", name: "Kofi Mensah", source: "apple", mutual: true, mutualContacts: 0, sharedVerifiedVenues: 0),
-        NativeFriendSuggestion(userId: "preview-contacts", name: "Nia Parker", source: "apple", mutual: false, mutualContacts: 2, sharedVerifiedVenues: 0)
+        NativeFriendSuggestion(userId: "preview-incoming", name: "Kofi Mensah", relationshipStatus: "invite_received", circleIDs: []),
+        NativeFriendSuggestion(userId: "preview-connected", name: "Nia Parker", relationshipStatus: "connected", circleIDs: ["starter-weekend"]),
+        NativeFriendSuggestion(userId: "preview-suggested", name: "Ama at Akwaaba", relationshipStatus: "suggested", circleIDs: [])
     ])
     #endif
 
@@ -137,18 +134,15 @@ final class BytspotContactSyncStore: ObservableObject {
         return NativeFriendSuggestion(
             userId: userId,
             name: (item["name"] as? String) ?? "Bytspot member",
-            source: (item["source"] as? String) ?? "apple",
-            mutual: (item["mutual"] as? Bool) ?? ((item["mutual"] as? NSNumber)?.boolValue ?? false),
-            mutualContacts: (item["mutualContacts"] as? NSNumber)?.intValue ?? 0,
-            sharedVerifiedVenues: (item["sharedVerifiedVenues"] as? NSNumber)?.intValue ?? 0
+            relationshipStatus: ["connected", "invite_sent", "invite_received"].contains(item["relationshipStatus"] as? String ?? "") ? item["relationshipStatus"] as! String : "suggested",
+            circleIDs: (item["circleIds"] as? [Any] ?? []).map(String.init(describing:))
         )
     }
 
     nonisolated static func ranked(_ suggestions: [NativeFriendSuggestion]) -> [NativeFriendSuggestion] {
         suggestions.sorted { lhs, rhs in
-            if lhs.mutual != rhs.mutual { return lhs.mutual && !rhs.mutual }
-            if lhs.mutualContacts != rhs.mutualContacts { return lhs.mutualContacts > rhs.mutualContacts }
-            if lhs.sharedVerifiedVenues != rhs.sharedVerifiedVenues { return lhs.sharedVerifiedVenues > rhs.sharedVerifiedVenues }
+            let priority = ["invite_received": 0, "connected": 1, "suggested": 2, "invite_sent": 3]
+            if priority[lhs.relationshipStatus] != priority[rhs.relationshipStatus] { return priority[lhs.relationshipStatus, default: 2] < priority[rhs.relationshipStatus, default: 2] }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }

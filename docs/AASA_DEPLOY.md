@@ -14,6 +14,12 @@ Deployment steps for Apple App Site Association (AASA)
 - Serve the AASA file at `/.well-known/apple-app-site-association` with `Content-Type: application/json` (no redirects, no .json suffix).
 - Ensure TLS certificates are valid (HTTPS required).
 
+Render content-type fix (bytspot.app is a Render static site — `rndr-id` response header):
+- Render ignores the Netlify-style `public/_headers` file in this repo and serves the extensionless AASA file as `binary/octet-stream`. Apple's CDN generally tolerates this, but the correct type must be set outside the repo.
+- Render dashboard: Static Site → Settings → Headers → add path `/.well-known/apple-app-site-association`, header `Content-Type`, value `application/json`. Repeat for `/apple-app-site-association`.
+- Alternative (Cloudflare fronts the domain): Rules → Transform Rules → Modify Response Header — when URI Path equals `/.well-known/apple-app-site-association`, set `Content-Type` to `application/json`.
+- Verify: `curl -sI https://bytspot.app/.well-known/apple-app-site-association | grep -i content-type` → `application/json`.
+
 4) After deployment
 - Rebuild the native app and sync Capacitor:
 

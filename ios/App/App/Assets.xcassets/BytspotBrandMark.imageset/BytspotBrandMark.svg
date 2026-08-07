@@ -1,0 +1,16 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="60" cy="60" r="48" stroke="url(#gradient-outer-ring)" stroke-width="3" fill="none" opacity="1"/>
+  <circle cx="60" cy="60" r="38" stroke="url(#gradient-middle)" stroke-width="2" fill="none" opacity="0.4"/>
+  <path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" fill="url(#gradient-hexagon)" opacity="0.95"/>
+  <path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" stroke="url(#gradient-hex-border)" stroke-width="1.5" fill="none" opacity="0.8"/>
+  <circle cx="60" cy="50" r="8" fill="url(#gradient-center-dot)"/>
+  <circle cx="60" cy="50" r="12" fill="url(#gradient-center-glow)" opacity="0.3"/>
+  <defs>
+    <linearGradient id="gradient-outer-ring" x1="12" y1="12" x2="108" y2="108"><stop offset="0%" stop-color="#00BFFF"/><stop offset="50%" stop-color="#A855F7"/><stop offset="100%" stop-color="#00BFFF"/></linearGradient>
+    <linearGradient id="gradient-middle" x1="22" y1="22" x2="98" y2="98"><stop offset="0%" stop-color="#A855F7"/><stop offset="100%" stop-color="#D946EF"/></linearGradient>
+    <linearGradient id="gradient-hexagon" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stop-color="#A855F7"/><stop offset="50%" stop-color="#D946EF"/><stop offset="100%" stop-color="#FF00FF"/></linearGradient>
+    <linearGradient id="gradient-hex-border" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stop-color="#00BFFF"/><stop offset="50%" stop-color="#FF00FF"/><stop offset="100%" stop-color="#00BFFF"/></linearGradient>
+    <radialGradient id="gradient-center-dot"><stop offset="0%" stop-color="#00BFFF"/><stop offset="100%" stop-color="#0099CC"/></radialGradient>
+    <radialGradient id="gradient-center-glow"><stop offset="0%" stop-color="#00BFFF"/><stop offset="100%" stop-color="transparent"/></radialGradient>
+  </defs>
+</svg>

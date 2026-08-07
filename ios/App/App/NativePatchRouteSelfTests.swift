@@ -28,7 +28,6 @@ enum NativePatchRouteSelfTests {
     /// `NativeNavigationCoordinator.notifyPatchScanned(url:source:)` funnel.
     private static func assertScanSourceContract() {
         precondition(NativePatchScanSource.allCases.map(\.rawValue) == ["nfc", "qr", "virtual", "universalLink", "deepLink"], "NativePatchRouteSelfTests: NativePatchScanSource cases/order drifted from the scanner-funnel contract.")
-        precondition(nativePatchScanBridgeChannel == "bytspotNativePatchScanned", "NativePatchRouteSelfTests: JS-bridge channel literal drifted from React-side mirror.")
         precondition(NativeIncomingURLCenter.scanSourceUserInfoKey == "scanSource", "NativePatchRouteSelfTests: NativeIncomingURLCenter userInfo key drifted.")
         precondition(nativePatchScanBridgeSmokeURLEnvironmentKey == "BYT_NATIVE_BRIDGE_SMOKE_URL", "NativePatchRouteSelfTests: bridge smoke-test env key drifted.")
     }

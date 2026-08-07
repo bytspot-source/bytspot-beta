@@ -1,10 +1,45 @@
 require "shellwords"
+require "spaceship"
+
+APP_IDENTIFIER = "com.bytspot.app"
+DEFAULT_IOS_RELEASE_NOTES = "Adds native Google Sign-In for iOS and improves account access in the native app."
+
+def required_env!(name)
+  value = ENV[name].to_s.strip
+  UI.user_error!("#{name} is required for iOS production signing") if value.empty?
+  value
+end
+
+def ensure_ios_release_notes(api_key:, app_identifier:, app_version:, release_notes:)
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+  app = Spaceship::ConnectAPI::App.find(app_identifier)
+  UI.user_error!("Could not find App Store Connect app #{app_identifier}") unless app
+
+  platform = Spaceship::ConnectAPI::Platform.map("ios")
+  app.ensure_version!(app_version, platform: platform)
+  version = app.get_edit_app_store_version(platform: platform)
+  UI.user_error!("Could not find editable iOS version #{app_version} for #{app_identifier}") unless version
+
+  release_notes.each do |locale, text|
+    localizations = version.get_app_store_version_localizations
+    localization = localizations.find { |candidate| candidate.locale == locale } ||
+                   version.create_app_store_version_localization(attributes: { locale: locale })
+    next if localization.whats_new.to_s.strip == text.to_s.strip
+
+    localization.update(attributes: { whats_new: text })
+    UI.message("Updated App Store release notes for #{locale}")
+  end
+end
 
 default_platform(:ios)
 
 platform :ios do
   desc "Build and upload a new beta to TestFlight"
   lane :beta do
+    apple_team_id = required_env!("APPLE_TEAM_ID")
+    app_profile_uuid = required_env!("PROVISIONING_PROFILE_UUID")
+    clip_profile_uuid = required_env!("APP_CLIP_PROVISIONING_PROFILE_UUID")
+
     # Authenticate with App Store Connect API (no 2FA issues in CI)
     api_key = app_store_connect_api_key(
       key_id:        ENV["APP_STORE_CONNECT_KEY_ID"],
@@ -17,7 +52,7 @@ platform :ios do
     # and also unique across GitHub reruns/overlapping CI executions.
     latest = latest_testflight_build_number(
       api_key:        api_key,
-      app_identifier: "com.bytspot.app",
+      app_identifier: APP_IDENTIFIER,
       initial_build_number: 63
     )
     next_remote_build = latest.to_i + 1
@@ -46,33 +81,43 @@ platform :ios do
     )
 
     # Wire the App Clip target into the Xcode project (idempotent).
-    sh "bundle exec ruby ../scripts/add_app_clip_target.rb"
+    app_clip_helper = File.expand_path("../scripts/add_app_clip_target.rb", __dir__)
+    sh "bundle exec ruby #{app_clip_helper.shellescape}"
 
     # Switch Release config to manual signing for CI for both targets
     # (local dev uses Automatic via Xcode, CI uses manual with provisioning profile)
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "App.xcodeproj",
-      team_id:               ENV["APPLE_TEAM_ID"],
+      team_id:               apple_team_id,
       targets:               ["App"],
+      build_configurations:  ["Release"],
       bundle_identifier:     "com.bytspot.app",
-      profile_uuid:          ENV["PROVISIONING_PROFILE_UUID"],
+      profile_uuid:          app_profile_uuid,
       code_sign_identity:    "Apple Distribution"
     )
 
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "App.xcodeproj",
-      team_id:               ENV["APPLE_TEAM_ID"],
+      team_id:               apple_team_id,
       targets:               ["Clip"],
+      build_configurations:  ["Release"],
       bundle_identifier:     "com.bytspot.app.Clip",
-      profile_uuid:          ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"],
+      profile_uuid:          clip_profile_uuid,
       code_sign_identity:    "Apple Distribution"
     )
 
     stripe_publishable_key = ENV["STRIPE_PUBLISHABLE_KEY"].to_s.strip
     if stripe_publishable_key.empty?
       UI.important("STRIPE_PUBLISHABLE_KEY is not set; native Apple Pay will fall back to card checkout.")
+    end
+    google_client_id = ENV["GOOGLE_CLIENT_ID"].to_s.strip
+    xcargs = ["STRIPE_PUBLISHABLE_KEY=#{Shellwords.escape(stripe_publishable_key)}"]
+    if google_client_id.empty?
+      UI.important("GOOGLE_CLIENT_ID is not set; using the App target's Release default.")
+    else
+      xcargs << "GOOGLE_CLIENT_ID=#{Shellwords.escape(google_client_id)}"
     end
 
     # Build the signed .ipa with embedded App Clip
@@ -81,17 +126,19 @@ platform :ios do
       scheme:        "App",
       configuration: "Release",
       export_method: "app-store",
+      export_team_id: apple_team_id,
       export_options: {
         signingStyle:          "manual",
-        teamID:                ENV["APPLE_TEAM_ID"],
+        teamID:                apple_team_id,
         provisioningProfiles:  {
-          "com.bytspot.app"      => ENV["PROVISIONING_PROFILE_UUID"],
-          "com.bytspot.app.Clip" => ENV["APP_CLIP_PROVISIONING_PROFILE_UUID"]
+          "com.bytspot.app"      => app_profile_uuid,
+          "com.bytspot.app.Clip" => clip_profile_uuid
         }
       },
+      skip_profile_detection: true,
       output_directory: "./build",
       output_name:      "Bytspot.ipa",
-      xcargs:           "STRIPE_PUBLISHABLE_KEY=#{Shellwords.escape(stripe_publishable_key)}",
+      xcargs:           xcargs.join(" "),
       clean:            true
     )
 
@@ -114,18 +161,31 @@ platform :ios do
     )
 
     target_build = (options[:build_number] || ENV["SUBMIT_BUILD_NUMBER"]).to_s.strip
+    target_version = ENV["SUBMIT_APP_VERSION"].to_s.strip
     if target_build.empty?
       target_build = latest_testflight_build_number(
         api_key:        api_key,
-        app_identifier: "com.bytspot.app"
+        app_identifier: APP_IDENTIFIER
       ).to_s
+      target_version = Actions.lane_context[SharedValues::LATEST_TESTFLIGHT_VERSION].to_s.strip
     end
-    UI.message("Submitting build #{target_build} of com.bytspot.app for App Store review")
+    if target_version.empty?
+      target_version = get_version_number(xcodeproj: "App.xcodeproj", target: "App").to_s.strip
+    end
+    UI.message("Submitting build #{target_build} of #{APP_IDENTIFIER} version #{target_version} for App Store review")
+    ensure_ios_release_notes(
+      api_key:       api_key,
+      app_identifier: APP_IDENTIFIER,
+      app_version:   target_version,
+      release_notes: { "en-US" => DEFAULT_IOS_RELEASE_NOTES }
+    )
 
     deliver(
       api_key:                                api_key,
-      app_identifier:                         "com.bytspot.app",
+      app_identifier:                         APP_IDENTIFIER,
+      app_version:                            target_version,
       build_number:                           target_build,
+      app_clip_default_experience_metadata_path: File.expand_path("app_clip_default_experience_metadata", __dir__),
       submit_for_review:                      true,
       automatic_release:                      false,
       force:                                  true,

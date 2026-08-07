@@ -1,6 +1,6 @@
 /**
  * checkinHistory — persists user venue check-in records
- * v2 — API-first: calls tRPC user.checkins.*, falls back to localStorage.
+ * v2 — API-first: calls tRPC user.checkins.* and caches verified records locally.
  */
 import { trpc } from './trpc';
 
@@ -53,9 +53,7 @@ export async function getCheckinHistoryAsync(): Promise<CheckInRecord[]> {
 }
 
 /**
- * Save a check-in record locally.
- * NOTE: When authenticated, the backend records the check-in via venues.checkin;
- * this local write is for offline/instant UI.
+ * Cache a record only after venues.checkin has verified it on the backend.
  */
 export function saveCheckinRecord(record: Omit<CheckInRecord, 'id'>): void {
   const history = getCheckinHistory();

@@ -10,6 +10,8 @@ import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } 
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
 import { trpc } from '../utils/trpc';
 import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
+import { getCulturalContext, getUserPreferences } from '../utils/personalization';
+import { rankDiscoverCardsWithSimplex } from '../utils/vendorMatching';
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 function AppStoreUnavailableFlow() { return null; }
@@ -38,6 +40,7 @@ function getTypeColor(type: CardType): string {
     case 'coffee': return 'from-amber-600 to-yellow-500';
     case 'dining': return 'from-red-500 to-pink-500';
     case 'shopping': return 'from-indigo-500 to-purple-500';
+    case 'boutique_apartment': return 'from-violet-600 to-purple-500';
     case 'nightlife': return 'from-fuchsia-600 to-pink-500';
     case 'entertainment': return 'from-violet-500 to-purple-500';
     case 'fitness': return 'from-green-500 to-emerald-500';
@@ -57,6 +60,7 @@ function normalizeCardType(type: string | null | undefined): CardType | null {
     'coffee',
     'dining',
     'shopping',
+    'boutique_apartment',
     'nightlife',
     'entertainment',
     'fitness',
@@ -95,6 +99,19 @@ function toEventDiscoverCard(event: AppEvent, index: number): DiscoverCard {
   };
 }
 
+function getDiscoverMatchQuery(): string {
+  let quizAnswers: Record<string, string> = {};
+  try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
+  const preferences = getUserPreferences();
+  return [
+    ...Object.values(quizAnswers),
+    ...(preferences?.interests ?? []),
+    ...(preferences?.vibePreferences?.selectedVibes ?? []),
+    ...(preferences?.cuisineAffinities ?? []),
+    preferences?.culturalIdentity,
+  ].filter(Boolean).join(' ');
+}
+
 function isVendorServiceCard(card: DiscoverCard): boolean {
   if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return false;
   const status = cardField<string>(card, serviceStatusKey);
@@ -115,19 +132,6 @@ function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
     .join(' ')
     .toLowerCase();
   return ['chef', 'massage', 'wellness', 'service', 'private', 'cottage'].some((term) => searchable.includes(term));
-}
-
-function calculateSimplexScore(card: DiscoverCard, preferredCategory = 'service'): number {
-  const numericDistance = Number.parseFloat(card.distance || '999');
-  const safeDistance = Number.isFinite(numericDistance) && numericDistance > 0 ? numericDistance : 999;
-  const scarcityBoost = card.availableSpots && card.availableSpots <= 4 ? 15 : 0;
-  const bookingBoost = Math.min((card.bookingCount ?? 0) / 6, 18);
-  const phiEm = (card.rating ?? 4.5) * 0.4 + scarcityBoost + bookingBoost;
-  const phiE = 10 * (1 / safeDistance) + (card.etaMinutes ? Math.max(0, 12 - card.etaMinutes / 5) : 0);
-  const deltaD = card.price || card.entryPrice ? 10 : 5;
-  const lambdaSim = card.serviceCategory?.toLowerCase().includes(preferredCategory) || card.type === 'service' ? 25 : 0;
-  const f = 1;
-  return phiEm + phiE + deltaD + f * lambdaSim;
 }
 
 function hasCheckoutAuth(): boolean {
@@ -453,6 +457,7 @@ const CARD_TYPE_TO_GOOGLE: Record<string, string> = {
   dining: 'restaurant',
   nightlife: 'night_club',
   shopping: 'shopping_mall',
+  boutique_apartment: 'lodging',
   entertainment: 'movie_theater',
   fitness: 'gym',
   parking: 'parking',
@@ -466,7 +471,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [appliedFilter, setAppliedFilter] = useState<CardType | null>(null);
   const [entryTypeFilter, setEntryTypeFilter] = useState<'all' | 'free' | 'paid'>('all');
-  const [sortBy, setSortBy] = useState<'crowd' | 'rating' | 'distance'>('crowd');
+  const [sortBy, setSortBy] = useState<'recommended' | 'crowd' | 'rating' | 'distance'>('recommended');
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<DiscoverCard | null>(null);
   const [selectedVendorService, setSelectedVendorService] = useState<DiscoverCard | null>(null);
@@ -559,31 +564,36 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   }
 
   // 3. Sort
-  filteredCards = [...filteredCards].sort((a, b) => {
-    if (appliedFilter === 'service' && prioritizedServiceFocusId) {
-      const aFocused = getServiceFocusId(a) === prioritizedServiceFocusId;
-      const bFocused = getServiceFocusId(b) === prioritizedServiceFocusId;
-      if (aFocused !== bFocused) return aFocused ? -1 : 1;
-    }
-
-    if (appliedFilter === 'service') {
-      // Simplex service ranking: Es = Φ_EM + Φ_E + ΔD + f × λ_sim
-      return calculateSimplexScore(b) - calculateSimplexScore(a);
-    }
-
-    if (sortBy === 'crowd') {
+  if (sortBy === 'recommended' || appliedFilter === 'service') {
+    filteredCards = rankDiscoverCardsWithSimplex(filteredCards, {
+      preferences: getUserPreferences(),
+      culturalContext: getCulturalContext(),
+      query: getDiscoverMatchQuery(),
+    });
+  } else {
+    filteredCards = [...filteredCards].sort((a, b) => {
+      if (sortBy === 'crowd') {
       // vibe is inverse of crowd: high vibe = chill, low vibe = packed
       // Sort hottest first (Packed first = low vibe first)
-      return (a.vibe ?? 5) - (b.vibe ?? 5);
-    }
-    if (sortBy === 'rating') return (b.rating ?? 0) - (a.rating ?? 0);
-    if (sortBy === 'distance') {
-      const da = parseFloat(a.distance.replace(' mi', '')) || 99;
-      const db = parseFloat(b.distance.replace(' mi', '')) || 99;
-      return da - db;
-    }
-    return 0;
-  });
+        return (a.vibe ?? 5) - (b.vibe ?? 5);
+      }
+      if (sortBy === 'rating') return (b.rating ?? 0) - (a.rating ?? 0);
+      if (sortBy === 'distance') {
+        const da = parseFloat(a.distance.replace(' mi', '')) || 99;
+        const db = parseFloat(b.distance.replace(' mi', '')) || 99;
+        return da - db;
+      }
+      return 0;
+    });
+  }
+
+  if (appliedFilter === 'service' && prioritizedServiceFocusId) {
+    filteredCards = [...filteredCards].sort((a, b) => {
+      const aFocused = getServiceFocusId(a) === prioritizedServiceFocusId;
+      const bFocused = getServiceFocusId(b) === prioritizedServiceFocusId;
+      return aFocused === bFocused ? 0 : aFocused ? -1 : 1;
+    });
+  }
 
   // Use filtered cards for current card display
   const safeCurrentIndex = filteredCards.length
@@ -789,7 +799,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       };
       setSelectedValetService(valetService);
     } else if (card.type === 'venue' || card.type === 'coffee' || card.type === 'dining' ||
-               card.type === 'shopping' || card.type === 'nightlife' || card.type === 'entertainment' ||
+               card.type === 'shopping' || card.type === 'boutique_apartment' || card.type === 'nightlife' || card.type === 'entertainment' ||
                card.type === 'fitness') {
       // Show venue details
       setSelectedVenue(card);
@@ -944,6 +954,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
           {([
             { label: 'All',    value: null },
+            { label: '🏡 Boutique Stay', value: 'boutique_apartment' },
             { label: '🍸 Nightlife',    value: 'nightlife' },
             { label: '🍽️ Dining',       value: 'dining' },
             { label: '☕ Coffee',        value: 'coffee' },
@@ -974,12 +985,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           })}
         </div>
 
-        {/* Entry type pills — All / Free / Paid entry */}
+        {/* Entry type pills — All / Free / Paid */}
         <div className="flex gap-1.5">
           {([
-            { label: '🎟️ All access', value: 'all' as const },
-            { label: '✅ Free', value: 'free' as const },
-            { label: '💳 Paid entry', value: 'paid' as const },
+            { label: 'All', value: 'all' as const },
+            { label: 'Free', value: 'free' as const },
+            { label: 'Paid', value: 'paid' as const },
           ]).map((opt) => {
             const active = entryTypeFilter === opt.value;
             return (
@@ -1012,6 +1023,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5 flex-1">
             {([
+              ['recommended', '✨ AI Match'],
               ['crowd',    '🔥 Buzzing'],
               ['rating',   '⭐ Rating'],
               ['distance', '📍 Distance'],

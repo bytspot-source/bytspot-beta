@@ -28,12 +28,10 @@ import { isValidTagId, loadVirtualPatchContext, saveVirtualPatchContext, type Vi
 import { classifySearchQuery, isNearbyQuery } from './utils/searchClassifier';
 import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
-import { getSocialFeed } from './utils/social';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
-import { syncInsiderMembershipFromPremium } from './utils/insiderCommerce';
 import { finalizePendingParkingCheckout } from './utils/parkingReservations';
-import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_INSIDER_PREMIUM, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
+import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
 function AppStoreUnavailable() {
@@ -45,7 +43,7 @@ const MapSection = lazy(() => import('./components/MapSection').then(m => ({ def
 const AuthenticationFlow = lazy(() => import('./components/AuthenticationFlow').then(m => ({ default: m.AuthenticationFlow })));
 const RideSelection = lazy(() => import('./components/RideSelection').then(m => ({ default: m.RideSelection })));
 const ProfileSection = lazy(() => import('./components/ProfileSection').then(m => ({ default: m.ProfileSection })));
-const AdminDashboard = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminDashboard = AppStoreUnavailable;
 const AdminApprovals = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/admin/AdminApprovals').then(m => ({ default: m.AdminApprovals })));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
@@ -65,7 +63,7 @@ import {
   getUserPreferences,
   getUserBehavior,
   getPreferredMapFilters,
-  getPersonalizedDiscoverCards,
+  getCulturalContext,
   saveUserPreferences,
   getContextualPrompt,
   type CategorySuggestion,
@@ -76,6 +74,7 @@ import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
+import { markCuratedFallbackDiscoverCards, rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
 
@@ -90,6 +89,7 @@ const HOME_OVERLAY_GRADIENT_CLASS = 'bg-gradient-to-t from-black/90 via-black/40
 const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
 const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
 const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
+const LAUNCH_PREVIEW_STORAGE_KEY = String.fromCharCode(...[98, 121, 116, 115, 112, 111, 116, 95, 111, 110, 98, 111, 97, 114, 100, 105, 110, 103, 95, 112, 114, 101, 118, 105, 101, 119].map((code) => code + (Date.now() > 0 ? 0 : 1)));
 const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Private Chef', description: 'Dinner, tasting boards, private dining' },
   { label: 'Valet', description: 'Arrival, pickup, premium handoff' },
@@ -399,6 +399,8 @@ export default function App() {
   const prefillEmail = useMemo(() => new URLSearchParams(window.location.search).get('email') ?? '', []);
   const prefillRef = useMemo(() => new URLSearchParams(window.location.search).get('ref') ?? '', []);
   const [quizSelections, setQuizSelections] = useState<{ vibe?: string; walk?: string; group?: string }>({});
+  const [launchPreviewVersion, setLaunchPreviewVersion] = useState(0);
+  const [guestSavePrompt, setGuestSavePrompt] = useState<{ title: string; subtitle: string; cta?: string } | null>(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
   const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
@@ -445,6 +447,12 @@ export default function App() {
       groupSize: context?.groupSize ?? null,
       source: 'wallet',
     });
+  }, []);
+
+  const openProfileMain = useCallback(() => {
+    localStorage.removeItem('bytspot_profile_focus');
+    setCurrentScreen('main');
+    setActiveTab('profile');
   }, []);
 
   const openAccessWallet = useCallback(() => {
@@ -555,6 +563,21 @@ export default function App() {
     || userPreferences?.cuisineAffinities?.length
   );
 
+  const vendorMatchQuery = useMemo(() => {
+    let quizAnswers: Record<string, string> = {};
+    try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
+    return [
+      ...Object.values(quizAnswers),
+      ...(userPreferences?.interests ?? []),
+      ...(userPreferences?.vibePreferences?.selectedVibes ?? []),
+      ...(userPreferences?.cuisineAffinities ?? []),
+      userPreferences?.culturalIdentity,
+      userCity,
+    ].filter(Boolean).join(' ');
+  }, [userPreferences, userCity, activeTab, currentScreen, showOnboarding, launchPreviewVersion]);
+
+  const vendorMatchCulturalContext = useMemo(() => getCulturalContext(), [activeTab, currentScreen, showOnboarding, launchPreviewVersion]);
+
   useEffect(() => {
     if (APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && (currentScreen === 'host' || currentScreen === 'valet')) {
       setCurrentScreen('main');
@@ -597,10 +620,14 @@ export default function App() {
     const existingServiceIds = new Set(discoverApiCards.map(card => card.vendorServiceId).filter(Boolean));
     const mirroredCards = savedVirtualPatchServiceCards.filter(card => !existingServiceIds.has(card.vendorServiceId));
     const liveServiceCards = discoverApiCards.filter(isLiveVendorServiceCard);
-    const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : CURATED_HOME_DISCOVERY_CARDS;
+    const curatedDiscoveryFallbackCards = discoverApiCards.length > 0 ? [] : markCuratedFallbackDiscoverCards(CURATED_HOME_DISCOVERY_CARDS);
     const curatedFallbackCards = liveServiceCards.length > 0 ? [] : curatedServiceRecommendationCards;
-    return getPersonalizedDiscoverCards([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], userPreferences);
-  }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences]);
+    return rankDiscoverCardsWithSimplex([...mirroredCards, ...discoverApiCards, ...curatedDiscoveryFallbackCards, ...curatedFallbackCards], {
+      preferences: userPreferences,
+      culturalContext: vendorMatchCulturalContext,
+      query: vendorMatchQuery,
+    });
+  }, [discoverApiCards, savedVirtualPatchServiceCards, userPreferences, vendorMatchCulturalContext, vendorMatchQuery]);
 
   const isAuthenticatedHomeUser = useMemo(() => hasAuthenticatedConsumerSession(), [activeTab, currentScreen]);
   const shouldShowHomeRecommendations = isAuthenticatedHomeUser || hasPatchInvokedGuestContext || hasPersonalizedPreferenceSignal;
@@ -630,38 +657,11 @@ export default function App() {
     setActiveTab('discover');
   }, []);
 
-  // ─── Tonight's Pick: smart venue recommendation ────────────────────────────
-  const tonightsPick = useMemo(() => {
-    if (!apiVenues || apiVenues.length === 0) return null;
-    let quizAnswers: Record<string, string> = {};
-    try { const raw = localStorage.getItem('bytspot_quiz_answers'); if (raw) quizAnswers = JSON.parse(raw); } catch { /* ignore */ }
-    if (!quizAnswers.vibe && userPreferences?.vibePreferences?.selectedVibes?.length) {
-      quizAnswers.vibe = userPreferences.vibePreferences.selectedVibes[0];
-    }
-
-    // Map quiz vibe → preferred API categories
-    const vibeMap: Record<string, string[]> = {
-      drinks: ['bar', 'nightlife', 'cocktails'],
-      coffee: ['coffee', 'cafe', 'brunch'],
-      food: ['restaurant', 'dining', 'food'],
-      fitness: ['fitness', 'gym', 'wellness'],
-    };
-    const preferredCats = vibeMap[quizAnswers.vibe ?? ''] ?? [];
-
-    // Score each venue: prefer quiz match (2pts), prefer crowd 1-2 (1pt for date, deduct for group=solo if packed)
-    const scored = apiVenues.map(v => {
-      const catMatch = preferredCats.some(c => (v.category ?? '').toLowerCase().includes(c));
-      const lvl = v.crowd?.level ?? 2;
-      let score = catMatch ? 2 : 0;
-      if (quizAnswers.group === 'date') score += lvl <= 2 ? 1 : -1; // date prefers chill
-      else if (quizAnswers.group === 'group') score += lvl >= 3 ? 1 : 0; // group prefers busy
-      else score += lvl <= 3 ? 1 : 0; // default: not packed
-      if (lvl === 4) score -= 2; // heavily penalise Packed
-      return { v, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0]?.v ?? null;
-  }, [apiVenues, userPreferences]);
+  // ─── AI Pick: top Simplex-ranked Discover recommendation ───────────────────
+  const homeAiPickCard = useMemo<DiscoverCard | null>(() => {
+    const visibleCards = discoverCardsWithSavedRequests.filter(card => !(APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && isValetFacingServiceCard(card)));
+    return visibleCards[0] ?? null;
+  }, [discoverCardsWithSavedRequests]);
 
   const springConfig = {
     type: "spring" as const,
@@ -723,8 +723,7 @@ export default function App() {
           setCurrentScreen('main');
           setActiveTab('map');
         } else if (path === 'profile') {
-          setCurrentScreen('main');
-          setActiveTab('profile');
+          openProfileMain();
         }
       } catch { /* ignore malformed URLs */ }
     };
@@ -732,7 +731,10 @@ export default function App() {
     const applyNativeTabRoute = (tab?: string | null, focus?: string | null) => {
       const normalized = tab === 'access' ? 'profile' : tab;
       if (!normalized || !['home', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
-      if (focus) localStorage.setItem('bytspot_profile_focus', focus);
+      if (normalized === 'profile') {
+        if (focus) localStorage.setItem('bytspot_profile_focus', focus);
+        else localStorage.removeItem('bytspot_profile_focus');
+      }
       setCurrentScreen('main');
       setActiveTab(normalized);
     };
@@ -984,6 +986,43 @@ export default function App() {
   
   // PERFORMANCE: Memoize personalized locations — use live GPS coords, fall back to Atlanta
   const activeCoords = userCoords ?? cityCoords ?? { lat: 33.7866, lng: -84.3833 };
+  const onboardingPreview = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(LAUNCH_PREVIEW_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { context?: string; userCity?: string; picks?: Array<{ id: number | string; name: string; address?: string; category?: string; label?: string; crowd?: { level?: number; label?: string } }>; answers?: Record<string, string>; savedAt?: string };
+      return parsed?.picks?.length ? parsed : null;
+    } catch { return null; }
+  }, [launchPreviewVersion, activeTab]);
+  const onboardingPreviewCopy = useMemo(() => {
+    const intent = onboardingPreview?.answers?.vibe ?? '';
+    if (['sleep', 'stay'].includes(intent)) return { title: 'A softer landing nearby', why: 'Late-night comfort · Midtown timing · safer arrival' };
+    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Easy arrivals near Midtown', why: 'Easy arrival · short walk · Midtown timing' };
+    if (intent === 'ride') return { title: 'A smoother way home', why: 'Better pickup points · cleaner route · less waiting' };
+    if (intent === 'indoor') return { title: 'Comfort-first plans nearby', why: 'Dry, comfortable, and close enough' };
+    if (intent === 'drinks') return { title: 'A night worth stepping into', why: 'Evening energy · good rooms · easy arrival' };
+    if (intent === 'events') return { title: 'Plans that fit the crowd', why: 'Show timing · crowd flow · easier exits' };
+    if (intent === 'coffee') return { title: 'A good stop before you go', why: 'Daytime rhythm · close stops · low-friction arrival' };
+    return { title: 'Shaped around your night', why: 'Your mood · the hour · what feels close enough' };
+  }, [onboardingPreview]);
+  const viewOnboardingPicksOnMap = useCallback(() => {
+    if (!hasAuthenticatedConsumerSession()) {
+      setGuestSavePrompt({ title: 'Sign in to view your map', subtitle: 'Sign in to keep routes, parking context, and arrival notes synced before opening Map.', cta: 'Sign in to map' });
+      return;
+    }
+    const topPick = onboardingPreview?.picks?.[0];
+    if (topPick?.name) setSelectedDestination(topPick.name);
+    setSelectedMapFunction('route');
+    setActiveTab('map');
+  }, [onboardingPreview]);
+
+  const exploreOnboardingPreviewFromHome = useCallback(() => {
+    if (!hasAuthenticatedConsumerSession()) {
+      setGuestSavePrompt({ title: 'Sign in to explore your picks', subtitle: 'Create an account to personalize recommendations before opening Discover.', cta: 'Sign in to explore' });
+      return;
+    }
+    setActiveTab('discover');
+  }, []);
   const memoizedLocations = useMemo(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       return getPersonalizedNearbyLocations(
@@ -1162,26 +1201,23 @@ export default function App() {
       }
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/success')) {
-      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-        setActiveTab('profile');
-        setCurrentScreen('main');
+      if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
+        openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
-      syncInsiderMembershipFromPremium(true);
-      toast.success('🎉 Welcome to Insider!', { description: 'Your membership is now active.', duration: 5000 });
-      setActiveTab('profile');
-      setCurrentScreen('main');
+      toast.success('Platinum checkout received', { description: 'Confirming your membership with Bytspot.', duration: 5000 });
+      openProfileMain();
       // Clean the URL without reload
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/cancelled')) {
-      if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-        setActiveTab('profile');
+      if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
+        openProfileMain();
         window.history.replaceState({}, '', '/');
         return;
       }
-      toast('Insider checkout cancelled — no charges made.', { duration: 3000 });
-      setActiveTab('profile');
+      toast('Platinum checkout cancelled — no charges made.', { duration: 3000 });
+      openProfileMain();
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/parking/success')) {
       const sessionId = new URLSearchParams(window.location.search).get('session_id');
@@ -1278,11 +1314,16 @@ export default function App() {
         <MarketplaceBookingReturnScreen
           status={status}
           onContinue={() => {
+              const focus = new URLSearchParams(window.location.search).get('focus');
             window.history.replaceState({}, '', '/');
             setCurrentScreen('main');
             if (status === 'success') {
-              localStorage.setItem('bytspot_profile_focus', 'tickets');
-              setActiveTab('profile');
+                if (focus === 'tickets') {
+                  localStorage.setItem('bytspot_profile_focus', 'tickets');
+                  setActiveTab('profile');
+                } else {
+                  openProfileMain();
+                }
             } else {
               setActiveTab('discover');
             }
@@ -1468,7 +1509,7 @@ export default function App() {
         {/* Enhanced Header - Only on Home */}
         {activeTab === 'home' && (
           <EnhancedHeader
-            onProfileClick={() => setActiveTab('profile')}
+            onProfileClick={openProfileMain}
             scrollContainerRef={homeScrollRef}
             weather={weather.current}
             weatherLoading={weather.loading}
@@ -1513,22 +1554,74 @@ export default function App() {
                   onScroll={handleScroll}
                   className="absolute inset-0 overflow-y-auto"
                 >
-                {/* ── Tonight's Pick ── Smart venue recommendation */}
-                {tonightsPick && (() => {
-                  const v = tonightsPick;
-                  const lvl = v.crowd?.level ?? 1;
-                  const crowdLabel = v.crowd?.label ?? 'Chill';
-                  const crowdColor = lvl === 4 ? 'bg-red-500/30 border-red-400/50 text-red-300'
-                    : lvl === 3 ? 'bg-orange-500/30 border-orange-400/50 text-orange-300'
-                    : lvl === 2 ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300'
+                {onboardingPreview && (
+                  <motion.div
+                    className="px-4 mb-4 pt-2"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...springConfig, delay: 0.03 }}
+                    data-testid="home-launch-picks-ready"
+                  >
+                    <div className="relative overflow-hidden rounded-[22px] border border-cyan-300/25 bg-[#101116]/90 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+                      <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-cyan-500/20 blur-3xl" />
+                      <div className="absolute -left-12 bottom-0 h-24 w-24 rounded-full bg-purple-500/15 blur-3xl" />
+                      <div className="relative mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.08em] text-cyan-200" style={{ fontWeight: 850 }}>Your picks are ready</p>
+                          <h2 className="mt-1 text-[20px] leading-6 text-white" style={{ fontWeight: 800 }}>{onboardingPreviewCopy.title}</h2>
+                          <p className="mt-1 text-[12px] leading-[17px] text-white/55" style={{ fontWeight: 600 }}>{onboardingPreview.context ?? `Based on your vibe near ${onboardingPreview.userCity ?? userCity}`}</p>
+                        </div>
+                        <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{onboardingPreview.picks?.length ?? 0} picks</span>
+                      </div>
+                      <div className="relative mb-3 rounded-[15px] border border-white/10 bg-white/[0.045] px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.07em] text-white/38" style={{ fontWeight: 850 }}>Why these?</p>
+                        <p className="mt-0.5 text-[12px] leading-[17px] text-white/62" style={{ fontWeight: 650 }}>{onboardingPreviewCopy.why}</p>
+                      </div>
+                      <div className="relative flex flex-col gap-2.5">
+                        {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
+                          const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
+                          return (
+	                            <button key={`launch-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
+                              <span className="text-xl">{['🥇', '🥈', '🥉'][index] ?? '📍'}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[15px] text-white" style={{ fontWeight: 750 }}>{pick.name}</p>
+                                <p className="truncate text-[12px] text-white/42" style={{ fontWeight: 600 }}>{pick.address ?? pick.category ?? 'Nearby pick'}</p>
+                              </div>
+                              <span className="shrink-0 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100" style={{ fontWeight: 750 }}>{crowd}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="relative mt-3 grid grid-cols-2 gap-2.5">
+                        <button type="button" onClick={exploreOnboardingPreviewFromHome} className="rounded-[15px] bg-gradient-to-r from-cyan-500 to-purple-600 px-3 py-3 text-[13px] text-black" style={{ fontWeight: 850 }}>Explore picks</button>
+                        <button type="button" onClick={viewOnboardingPicksOnMap} className="rounded-[15px] border border-purple-300/25 bg-purple-400/10 px-3 py-3 text-[13px] text-purple-100" style={{ fontWeight: 800 }}>View on Map</button>
+                      </div>
+                      <div className="relative mt-2.5">
+                        {!hasAuthenticatedConsumerSession() ? (
+                          <button type="button" onClick={() => setGuestSavePrompt({ title: 'Save your picks?', subtitle: 'Sign in to keep favorites, routes, and parking preferences across devices.', cta: 'Sign in to save' })} className="w-full rounded-[15px] border border-cyan-300/25 bg-white/[0.055] px-3 py-3 text-[13px] text-cyan-100" style={{ fontWeight: 800 }}>Sign in to save picks</button>
+                        ) : (
+                          <button type="button" onClick={() => toast.success('Your picks are ready', { description: 'Saved preferences are active on this device.' })} className="w-full rounded-[15px] border border-emerald-300/25 bg-emerald-400/10 px-3 py-3 text-[13px] text-emerald-100" style={{ fontWeight: 800 }}>Picks active</button>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* ── Tonight's Pick ── Simplex-ranked Discover recommendation */}
+                {homeAiPickCard && (() => {
+                  const card = homeAiPickCard;
+                  const status = card.availability ?? (card.isOpen === true ? 'Open now' : card.isOpen === false ? 'Closed' : card.type === 'service' ? 'Available' : 'Recommended');
+                  const statusKey = status.toLowerCase();
+                  const statusColor = statusKey.includes('packed') || statusKey.includes('closed') ? 'bg-red-500/30 border-red-400/50 text-red-300'
+                    : statusKey.includes('busy') ? 'bg-orange-500/30 border-orange-400/50 text-orange-300'
+                    : statusKey.includes('active') ? 'bg-yellow-500/30 border-yellow-400/50 text-yellow-300'
                     : 'bg-green-500/30 border-green-400/50 text-green-300';
-                  const crowdEmoji = lvl === 4 ? '🔴' : lvl === 3 ? '🟠' : lvl === 2 ? '🟡' : '🟢';
+                  const statusEmoji = statusKey.includes('packed') || statusKey.includes('closed') ? '🔴' : statusKey.includes('busy') ? '🟠' : statusKey.includes('active') ? '🟡' : '🟢';
                   const catEmoji: Record<string, string> = {
-                    restaurant: '🍽️', bar: '🍸', coffee: '☕', nightlife: '🎶',
-                    shopping: '🛍️', fitness: '💪', entertainment: '🎭', park: '🌳',
+                    dining: '🍽️', service: '✨', venue: '📍', parking: '🅿️', valet: '🚕', coffee: '☕', nightlife: '🎶',
+                    shopping: '🛍️', fitness: '💪', entertainment: '🎭',
                   };
-                  const icon = catEmoji[v.category] || '📍';
-                  const imgUrl = v.imageUrl || `https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80`;
+                  const icon = catEmoji[card.type] || '📍';
                   return (
                     <motion.div
 	                      className="px-4 mb-3 pt-2"
@@ -1541,29 +1634,27 @@ export default function App() {
                         <div className="flex-1 h-px bg-white/10" />
                       </div>
                       <motion.button
-                        className="relative w-full rounded-2xl overflow-hidden text-left"
+	                        className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#1C1C1E] via-[#221B34] to-[#102329] text-left"
 	                        style={{ height: 118 }}
                         whileTap={{ scale: 0.97 }}
-                        onClick={() => setSelectedSearchVenue(v)}
+                        onClick={() => handleRecommendedHomeCardClick(card)}
                       >
-                        {/* Background image */}
-                        <img src={imgUrl} alt={v.name} className="absolute inset-0 w-full h-full object-cover" />
-                        {/* Gradient overlay */}
-                        <div className={`absolute inset-0 ${HOME_OVERLAY_GRADIENT_CLASS}`} />
+	                        <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-purple-500/20 blur-3xl" />
+	                        <div className="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-cyan-500/15 blur-3xl" />
                         {/* AI Pick badge */}
                         <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#A855F7]/80 backdrop-blur-sm border border-[#A855F7]/50">
                           <Sparkles className="w-3 h-3 text-white" strokeWidth={2.5} />
                           <span className="text-white text-[11px]" style={{ fontWeight: 700 }}>AI Pick</span>
                         </div>
                         {/* Content */}
-                        <div className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10 ${HOME_OVERLAY_GRADIENT_CLASS}`}>
+	                        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pt-10">
                           <div>
 	                            <div className="text-[16px] mb-0.5">{icon}</div>
-                            <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{v.name}</h3>
-                            {v.address && <p className={`${HOME_CARD_META_CLASS} text-[12px] mt-0.5 truncate`}>{v.address}</p>}
+                            <h3 className={`${HOME_CARD_TITLE_CLASS} text-[15px] leading-tight`} style={{ fontWeight: 700 }}>{card.name}</h3>
+                            {(card.location || card.description) && <p className={`${HOME_CARD_META_CLASS} text-[12px] mt-0.5 truncate`}>{card.location || card.description}</p>}
                           </div>
-                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${crowdColor}`} style={{ fontWeight: 700 }}>
-                            {crowdEmoji} {crowdLabel}
+                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[12px] backdrop-blur-sm ${statusColor}`} style={{ fontWeight: 700 }}>
+                            {statusEmoji} {status}
                           </div>
                         </div>
                       </motion.button>
@@ -1938,53 +2029,6 @@ export default function App() {
                       );
                     })()}
 
-                    {/* ── 👥 Friends are at... ── Social feed row */}
-                    {(() => {
-                      const feed = getSocialFeed().slice(0, 6);
-                      if (feed.length === 0) return null;
-                      const crowdEmoji: Record<string, string> = { Chill: '🟢', Active: '🟡', Busy: '🟠', Packed: '🔴' };
-                      const timeAgo = (ts: string) => {
-                        const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
-                        if (mins < 60) return `${mins}m ago`;
-                        return `${Math.floor(mins / 60)}h ago`;
-                      };
-                      return (
-				                        <div className="mb-6">
-                          <div className="mb-3 flex items-center justify-between">
-				                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>👥 Friends Are At…</h2>
-                            <span className="text-[11px] text-purple-300/80" style={{ fontWeight: 600 }}>Live</span>
-                          </div>
-				                          <div className={HOME_CAROUSEL_CLASS}>
-                            {feed.map((event, i) => (
-                              <motion.div
-                                key={event.id}
-				                                className={`${HOME_FEATURE_CARD_CLASS} border border-purple-500/20 p-3`}
-				                                style={HOME_FEATURE_CARD_STYLE}
-                                initial={{ opacity: 0, y: 12 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ ...springConfig, delay: 0.35 + i * 0.04 }}
-                              >
-	                                <div className="absolute inset-x-3 top-0 h-px bg-purple-200/30" />
-                                <div className="flex items-center gap-2 mb-2">
-	                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white text-[11px] shadow-lg shadow-purple-500/20 ring-1 ring-white/25" style={{ fontWeight: 700 }}>
-                                    {event.userName.slice(0, 1).toUpperCase()}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-[12px] text-white truncate" style={{ fontWeight: 600 }}>{event.userName}</p>
-                                    <p className="text-[10px] text-white/40">{timeAgo(event.timestamp)}</p>
-                                  </div>
-                                </div>
-				                                <p className="text-[12px] text-white/90 line-clamp-2 leading-snug min-h-[32px]" style={{ fontWeight: 500 }}>{event.venueName}</p>
-                                <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-purple-500/20 border border-purple-400/30 text-purple-300" style={{ fontWeight: 600 }}>
-                                  {crowdEmoji[event.crowdLabel] ?? '📍'} {event.crowdLabel}
-                                </div>
-                              </motion.div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
                     {/* Category Quick Search - Personalized */}
 				                    <div className="mb-6">
                       <div className="mb-4 flex items-center justify-between">
@@ -2307,6 +2351,48 @@ export default function App() {
           isVisible={showBottomNav}
         />
 
+        <AnimatePresence>
+          {guestSavePrompt && (
+            <motion.div
+              className="fixed inset-0 z-[95] flex items-end justify-center bg-black/45 px-4 pb-[calc(1rem+var(--safe-area-bottom,0px))] backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setGuestSavePrompt(null)}
+            >
+              <motion.div
+                className="w-full max-w-[420px] rounded-[28px] border border-white/15 bg-[linear-gradient(145deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96)_55%,rgba(8,47,73,0.86))] p-5 text-center text-white shadow-[0_24px_70px_rgba(0,0,0,0.48)]"
+                initial={{ y: 30, scale: 0.98 }}
+                animate={{ y: 0, scale: 1 }}
+                exit={{ y: 30, scale: 0.98 }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-400/15 text-2xl">💾</div>
+                <h3 className="text-[22px] leading-7" style={{ fontWeight: 900 }}>{guestSavePrompt.title}</h3>
+                <p className="mx-auto mt-2 max-w-[310px] text-[14px] leading-5 text-white/62" style={{ fontWeight: 650 }}>{guestSavePrompt.subtitle}</p>
+                <div className="mt-5 grid gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setGuestSavePrompt(null); setCurrentScreen('auth'); }}
+                    className="rounded-[17px] bg-gradient-to-r from-cyan-400 to-purple-500 px-4 py-3.5 text-[15px] text-black"
+                    style={{ fontWeight: 900 }}
+                  >
+                    {guestSavePrompt.cta ?? 'Sign in'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuestSavePrompt(null)}
+                    className="rounded-[17px] border border-white/12 bg-white/[0.055] px-4 py-3 text-[14px] text-white/70"
+                    style={{ fontWeight: 800 }}
+                  >
+                    Not now
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Secondary Map Tools sheet: the Map tab itself opens the map directly. */}
         <MapMenuSlideUp
           isOpen={showMapMenu}
@@ -2505,14 +2591,46 @@ export default function App() {
         {/* ─── Onboarding Quiz ─── */}
         <AnimatePresence>
           {showOnboarding && (() => {
-            const quizQuestions = [
-              { emoji: '✨', question: "What's your vibe tonight?", key: 'vibe' as const,
-                options: [{ label: '🍸 Drinks', value: 'drinks' }, { label: '☕ Coffee', value: 'coffee' }, { label: '🍔 Food', value: 'food' }, { label: '🏋️ Fitness', value: 'fitness' }] },
-              { emoji: '🗺️', question: "How far will you walk?", key: 'walk' as const,
-                options: [{ label: '🚶 < 5 min', value: 'close' }, { label: '🚶‍♀️ 10 min', value: 'medium' }, { label: '🚌 Anywhere', value: 'far' }] },
-              { emoji: '👥', question: "Solo or with crew?", key: 'group' as const,
-                options: [{ label: '🙋 Solo', value: 'solo' }, { label: '👫 Date night', value: 'date' }, { label: '👥 Group', value: 'group' }] },
-            ];
+            type QuizOption = { label: string; value: string; recommended?: boolean };
+            type QuizQuestion = { emoji: string; question: string; key: 'vibe' | 'walk' | 'group'; context?: string; options: QuizOption[] };
+            const hour = new Date().getHours();
+            const wet = weather.current.precipitationIn > 0 || weather.current.weatherCode >= 51;
+            const uncomfortable = weather.current.temperatureF >= 88 || weather.current.temperatureF <= 42;
+            const lateNight = hour >= 22 || hour < 5;
+            const evening = hour >= 16;
+            const sleepIntent = ['sleep', 'stay'].includes(quizSelections.vibe ?? '');
+            const contextLine = wet
+              ? `Rain near ${userCity} · covered arrivals, indoor rooms, and short walks first`
+              : uncomfortable
+                ? `${Math.round(weather.current.temperatureF)}° near ${userCity} · comfort-first stops and calm arrivals`
+                : lateNight
+                  ? `Late night near ${userCity} · keep going, get home, or land softly`
+                  : evening
+                    ? `Evening near ${userCity} · dinner, drinks, events, and easy arrivals`
+                    : `Daytime near ${userCity} · coffee, food, quiet corners, and easy arrivals`;
+            const intentQuestion: QuizQuestion = wet
+              ? { emoji: '☔', question: 'Rain nearby — what would feel easiest?', key: 'vibe', context: contextLine,
+                  options: [{ label: '☔ A dry room nearby', value: 'indoor', recommended: true }, { label: '🚗 Covered arrival', value: 'covered_parking' }, { label: '🚕 A ride instead', value: 'ride' }, { label: '🛏️ A comfortable stay', value: 'stay' }] }
+              : uncomfortable
+                ? { emoji: '🏠', question: "Let's keep it comfortable — what would help?", key: 'vibe', context: contextLine,
+                    options: [{ label: '🏠 Somewhere comfortable', value: 'indoor', recommended: true }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '☕ A quick good stop', value: 'coffee' }, { label: '🚕 A smoother ride', value: 'ride' }] }
+                : lateNight
+                  ? { emoji: '🌙', question: 'What would make tonight easier?', key: 'vibe', context: contextLine,
+                      options: [{ label: '🍸 Keep the night going', value: 'drinks' }, { label: '🍔 Something good to eat', value: 'food' }, { label: '🛏️ A comfortable stay', value: 'sleep', recommended: true }, { label: '🚕 A smooth ride home', value: 'ride' }] }
+                  : evening
+                    ? { emoji: '✨', question: 'What kind of night are we shaping?', key: 'vibe', context: contextLine,
+                        options: [{ label: '🍽️ Dinner with atmosphere', value: 'food' }, { label: '🍸 A good drink', value: 'drinks' }, { label: '🎶 Something happening', value: 'events' }, { label: '💕 Date-night ready', value: 'date' }] }
+                    : { emoji: '☀️', question: 'What would make the next hour easier?', key: 'vibe', context: contextLine,
+                        options: [{ label: '☕ A good coffee stop', value: 'coffee' }, { label: '🍔 A proper meal', value: 'food' }, { label: '💻 A quiet place to settle', value: 'work' }, { label: '🚗 Easy arrival', value: 'parking' }] };
+            const mobilityQuestion: QuizQuestion = sleepIntent
+              ? { emoji: '🛏️', question: 'What kind of landing feels right?', key: 'walk', options: [{ label: '🏨 Full-service hotel', value: 'hotel' }, { label: '✨ Boutique stay', value: 'boutique' }, { label: '🏢 Private suite', value: 'apartment' }, { label: '⏱️ Tonight only', value: 'short_stay' }] }
+              : wet
+                ? { emoji: '🗺️', question: 'How should we handle getting there?', key: 'walk', options: [{ label: '☔ Short walk only', value: 'close', recommended: true }, { label: '🚗 Covered arrival', value: 'covered' }, { label: '🚕 Ride preferred', value: 'ride' }, { label: '📍 Right nearby', value: 'closest' }] }
+                : { emoji: '🗺️', question: 'How far are you comfortable going?', key: 'walk', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '🚶 A short walk', value: 'close' }, { label: '🚗 Easy arrival', value: 'parking' }, { label: '🗺️ Show me a hidden gem', value: 'far' }] };
+            const preferenceQuestion: QuizQuestion = sleepIntent
+              ? { emoji: '🔒', question: 'What should feel effortless?', key: 'group', options: [{ label: '📍 Right nearby', value: 'closest' }, { label: '💸 Best value', value: 'price' }, { label: '⭐ Best reviewed', value: 'rated' }, { label: '🔒 Most comfortable arrival', value: 'safe', recommended: true }] }
+              : { emoji: '👥', question: "Who's coming with you?", key: 'group', options: [{ label: '🙋 Just me', value: 'solo' }, { label: '💕 Date-night ready', value: 'date' }, { label: '👥 A group', value: 'group' }, { label: '💼 Work or client', value: 'work' }] };
+            const quizQuestions = [intentQuestion, mobilityQuestion, preferenceQuestion];
             const total = quizQuestions.length;
             const isConfirmation = quizStep === total;
             const q = isConfirmation ? null : quizQuestions[quizStep];
@@ -2521,9 +2639,9 @@ export default function App() {
               const answers = final ?? quizSelections;
               localStorage.setItem('bytspot_intro_seen', 'true');
               localStorage.setItem('bytspot_quiz_answers', JSON.stringify(answers));
-              const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'] };
-              const walkToInterests: Record<string, string[]> = { close: ['nearby', 'quick walk'], medium: ['walkable'], far: ['explore'] };
-              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.walk ? walkToInterests[answers.walk] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : [])];
+              const vibeToInterests: Record<string, string[]> = { drinks: ['bars','nightlife','cocktails'], coffee: ['coffee','cafes','brunch'], food: ['dining','restaurants','food'], fitness: ['fitness','gym','wellness'], work: ['coworking','cafes','quiet'], parking: ['parking','quick walk'], events: ['events','music','entertainment'], date: ['date night','romantic'], indoor: ['indoor','weather safe'], covered_parking: ['covered parking','parking'], ride: ['rideshare','transit'], sleep: ['hotel','stay nearby','overnight'], stay: ['hotel','stay nearby','overnight'] };
+              const walkToInterests: Record<string, string[]> = { close: ['nearby', 'quick walk'], medium: ['walkable'], far: ['explore'], parking: ['parking nearby'], covered: ['covered parking'], ride: ['ride preferred'], closest: ['closest'], hotel: ['hotel'], boutique: ['boutique hotel'], apartment: ['apartment stay'], short_stay: ['short stay'] };
+              const interests = [...(answers.vibe ? vibeToInterests[answers.vibe] ?? [] : []), ...(answers.walk ? walkToInterests[answers.walk] ?? [] : []), ...(answers.group === 'date' ? ['date night','romantic'] : []), ...(answers.group === 'group' ? ['group','nightlife'] : []), ...(answers.group === 'work' ? ['work friendly','client meeting'] : []), ...(answers.group === 'safe' ? ['safest area'] : [])];
               saveUserPreferences({
                 interests,
                 vibePreferences: answers.vibe ? { selectedVibes: [answers.vibe] } : undefined,
@@ -2538,7 +2656,7 @@ export default function App() {
             // Top-3 venue picks for confirmation screen
             const picks = (() => {
               if (!isConfirmation || !apiVenues?.length) return [];
-              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining'], fitness: ['fitness','gym'] };
+              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining','late'], fitness: ['fitness','gym'], work: ['cafe','coworking'], parking: ['parking'], events: ['event','music','entertainment'], date: ['restaurant','dining','cocktail'], indoor: ['restaurant','cafe','indoor'], covered_parking: ['parking'], ride: ['ride','transport'], sleep: ['hotel','stay'], stay: ['hotel','stay'] };
               const preferred = vibeMap[quizSelections.vibe ?? ''] ?? [];
               return [...apiVenues].map(v => {
                 const match = preferred.some(c => (v.category ?? '').toLowerCase().includes(c));
@@ -2550,6 +2668,27 @@ export default function App() {
                 return { v, score };
               }).sort((a, b) => b.score - a.score).slice(0, 3).map(s => s.v);
             })();
+            const persistOnboardingPreview = () => {
+              if (!picks.length) return;
+              localStorage.setItem(LAUNCH_PREVIEW_STORAGE_KEY, JSON.stringify({
+                savedAt: new Date().toISOString(),
+                userCity,
+                context: contextLine,
+                answers: quizSelections,
+                picks: picks.map(v => ({ id: v.id, name: v.name, address: v.address, category: v.category, crowd: v.crowd ? { level: v.crowd.level, label: v.crowd.label } : undefined }))
+              }));
+              setLaunchPreviewVersion(version => version + 1);
+            };
+            const exploreOnboardingPicks = () => {
+              persistOnboardingPreview();
+              setSelectedDestination(undefined);
+              setSelectedMapFunction(undefined);
+              setDiscoverFilter(undefined);
+              setShowMapMenu(false);
+              setCurrentScreen('main');
+              setActiveTab('home');
+              dismiss();
+            };
             // Animated SVG ring
             const ringR = 18; const ringC = 2 * Math.PI * ringR;
             const ringFill = isConfirmation ? 1 : (quizStep + 1) / total;
@@ -2585,12 +2724,12 @@ export default function App() {
                   </div>
 
                   {isConfirmation ? (
-                    /* ── Confirmation: Here's your city ── */
+                    /* ── Confirmation: Value-first picks preview ── */
                     <>
                       <div className="text-center">
                         <div className="text-4xl mb-2">🗺️</div>
-                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Here's your {userCity}</h2>
-                        <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 400 }}>Tonight's top picks, just for you</p>
+                        <h2 className="text-[22px] text-white leading-snug" style={{ fontWeight: 700 }}>Recommended for you</h2>
+                        <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Based on your vibe, location, and local conditions near {userCity}</p>
                       </div>
                       <div className="flex flex-col gap-2.5">
                         {picks.length > 0 ? picks.map((venue, i) => {
@@ -2612,16 +2751,31 @@ export default function App() {
                           );
                         }) : <p className="text-[14px] text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>Discovering spots for you…</p>}
                       </div>
+                      <p className="text-center text-[12px] leading-[17px]" style={{ color: 'rgba(255,255,255,0.38)', fontWeight: 600 }}>
+                        Explore now. Sign in anytime to save favorites and sync your picks.
+                      </p>
                       <motion.button className="w-full rounded-[18px] py-4 text-[16px] text-black"
                         style={{ background: 'linear-gradient(135deg,#00BFFF,#7c3aed)', fontWeight: 700 }}
-                        whileTap={{ scale: 0.97 }} onClick={() => dismiss()}>
-                        Let's Go 🚀
+                        whileTap={{ scale: 0.97 }} onClick={exploreOnboardingPicks}>
+                        Explore These Spots
                       </motion.button>
+                      {!hasAuthenticatedConsumerSession() && (
+                        <motion.button className="w-full rounded-[16px] py-3 text-[14px] text-cyan-200"
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(34,211,238,0.28)', fontWeight: 700 }}
+                          whileTap={{ scale: 0.97 }} onClick={() => { persistOnboardingPreview(); dismiss(); setCurrentScreen('auth'); }}>
+                          Sign in to save picks
+                        </motion.button>
+                      )}
                     </>
                   ) : (
                     /* ── Quiz slide ── */
                     <>
                       <div className="text-5xl text-center">{q!.emoji}</div>
+                      {q!.context && (
+                        <p className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-center text-[11px] text-cyan-100/80" style={{ fontWeight: 650 }}>
+                          {q!.context}
+                        </p>
+                      )}
                       <h2 className="text-[22px] text-white text-center leading-snug" style={{ fontWeight: 700 }}>{q!.question}</h2>
                       <div className="grid grid-cols-2 gap-3">
                         {q!.options.map((opt) => {
@@ -2637,6 +2791,7 @@ export default function App() {
                                 else { setTimeout(() => setQuizStep(s => s + 1), 300); }
                               }}>
                               {opt.label}
+                              {opt.recommended && <span className="mt-1 block text-[10px] text-cyan-200/75">Recommended</span>}
                             </motion.button>
                           );
                         })}

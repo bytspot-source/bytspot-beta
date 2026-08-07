@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, Award, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
+import { User, Settings, Bell, CreditCard, MapPin, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
 import { VehicleManagement } from './VehicleManagement';
@@ -18,19 +18,19 @@ import { TermsOfService } from './TermsOfService';
 import { Disclaimer } from './Disclaimer';
 import { shareReferral } from '../utils/nativeShare';
 import { impactLight } from '../utils/haptics';
-import { getUserPointsLocal, getUserPointsAsync, getUserTier, getAchievementStats } from '../utils/gamification';
+import { getUserPointsAsync, type UserPoints } from '../utils/gamification';
 import { getCheckinHistory, getCheckinHistoryAsync, type CheckInRecord } from '../utils/checkinHistory';
-import { getFollowedUsers, getFollowedUsersAsync, getSocialFeed, unfollowUser, getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type SocialFeedEvent, type FollowedUser, type FriendSuggestion } from '../utils/social';
-import { getAccessPasses, getInsiderMembership, INSIDER_COMMERCE_EVENT, INSIDER_PERKS, replaceAccessPassesFromServer, syncInsiderMembershipFromPremium } from '../utils/insiderCommerce';
+import { getSuggestions, suggestionReason, syncDeviceContactsViaPicker, isContactPickerSupported, type FriendSuggestion } from '../utils/social';
+import { addPersonToCircleViaRpc, createSocialCircleViaRpc, hasCircleMembership, listSocialCirclesViaRpc, listSocialInvitationsViaRpc, respondToSocialInvitationViaRpc, sendSocialInvitationViaRpc, type SocialCircle, type SocialInvitation } from '../utils/primaryEventSocialRpc';
+import { BYTSPOT_COMMERCE_EVENT, getAccessPasses, getBytspotMembership, hasPlatinumAccess, PLATINUM_PERKS, PLATINUM_SUBSCRIPTION_PLAN, replaceAccessPassesFromServer, syncBytspotMembershipFromSubscription } from '../utils/insiderCommerce';
 import { getParkingReservations, PARKING_RESERVATIONS_EVENT, type ParkingReservationRecord } from '../utils/parkingReservations';
-import { APPLE_REVIEW_HIDE_INSIDER_PREMIUM } from '../utils/reviewBuild';
+import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { saveVirtualPatchContext, type VirtualPatchContext, type VirtualPatchSavedServiceRequest, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
-import { deriveConsumerExperienceTier, getConsumerTierProgress, TIERED_EXPERIENCE_PROFILES } from '../features/tieredExperience.ts';
 import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect.ts';
 
 const DEMO_VENUE_SERVICES = [
   { name: 'Verified Entry', detail: 'Skip the line and walk straight in.' },
-  { name: 'VIP Access', detail: 'Premium seating, priority arrival, and lounge-ready support.' },
+  { name: 'Backstage Access', detail: 'Reserved seating, priority arrival, and lounge-ready support.' },
   { name: 'Smart Parking', detail: 'Find parking and book venue pickup.' },
   { name: 'Concierge Help', detail: 'Request private chef, massage, rides, and venue help.' },
 ];
@@ -57,7 +57,7 @@ type ProfileMenuSection = {
 type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
-type NativeProfilePanel = 'reservations' | 'access' | 'rewards';
+type NativeProfilePanel = 'reservations' | 'access' | 'points';
 
 function postNativeProfilePanel(panel: NativeProfilePanel): boolean {
   try {
@@ -176,20 +176,17 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     } catch { return 'Guest'; }
   })();
 
-  // Async state: points, checkins, achievements — start with sync localStorage values, upgrade via API
-  const [userPoints, setUserPoints] = useState(getUserPointsLocal());
+  // Points remain unavailable until the backend confirms the balance.
+  const [userPoints, setUserPoints] = useState<UserPoints | null>(null);
   const [checkinHistory, setCheckinHistory] = useState<CheckInRecord[]>(getCheckinHistory());
-  const userTier = getUserTier(userPoints.total);
-  const achievementStats = getAchievementStats();
 
   // Fetch referral count from backend via tRPC (end-to-end type-safe)
   const [referralCount, setReferralCount] = useState<number | null>(null);
-  // Following count — start with localStorage, upgrade via API
-  const [followingCount, setFollowingCount] = useState(getFollowedUsers().length);
-  const [membership, setMembership] = useState(() => getInsiderMembership());
+  const [membership, setMembership] = useState(() => getBytspotMembership());
   const [walletPasses, setWalletPasses] = useState(() => getAccessPasses());
   const [parkingReservations, setParkingReservations] = useState<ParkingReservationRecord[]>(() => getParkingReservations());
-  const [insiderLoading, setInsiderLoading] = useState(false);
+  const [platinumLoading, setPlatinumLoading] = useState(false);
+  const membershipRefreshGeneration = useRef(0);
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
   const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
@@ -197,32 +194,38 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const [suggestions, setSuggestions] = useState<FriendSuggestion[]>([]);
   const [contactSyncPhase, setContactSyncPhase] = useState<'idle' | 'syncing' | 'done' | 'unsupported'>('idle');
   const [contactSyncSummary, setContactSyncSummary] = useState<string | null>(null);
-  const hasRealInsiderCheckout = (() => {
+  const [socialCircles, setSocialCircles] = useState<SocialCircle[]>([]);
+  const [socialInvitations, setSocialInvitations] = useState<SocialInvitation[]>([]);
+  const [selectedCircleId, setSelectedCircleId] = useState('');
+  const [newCircleName, setNewCircleName] = useState('');
+  const [networkStatus, setNetworkStatus] = useState('');
+  const [pendingCircleAdds, setPendingCircleAdds] = useState<Set<string>>(() => new Set());
+  const hasRealPlatinumCheckout = (() => {
     const token = localStorage.getItem('bytspot_auth_token');
     return !!token && token !== 'guest_session';
   })();
-  const subscriptionStateLabel = membership.isActive
-    ? membership.source === 'premium'
-      ? 'ACTIVE'
-      : 'ACTIVE'
-    : 'AVAILABLE';
-  const consumerBookingCount = walletPasses.length + parkingReservations.length;
-  const consumerExperienceTier = deriveConsumerExperienceTier({
-    bookingCount: consumerBookingCount,
-    activityPoints: userPoints.total,
-    checkinCount: checkinHistory.length,
-    hasInsiderMembership: membership.isActive,
-  });
-  const consumerExperienceProfile = TIERED_EXPERIENCE_PROFILES[consumerExperienceTier];
-  const consumerExperienceProgress = getConsumerTierProgress({
-    bookingCount: consumerBookingCount,
-    activityPoints: userPoints.total,
-    checkinCount: checkinHistory.length,
-    hasInsiderMembership: membership.isActive,
-  });
+  const subscriptionStateLabel = hasPlatinumAccess(membership) ? 'ACTIVE' : 'AVAILABLE';
+  const refreshMembership = useCallback(async (): Promise<boolean> => {
+    const generation = ++membershipRefreshGeneration.current;
+    const token = localStorage.getItem('bytspot_auth_token');
+    setMembership(syncBytspotMembershipFromSubscription(false));
+    try {
+      const data = await trpc.subscription.status.query() as SubscriptionStatus;
+      if (generation !== membershipRefreshGeneration.current || token !== localStorage.getItem('bytspot_auth_token')) return false;
+      const confirmed = Boolean(data?.isPremium);
+      setMembership(syncBytspotMembershipFromSubscription(confirmed));
+      return confirmed;
+    } catch {
+      if (generation === membershipRefreshGeneration.current) {
+        setMembership(syncBytspotMembershipFromSubscription(false));
+      }
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     const syncCommerce = () => {
-      setMembership(getInsiderMembership());
+      setMembership(getBytspotMembership());
       setWalletPasses(getAccessPasses());
       setParkingReservations(getParkingReservations());
       setVirtualPatchContext(readVirtualPatchContext());
@@ -231,38 +234,32 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     // Upgrade from API (fire all in parallel)
     getUserPointsAsync().then(setUserPoints).catch(() => {});
     getCheckinHistoryAsync().then(setCheckinHistory).catch(() => {});
-    getFollowedUsersAsync().then((users) => setFollowingCount(users.length)).catch(() => {});
     trpc.auth.me.query().then((data: { referralCount?: number | null } | null | undefined) => {
       setReferralCount(data?.referralCount ?? 0);
     }).catch(() => {});
-    trpc.subscription.status.query().then((data: SubscriptionStatus) => {
-      if (data?.isPremium) {
-        setMembership(syncInsiderMembershipFromPremium(true));
-      } else {
-        syncCommerce();
-      }
-    }).catch(() => {});
+    void refreshMembership();
 
-    if (hasRealInsiderCheckout) {
+    if (hasRealPlatinumCheckout) {
       trpc.user.accessPasses.list.query().then((passes: AccessPassList) => {
         replaceAccessPassesFromServer(passes || []);
       }).catch(() => {});
     }
 
-    window.addEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+    window.addEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
     window.addEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
+    if (profileFocus) localStorage.removeItem('bytspot_profile_focus');
     if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment') {
       setCurrentScreen(profileFocus);
-      localStorage.removeItem('bytspot_profile_focus');
     }
 
     return () => {
-      window.removeEventListener(INSIDER_COMMERCE_EVENT, syncCommerce);
+      membershipRefreshGeneration.current += 1;
+      window.removeEventListener(BYTSPOT_COMMERCE_EVENT, syncCommerce);
       window.removeEventListener(PARKING_RESERVATIONS_EVENT, syncCommerce);
     };
-  }, [hasRealInsiderCheckout]);
+  }, [hasRealPlatinumCheckout, refreshMembership]);
 
   useEffect(() => {
     if (currentScreen !== 'main') return;
@@ -285,11 +282,22 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     setVirtualPatchContext(readVirtualPatchContext());
   }, [currentScreen]);
 
-  // Load contact-graph friend suggestions whenever the Friends screen mounts.
+  // Network loads only people, circles, and invitations.
   useEffect(() => {
     if (currentScreen !== 'friends') return;
     let mounted = true;
-    getSuggestions().then((items) => { if (mounted) setSuggestions(items); }).catch(() => {});
+    const invitations = listSocialInvitationsViaRpc(trpc)
+      .then((items) => ({ items, failed: false }))
+      .catch(() => ({ items: [] as SocialInvitation[], failed: true }));
+    Promise.all([getSuggestions(), listSocialCirclesViaRpc(trpc), invitations])
+      .then(([people, circles, invitationResult]) => {
+        if (!mounted) return;
+        setSuggestions(people);
+        setSocialCircles(circles.source === 'backend' ? circles.groups : []);
+        setSelectedCircleId((current) => current || circles.groups[0]?.id || '');
+        setSocialInvitations(invitationResult.items);
+        if (invitationResult.failed) setNetworkStatus('People and circles loaded. Invitations could not refresh.');
+      }).catch(() => { if (mounted) setNetworkStatus('Network could not refresh.'); });
     return () => { mounted = false; };
   }, [currentScreen]);
 
@@ -316,6 +324,54 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     }
   };
 
+  const handleCreateCircle = async () => {
+    if (!newCircleName.trim()) return;
+    try {
+      const circle = await createSocialCircleViaRpc(trpc, newCircleName);
+      if (!circle) throw new Error('Circle was not returned');
+      setSocialCircles((current) => [circle, ...current]);
+      setSelectedCircleId(circle.id);
+      setNewCircleName('');
+      setNetworkStatus(`${circle.name} created.`);
+    } catch { setNetworkStatus('Circle could not be created.'); }
+  };
+
+  const handleAddToCircle = async (person: FriendSuggestion) => {
+    if (!selectedCircleId) { setNetworkStatus('Create or select a circle first.'); return; }
+    const key = `${selectedCircleId}:${person.userId}`;
+    const selectedCircle = socialCircles.find((circle) => circle.id === selectedCircleId);
+    if (pendingCircleAdds.has(key) || hasCircleMembership(person, selectedCircle)) return;
+    setPendingCircleAdds((current) => new Set(current).add(key));
+    try {
+      await addPersonToCircleViaRpc(trpc, selectedCircleId, person.userId);
+      setSuggestions((current) => current.map((item) => item.userId === person.userId ? { ...item, circleIds: [...new Set([...item.circleIds, selectedCircleId])] } : item));
+      setSocialCircles((current) => current.map((circle) => {
+        if (circle.id !== selectedCircleId || circle.memberIds.includes(person.userId)) return circle;
+        return { ...circle, memberCount: circle.memberCount + 1, memberIds: [...circle.memberIds, person.userId] };
+      }));
+      setNetworkStatus(`${person.name} added to ${socialCircles.find((circle) => circle.id === selectedCircleId)?.name ?? 'circle'}.`);
+    } catch { setNetworkStatus(`${person.name} could not be added.`); }
+    finally { setPendingCircleAdds((current) => { const next = new Set(current); next.delete(key); return next; }); }
+  };
+
+  const handleSendNetworkInvite = async (person: FriendSuggestion) => {
+    const selectedCircle = socialCircles.find((circle) => circle.id === selectedCircleId);
+    if (!hasCircleMembership(person, selectedCircle)) { setNetworkStatus('Add this person to the selected circle first.'); return; }
+    try {
+      const invite = await sendSocialInvitationViaRpc(trpc, person.userId, selectedCircleId || undefined);
+      if (invite) setSocialInvitations((current) => [invite, ...current.filter((item) => item.id !== invite.id)]);
+      setSuggestions((current) => current.map((item) => item.userId === person.userId ? { ...item, relationshipStatus: 'invite_sent' } : item));
+      setNetworkStatus(`Invite sent to ${person.name}.`);
+    } catch { setNetworkStatus(`Invite to ${person.name} could not be sent.`); }
+  };
+
+  const handleInvitationResponse = async (inviteId: string, response: 'accepted' | 'declined') => {
+    try {
+      await respondToSocialInvitationViaRpc(trpc, inviteId, response);
+      setSocialInvitations((current) => current.map((item) => item.id === inviteId ? { ...item, status: response } : item));
+    } catch { setNetworkStatus('Invitation response could not be saved.'); }
+  };
+
   const springConfig = {
     type: "spring" as const,
     stiffness: 320,
@@ -323,29 +379,29 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     mass: 0.8,
   };
 
-  const handleInsiderAction = async () => {
-    if (insiderLoading) return;
+  const handlePlatinumAction = async () => {
+    if (platinumLoading) return;
 
-    if (APPLE_REVIEW_HIDE_INSIDER_PREMIUM) {
-      if (membership.isActive) {
+    if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {
+      if (hasPlatinumAccess(membership)) {
         if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       }
       return;
     }
 
-    if (membership.isActive) {
+    if (hasPlatinumAccess(membership)) {
       if (!postNativeProfilePanel('access')) setCurrentScreen('tickets');
       return;
     }
 
     impactLight();
-    setInsiderLoading(true);
+    setPlatinumLoading(true);
     let redirectingToCheckout = false;
 
     try {
-      if (hasRealInsiderCheckout) {
+      if (hasRealPlatinumCheckout) {
         const result = await trpc.subscription.createCheckout.mutate({
-          plan: 'insider-premium',
+          plan: PLATINUM_SUBSCRIPTION_PLAN,
         });
 
         const checkoutUrl = getCheckoutRedirectUrl(result);
@@ -356,22 +412,26 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         }
 
         if (result?.message === 'Already premium') {
-          setMembership(syncInsiderMembershipFromPremium(true));
+          const confirmed = await refreshMembership();
+          if (!confirmed) {
+            toast.error('Platinum confirmation unavailable', { description: 'Your membership must be confirmed by subscription status.' });
+            return;
+          }
           setCurrentScreen('tickets');
-          toast.success('Insider already active', { description: 'Your access wallet is ready in Profile.' });
+          toast.success('Platinum already active', { description: 'Your access wallet is ready in Profile.' });
           return;
         }
 
-        toast.error('Unable to start Insider checkout', { description: result?.message || 'Checkout did not return a Stripe URL.' });
+        toast.error('Unable to start Platinum checkout', { description: result?.message || 'Checkout did not return a Stripe URL.' });
         return;
       } else {
-        toast('Sign in to start Insider checkout', { description: 'Insider activation requires a signed-in account and Stripe checkout.' });
+        toast('Sign in to start Platinum checkout', { description: 'Platinum activation requires a signed-in account and Stripe checkout.' });
         return;
       }
     } catch (error: unknown) {
-      toast.error('Unable to start Insider checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
+      toast.error('Unable to start Platinum checkout', { description: getToastErrorMessage(error, 'Please try again in a moment.') });
     } finally {
-      if (!redirectingToCheckout) setInsiderLoading(false);
+      if (!redirectingToCheckout) setPlatinumLoading(false);
     }
   };
 
@@ -419,7 +479,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
-        { icon: <Users className="w-5 h-5" />, label: 'Friends', badge: (() => { const f = getFollowedUsers().length; return f > 0 ? f.toString() : null; })(), screen: 'friends' as ProfileScreen },
+        { icon: <Users className="w-5 h-5" />, label: 'Network', badge: null, screen: 'friends' as ProfileScreen },
       ],
     },
     {
@@ -749,13 +809,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <p className="text-[13px] text-cyan-200/80 mb-1" style={{ fontWeight: 700 }}>MY ACCESS</p>
                 <h3 className="text-[24px] text-white" style={{ fontWeight: 700 }}>{totalAccessItems} saved</h3>
                 <p className="text-[13px] text-slate-200 mt-2" style={{ fontWeight: 650 }}>
-                  {membership.isActive
-                    ? 'Verified patches, access passes, and saved service requests appear here.'
-                    : 'Scan a patch or request venue services to build your access list.'}
+                  Verified patches, access passes, and saved service requests appear here.
                 </p>
               </div>
               <div className="px-3 py-1.5 rounded-full border border-cyan-300 bg-black text-[11px] text-white" style={{ fontWeight: 800 }}>
-                {APPLE_REVIEW_HIDE_INSIDER_PREMIUM ? 'ACCESS' : membership.label}
+                {APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP ? 'ACCESS' : membership.label.toUpperCase()}
               </div>
             </div>
           </div>
@@ -1110,24 +1168,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   }
 
   if (currentScreen === 'friends') {
-    // Start with sync localStorage values — FriendsView below upgrades via API
-    const followed = getFollowedUsers();
-    const feed = getSocialFeed();
-    const crowdColor = (lvl: number) =>
-      lvl === 1 ? 'text-cyan-300' : lvl === 2 ? 'text-purple-300' : lvl === 3 ? 'text-orange-400' : 'text-pink-400';
-    const crowdEmoji = (lvl: number) => lvl === 1 ? '🔵' : lvl === 2 ? '🟣' : lvl === 3 ? '🟠' : '🔴';
-    const formatTime = (iso: string) => {
-      const diff = Date.now() - new Date(iso).getTime();
-      const m = Math.floor(diff / 60000);
-      if (m < 60) return `${m}m ago`;
-      const h = Math.floor(m / 60);
-      if (h < 24) return `${h}h ago`;
-      return `${Math.floor(h / 24)}d ago`;
-    };
-    // Filter feed to only show followed users + own check-ins
-    const followedIds = new Set(followed.map((u: FollowedUser) => u.userId));
-    const myId = (() => { try { return JSON.parse(localStorage.getItem('bytspot_user') || '{}')?.id || 'me'; } catch { return 'me'; } })();
-    const visibleFeed = feed.filter((e: SocialFeedEvent) => followedIds.has(e.userId) || e.userId === myId);
     return (
       <div className="h-full flex flex-col">
         <div className="px-4 pt-4 pb-2 flex items-center gap-3">
@@ -1135,11 +1175,20 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
             <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
           </motion.button>
-          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Friends</h2>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>Network</h2>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 mt-2">
-          {/* Find friends — privacy-first contact graph (WS-Social Phase 1) */}
+          <div className="grid grid-cols-3 gap-2">
+            {['People', 'Social Circles', 'Invitations'].map((label, index) => (
+              <div key={label} className="rounded-[16px] border border-slate-700 bg-slate-950 p-3 text-center">
+                <p className="text-[18px] text-white" style={{ fontWeight: 800 }}>{[suggestions.length, socialCircles.length, socialInvitations.filter((item) => item.status === 'pending').length][index]}</p>
+                <p className="text-[10px] text-slate-300 uppercase" style={{ fontWeight: 800 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* People — privacy-first contact graph */}
           <motion.div
             className="rounded-[24px] p-5 border-2 border-purple-500/60 bg-slate-950 shadow-xl relative overflow-hidden"
             initial={{ opacity: 0, y: 10 }}
@@ -1152,8 +1201,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <UserPlus className="w-5 h-5 text-white" strokeWidth={2.5} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>CONTACTS</p>
-                <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find friends</p>
+                <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>PEOPLE</p>
+                <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find a person</p>
                 <p className="text-[12px] text-slate-300 mt-0.5" style={{ fontWeight: 500 }}>
                   Bytspot matches your contacts on-device using salted hashes. Your address book is never uploaded or stored.
                 </p>
@@ -1190,16 +1239,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               <div className="mt-4 space-y-2">
                 {suggestions.slice(0, 8).map((s: FriendSuggestion) => (
                   <div key={s.userId} className="flex items-center gap-3 px-3 py-2.5 rounded-[16px] bg-black/40 border border-slate-700/60">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.mutual ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
-                      {s.mutual ? <Users className="w-4 h-4" strokeWidth={2.5} /> : <User className="w-4 h-4" strokeWidth={2.5} />}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.relationshipStatus === 'connected' ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                      {s.relationshipStatus === 'connected' ? <Users className="w-4 h-4" strokeWidth={2.5} /> : <User className="w-4 h-4" strokeWidth={2.5} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[14px] text-white truncate" style={{ fontWeight: 650 }}>{s.name}</p>
                       <p className="text-[12px] text-slate-300 truncate" style={{ fontWeight: 500 }}>{suggestionReason(s)}</p>
                     </div>
-                    {s.mutual && (
-                      <span className="shrink-0 text-[10px] text-white bg-purple-500 rounded-full px-2 py-1" style={{ fontWeight: 800 }}>MUTUAL</span>
-                    )}
+                    <div className="flex gap-1.5">
+                      <button onClick={() => handleAddToCircle(s)} disabled={!selectedCircleId || hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) || pendingCircleAdds.has(`${selectedCircleId}:${s.userId}`)} className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] text-purple-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                        {pendingCircleAdds.has(`${selectedCircleId}:${s.userId}`) ? 'ADDING…' : hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) ? 'IN CIRCLE' : 'ADD TO CIRCLE'}
+                      </button>
+                      <button onClick={() => handleSendNetworkInvite(s)} disabled={!hasCircleMembership(s, socialCircles.find((circle) => circle.id === selectedCircleId)) || s.relationshipStatus === 'invite_sent'} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200 disabled:opacity-40" style={{ fontWeight: 800 }}>
+                        {s.relationshipStatus === 'invite_sent' ? 'SENT' : 'INVITE'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1211,49 +1265,41 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             )}
           </motion.div>
 
-          {/* Following list */}
-          {followed.length > 0 && (
-            <div>
-              <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FOLLOWING ({followed.length})</p>
-              <div className="flex flex-wrap gap-2">
-                {followed.map((u: FollowedUser) => (
-                  <div key={u.userId} className="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-950 border border-slate-700">
-                    <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>{u.userName}</span>
-                    <motion.button onClick={() => { unfollowUser(u.userId); setCurrentScreen('main'); setTimeout(() => setCurrentScreen('friends'), 10); }}
-                      className="text-slate-300 hover:text-red-300 text-[11px]" whileTap={{ scale: 0.88 }}>✕</motion.button>
-                  </div>
-                ))}
-              </div>
+          <div className="rounded-[24px] border border-cyan-500/40 bg-slate-950 p-5">
+            <p className="text-[11px] text-cyan-300 tracking-wider" style={{ fontWeight: 800 }}>SOCIAL CIRCLES</p>
+            <p className="mt-1 text-[13px] text-slate-300">Save groups such as Work Friends or Weekend Crew once, then invite everyone without selecting people again.</p>
+            <div className="mt-3 flex gap-2">
+              <input value={newCircleName} onChange={(event) => setNewCircleName(event.target.value)} placeholder="New circle name" className="min-w-0 flex-1 rounded-[14px] border border-slate-700 bg-black px-3 text-[13px] text-white" />
+              <button onClick={handleCreateCircle} className="rounded-[14px] bg-cyan-500 px-4 py-2 text-[12px] text-black" style={{ fontWeight: 800 }}>Create</button>
             </div>
-          )}
-          {/* Activity feed */}
-          <div>
-            <p className="text-[12px] text-slate-300 mb-2" style={{ fontWeight: 800 }}>FRIEND ACTIVITY</p>
-            {visibleFeed.length === 0 ? (
-              <div className="text-center py-12 text-slate-300">
-                <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-[15px]" style={{ fontWeight: 600 }}>No activity yet</p>
-                <p className="text-[13px] mt-1">Follow people on the Leaderboard to see where they're going</p>
-              </div>
-            ) : visibleFeed.map((event: SocialFeedEvent) => (
-              <motion.div key={event.id} className="rounded-[16px] p-4 bg-slate-950 border border-slate-700 mb-3"
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="text-[14px] text-slate-200" style={{ fontWeight: 650 }}>
-                      <span className="text-white">{event.userId === myId ? 'You' : event.userName}</span>
-                      {' '}checked in at{' '}
-                      <span className="text-purple-300">{event.venueName}</span>
-                    </p>
-                    <p className={`text-[13px] mt-1 ${crowdColor(event.crowdLevel)}`} style={{ fontWeight: 500 }}>
-                      {crowdEmoji(event.crowdLevel)} {event.crowdLabel}
-                    </p>
-                  </div>
-                  <span className="text-[12px] text-slate-400 ml-3 shrink-0">{formatTime(event.timestamp)}</span>
-                </div>
-              </motion.div>
-            ))}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {socialCircles.map((circle) => (
+                <button key={circle.id} onClick={() => setSelectedCircleId(circle.id)} className={`rounded-full border px-3 py-2 text-[12px] ${selectedCircleId === circle.id ? 'border-cyan-300 bg-cyan-500/20 text-cyan-200' : 'border-slate-700 text-slate-300'}`} style={{ fontWeight: 700 }}>
+                  {circle.name} · {circle.memberCount}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div className="rounded-[24px] border border-purple-500/40 bg-slate-950 p-5">
+            <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>INVITATIONS</p>
+            <div className="mt-3 space-y-2">
+              {socialInvitations.length === 0 && <p className="text-[13px] text-slate-400">No incoming or outgoing invitations.</p>}
+              {socialInvitations.map((invite) => (
+                <div key={invite.id} className="flex items-center gap-3 rounded-[16px] border border-slate-700 bg-black/40 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-white" style={{ fontWeight: 700 }}>{invite.person.name}</p>
+                    <p className="text-[11px] text-slate-400">{invite.direction} · {invite.circleName ?? 'Direct invite'} · {invite.status}</p>
+                  </div>
+                  {invite.direction === 'incoming' && invite.status === 'pending' && <div className="flex gap-1">
+                    <button onClick={() => handleInvitationResponse(invite.id, 'accepted')} className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] text-cyan-200">Accept</button>
+                    <button onClick={() => handleInvitationResponse(invite.id, 'declined')} className="rounded-full bg-slate-800 px-2 py-1 text-[10px] text-slate-300">Decline</button>
+                  </div>}
+                </div>
+              ))}
+            </div>
+          </div>
+          {networkStatus && <p className="text-[12px] text-cyan-300" style={{ fontWeight: 600 }}>{networkStatus}</p>}
         </div>
       </div>
     );
@@ -1325,13 +1371,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         <div className="rounded-[24px] p-6 border-2 border-slate-700 bg-slate-950 shadow-xl">
           <div className="flex items-center gap-4">
             {/* Avatar */}
-            <div className="relative">
+            <div>
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                 <User className="w-10 h-10 text-white" strokeWidth={2} />
-              </div>
-              {/* Membership Badge */}
-              <div className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-gradient-to-br ${userTier.gradient} border-2 border-white flex items-center justify-center shadow-lg`}>
-                <span className="text-[16px]">{userTier.icon}</span>
               </div>
             </div>
 
@@ -1341,16 +1383,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <h2 className="text-[22px] text-white" style={{ fontWeight: 700 }}>
                   {userName}
                 </h2>
-                {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && membership.isActive && (
+                {!APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP && (
                   <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-600 via-purple-600 to-fuchsia-600 border border-fuchsia-100 shadow-sm shadow-fuchsia-950/30">
-                    <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>Insider ✨</span>
+                    <span className="text-[11px] text-white" style={{ fontWeight: 700 }}>{membership.label}</span>
                   </div>
                 )}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`px-2.5 py-1 rounded-full text-[12px] bg-slate-950 border-2 border-cyan-300/60`} style={{ fontWeight: 700 }}>
-                  <span className="text-white">{userTier.icon} {userTier.name} Member</span>
-                </div>
               </div>
             </div>
           </div>
@@ -1359,15 +1396,15 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-700">
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {followingCount}
+                {suggestions.length}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
-                Following
+                Network
               </p>
             </div>
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {userPoints.total >= 1000 ? `${(userPoints.total / 1000).toFixed(1)}K` : userPoints.total.toLocaleString()}
+                {userPoints ? (userPoints.total >= 1000 ? `${(userPoints.total / 1000).toFixed(1)}K` : userPoints.total.toLocaleString()) : '—'}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
                 Points
@@ -1375,58 +1412,18 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
             <div className="text-center">
               <p className="text-[24px] mb-1 text-white" style={{ fontWeight: 700 }}>
-                {achievementStats.unlocked}
+                {checkinHistory.length}
               </p>
               <p className="text-[12px] text-slate-200" style={{ fontWeight: 600 }}>
-                Badges
+                Check-ins
               </p>
             </div>
           </div>
         </div>
       </motion.div>
 
-      <motion.div
-        className="px-4 mb-6"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...springConfig, delay: 0.06 }}
-        data-testid="profile-tier-benefits-summary"
-      >
-        <div className={`rounded-[24px] border-2 border-slate-700 bg-slate-950 p-5 shadow-xl`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-[18px] leading-6 text-white" style={{ fontWeight: 850 }}>Parker progress</h3>
-              <p className="mt-2 text-[13px] leading-5 text-slate-200" style={{ fontWeight: 700 }}>{consumerExperienceProfile.accessLevel}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-500 bg-slate-950 px-3 py-2 text-right">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-slate-300" style={{ fontWeight: 800 }}>Bookings</p>
-              <p className="text-[20px] leading-6 text-white" style={{ fontWeight: 850 }}>{consumerBookingCount}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[18px] border border-slate-500 bg-slate-950 p-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[12px] text-slate-200" style={{ fontWeight: 800 }}>{consumerExperienceProgress.label}</p>
-              <span className="text-[11px] text-slate-300" style={{ fontWeight: 750 }}>{consumerExperienceProgress.progressPercent}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-              <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-fuchsia-300 to-amber-200" style={{ width: `${consumerExperienceProgress.progressPercent}%` }} />
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-2">
-            {consumerExperienceProfile.benefits.map((benefit) => (
-              <div key={benefit} className="flex items-center gap-2 text-[12px] text-slate-100" style={{ fontWeight: 700 }}>
-                <CheckCircle2 className="h-4 w-4 text-cyan-200" strokeWidth={2.4} />
-                <span>{benefit}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Insider quick access */}
-      {!APPLE_REVIEW_HIDE_INSIDER_PREMIUM && (
+      {/* Platinum membership access */}
+      {!APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP && (
         <motion.div
           className="px-4 mb-6"
           initial={{ opacity: 0, y: 10 }}
@@ -1437,21 +1434,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Insider</p>
-                <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{membership.isActive ? 'Insider active' : '$9.99/month'}</p>
+                <p className="text-[12px] uppercase tracking-[0.16em] text-cyan-200" style={{ fontWeight: 900 }}>Bytspot Platinum</p>
+                <p className="mt-1 text-[24px] leading-7 text-white" style={{ fontWeight: 850 }}>{hasPlatinumAccess(membership) ? 'Platinum active' : '$9.99/month'}</p>
                 <p className="mt-2 text-[13px] leading-5 text-slate-300" style={{ fontWeight: 600 }}>
-                  {membership.isActive
-                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Premium checkout is ready.`
-                    : 'Premium checkout, priority support, and member-only entry flow.'}
+                  {hasPlatinumAccess(membership)
+                    ? `Activated ${formatCommerceTime(membership.activatedAt)}. Your Platinum access is ready.`
+                    : 'Priority access, participation, and elevated entry under the canonical Bytspot membership.'}
                 </p>
               </div>
-              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${membership.isActive ? 'bg-cyan-600 border-cyan-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
+              <div className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] ${hasPlatinumAccess(membership) ? 'bg-cyan-600 border-cyan-100 text-white' : 'bg-slate-950 border-cyan-300/70 text-white'}`} style={{ fontWeight: 800 }}>
                 {subscriptionStateLabel}
               </div>
             </div>
 
             <div className="relative mt-4 grid gap-2">
-              {INSIDER_PERKS.slice(0, 3).map((perk) => (
+              {PLATINUM_PERKS.slice(0, 3).map((perk) => (
                 <div key={perk} className="flex items-center gap-2 text-[12px] text-slate-200" style={{ fontWeight: 650 }}>
                   <Sparkles className="h-4 w-4 text-cyan-300" strokeWidth={2.3} />
                   <span>{perk}</span>
@@ -1461,7 +1458,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
             <div className="relative mt-4 flex flex-wrap gap-2">
               <div className="rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1.5 text-[12px] text-cyan-100" style={{ fontWeight: 700 }}>
-                Premium checkout
+                Platinum access
               </div>
               <div className="rounded-full border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-1.5 text-[12px] text-fuchsia-100" style={{ fontWeight: 700 }}>
                 Priority support
@@ -1469,15 +1466,15 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
 
             <motion.button
-              onClick={handleInsiderAction}
-              disabled={insiderLoading}
+              onClick={handlePlatinumAction}
+              disabled={platinumLoading}
               className="relative mt-5 flex w-full items-center justify-center gap-2 rounded-[16px] bg-gradient-to-r from-cyan-500 via-purple-500 to-fuchsia-500 py-3 text-white shadow-lg transition disabled:cursor-wait disabled:opacity-75"
               whileTap={{ scale: 0.97 }}
               transition={springConfig}
             >
               <Crown className="w-4 h-4 text-white" strokeWidth={2.5} />
               <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
-                {membership.isActive ? 'Open My Access' : insiderLoading ? 'Opening Stripe…' : hasRealInsiderCheckout ? 'Continue to Stripe' : 'Sign in for Insider'}
+                {hasPlatinumAccess(membership) ? 'Open My Access' : platinumLoading ? 'Opening Stripe…' : hasRealPlatinumCheckout ? 'Continue to Stripe' : 'Sign in for Platinum'}
               </span>
             </motion.button>
           </div>
@@ -1581,8 +1578,8 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         transition={{ ...springConfig, delay: 0.1 }}
       >
         <motion.button
-          onClick={() => openProfilePanel('rewards', 'points')}
-          data-testid="profile-rewards-summary"
+          onClick={() => openProfilePanel('points', 'points')}
+          data-testid="profile-points-summary"
           className="w-full rounded-[24px] p-6 border-2 border-purple-400 bg-slate-950 shadow-xl relative overflow-hidden tap-target"
           whileTap={{ scale: 0.98 }}
           transition={springConfig}
@@ -1596,10 +1593,10 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
               </div>
               <div className="text-left">
                 <p className="text-[13px] text-purple-200 mb-0.5" style={{ fontWeight: 600 }}>
-                  MEMBERSHIP
+                  BYTSPOT POINTS
                 </p>
                 <p className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-                  Rewards & badges
+                  {userPoints ? `${userPoints.total.toLocaleString()} points` : 'Unavailable'}
                 </p>
               </div>
             </div>
@@ -1608,20 +1605,11 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
             </div>
           </div>
 
-          <div className="relative mt-4 flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Crown className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
-              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
-                {userTier.name} ({userTier.discount}% off)
-              </span>
-            </div>
-            <div className="w-px h-4 bg-slate-500" />
-            <div className="flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
-              <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
-                {achievementStats.unlocked}/{achievementStats.total} badges
-              </span>
-            </div>
+          <div className="relative mt-4 flex items-center gap-1.5">
+            <MapPin className="w-4 h-4 text-slate-100" strokeWidth={2.5} />
+            <span className="text-[13px] text-slate-100" style={{ fontWeight: 650 }}>
+              Earned through check-ins · separate from membership
+            </span>
           </div>
         </motion.button>
       </motion.div>

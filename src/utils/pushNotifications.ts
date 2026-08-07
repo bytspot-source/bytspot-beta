@@ -10,7 +10,7 @@
 import { API_BASE_URL } from './trpc';
 
 /** Convert a base64 URL-safe string to a Uint8Array (required by pushManager.subscribe) */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64);

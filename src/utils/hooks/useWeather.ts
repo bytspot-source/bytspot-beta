@@ -134,6 +134,9 @@ export function useWeather(coords?: WeatherCoords | null): WeatherState {
 
   useEffect(() => {
     const controller = new AbortController();
+    // refresh() synchronously flips the loading flag before awaiting the
+    // network request; this background fetch on mount is intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh(controller.signal);
     return () => controller.abort();
   }, [refresh]);

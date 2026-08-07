@@ -77,23 +77,23 @@ export function useCity(): CityState {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     cached?.coords ?? null
   );
-  const [loading, setLoading] = useState(!cached);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(() => {
+    if (cached) return false;
+    if (!hasBrowserGeolocation()) return false;
+    if (!canUseAutomaticBrowserGeolocation()) return false;
+    return true;
+  });
+  const [error, setError] = useState<string | null>(() =>
+    !cached && !hasBrowserGeolocation() ? 'Geolocation not supported' : null
+  );
   const resolvedRef = useRef(!!cached);
 
   useEffect(() => {
     if (resolvedRef.current) return; // already have a cached result
 
-    if (!hasBrowserGeolocation()) {
-      setLoading(false);
-      setError('Geolocation not supported');
-      return;
-    }
+    if (!hasBrowserGeolocation()) return;
 
-    if (!canUseAutomaticBrowserGeolocation()) {
-      setLoading(false);
-      return;
-    }
+    if (!canUseAutomaticBrowserGeolocation()) return;
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {

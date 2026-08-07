@@ -2,7 +2,7 @@
  * VenueRecommendationsPermission Component
  * 
  * Implements iOS best practice for contextual permissions.
- * This prompt appears when users first visit the Insider tab, asking if they want
+ * This prompt appears while users browse Discover, asking if they want
  * location-based venue recommendations (restaurants, shops, attractions).
  * 
  * Key principles:

@@ -8,10 +8,9 @@ async function openMap(page: Page) {
     localStorage.setItem('bytspot_user_name', 'Guest');
   });
   await page.goto('/');
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('bytspot:native-tab', { detail: { tab: 'map' } }));
-  });
-  await expect(page.getByRole('tab', { name: 'Map tab' })).toHaveAttribute('aria-selected', 'true');
+  const mapTab = page.getByRole('tab', { name: 'Map tab' });
+  await mapTab.click();
+  await expect(mapTab).toHaveAttribute('aria-selected', 'true');
 }
 
 async function expectReadableToast(toast: Locator, expectedText: string) {

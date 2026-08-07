@@ -1,5 +1,109 @@
 import Foundation
 
+// MARK: - ClipAuthStore
+// Shared JWT storage for the Clip. Writes/reads the App Group suite
+// (group.com.bytspot.app) so the installed full app can pick up the guest's
+// session after handoff, while also mirroring to `UserDefaults.standard` so the
+// Clip keeps working before the App Group entitlement is provisioned.
+enum ClipAuthStore {
+    static let appGroupSuiteName = "group.com.bytspot.app"
+    static let tokenKey = "bytspot_auth_token"
+    static let displayNameKey = "bytspot_user_display_name"
+    static let displayNameUserIDKey = "bytspot_user_display_name_user_id"
+
+    private static var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: appGroupSuiteName)
+    }
+
+    static func store(token: String) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        sharedDefaults?.set(trimmed, forKey: tokenKey)
+        UserDefaults.standard.set(trimmed, forKey: tokenKey)
+    }
+
+    static func store(displayName: String?, userID: String?) {
+        [sharedDefaults, UserDefaults.standard].compactMap { $0 }.forEach {
+            store(displayName: displayName, userID: userID, in: $0)
+        }
+    }
+
+    static var token: String? {
+        let candidates = [
+            sharedDefaults?.string(forKey: tokenKey),
+            UserDefaults.standard.string(forKey: tokenKey),
+            UserDefaults.standard.string(forKey: "BytspotAuthToken")
+        ]
+        return candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && $0 != "guest_session" && $0 != "beta_guest" }
+    }
+
+    static var displayName: String? {
+        for defaults in [sharedDefaults, UserDefaults.standard].compactMap({ $0 }) {
+            guard let userID = normalizedUserID(defaults.string(forKey: displayNameUserIDKey)), !userID.isEmpty,
+                  let name = greetingName(from: defaults.string(forKey: displayNameKey)) else { continue }
+            return name
+        }
+        return nil
+    }
+
+    static func store(displayName: String?, userID: String?, in defaults: UserDefaults) {
+        defaults.removeObject(forKey: displayNameKey)
+        defaults.removeObject(forKey: displayNameUserIDKey)
+        guard let identity = greetingIdentity(displayName: displayName, userID: userID) else { return }
+        defaults.set(identity.name, forKey: displayNameKey)
+        defaults.set(identity.userID, forKey: displayNameUserIDKey)
+    }
+
+    static func greetingIdentity(displayName: String?, userID: String?) -> (userID: String, name: String)? {
+        guard let userID = normalizedUserID(userID), let name = greetingName(from: displayName) else { return nil }
+        return (userID, name)
+    }
+
+    private static func normalizedUserID(_ rawUserID: String?) -> String? {
+        guard let rawUserID else { return nil }
+        let userID = rawUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...200).contains(userID.count) ? userID : nil
+    }
+
+    private static func greetingName(from rawName: String?) -> String? {
+        guard let rawName else { return nil }
+        let parts = rawName.split(whereSeparator: { $0.isWhitespace })
+        guard let first = parts.first, (1...64).contains(first.count) else { return nil }
+        return String(first)
+    }
+}
+
+/// Result of a successful Sign in with Apple exchange (`auth.appleSignIn`).
+struct ClipGuestSession {
+    let token: String
+    let userId: String?
+    let name: String?
+    let email: String?
+    let isNewUser: Bool
+}
+
+#if false // Legacy Group API types retained for future extraction; not compiled into this Party App Clip.
+/// A single joined guest from `groupEvents.guests`. `profileImage` is optional;
+/// the view falls back to `initials` (server-provided) when it is absent.
+struct ClipGroupEventGuest: Identifiable, Equatable {
+    let userId: String
+    let name: String
+    let profileImage: URL?
+    let initials: String
+
+    var id: String { userId }
+}
+
+/// Public-facing joined guest list for an invite (`groupEvents.guests`).
+struct ClipGroupEventGuestList: Equatable {
+    let eventId: String
+    let count: Int
+    let guests: [ClipGroupEventGuest]
+}
+#endif
+
 // MARK: - BytspotTier
 // Service-level axis (independent of providerType). Drives URL routing, the
 // tRPC `tier` filter, fallback service catalogs, and the visual identity
@@ -111,6 +215,17 @@ struct ClipLocalService: Identifiable, Equatable {
     let source: String
     var heroImageURL: URL?
     var category: String?
+    var videoURL: URL? = nil
+    var thumbnailURL: URL? = nil
+    var scheduledDate: String? = nil
+    var hostName: String? = nil
+    var locationLabel: String? = nil
+    var theme: String? = nil
+    var guestSummary: String? = nil
+    var activityHighlights: [String] = []
+
+    var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
+    var hasPlayableVideo: Bool { videoURL != nil }
 
     static let fallbacks: [ClipLocalService] = ClipLocalService.fallbacks(for: .black)
     static let ghAkwaabaFifaThumbnailURL = URL(string: "https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png")
@@ -144,7 +259,7 @@ struct ClipLocalService: Identifiable, Equatable {
     static func fallbacks(for tier: BytspotTier) -> [ClipLocalService] {
         switch tier {
         case .black:
-            return [
+            return enrichServices([
                 ClipLocalService(id: "black-aviation", title: "Private Aviation", subtitle: "Charter on demand. Wheels up in 90 minutes.", action: "Charter Jet", iconName: "airplane.circle.fill", tintName: "gold", priceLabel: "From $28,000", amountCents: 2_800_000, currency: "USD", source: "curated", heroImageURL: nil, category: "aviation"),
                 ClipLocalService(id: "black-marine", title: "Yacht & Marine", subtitle: "Private yachts and luxury day charters.", action: "Reserve Yacht", iconName: "ferry.fill", tintName: "cyan", priceLabel: "From $12,500", amountCents: 1_250_000, currency: "USD", source: "curated", heroImageURL: nil, category: "marine"),
                 ClipLocalService(id: "black-dining", title: "Elite Dining", subtitle: "Michelin-level private chef experiences.", action: "Book Chef", iconName: "fork.knife.circle.fill", tintName: "violet", priceLabel: "From $1,200", amountCents: 120_000, currency: "USD", source: "curated", heroImageURL: nil, category: "dining"),
@@ -152,9 +267,9 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "black-wellness", title: "Private Wellness", subtitle: "In-suite spa, recovery, and longevity care.", action: "Book Wellness", iconName: "leaf.fill", tintName: "emerald", priceLabel: "From $850", amountCents: 85_000, currency: "USD", source: "curated", heroImageURL: nil, category: "wellness"),
                 ClipLocalService(id: "black-concierge", title: "Concierge & Lifestyle", subtitle: "24/7 luxury concierge. Anything, anywhere.", action: "Message Concierge", iconName: "crown.fill", tintName: "violet", priceLabel: "From $500", amountCents: 50_000, currency: "USD", source: "curated", heroImageURL: nil, category: "concierge"),
                 ClipLocalService(id: "black-events", title: "Exclusive Events", subtitle: "Sold-out access. Private hosts on arrival.", action: "Secure Access", iconName: "ticket.fill", tintName: "cyan", priceLabel: "From $3,500", amountCents: 350_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
-            ]
+            ], tier: tier)
         case .platinum:
-            return [
+            return enrichServices([
                 ClipLocalService(id: "platinum-parking", title: "Reserved Parking", subtitle: "Guaranteed spot at this venue. Skip the circling.", action: "Reserve Spot", iconName: "car.side.lock.fill", tintName: "cyan", priceLabel: "From $12", amountCents: 1_200, currency: "USD", source: "curated", heroImageURL: nil, category: "parking"),
                 ClipLocalService(id: "platinum-valet", title: "Valet Service", subtitle: "Hand off the keys. Retrieval in under 5 minutes.", action: "Book Valet", iconName: "key.fill", tintName: "cyan", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "valet"),
                 ClipLocalService(id: "platinum-dining", title: "Reserve a Table", subtitle: "Priority seating at top neighborhood restaurants.", action: "Reserve Table", iconName: "fork.knife", tintName: "violet", priceLabel: "From $65", amountCents: 6_500, currency: "USD", source: "curated", heroImageURL: nil, category: "dining"),
@@ -162,9 +277,9 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "platinum-rideshare", title: "Premium Rideshare", subtitle: "On-demand SUV and black-car pickup nearby.", action: "Request Ride", iconName: "car.side.fill", tintName: "cyan", priceLabel: "From $35", amountCents: 3_500, currency: "USD", source: "curated", heroImageURL: nil, category: "rideshare"),
                 ClipLocalService(id: "platinum-bottle", title: "Nightlife Event Access", subtitle: "VIP table access, digital entry pass, and host-led arrival.", action: "Buy Pass", iconName: "wineglass.fill", tintName: "violet", priceLabel: "From $250", amountCents: 25_000, currency: "USD", source: "curated", heroImageURL: nil, category: "nightlife"),
                 ClipLocalService(id: "platinum-experience", title: "Local Experiences", subtitle: "Curated tours, tastings, and city experiences.", action: "Book Experience", iconName: "sparkles", tintName: "emerald", priceLabel: "From $85", amountCents: 8_500, currency: "USD", source: "curated", heroImageURL: nil, category: "experience")
-            ]
+            ], tier: tier)
         case .green:
-            return [
+            return enrichServices([
                 ClipLocalService(id: "green-farmstand", title: "Farm Stand", subtitle: "Fresh local produce from neighbors who grow it.", action: "Order Local", iconName: "leaf.fill", tintName: "emerald", priceLabel: "From $5", amountCents: 500, currency: "USD", source: "curated", heroImageURL: nil, category: "farm-stand"),
                 ClipLocalService(id: "green-baked", title: "Baked Goods", subtitle: "Home-baked bread, pastries, and treats.", action: "Order Treats", iconName: "birthday.cake.fill", tintName: "emerald", priceLabel: "From $6", amountCents: 600, currency: "USD", source: "curated", heroImageURL: nil, category: "baked-goods"),
                 ClipLocalService(id: "green-music", title: "Music Lessons", subtitle: "In-person and virtual lessons from local instructors.", action: "Book Lesson", iconName: "music.note", tintName: "violet", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "lessons"),
@@ -172,8 +287,52 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "green-detailing", title: "Car Detailing", subtitle: "Mobile detailing at your driveway. Eco-friendly products.", action: "Book Detail", iconName: "sparkles", tintName: "cyan", priceLabel: "From $45", amountCents: 4_500, currency: "USD", source: "curated", heroImageURL: nil, category: "car-detailing"),
                 ClipLocalService(id: "green-repairs", title: "Home Repairs", subtitle: "Handy neighbors for fixes, mounts, and small jobs.", action: "Request Help", iconName: "hammer.fill", tintName: "gold", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "home-repairs"),
                 ClipLocalService(id: "green-tutoring", title: "Tutoring", subtitle: "K-12 and college subject help, hourly rates.", action: "Book Tutor", iconName: "book.fill", tintName: "violet", priceLabel: "From $20", amountCents: 2_000, currency: "USD", source: "curated", heroImageURL: nil, category: "tutoring")
-            ]
+            ], tier: tier)
         }
+    }
+
+    private static func enrichServices(_ services: [ClipLocalService], tier: BytspotTier) -> [ClipLocalService] {
+        services.enumerated().map { index, service in
+            var copy = service
+            let context = richContext(for: service, tier: tier, index: index)
+            copy.heroImageURL = copy.heroImageURL ?? tierMediaURL(tier: tier, service: service, index: index, role: "hero")
+            copy.thumbnailURL = copy.thumbnailURL ?? tierMediaURL(tier: tier, service: service, index: index, role: "thumb")
+            copy.videoURL = copy.videoURL ?? previewLoopURL(tier: tier, index: index)
+            copy.scheduledDate = copy.scheduledDate ?? context.schedule
+            copy.hostName = copy.hostName ?? context.host
+            copy.locationLabel = copy.locationLabel ?? context.location
+            copy.theme = copy.theme ?? context.theme
+            copy.guestSummary = copy.guestSummary ?? context.guests
+            if copy.activityHighlights.isEmpty { copy.activityHighlights = context.highlights }
+            return copy
+        }
+    }
+
+    fileprivate static func richContext(for service: ClipLocalService, tier: BytspotTier, index: Int) -> (schedule: String, host: String, location: String, theme: String, guests: String, highlights: [String]) {
+        let cat = (service.category ?? service.id).lowercased()
+        switch tier {
+        case .black:
+            return ("Tonight · private window", "Bytspot Black Desk", cat.contains("aviation") ? "Private terminal" : "Host-secured venue", "Elite Guarantee", "42+ guest capacity", ["Concierge verified", "48h+ live window", "Priority logistics"])
+        case .platinum:
+            return (index % 2 == 0 ? "Today · 7:30 PM" : "This week", "Platinum Host Team", cat.contains("event") || cat.contains("nightlife") ? "Premium entry gate" : "Venue arrival desk", "Premium social access", "Up to 12 guests", ["Host on arrival", "12h live window", "Digital pass ready"])
+        case .green:
+            return (index % 2 == 0 ? "Today · local pickup" : "This week", "Neighborhood Host", "Within your local patch", "Local community", "Up to 5 guests", ["Neighbor verified", "2h local window", "Community pickup"])
+        }
+    }
+
+    private static func tierMediaURL(tier: BytspotTier, service: ClipLocalService, index: Int, role: String) -> URL? {
+        let category = (service.category ?? service.id).replacingOccurrences(of: " ", with: "-").lowercased()
+        return URL(string: "https://bytspot.app/media/app-clip/\(tier.rawValue)-\(category)-\(role)-\(index % 3).jpg")
+    }
+
+    fileprivate static func previewLoopURL(tier: BytspotTier, index: Int) -> URL? {
+        #if DEBUG
+        guard tier != .green, index <= 1 else { return nil }
+        return URL(string: "https://stream.mux.com/maGUgL01ahB3014Aatfpkmlmni02DTaWvb.m3u8")
+        #else
+        _ = tier; _ = index
+        return nil
+        #endif
     }
 }
 
@@ -229,8 +388,19 @@ struct ClipVendor: Identifiable, Equatable {
     let serviceId: String
     let media: ClipVendorMedia?
     let items: [ClipLineItem]?
+    var videoURL: URL? = nil
+    var thumbnailURL: URL? = nil
+    var heroBannerURL: URL? = nil
+    var scheduledDate: String? = nil
+    var hostName: String? = nil
+    var locationLabel: String? = nil
+    var theme: String? = nil
+    var guestSummary: String? = nil
+    var activityHighlights: [String] = []
 
-    var displayPosterURL: URL? { media?.posterURL ?? heroImageURL }
+    var displayPosterURL: URL? { media?.posterURL ?? thumbnailURL ?? heroBannerURL ?? heroImageURL }
+    var videoPlaybackURL: URL? { media?.videoPlaybackURL ?? videoURL }
+    var hasPlayableVideo: Bool { videoPlaybackURL != nil }
 
     var priceFromLabel: String {
         let dollars = Double(priceFromCents) / 100.0
@@ -250,7 +420,6 @@ struct ClipVendor: Identifiable, Equatable {
         // Black aviation pool prices exactly to $28,000 / $33,040 / $40,600.
         var base = max(service.amountCents ?? 5000, tier.minimumCents)
         let cat = (service.category ?? service.id).lowercased()
-        let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
         let etaPool = ["ETA 4 min", "ETA 7 min", "ETA 12 min"]
         let names: [(String, String, [String])]
         if cat.contains("aviation") || cat.contains("jet") || cat.contains("charter") {
@@ -305,7 +474,7 @@ struct ClipVendor: Identifiable, Equatable {
         }
         return names.enumerated().map { idx, entry in
             let multiplier = [1.0, 1.18, 1.45][idx % 3]
-            return ClipVendor(
+            let vendor = ClipVendor(
                 id: "\(service.id)-vendor-\(idx)",
                 name: entry.0,
                 tagline: entry.1,
@@ -320,6 +489,7 @@ struct ClipVendor: Identifiable, Equatable {
                 media: Self.previewMedia(service: service, index: idx),
                 items: nil
             )
+            return enrichVendor(vendor, service: service, tier: tier, index: idx)
         }
     }
 
@@ -457,7 +627,7 @@ struct ClipVendor: Identifiable, Equatable {
             let isBroniHomeTaste = entry.0.lowercased().contains("broni home taste") || entry.0.lowercased().contains("obroni home taste")
             let productHeroURL = isGhAkwaabaProduct ? ClipLocalService.ghAkwaabaFifaThumbnailURL : service.heroImageURL
             let priceCents = max(Int(Double(base) * multiplier), tier.minimumCents)
-            return ClipVendor(
+            let vendor = ClipVendor(
                 id: "\(service.id)-vendor-\(idx)",
                 name: entry.0,
                 tagline: entry.1,
@@ -472,7 +642,23 @@ struct ClipVendor: Identifiable, Equatable {
                 media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL),
                 items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : isBroniHomeTaste ? ClipLineItem.broniHomeTasteFavorites : nil
             )
+            return enrichVendor(vendor, service: service, tier: tier, index: idx)
         }
+    }
+
+    private static func enrichVendor(_ vendor: ClipVendor, service: ClipLocalService, tier: BytspotTier, index: Int) -> ClipVendor {
+        var copy = vendor
+        let context = ClipLocalService.richContext(for: service, tier: tier, index: index)
+        copy.heroBannerURL = copy.heroBannerURL ?? copy.heroImageURL ?? service.heroImageURL
+        copy.thumbnailURL = copy.thumbnailURL ?? copy.displayPosterURL ?? service.displayPosterURL
+        copy.videoURL = copy.videoURL ?? ClipLocalService.previewLoopURL(tier: tier, index: index)
+        copy.scheduledDate = copy.scheduledDate ?? context.schedule
+        copy.hostName = copy.hostName ?? context.host
+        copy.locationLabel = copy.locationLabel ?? context.location
+        copy.theme = copy.theme ?? context.theme
+        copy.guestSummary = copy.guestSummary ?? context.guests
+        if copy.activityHighlights.isEmpty { copy.activityHighlights = Array((context.highlights + vendor.includedHighlights).prefix(4)) }
+        return copy
     }
 }
 
@@ -517,13 +703,26 @@ struct ClipPatchVerifier {
         let binding: VerifiedBinding?
     }
 
-    static let baseURL: URL = {
+    #if DEBUG
+    static let debugPreviewAPIKey = "BytspotClipDebugPreviewAPI"
+    #endif
+
+    static var baseURL: URL {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: debugPreviewAPIKey) {
+            return URL(string: "https://bytspot-api-pr-1.onrender.com")!
+        }
+        if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
+           let url = URL(string: raw), url.scheme?.lowercased() == "https" {
+            return url
+        }
+        #endif
         if let raw = Bundle.main.object(forInfoDictionaryKey: "BytspotAPIBaseURL") as? String,
            let url = URL(string: raw) {
             return url
         }
         return URL(string: "https://bytspot-api.onrender.com")!
-    }()
+    }
 
     func resolvePatch(patchId: String, tier: BytspotTier = .black) async throws -> ClipPatchContext {
         let payload = try await getTRPC("patch.resolve", input: ["patchId": patchId, "tier": tier.rawValue])
@@ -596,6 +795,131 @@ struct ClipPatchVerifier {
         return ClipPatchVendorPayload(context: context, service: service, vendor: vendor)
     }
 
+    /// Exchange an Apple identity token for a Bytspot session (`auth.appleSignIn`).
+    /// On success the JWT is persisted via `ClipAuthStore` so subsequent
+    /// authenticated Party calls attach the stored credential automatically.
+    static let appleSignInSource = "native_ios"
+
+    func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> ClipGuestSession {
+        // Use the established native iOS source contract so the backend applies
+        // the same Apple identity-token validation policy to the App Clip.
+        var input: [String: Any] = ["identityToken": identityToken, "ref": Self.appleSignInSource]
+        if let email, !email.isEmpty { input["email"] = email }
+        if let name, !name.isEmpty { input["name"] = name }
+        let payload = try await postTRPC("auth.appleSignIn", input: input)
+        guard let root = payload as? [String: Any],
+              let token = Self.string(root["token"]) else { throw VerifyError.decode }
+        let user = root["user"] as? [String: Any]
+        let session = ClipGuestSession(
+            token: token,
+            userId: Self.string(user?["id"]),
+            name: Self.string(user?["name"]),
+            email: Self.string(user?["email"]),
+            isNewUser: (root["isNewUser"] as? Bool) ?? false
+        )
+        ClipAuthStore.store(displayName: session.name ?? name, userID: session.userId)
+        ClipAuthStore.store(token: token)
+        return session
+    }
+
+    /// Resolves the exact published Host Studio Party behind a clean Party Pass URL.
+    func partyInvite(partyID: String) async throws -> PartyPassInvite {
+        let payload = try await getTRPC("events.invite", input: ["partyId": partyID])
+        guard let invite = PartyPassInvite.fromPayload(payload) else { throw VerifyError.decode }
+        return invite
+    }
+
+    /// The Party resolver is the only client-action authority. The Clip may
+    /// render its result but must never infer an RSVP, approval, or ticket CTA
+    /// from the invite template or access mode.
+    func resolvePartyPass(partyID: String) async throws -> ClipPartyPassState {
+        let payload = try await getTRPC("events.pass.resolve", input: ["partyId": partyID])
+        guard let root = payload as? [String: Any],
+              let resolvedPartyID = Self.string(root["partyId"]),
+              resolvedPartyID == partyID,
+              let rawAction = Self.string(root["action"]),
+              let action = ClipPartyPassAction(rawValue: rawAction) else { throw VerifyError.decode }
+        let guest = root["guest"] as? [String: Any]
+        return ClipPartyPassState(
+            partyID: resolvedPartyID,
+            action: action,
+            guestStatus: Self.string(guest?["status"]) ?? "unknown",
+            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass)
+        )
+    }
+
+    func createPartyRSVP(partyID: String, idempotencyKey: String) async throws -> String {
+        let payload = try await postTRPC("events.rsvp.create", input: ["partyId": partyID, "idempotencyKey": idempotencyKey])
+        guard let root = payload as? [String: Any], let status = Self.string(root["status"]) else { throw VerifyError.decode }
+        return status
+    }
+
+    func createPartyTicketCheckout(partyID: String, ticketTierName: String, idempotencyKey: String) async throws -> URL {
+        let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
+        guard let root = payload as? [String: Any],
+              let rawURL = Self.string(root["url"]),
+              let url = Self.normalizedStripeCheckoutURL(rawURL) else { throw VerifyError.decode }
+        return url
+    }
+
+    /// Party ticketing must only hand off to Stripe-hosted Checkout. Session IDs
+    /// are normalized to Stripe's Checkout URL; arbitrary HTTPS redirects fail
+    /// closed rather than being opened from the App Clip.
+    static func normalizedStripeCheckoutURL(_ candidate: String) -> URL? {
+        let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isStripeCheckoutSessionID(value) {
+            return URL(string: "https://checkout.stripe.com/c/pay/\(value)")
+        }
+        guard let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host == "stripe.com" || host.hasSuffix(".stripe.com") else { return nil }
+        return url
+    }
+
+    private static func isStripeCheckoutSessionID(_ value: String) -> Bool {
+        guard value.hasPrefix("cs_test_") || value.hasPrefix("cs_live_") else { return false }
+        return value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+    }
+
+#if false // Legacy Group API retained for future extraction; not compiled into this Party App Clip.
+    /// Join a private group event (`groupEvents.join`). Returns the resulting
+    /// membership status: `"joined"` for open events or `"pending"` for
+    /// approval-gated ones.
+    func joinGroupEvent(eventId: String, message: String? = nil) async throws -> String {
+        var input: [String: Any] = ["eventId": eventId]
+        if let message, !message.isEmpty { input["message"] = message }
+        let payload = try await postTRPC("groupEvents.join", input: input)
+        guard let root = payload as? [String: Any],
+              let status = Self.string(root["status"]) else { throw VerifyError.decode }
+        return status
+    }
+
+    /// Fetch the joined guest list for an invite (`groupEvents.guests`).
+    /// Used for pull-on-open rendering of real name + photo bubbles.
+    func groupEventGuests(eventId: String) async throws -> ClipGroupEventGuestList {
+        let payload = try await getTRPC("groupEvents.guests", input: ["eventId": eventId])
+        guard let root = payload as? [String: Any] else { throw VerifyError.decode }
+        let rows = (root["guests"] as? [[String: Any]]) ?? []
+        let guests = rows.compactMap { row -> ClipGroupEventGuest? in
+            guard let userId = Self.string(row["userId"]) else { return nil }
+            let name = Self.string(row["name"]) ?? "Guest"
+            return ClipGroupEventGuest(
+                userId: userId,
+                name: name,
+                profileImage: Self.url(row["profileImage"]),
+                initials: Self.string(row["initials"]) ?? String(name.prefix(1)).uppercased()
+            )
+        }
+        return ClipGroupEventGuestList(
+            eventId: Self.string(root["eventId"]) ?? eventId,
+            count: Self.int(root["count"]) ?? guests.count,
+            guests: guests
+        )
+    }
+#endif
+
     func verify(token: String?) async throws -> VerifyResult {
         guard let token, !token.isEmpty else { throw VerifyError.missingToken }
 
@@ -618,12 +942,11 @@ struct ClipPatchVerifier {
             throw VerifyError.server(msg)
         }
 
-        // tRPC HTTP adapter wraps mutation results as { result: { data: ... } }
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = root["result"] as? [String: Any],
-              let payload = result["data"] else {
-            throw VerifyError.decode
-        }
+        let payload = try unwrapTRPCPayload(data)
+        return try Self.decodeVerifyResult(payload)
+    }
+
+    static func decodeVerifyResult(_ payload: Any) throws -> VerifyResult {
         let payloadData = try JSONSerialization.data(withJSONObject: payload)
         do {
             return try JSONDecoder().decode(VerifyResult.self, from: payloadData)
@@ -672,6 +995,9 @@ struct ClipPatchVerifier {
 
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        if let token = Self.authToken {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.timeoutInterval = 8
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw VerifyError.network("No response") }
@@ -705,10 +1031,15 @@ struct ClipPatchVerifier {
         if let error = root["error"] as? [String: Any] {
             throw VerifyError.server(Self.string(error["message"]) ?? "Server error")
         }
-        if let result = root["result"] as? [String: Any], let payload = result["data"] {
-            return payload
-        }
-        return root
+        return Self.unwrapTRPCValue(root)
+    }
+
+    static func unwrapTRPCValue(_ value: Any) -> Any {
+        guard let row = value as? [String: Any] else { return value }
+        if let result = row["result"] { return unwrapTRPCValue(result) }
+        if let data = row["data"] { return unwrapTRPCValue(data) }
+        if let json = row["json"] { return unwrapTRPCValue(json) }
+        return value
     }
 
     private func normalizeService(_ row: [String: Any], index: Int) -> ClipLocalService {
@@ -734,8 +1065,8 @@ struct ClipPatchVerifier {
         } else {
             icon = "checkmark.seal.fill"; tint = "emerald"
         }
-        let heroURL = Self.url(row["heroImageUrl"]) ?? Self.url(row["imageUrl"]) ?? Self.url(vendor?["heroImageUrl"]) ?? Self.url(vendor?["imageUrl"])
-        return ClipLocalService(
+        let heroURL = Self.url(row["heroImageUrl"]) ?? Self.url(row["heroImageURL"]) ?? Self.url(row["heroBannerUrl"]) ?? Self.url(row["imageUrl"]) ?? Self.url(vendor?["heroImageUrl"]) ?? Self.url(vendor?["heroImageURL"]) ?? Self.url(vendor?["heroBannerUrl"]) ?? Self.url(vendor?["imageUrl"])
+        var service = ClipLocalService(
             id: Self.string(row["id"]) ?? Self.string(row["vendorServiceId"]) ?? "service-\(index)",
             title: title,
             subtitle: desc,
@@ -749,6 +1080,15 @@ struct ClipPatchVerifier {
             heroImageURL: heroURL,
             category: rawCategory
         )
+        service.videoURL = Self.url(row["videoUrl"]) ?? Self.url(row["videoURL"]) ?? Self.url(row["hlsUrl"]) ?? Self.url(vendor?["videoUrl"]) ?? Self.url(vendor?["videoURL"]) ?? Self.url(vendor?["hlsUrl"])
+        service.thumbnailURL = Self.url(row["thumbnailUrl"]) ?? Self.url(row["posterUrl"]) ?? Self.url(vendor?["thumbnailUrl"]) ?? Self.url(vendor?["posterUrl"])
+        service.scheduledDate = Self.string(row["scheduledDate"]) ?? Self.string(row["startTime"]) ?? Self.string(row["startDate"]) ?? Self.string(vendor?["scheduledDate"]) ?? Self.string(vendor?["startTime"])
+        service.hostName = Self.string(row["hostName"]) ?? Self.string(row["host"]) ?? Self.string(vendor?["hostName"]) ?? Self.string(vendor?["host"])
+        service.locationLabel = Self.string(row["locationLabel"]) ?? Self.string(row["location"]) ?? Self.string(row["address"]) ?? Self.string(vendor?["locationLabel"]) ?? Self.string(vendor?["address"])
+        service.theme = Self.string(row["theme"]) ?? Self.string(row["eventTheme"]) ?? Self.string(vendor?["theme"]) ?? Self.string(vendor?["eventTheme"])
+        service.guestSummary = Self.string(row["guestSummary"]) ?? Self.string(row["guestListSummary"]) ?? Self.string(vendor?["guestSummary"]) ?? Self.string(vendor?["guestListSummary"])
+        service.activityHighlights = Self.stringArray(row["activityHighlights"]) ?? Self.stringArray(row["activities"]) ?? Self.stringArray(row["highlights"]) ?? []
+        return service
     }
 
     private func normalizeVendor(_ row: [String: Any], service: ClipLocalService, index: Int) -> ClipVendor? {
@@ -760,14 +1100,24 @@ struct ClipPatchVerifier {
         let currency = Self.string(row["currency"])?.uppercased() ?? service.currency
         let rating = Self.double(vendor["rating"]) ?? Self.double(row["rating"])
         let eta = Self.string(row["etaLabel"]) ?? Self.string(vendor["etaLabel"])
-        let hero = Self.url(row["heroImageUrl"]) ?? Self.url(row["heroImageURL"]) ?? Self.url(row["imageUrl"]) ?? Self.url(row["thumbnailUrl"]) ?? Self.url(vendor["heroImageUrl"]) ?? Self.url(vendor["heroImageURL"]) ?? Self.url(vendor["imageUrl"]) ?? Self.url(vendor["thumbnailUrl"])
+        let rowHero = Self.url(row["heroImageUrl"])
+            ?? Self.url(row["heroImageURL"])
+            ?? Self.url(row["heroBannerUrl"])
+            ?? Self.url(row["imageUrl"])
+            ?? Self.url(row["thumbnailUrl"])
+        let vendorHero = Self.url(vendor["heroImageUrl"])
+            ?? Self.url(vendor["heroImageURL"])
+            ?? Self.url(vendor["heroBannerUrl"])
+            ?? Self.url(vendor["imageUrl"])
+            ?? Self.url(vendor["thumbnailUrl"])
+        let hero = rowHero ?? vendorHero
         let availability = Self.string(row["availability"]) ?? Self.string(vendor["availability"]) ?? "Available now"
         let highlights = (row["includedHighlights"] as? [String]) ?? (row["highlights"] as? [String]) ?? (vendor["includedHighlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
         let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero ?? service.heroImageURL)
         let parsedItems = Self.parseLineItems(primary: row["items"], fallbacks: [row["lineItems"], row["checkoutItems"], row["products"], vendor["items"], vendor["lineItems"], vendor["checkoutItems"]])
         let resolvedItems = parsedItems ?? []
         let isGhAkwaaba = resolvedName.lowercased().contains("akwaaba") || service.title.lowercased().contains("akwaaba")
-        return ClipVendor(
+        var vendorModel = ClipVendor(
             id: Self.string(vendor["id"]) ?? Self.string(row["id"]) ?? "\(service.id)-vendor-\(index)",
             name: resolvedName,
             tagline: tagline,
@@ -782,6 +1132,22 @@ struct ClipPatchVerifier {
             media: media,
             items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems
         )
+        let rowVideo = Self.url(row["videoUrl"])
+            ?? Self.url(row["videoURL"])
+            ?? Self.url(row["hlsUrl"])
+        let vendorVideo = Self.url(vendor["videoUrl"])
+            ?? Self.url(vendor["videoURL"])
+            ?? Self.url(vendor["hlsUrl"])
+        vendorModel.videoURL = rowVideo ?? vendorVideo
+        vendorModel.thumbnailURL = Self.url(row["thumbnailUrl"]) ?? Self.url(row["posterUrl"]) ?? Self.url(vendor["thumbnailUrl"]) ?? Self.url(vendor["posterUrl"])
+        vendorModel.heroBannerURL = Self.url(row["heroBannerUrl"]) ?? Self.url(row["heroBannerURL"]) ?? Self.url(vendor["heroBannerUrl"]) ?? Self.url(vendor["heroBannerURL"])
+        vendorModel.scheduledDate = Self.string(row["scheduledDate"]) ?? Self.string(row["startTime"]) ?? Self.string(row["startDate"]) ?? Self.string(vendor["scheduledDate"]) ?? Self.string(vendor["startTime"])
+        vendorModel.hostName = Self.string(row["hostName"]) ?? Self.string(row["host"]) ?? Self.string(vendor["hostName"]) ?? Self.string(vendor["host"])
+        vendorModel.locationLabel = Self.string(row["locationLabel"]) ?? Self.string(row["location"]) ?? Self.string(row["address"]) ?? Self.string(vendor["locationLabel"]) ?? Self.string(vendor["address"])
+        vendorModel.theme = Self.string(row["theme"]) ?? Self.string(row["eventTheme"]) ?? Self.string(vendor["theme"]) ?? Self.string(vendor["eventTheme"])
+        vendorModel.guestSummary = Self.string(row["guestSummary"]) ?? Self.string(row["guestListSummary"]) ?? Self.string(vendor["guestSummary"]) ?? Self.string(vendor["guestListSummary"])
+        vendorModel.activityHighlights = Self.stringArray(row["activityHighlights"]) ?? Self.stringArray(row["activities"]) ?? Self.stringArray(row["highlights"]) ?? highlights
+        return vendorModel
     }
 
     private static func parseLineItems(primary: Any?, fallbacks: [Any?]) -> [ClipLineItem]? {
@@ -868,6 +1234,18 @@ struct ClipPatchVerifier {
         return nil
     }
 
+    private static func stringArray(_ value: Any?) -> [String]? {
+        if let values = value as? [String] {
+            let cleaned = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return cleaned.isEmpty ? nil : cleaned
+        }
+        if let raw = string(value) {
+            let cleaned = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return cleaned.isEmpty ? nil : cleaned
+        }
+        return nil
+    }
+
     private static func int(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
@@ -897,14 +1275,5 @@ struct ClipPatchVerifier {
 
     private func string(_ value: Any?) -> String? { Self.string(value) }
 
-    private static var authToken: String? {
-        let defaults = UserDefaults.standard
-        let candidates = [
-            defaults.string(forKey: "bytspot_auth_token"),
-            defaults.string(forKey: "BytspotAuthToken")
-        ]
-        return candidates
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && $0 != "guest_session" && $0 != "beta_guest" }
-    }
+    private static var authToken: String? { ClipAuthStore.token }
 }

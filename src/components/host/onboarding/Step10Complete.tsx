@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertTriangle, CheckCircle, Clock, FileText, ShieldCheck, Users } from 'lucide-react';
 import type { OnboardingData } from '../ProviderOnboarding';
@@ -15,6 +15,8 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
     damping: 30,
     mass: 0.8,
   };
+
+  const [applicationId] = useState(() => Date.now().toString().slice(-8));
 
   // Auto-redirect after 5 seconds
   useEffect(() => {
@@ -112,7 +114,7 @@ export function Step10Complete({ onComplete, data }: Step10CompleteProps) {
             Application ID
           </div>
           <div className="text-[24px] text-white mb-2" style={{ fontWeight: 700, letterSpacing: '0.05em' }}>
-            #{Date.now().toString().slice(-8)}
+            #{applicationId}
           </div>
           <div className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
             Reference this ID for any inquiries

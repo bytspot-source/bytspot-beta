@@ -402,6 +402,25 @@ enum NativePartyStudioError: LocalizedError, Equatable {
         case .sessionChanged: return "Your session changed. Reopen Host Studio to continue."
         }
     }
+
+    static func publishUserMessage(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn't reach Bytspot. Check your connection and try again."
+        }
+        if case let BytspotAPIClient.APIError.server(status, _) = error {
+            switch status {
+            case 401: return "Your sign-in session expired. Sign in again before publishing."
+            case 403: return "This account is not allowed to publish this party."
+            case 404: return "Party publishing is unavailable on the current service."
+            case 409: return "This party is already being published. Wait a moment and try again."
+            case 422: return "The party setup needs attention. For this smoke test, leave the optional teammate blank."
+            case 429: return "Too many publish attempts. Wait a moment and try again."
+            default: return "The service could not publish this party. Please try again."
+            }
+        }
+        return (error as? LocalizedError)?.errorDescription ?? "The party could not be published."
+    }
 }
 
 struct NativePartyStudioAPI {

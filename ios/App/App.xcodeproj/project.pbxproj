@@ -39,6 +39,7 @@
 			A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */; };
 			A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativeHostStudioView.swift */; };
 			A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
+			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
 			A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
 		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
 		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
@@ -111,6 +112,7 @@
 			A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVenueDetailPresentation.swift; sourceTree = "<group>"; };
 			A13F0D002D0000000000D000 /* NativeHostStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostStudioView.swift; sourceTree = "<group>"; };
 			A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
+			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
 			A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
 		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -186,6 +188,7 @@
 				A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */,
 					A13F0D002D0000000000D000 /* NativeHostStudioView.swift */,
 				A13F0E002D0000000000E000 /* NativePartyArrival.swift */,
+				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
 				A13F03022C0FF00100000053 /* BytspotAPIClient.swift */,
@@ -399,6 +402,7 @@
 				A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */,
 					A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */,
 				A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */,
+				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

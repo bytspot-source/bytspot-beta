@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import UIKit
 @testable import App
 
 private final class NativePartyURLProtocolStub: URLProtocol {
@@ -1755,6 +1756,16 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePartyStudioAPI.publishedParty(from: ["shareUrl": "https://evil.example/party/1", "passCode": "BAD"], fallbackID: "party-1", draft: partyDraft()))
     }
 
+    func testNativeHostStudioPublishFailuresGiveActionableSafeMessages() {
+        let expired = BytspotAPIClient.APIError.server(status: 401, body: "")
+        let invalidDraft = BytspotAPIClient.APIError.server(status: 422, body: "")
+        let limited = BytspotAPIClient.APIError.server(status: 429, body: "")
+
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: expired), "Your sign-in session expired. Sign in again before publishing.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: invalidDraft), "The party setup needs attention. For this smoke test, leave the optional teammate blank.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: limited), "Too many publish attempts. Wait a moment and try again.")
+    }
+
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
         let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
         XCTAssertEqual(release.validationMessage, "Add the release title.")
@@ -1765,6 +1776,54 @@ final class NativeProfileDataAPITests: XCTestCase {
         let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
+    }
+
+    func testPartyShareQRRendersConcreteImageWithDarkModules() throws {
+        let image = NativePartyShareQR.image("https://bytspot.app/party/party-1")
+        let cgImage = try XCTUnwrap(image.cgImage)
+        XCTAssertGreaterThan(cgImage.width, 0)
+        XCTAssertGreaterThan(cgImage.height, 0)
+
+        let width = 64
+        let height = 64
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.interpolationQuality = .none
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        XCTAssertTrue(rendered)
+        let hasDarkModule = stride(from: 0, to: pixels.count, by: 4).contains { index in
+            pixels[index] < 64 && pixels[index + 1] < 64 && pixels[index + 2] < 64
+        }
+        XCTAssertTrue(hasDarkModule, "The Party share QR must contain visible scannable modules.")
+    }
+
+    func testSuccessfulPartyPublishClearsProgressBeforePartyPassIsShown() {
+        let party = NativePublishedParty(
+            id: "party-1",
+            shareURL: URL(string: "https://bytspot.app/party/party-1")!,
+            passCode: "BYT-1234",
+            draft: partyDraft()
+        )
+        var presentation = NativePartyPassPresentation()
+        presentation.message = "Preparing Party media…"
+
+        presentation.completePublish(with: party)
+
+        XCTAssertTrue(presentation.isPartyPassVisible)
+        XCTAssertEqual(presentation.party, party)
+        XCTAssertEqual(presentation.message, "")
     }
 
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {

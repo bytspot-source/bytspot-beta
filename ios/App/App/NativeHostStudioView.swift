@@ -2,6 +2,18 @@ import SwiftUI
 import UIKit
 import PhotosUI
 
+struct NativePartyPassPresentation {
+    private(set) var party: NativePublishedParty?
+    var message = ""
+
+    var isPartyPassVisible: Bool { party != nil }
+
+    mutating func completePublish(with party: NativePublishedParty) {
+        self.party = party
+        message = ""
+    }
+}
+
 struct NativeHostStudioView: View {
     private enum Step: Int, CaseIterable { case spark, build, door, invite }
 
@@ -30,9 +42,9 @@ struct NativeHostStudioView: View {
     @State private var popUpLocationDisclosure: NativePopUpLocationDisclosure = .public
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
-    @State private var publishedParty: NativePublishedParty?
-    @State private var message = ""
+    @State private var publishPresentation = NativePartyPassPresentation()
     @State private var publishTask: Task<Void, Never>?
+    @State private var publishStage = "draft"
     @State private var idempotencyKey = UUID().uuidString.lowercased()
     @State private var coverMedia: NativePartyPendingImage?
     @State private var albumMedia: [NativePartyPendingImage] = []
@@ -42,6 +54,7 @@ struct NativeHostStudioView: View {
     @State private var boundArrivalVenueID: String?
     @State private var isLoadingArrivalVenues = false
     @State private var isBindingArrivalDestination = false
+    @State private var showingPartyControl = false
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -58,7 +71,7 @@ struct NativeHostStudioView: View {
             BytspotNativeBackground(tier: requiredTier).ignoresSafeArea()
             VStack(spacing: 0) {
                 header
-                if let publishedParty { partyPass(publishedParty) }
+                if let party = publishPresentation.party { partyPass(party) }
                 else { studio }
             }
         }
@@ -68,7 +81,7 @@ struct NativeHostStudioView: View {
             guard isPublishing else { return }
             publishTask?.cancel()
             isPublishing = false
-            message = NativePartyStudioError.sessionChanged.localizedDescription
+            publishPresentation.message = NativePartyStudioError.sessionChanged.localizedDescription
         }
         .onDisappear { publishTask?.cancel() }
         .sheet(isPresented: $showCoverPicker) {
@@ -76,6 +89,9 @@ struct NativeHostStudioView: View {
         }
         .sheet(isPresented: $showAlbumPicker) {
             NativePartyPhotoPicker(selectionLimit: max(1, 6 - albumMedia.count)) { images in addAlbumImages(images) }
+        }
+        .sheet(isPresented: $showingPartyControl) {
+            if let party = publishPresentation.party { NativePartyControlView(partyID: party.id).environmentObject(sessionStore) }
         }
     }
 
@@ -100,7 +116,7 @@ struct NativeHostStudioView: View {
                 progress
                 hero
                 stepContent
-                if !message.isEmpty { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).accessibilityIdentifier("native-host-studio-message") }
+                if !publishPresentation.message.isEmpty { Text(publishPresentation.message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).accessibilityIdentifier("native-host-studio-message") }
                 navigationButtons
             }
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 34)
@@ -344,7 +360,7 @@ struct NativeHostStudioView: View {
 
     private var navigationButtons: some View {
         HStack(spacing: 10) {
-            if step != .spark { Button("Back") { step = Step(rawValue: step.rawValue - 1) ?? .spark; message = "" }.studioSecondaryButton() }
+            if step != .spark { Button("Back") { step = Step(rawValue: step.rawValue - 1) ?? .spark; publishPresentation.message = "" }.studioSecondaryButton() }
             Button(action: advance) { HStack { if isPublishing { ProgressView().tint(.black) }; Text(primaryTitle); if !isPublishing { Image(systemName: "sparkles") } }.font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.black).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain).disabled(isPublishing)
         }
     }
@@ -352,9 +368,9 @@ struct NativeHostStudioView: View {
     private var primaryTitle: String { isPublishing ? "Dropping…" : step == .spark ? "Build this vibe" : step == .build ? "Set the door" : step == .door ? "Invite your people" : "Drop the Moment" }
 
     private func advance() {
-        message = ""
-        if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { message = "Add a title and venue before setting the door."; return }
-        if step == .door && draft.validationMessage != nil { message = draft.validationMessage ?? "Review the door settings."; return }
+        publishPresentation.message = ""
+        if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { publishPresentation.message = "Add a title and venue before setting the door."; return }
+        if step == .door && draft.validationMessage != nil { publishPresentation.message = draft.validationMessage ?? "Review the door settings."; return }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
         guard !isPublishing else { return }
         isPublishing = true
@@ -362,35 +378,57 @@ struct NativeHostStudioView: View {
     }
 
     @MainActor private func publish() async {
-        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { isPublishing = false; message = "Sign in before publishing this moment."; return }
+        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let publishingToken = sessionStore.token else { isPublishing = false; publishPresentation.message = "Sign in before publishing this moment."; return }
         defer { isPublishing = false; publishTask = nil }
         do {
             let api = NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { publishingToken }))
+            publishStage = "draft"
             let partyID = try await api.createDraft(draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
-            message = "Preparing Party media…"
+            publishStage = "media reset"
+            publishPresentation.message = "Preparing Party media…"
             try await api.resetMedia(partyID: partyID)
             if let coverMedia {
-                message = "Uploading cover poster…"
+                publishStage = "cover upload"
+                publishPresentation.message = "Uploading cover poster…"
                 _ = try await api.uploadMedia(partyID: partyID, kind: .cover, dataURI: coverMedia.dataURI)
             }
             for (index, media) in albumMedia.enumerated() {
-                message = "Uploading album photo \(index + 1) of \(albumMedia.count)…"
+                publishStage = "album upload"
+                publishPresentation.message = "Uploading album photo \(index + 1) of \(albumMedia.count)…"
                 _ = try await api.uploadMedia(partyID: partyID, kind: .album, index: index, dataURI: media.dataURI)
             }
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
+            publishStage = "publish"
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
-            publishedParty = result
+            publishPresentation.completePublish(with: result)
             isLoadingArrivalVenues = true
             defer { isLoadingArrivalVenues = false }
+            publishStage = "arrival venues"
             arrivalVenueCandidates = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { publishingToken })).matchingVerifiedVenues(named: result.draft.venueName)
         }
-        catch is CancellationError { if message.isEmpty { message = NativePartyStudioError.sessionChanged.localizedDescription } }
-        catch { message = (error as? LocalizedError)?.errorDescription ?? "The party could not be published." }
+        catch is CancellationError { if publishPresentation.message.isEmpty { publishPresentation.message = NativePartyStudioError.sessionChanged.localizedDescription } }
+        catch {
+            Self.recordPublishFailure(error, stage: publishStage)
+            publishPresentation.message = NativePartyStudioError.publishUserMessage(for: error)
+        }
+    }
+
+    private static func recordPublishFailure(_ error: Error, stage: String) {
+        #if DEBUG
+        let status: Int
+        if case let BytspotAPIClient.APIError.server(httpStatus, _) = error {
+            status = httpStatus
+        } else {
+            status = 0
+        }
+        UserDefaults.standard.set(stage, forKey: "bytspot_debug_party_publish_failure_stage")
+        UserDefaults.standard.set(status, forKey: "bytspot_debug_party_publish_failure_status")
+        #endif
     }
 
     private var draft: NativePartyDraftInput {
@@ -417,15 +455,34 @@ struct NativeHostStudioView: View {
                 Image(systemName: "checkmark").font(.system(size: 26, weight: .black)).foregroundColor(.black).frame(width: 56, height: 56).background(NativeTheme.emerald).clipShape(Circle())
                 VStack(spacing: 4) { Text("YOUR MOMENT IS LIVE").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundColor(NativeTheme.emerald); Text("Party Pass ready.").font(.system(size: 28, weight: .black, design: .rounded)) }
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack { Text("\(party.draft.requiredMembershipTier.displayName.uppercased()) PARTY PASS").font(.system(size: 10, weight: .black)).foregroundColor(BytspotTheme.accent(for: party.draft.requiredMembershipTier)); Spacer(); Text(template.emoji).font(.system(size: 26)) }
+                    partyPassHeader(party)
                     Text(party.draft.title).font(.system(size: 25, weight: .black, design: .rounded))
                     Text("\(party.draft.startsAt.formatted(date: .abbreviated, time: .shortened)) · \(party.draft.venueName)").font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.52))
-                    VStack(spacing: 5) { Text("PASS CODE").font(.system(size: 9, weight: .black)).tracking(1.6).foregroundColor(.white.opacity(0.4)); Text(party.passCode).font(.system(size: 25, weight: .black, design: .monospaced)).tracking(4) }.frame(maxWidth: .infinity).padding(17).overlay(RoundedRectangle(cornerRadius: 18).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(.white.opacity(0.22)))
+                    partyPassCode(party.passCode)
+                    HStack(spacing: 12) { NativePartyShareQR(value: party.shareURL.absoluteString).frame(width: 72, height: 72); VStack(alignment: .leading, spacing: 4) { Text("SHARE PARTY QR").font(.system(size: 9, weight: .black)).tracking(1.3).foregroundColor(NativeTheme.cyan); Text("Anyone can scan this to open the Party and RSVP, request approval, or buy a ticket.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)) } }
                 }.padding(20).background(Color.white.opacity(0.07)).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))).clipShape(RoundedRectangle(cornerRadius: 25)).accessibilityIdentifier("native-party-pass")
                 arrivalDestinationControls(for: party)
-                Button(action: { UIPasteboard.general.string = party.shareURL.absoluteString; message = "Party link copied." }) { Label("Copy Party Link", systemImage: "doc.on.doc.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.white).background(NativeTheme.purple).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
-                if !message.isEmpty { Text(message).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.emerald) }
+                Button(action: { sharePartyLink(party.shareURL) }) { Label("Share Party Link", systemImage: "square.and.arrow.up.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.white).background(NativeTheme.purple).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
+                Button(action: { showingPartyControl = true }) { Label("Open Party Control", systemImage: "person.3.sequence.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.black).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
+                if !publishPresentation.message.isEmpty { Text(publishPresentation.message).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.emerald) }
             }.padding(20).padding(.top, 18)
+        }
+    }
+
+    private func partyPassCode(_ code: String) -> some View {
+        VStack(spacing: 5) {
+            Text("PASS CODE").font(.system(size: 9, weight: .black)).tracking(1.6).foregroundColor(.white.opacity(0.4))
+            Text(code).font(.system(size: 25, weight: .black, design: .monospaced)).tracking(4)
+        }.frame(maxWidth: .infinity).padding(17)
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(.white.opacity(0.22)))
+    }
+
+    private func partyPassHeader(_ party: NativePublishedParty) -> some View {
+        let tier = party.draft.requiredMembershipTier
+        return HStack {
+            Text("\(tier.displayName.uppercased()) PARTY PASS").font(.system(size: 10, weight: .black)).foregroundColor(BytspotTheme.accent(for: tier))
+            Spacer()
+            Text(template.emoji).font(.system(size: 26))
         }
     }
 
@@ -452,15 +509,24 @@ struct NativeHostStudioView: View {
     }
 
     @MainActor private func bindArrivalDestination(_ venue: NativePartyArrivalVenue, to party: NativePublishedParty) async {
-        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { message = "Sign in before enabling arrival guidance."; return }
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { publishPresentation.message = "Sign in before enabling arrival guidance."; return }
         isBindingArrivalDestination = true
         defer { isBindingArrivalDestination = false }
         do {
             try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindDestination(partyID: party.id, venueID: venue.id)
             boundArrivalVenueID = venue.id
         } catch {
-            message = "The verified arrival destination could not be enabled."
+            publishPresentation.message = "The verified arrival destination could not be enabled."
         }
+    }
+
+    private func sharePartyLink(_ url: URL) {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let presenter = scene.windows.first(where: \ .isKeyWindow)?.rootViewController else {
+            publishPresentation.message = "Party link is ready to share."
+            return
+        }
+        presenter.present(UIActivityViewController(activityItems: [url], applicationActivities: nil), animated: true)
     }
 
     private func sectionHeading(_ eyebrow: String, _ title: String, _ subtitle: String) -> some View {
@@ -475,7 +541,7 @@ struct NativeHostStudioView: View {
     private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund and payout access only." }
 
     private func setCoverImage(_ image: UIImage?) {
-        guard let image, let media = NativePartyPendingImage(image: image) else { if image != nil { message = "That cover could not be prepared." }; return }
+        guard let image, let media = NativePartyPendingImage(image: image) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }
         coverMedia = media
     }
 
@@ -483,7 +549,7 @@ struct NativeHostStudioView: View {
         let candidates = Array(images.prefix(6 - albumMedia.count))
         let prepared = candidates.compactMap(NativePartyPendingImage.init(image:))
         albumMedia.append(contentsOf: prepared)
-        if prepared.count != candidates.count { message = "Some photos could not be prepared." }
+        if prepared.count != candidates.count { publishPresentation.message = "Some photos could not be prepared." }
     }
 }
 

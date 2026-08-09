@@ -12,6 +12,23 @@ struct NativePartyPassPresentation {
         self.party = party
         message = ""
     }
+
+    mutating func completeArrivalLookupFailure() {
+        guard party != nil else { return }
+        message = ""
+    }
+}
+
+enum NativePartySharePresentation {
+    static func activityController(for url: URL, presenter: UIViewController) -> UIActivityViewController {
+        let activityController = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = activityController.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = presenter.view.bounds
+            popover.permittedArrowDirections = []
+        }
+        return activityController
+    }
 }
 
 struct NativeHostStudioView: View {
@@ -406,10 +423,7 @@ struct NativeHostStudioView: View {
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishPresentation.completePublish(with: result)
-            isLoadingArrivalVenues = true
-            defer { isLoadingArrivalVenues = false }
-            publishStage = "arrival venues"
-            arrivalVenueCandidates = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { publishingToken })).matchingVerifiedVenues(named: result.draft.venueName)
+            await loadArrivalVenueCandidates(for: result, token: publishingToken)
         }
         catch is CancellationError { if publishPresentation.message.isEmpty { publishPresentation.message = NativePartyStudioError.sessionChanged.localizedDescription } }
         catch {
@@ -429,6 +443,19 @@ struct NativeHostStudioView: View {
         UserDefaults.standard.set(stage, forKey: "bytspot_debug_party_publish_failure_stage")
         UserDefaults.standard.set(status, forKey: "bytspot_debug_party_publish_failure_status")
         #endif
+    }
+
+    @MainActor private func loadArrivalVenueCandidates(for party: NativePublishedParty, token: String) async {
+        isLoadingArrivalVenues = true
+        defer { isLoadingArrivalVenues = false }
+        do {
+            arrivalVenueCandidates = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).matchingVerifiedVenues(named: party.draft.venueName)
+        } catch is CancellationError {
+            return
+        } catch {
+            arrivalVenueCandidates = []
+            publishPresentation.completeArrivalLookupFailure()
+        }
     }
 
     private var draft: NativePartyDraftInput {
@@ -526,7 +553,7 @@ struct NativeHostStudioView: View {
             publishPresentation.message = "Party link is ready to share."
             return
         }
-        presenter.present(UIActivityViewController(activityItems: [url], applicationActivities: nil), animated: true)
+        presenter.present(NativePartySharePresentation.activityController(for: url, presenter: presenter), animated: true)
     }
 
     private func sectionHeading(_ eyebrow: String, _ title: String, _ subtitle: String) -> some View {

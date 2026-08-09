@@ -414,7 +414,7 @@ enum NativePartyStudioError: LocalizedError, Equatable {
             case 403: return "This account is not allowed to publish this party."
             case 404: return "Party publishing is unavailable on the current service."
             case 409: return "This party is already being published. Wait a moment and try again."
-            case 422: return "The party setup needs attention. For this smoke test, leave the optional teammate blank."
+            case 422: return "Review the party setup and try again."
             case 429: return "Too many publish attempts. Wait a moment and try again."
             default: return "The service could not publish this party. Please try again."
             }

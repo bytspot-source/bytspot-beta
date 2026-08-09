@@ -17,7 +17,18 @@ struct NativePartyControlGuestList: Codable { let guests: [NativePartyControlGue
 
 struct NativePartyShareQR: View {
     let value: String
-    var body: some View { Image(uiImage: Self.image(value)).interpolation(.none).resizable().scaledToFit().padding(8).background(.white).clipShape(RoundedRectangle(cornerRadius: 14)) }
+    var body: some View {
+        Image(uiImage: Self.image(value))
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .padding(8)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Party share QR code")
+            .accessibilityHint("Nearby guests can scan this code to open the Party.")
+    }
 
     static func image(_ value: String) -> UIImage {
         let filter = CIFilter.qrCodeGenerator()

@@ -1762,7 +1762,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         let limited = BytspotAPIClient.APIError.server(status: 429, body: "")
 
         XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: expired), "Your sign-in session expired. Sign in again before publishing.")
-        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: invalidDraft), "The party setup needs attention. For this smoke test, leave the optional teammate blank.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: invalidDraft), "Review the party setup and try again.")
         XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: limited), "Too many publish attempts. Wait a moment and try again.")
     }
 
@@ -1824,6 +1824,39 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(presentation.isPartyPassVisible)
         XCTAssertEqual(presentation.party, party)
         XCTAssertEqual(presentation.message, "")
+    }
+
+    func testArrivalLookupFailureAfterPublishKeepsPartyPassAndClearStatus() {
+        let party = NativePublishedParty(
+            id: "party-1",
+            shareURL: URL(string: "https://bytspot.app/party/party-1")!,
+            passCode: "BYT-1234",
+            draft: partyDraft()
+        )
+        var presentation = NativePartyPassPresentation()
+        presentation.message = "Preparing Party media…"
+        presentation.completePublish(with: party)
+
+        presentation.completeArrivalLookupFailure()
+
+        XCTAssertTrue(presentation.isPartyPassVisible)
+        XCTAssertEqual(presentation.party, party)
+        XCTAssertEqual(presentation.message, "")
+    }
+
+    func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
+        let presenter = UIViewController()
+        presenter.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+
+        let activity = NativePartySharePresentation.activityController(
+            for: try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1")),
+            presenter: presenter
+        )
+        let popover = try XCTUnwrap(activity.popoverPresentationController)
+
+        XCTAssertTrue(popover.sourceView === presenter.view)
+        XCTAssertEqual(popover.sourceRect, presenter.view.bounds)
+        XCTAssertEqual(popover.permittedArrowDirections, [])
     }
 
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {

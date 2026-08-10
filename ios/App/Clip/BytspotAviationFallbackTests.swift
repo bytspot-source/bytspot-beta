@@ -112,6 +112,7 @@ enum BytspotAviationFallbackTests {
         runPhase3LuxuryFlowContract()
         assertRichMediaContextContract()
         assertHostStudioPartyMappingContract()
+        assertPartyPassPreviewContract()
         assertPartnerCardParity()
     }
 
@@ -271,6 +272,37 @@ enum BytspotAviationFallbackTests {
             let denied = ClipPatchVerifier.VerifyResult(verified: false, patch: verify.patch, binding: nil)
             guard case .denied = ClipInvocationModel.verificationState(for: denied, label: "Patch") else { preconditionFailure("Party Loop: unverified taps must fail closed.") }
         }
+    }
+
+    private static func assertPartyPassPreviewContract() {
+        let previewURL = URL(string: "https://bytspot.app/?step=host_party")
+        let previewState = ClipPartyPassPreview.state(for: previewURL, partyID: "party-preview-1")
+        precondition(
+            previewState == ClipPartyPassState(partyID: "party-preview-1", action: .rsvp, guestStatus: "not_joined", accessGranted: false),
+            "Party Loop: the explicit Host Studio preview must render the local RSVP state."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/party/party-1"), partyID: "party-1") == nil,
+            "Party Loop: real Party URLs must use the server resolver rather than a local preview state."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=view-pass"), partyID: "party-preview-1")?.accessGranted == true,
+            "Party Loop: the explicit preview must exercise the confirmed Party Pass presentation."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=ticket"), partyID: "party-preview-1")?.action == .ticket,
+            "Party Loop: the explicit preview must exercise the ticket-tier presentation."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=unavailable"), partyID: "party-preview-1")?.guestStatus == "pending",
+            "Party Loop: the explicit unavailable preview must represent a pending host review."
+        )
+        precondition(
+            PartyRecipientTierPresentation(for: .black).heroBadge == "SIGNATURE INVITE" && PartyRecipientTierPresentation(for: .platinum).heroBadge == "PLATINUM INVITED" && PartyRecipientTierPresentation(for: .green).heroBadge == "PERSONALLY INVITED",
+            "Party Loop: recipient invitation treatment must remain differentiated by tier."
+        )
+        let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public"]
+        precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
     }
 }
 #endif

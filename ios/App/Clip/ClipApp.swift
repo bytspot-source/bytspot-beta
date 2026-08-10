@@ -548,6 +548,23 @@ enum ClipFlowStep: Equatable {
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
 }
 
+#if DEBUG
+/// Supplies a deterministic access state only for the explicit simulator Party
+/// walkthrough. Real Party links must always be resolved by the server.
+enum ClipPartyPassPreview {
+    static func state(for invocationURL: URL?, partyID: String) -> ClipPartyPassState? {
+        guard let invocationURL,
+              let components = URLComponents(url: invocationURL, resolvingAgainstBaseURL: false),
+              let step = components.queryItems?.first(where: { $0.name == "step" })?.value?.lowercased(),
+              ["party_loop", "host_party", "host_studio_party"].contains(step) else { return nil }
+        let requestedAction = components.queryItems?.first(where: { $0.name == "previewAction" })?.value.flatMap(ClipPartyPassAction.init(rawValue:))
+        let action = requestedAction.flatMap { [.rsvp, .requestApproval, .ticket, .viewPass, .unavailable].contains($0) ? $0 : nil } ?? .rsvp
+        let guestStatus = action == .unavailable ? "pending" : action == .viewPass ? "joined" : "not_joined"
+        return ClipPartyPassState(partyID: partyID, action: action, guestStatus: guestStatus, accessGranted: action == .viewPass)
+    }
+}
+#endif
+
 enum ClipVendorFilter: String, CaseIterable, Identifiable {
     case now = "Now"
     case tonight = "Tonight"
@@ -705,7 +722,7 @@ final class ClipInvocationModel: ObservableObject {
         case "party_loop", "host_party", "host_studio_party":
             let payload: [String: Any] = [
                 "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
-                "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
+                "inviteNote": "One moment. Your people.", "tier": tier.rawValue, "timing": "thisWeek",
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
                 "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
@@ -714,8 +731,7 @@ final class ClipInvocationModel: ObservableObject {
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
                 "requiresApproval": false,
-                "heroImageURL": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
-                "photoURLs": ["https://res.cloudinary.com/demo/image/upload/sample.jpg", "https://res.cloudinary.com/demo/image/upload/woman.jpg"]
+                "ticketTiers": [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"], ["name": "Listening Room", "priceCents": 4500, "quantity": 12, "requiredMembershipTier": "green"]]
             ]
             guard let invite = PartyPassInvite.fromPayload(payload) else { return false }
             tier = invite.tier

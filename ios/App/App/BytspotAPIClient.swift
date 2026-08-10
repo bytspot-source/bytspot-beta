@@ -1415,8 +1415,8 @@ final class NativeAPIState: ObservableObject {
     }
 }
 
-/// Live canonical-membership source for the Map Functions gate. The backend's
-/// legacy isPremium boolean maps to Platinum; guests and failures fail closed to Green.
+/// Live canonical-membership source for the Map Functions gate. Explicit server
+/// tiers take precedence; the legacy isPremium boolean maps to Platinum.
 @MainActor
 final class NativeMembershipTierStore: ObservableObject {
     @Published private(set) var tier: BytspotTier = .membershipPreview
@@ -1440,7 +1440,9 @@ final class NativeMembershipTierStore: ObservableObject {
                 expectedToken: expectedToken, currentToken: sessionStore.token,
                 expectedUserID: expectedUserID, currentUserID: sessionStore.authenticatedUserID
             ) else { return }
-            tier = Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green
+            tier = Self.findString(named: "membershipTier", in: payload)
+                .flatMap(BytspotTier.init(rawValue:))
+                ?? (Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green)
         } catch {
             guard generation == refreshGeneration else { return }
             tier = .green
@@ -1463,6 +1465,14 @@ final class NativeMembershipTierStore: ObservableObject {
         if let flag = dict[name] as? Bool { return flag }
         if let number = dict[name] as? NSNumber { return number.boolValue }
         for child in dict.values { if let found = findBool(named: name, in: child) { return found } }
+        return nil
+    }
+
+    /// Mirrors findBool for the plain and SuperJSON tRPC envelope shapes.
+    nonisolated static func findString(named name: String, in value: Any) -> String? {
+        guard let dict = value as? [String: Any] else { return nil }
+        if let value = dict[name] as? String { return value }
+        for child in dict.values { if let found = findString(named: name, in: child) { return found } }
         return nil
     }
 }

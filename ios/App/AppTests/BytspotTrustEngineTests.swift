@@ -1472,6 +1472,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeMembershipTierStore.findBool(named: "isPremium", in: payload), false)
     }
 
+    func testMembershipDecodePrefersExplicitBlackTier() {
+        let payload: [String: Any] = ["result": ["data": ["json": ["membershipTier": "black", "isPremium": true]]]]
+        XCTAssertEqual(NativeMembershipTierStore.findString(named: "membershipTier", in: payload), "black")
+        XCTAssertEqual(BytspotTier(rawValue: NativeMembershipTierStore.findString(named: "membershipTier", in: payload) ?? ""), .black)
+    }
+
     func testMembershipDecodeFailsSafeWhenKeyMissing() {
         let payload: [String: Any] = ["result": ["data": ["isVendorPremium": true]]]
         XCTAssertNil(NativeMembershipTierStore.findBool(named: "isPremium", in: payload))

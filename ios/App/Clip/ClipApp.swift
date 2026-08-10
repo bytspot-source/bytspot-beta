@@ -242,7 +242,10 @@ struct PartyPassInvite: Equatable {
               let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
               string(row["source"]) == "host-studio-party" else { return nil }
         let host = object(row["host"])
-        let locationDisclosure = ["public", "after-approval", "withheld"].contains(row["locationDisclosure"] as? String ?? "") ? (row["locationDisclosure"] as! String) : "withheld"
+        // Old or malformed invites never reveal a venue. Keep the established
+        // fail-closed compatibility state as after-approval; only an explicit
+        // server-authored withheld policy renders the stronger withheld label.
+        let locationDisclosure = ["public", "after-approval", "withheld"].contains(row["locationDisclosure"] as? String ?? "") ? (row["locationDisclosure"] as! String) : "after-approval"
         let locationIsPublic = locationDisclosure == "public"
         return Self(
             id: id, title: title, tier: tier,

@@ -158,6 +158,9 @@ struct PartyPassClipView: View {
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
     private var tierPresentation: PartyRecipientTierPresentation { PartyRecipientTierPresentation(for: invite.tier) }
+    private var partyBookingContext: ClipBookingContext? {
+        invocation.selectedPartyTicketTier.map { .make(partyTicket: $0, partyTier: invite.tier) }
+    }
     private var isBusy: Bool { isResolving || isPerformingAction }
     private var primaryTitle: String {
         guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
@@ -234,6 +237,7 @@ struct PartyPassClipView: View {
                     hero
                     passSummary
                     details
+                    hostDestinations
                     if !invite.itinerary.isEmpty { program }
                     guestStack
                 }
@@ -372,9 +376,35 @@ struct PartyPassClipView: View {
     private var details: some View {
         PartyGlassCard {
             Text("The invitation").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+            PartyDetailRow(icon: "person.crop.circle.fill", label: "HOST", value: invite.hostName)
             PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
             PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationIsWithheld ? "LOCATION AFTER APPROVAL" : "WHERE", value: invite.locationLabel)
             if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
+        }
+    }
+
+    @ViewBuilder private var hostDestinations: some View {
+        if !invite.hostDestinations.isEmpty {
+            PartyGlassCard {
+                Text("From \(invite.hostName)").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+                Text("Official host destinations").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.60))
+                ForEach(invite.hostDestinations) { destination in
+                    Button { openURL(destination.url) } label: {
+                        HStack(spacing: 11) {
+                            Image(systemName: destination.kind.symbol).font(.system(size: 14, weight: .bold)).foregroundColor(accent).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(destination.kind.title.uppercased()).font(.system(size: 9, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(.white.opacity(0.52))
+                                Text(destination.label).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .black)).foregroundColor(.white.opacity(0.66))
+                        }
+                        .padding(.vertical, 5).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(destination.kind.title): \(destination.label)")
+                }
+            }
         }
     }
 
@@ -399,7 +429,7 @@ struct PartyPassClipView: View {
                 .disabled(isBusy || passState == nil || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
             Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
             Button { openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) } label: {
-                Label("Continue in app to plan arrival", systemImage: "arrow.down.app.fill")
+                Label(arrivalPlanningTitle, systemImage: arrivalPlanningSymbol)
                     .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.80))
                     .frame(maxWidth: .infinity).frame(height: 36)
             }.buttonStyle(.plain).accessibilityIdentifier("party-full-app-handoff")
@@ -412,6 +442,20 @@ struct PartyPassClipView: View {
 
     private var accessMetricValue: String {
         PartyPassPresentationRules.accessMetric(for: passState, isResolving: isResolving)
+    }
+    private var arrivalPlanningTitle: String {
+        guard let partyBookingContext else { return "Continue in app to plan arrival" }
+        switch partyBookingContext.logisticsMode {
+        case .inboundToUser: return "\(partyBookingContext.eyebrow) · plan host arrival"
+        case .outboundToVenue: return "\(partyBookingContext.eyebrow) · plan venue arrival"
+        }
+    }
+    private var arrivalPlanningSymbol: String {
+        guard let partyBookingContext else { return "arrow.down.app.fill" }
+        switch partyBookingContext.logisticsMode {
+        case .inboundToUser: return "house.fill"
+        case .outboundToVenue: return "location.north.line.fill"
+        }
     }
     private func resolvePass() async {
         isResolving = true
@@ -434,7 +478,28 @@ struct PartyPassClipView: View {
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
-    private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
+    private func createCheckout(for tier: ClipPartyTicketTier) {
+        let idempotencyKey = UUID().uuidString
+        invocation.selectPartyTicketTier(tier, partyID: invite.id)
+        Task { await startPartyTicketCheckout(tier: tier, idempotencyKey: idempotencyKey) }
+    }
+    @MainActor private func startPartyTicketCheckout(tier: ClipPartyTicketTier, idempotencyKey: String) async {
+        guard !isBusy, passState?.action == .ticket else { return }
+        isPerformingAction = true
+        statusMessage = "Starting secure checkout…"
+        defer { isPerformingAction = false }
+        do {
+            let checkoutURL = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: idempotencyKey)
+            guard let validatedCheckoutURL = ClipPatchVerifier.normalizedStripeCheckoutURL(checkoutURL.absoluteString) else {
+                statusMessage = "Checkout could not be verified. Please try again."
+                return
+            }
+            statusMessage = "Opening secure checkout…"
+            openURL(validatedCheckoutURL)
+        } catch {
+            statusMessage = "Checkout could not be started. Please try again."
+        }
+    }
 }
 
 private enum PartyGlassCardVariant {
@@ -573,9 +638,9 @@ private func formattedSlug(_ value: String?) -> String? {
     return value.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ").split(separator: " ").map { $0.capitalized }.joined(separator: " ")
 }
 
-private enum ClipLogisticsMode { case inboundToUser, outboundToVenue }
+enum ClipLogisticsMode: Equatable { case inboundToUser, outboundToVenue }
 
-private struct ClipBookingContext {
+struct ClipBookingContext: Equatable {
     let isHighTicket: Bool
     let logisticsMode: ClipLogisticsMode
     let holdMinutes: Int
@@ -587,9 +652,20 @@ private struct ClipBookingContext {
     let requiresPhoneNumber: Bool
 
     static func make(service: ClipLocalService, vendor: ClipVendor, tier: BytspotTier) -> ClipBookingContext {
-        let category = [service.category, service.id, service.title].compactMap { $0 }.joined(separator: " ").lowercased()
-        let inbound = ["chef", "dining", "wellness", "concierge", "marine"].contains { category.contains($0) }
-        let highTicket = tier == .black && (inbound || vendor.priceFromCents >= 85_000)
+        let category = [service.category, service.id, service.title].compactMap { $0 }.joined(separator: " ")
+        return make(categoryText: category, amountCents: vendor.priceFromCents, tier: tier)
+    }
+
+    static func make(partyTicket: ClipPartyTicketTier, partyTier: BytspotTier) -> ClipBookingContext {
+        let selectedTier = BytspotTier(rawValue: partyTicket.requiredMembershipTier) ?? partyTier
+        return make(categoryText: "party ticket", amountCents: partyTicket.priceCents, tier: selectedTier)
+    }
+
+    static func make(categoryText: String, amountCents: Int, tier: BytspotTier) -> ClipBookingContext {
+        let category = categoryText.lowercased()
+        let inbound = ["chef", "dining", "wellness", "concierge"].contains { category.contains($0) }
+        let aviationOrMarine = ["aviation", "jet", "charter", "marine", "yacht", "vessel"].contains { category.contains($0) }
+        let highTicket = tier == .black && (aviationOrMarine || amountCents >= 85_000)
         return ClipBookingContext(
             isHighTicket: highTicket,
             logisticsMode: inbound ? .inboundToUser : .outboundToVenue,

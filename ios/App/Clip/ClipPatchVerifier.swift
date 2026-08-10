@@ -856,10 +856,25 @@ struct ClipPatchVerifier {
 
     func createPartyTicketCheckout(partyID: String, ticketTierName: String, idempotencyKey: String) async throws -> URL {
         let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
-        guard let root = payload as? [String: Any],
-              let rawURL = Self.string(root["url"]),
-              let url = Self.normalizedStripeCheckoutURL(rawURL) else { throw VerifyError.decode }
+        guard let url = Self.partyStripeCheckoutURL(from: payload) else { throw VerifyError.decode }
         return url
+    }
+
+    /// Decodes only the documented Checkout response aliases, then routes every
+    /// candidate through the Stripe-host validation below. A server response can
+    /// use a session identifier or a hosted Checkout URL, but never an arbitrary
+    /// redirect destination.
+    static func partyStripeCheckoutURL(from payload: Any) -> URL? {
+        guard let root = payload as? [String: Any] else { return nil }
+        let checkout = root["checkout"] as? [String: Any]
+        let candidates: [Any?] = [
+            root["url"], root["checkoutUrl"], root["checkoutURL"], root["sessionId"], root["checkoutSessionId"],
+            checkout?["url"], checkout?["checkoutUrl"], checkout?["sessionId"]
+        ]
+        for candidate in candidates {
+            if let rawURL = Self.string(candidate), let url = normalizedStripeCheckoutURL(rawURL) { return url }
+        }
+        return nil
     }
 
     /// Party ticketing must only hand off to Stripe-hosted Checkout. Session IDs

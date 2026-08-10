@@ -223,18 +223,28 @@ enum BytspotAviationFallbackTests {
 #endif
 
     private static func assertHostStudioPartyMappingContract() {
-        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        var dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        dto["host"] = ["destinations": ["musicUrl": "https://music.example.com/avery", "merchUrl": "https://shop.example.com/avery", "websiteUrl": "https://avery.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/avery"]]]
+        dto["ticketTiers"] = [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"]]
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
         let invite = PartyPassInvite.fromPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
+        precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("cs_test_123_ABC")?.host == "checkout.stripe.com", "Party Loop: Stripe Checkout session IDs must normalize to Stripe Checkout.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://checkout.stripe.com/c/pay/cs_test_123") != nil, "Party Loop: Stripe-hosted Checkout URLs must be accepted.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://payments.example.com/checkout") == nil, "Party Loop: non-Stripe HTTPS checkout redirects must be rejected.")
+        precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkoutUrl": "cs_test_456_ABC"])?.host == "checkout.stripe.com", "Party Loop: documented Checkout response aliases must normalize before handoff.")
+        precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkout": ["url": "https://payments.example.com/checkout"]]) == nil, "Party Loop: nested non-Stripe Checkout responses must fail closed.")
+        let blackAviation = ClipBookingContext.make(categoryText: "private aviation charter", amountCents: 2_500, tier: .black)
+        let blackMarine = ClipBookingContext.make(categoryText: "marine yacht", amountCents: 2_500, tier: .black)
+        let blackHighValue = ClipBookingContext.make(categoryText: "private event", amountCents: 85_000, tier: .black)
+        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
         var protectedPopUp = dto

@@ -170,6 +170,39 @@ struct ClipPartyTicketTier: Identifiable, Equatable {
     }
 }
 
+enum PartyHostDestinationKind: String, CaseIterable, Equatable {
+    case music
+    case merch
+    case website
+    case social
+
+    var title: String {
+        switch self {
+        case .music: return "Music"
+        case .merch: return "Merch"
+        case .website: return "Website"
+        case .social: return "Social"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .music: return "music.note"
+        case .merch: return "bag.fill"
+        case .website: return "globe"
+        case .social: return "person.crop.circle.fill"
+        }
+    }
+}
+
+struct PartyHostDestination: Identifiable, Equatable {
+    let kind: PartyHostDestinationKind
+    let label: String
+    let url: URL
+
+    var id: String { kind.rawValue }
+}
+
 /// The authoritative, Party-only representation used by `/party/<id>`.
 /// It intentionally has no Group Event fallback, fields, or API semantics.
 struct PartyPassInvite: Equatable {
@@ -186,6 +219,7 @@ struct PartyPassInvite: Equatable {
     let ticketTiers: [ClipPartyTicketTier]
     let itinerary: [String]
     let note: String?
+    let hostDestinations: [PartyHostDestination]
     let heroImageURL: URL?
     let thumbnailURL: URL?
 
@@ -205,18 +239,20 @@ struct PartyPassInvite: Equatable {
               let title = string(row["title"]),
               let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
               string(row["source"]) == "host-studio-party" else { return nil }
+        let host = object(row["host"])
         let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
         return Self(
             id: id, title: title, tier: tier,
-            hostName: string(row["hostName"]) ?? "Bytspot Host",
+            hostName: string(row["hostName"]) ?? string(row["host"]) ?? string(host?["name"]) ?? "Bytspot Host",
             scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
-            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : "Location shared after approval",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? string(row["location"]) ?? "Location pending") : "Location shared after approval",
             locationIsWithheld: !locationIsPublic,
             accessMode: string(row["accessMode"]) ?? "free-rsvp",
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
-            itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
+            itinerary: stringArray(row["activityHighlights"]) ?? stringArray(row["highlights"]) ?? [],
             note: string(row["inviteNote"]),
+            hostDestinations: hostDestinations(row: row, host: host),
             heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
             thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))
         )
@@ -231,6 +267,50 @@ struct PartyPassInvite: Equatable {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
         return nil
+    }
+    private static func object(_ value: Any?) -> [String: Any]? { value as? [String: Any] }
+    private static func stringArray(_ value: Any?) -> [String]? {
+        guard let values = value as? [Any] else { return nil }
+        let strings = values.compactMap { item -> String? in
+            string(item) ?? object(item).flatMap { string($0["title"]) ?? string($0["name"]) ?? string($0["label"]) }
+        }
+        return strings.isEmpty ? nil : strings
+    }
+    private static func secureURL(_ value: Any?) -> URL? {
+        guard let value = string(value), let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
+        return url
+    }
+    private static func hostDestinations(row: [String: Any], host: [String: Any]?) -> [PartyHostDestination] {
+        let hostDestinations = object(host?["destinations"])
+        let rootDestinations = object(row["destinations"])
+        let sources = [row, host, rootDestinations, hostDestinations].compactMap { $0 }
+        func firstURL(_ keys: [String]) -> URL? {
+            for source in sources {
+                for key in keys {
+                    if let url = secureURL(source[key]) { return url }
+                }
+            }
+            return nil
+        }
+        var destinations: [PartyHostDestination] = []
+        if let url = firstURL(["musicUrl", "musicURL", "music"]) {
+            destinations.append(PartyHostDestination(kind: .music, label: "Listen", url: url))
+        }
+        if let url = firstURL(["merchUrl", "merchURL", "shopUrl", "shopURL", "merch"]) {
+            destinations.append(PartyHostDestination(kind: .merch, label: "Shop", url: url))
+        }
+        if let url = firstURL(["websiteUrl", "websiteURL", "website", "officialUrl", "officialURL"]) {
+            destinations.append(PartyHostDestination(kind: .website, label: "Visit website", url: url))
+        }
+        let social = sources.compactMap { object($0["primarySocial"]) ?? object($0["social"]) }.first
+        let socialURL = secureURL(social?["url"]) ?? secureURL(social?["href"]) ?? firstURL(["primarySocialUrl", "primarySocialURL", "socialUrl", "socialURL"])
+        if let socialURL {
+            let socialLabel = string(social?["platform"]) ?? string(social?["label"]) ?? sources.lazy.compactMap { string($0["primarySocialPlatform"]) ?? string($0["socialPlatform"]) }.first ?? PartyHostDestinationKind.social.title
+            destinations.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
+        }
+        return destinations
     }
     private static func displayDate(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -594,6 +674,7 @@ final class ClipInvocationModel: ObservableObject {
     @Published var vendorFilter: ClipVendorFilter = .now
     @Published var guestCount: Int = 1
     @Published var lineItemQuantities: [String: Int] = [:]
+    @Published private(set) var selectedPartyTicketTier: ClipPartyTicketTier?
 
     private let api = ClipPatchVerifier()
     private var loadTask: Task<Void, Never>?
@@ -620,6 +701,7 @@ final class ClipInvocationModel: ObservableObject {
         vendorFilter = .now
         guestCount = 1
         resetLineItems()
+        selectedPartyTicketTier = nil
         patchContext = nil
         verificationState = .idle
         contextError = nil
@@ -684,7 +766,16 @@ final class ClipInvocationModel: ObservableObject {
     /// If the full app is not installed, the view layer falls back to SKOverlay.
     var mainAppHandoffURL: URL? {
         if case .party(let invite) = flow {
-            return invite.handoffURL
+            guard var components = URLComponents(url: invite.handoffURL ?? URL(string: "https://bytspot.app/party/")!, resolvingAgainstBaseURL: false),
+                  let selectedPartyTicketTier else { return invite.handoffURL }
+            var queryItems = components.queryItems ?? []
+            queryItems.append(contentsOf: [
+                URLQueryItem(name: "ticketTier", value: selectedPartyTicketTier.name),
+                URLQueryItem(name: "ticketTierCents", value: String(selectedPartyTicketTier.priceCents)),
+                URLQueryItem(name: "ticketTierAccess", value: selectedPartyTicketTier.requiredMembershipTier)
+            ])
+            components.queryItems = queryItems
+            return components.url
         }
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
@@ -729,6 +820,7 @@ final class ClipInvocationModel: ObservableObject {
                 "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
                 "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public",
+                "host": ["destinations": ["musicUrl": "https://music.example.com/avery", "merchUrl": "https://shop.example.com/avery", "websiteUrl": "https://avery.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/avery"]]],
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
@@ -835,6 +927,13 @@ final class ClipInvocationModel: ObservableObject {
         }
         guestCount = max(guestCount, 1)
         flow = .checkout(service: service, vendor: vendor)
+    }
+
+    func selectPartyTicketTier(_ ticketTier: ClipPartyTicketTier, partyID: String) {
+        guard case .party(let invite) = flow,
+              invite.id == partyID,
+              invite.ticketTiers.contains(ticketTier) else { return }
+        selectedPartyTicketTier = ticketTier
     }
 
     func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String) {

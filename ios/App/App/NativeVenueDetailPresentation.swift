@@ -27,7 +27,7 @@ enum NativeVenueDetailContract {
         NativeVenueDetailAction(id: "getTickets", title: "Get Tickets", systemImage: "ticket.fill", kind: .capability(.saveToWallet)),
         NativeVenueDetailAction(id: "checkIn", title: "Check In", systemImage: "checkmark.seal.fill", kind: .authedWrite(endpoint: checkinEndpoint, idempotent: checkinIdempotent)),
         NativeVenueDetailAction(id: "concierge", title: "Concierge", systemImage: "sparkles", kind: .handoff),
-        NativeVenueDetailAction(id: "bookRide", title: "Book Ride", systemImage: "car.fill", kind: .capability(.createCheckoutHold))
+        NativeVenueDetailAction(id: "bookRide", title: "Plan Arrival", systemImage: "car.fill", kind: .device)
     ]
     static var actionIDs: [String] { actions.map(\.id) }
 }
@@ -45,9 +45,6 @@ enum NativeVenueDetailPresentation {
             if action.id == "call" { return "Contact" }
             if action.id == "navigate" { return "Directions" }
         }
-        if action.id == "bookRide", isMobilityVenue(venue) {
-            return venue.name.localizedCaseInsensitiveContains("group") ? "Plan Group Ride" : "Open Ride App"
-        }
         guard action.id == "getTickets" else { return action.title }
         if isCoffeeVenue(venue) { return "Plan Stop" }
         if isBoutiqueApartmentVenue(venue) { return "Check Dates" }
@@ -59,9 +56,6 @@ enum NativeVenueDetailPresentation {
     }
 
     static func actionSystemImage(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
-        if action.id == "bookRide", isMobilityVenue(venue) {
-            return venue.name.localizedCaseInsensitiveContains("group") ? "bus.fill" : "car.side.fill"
-        }
         guard action.id == "getTickets" else { return action.systemImage }
         if isCoffeeVenue(venue) { return "figure.walk.circle.fill" }
         if isBoutiqueApartmentVenue(venue) { return "house.fill" }

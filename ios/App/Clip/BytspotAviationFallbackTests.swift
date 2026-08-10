@@ -112,6 +112,7 @@ enum BytspotAviationFallbackTests {
         runPhase3LuxuryFlowContract()
         assertRichMediaContextContract()
         assertHostStudioPartyMappingContract()
+        assertPartyPassPreviewContract()
         assertPartnerCardParity()
     }
 
@@ -222,20 +223,47 @@ enum BytspotAviationFallbackTests {
 #endif
 
     private static func assertHostStudioPartyMappingContract() {
-        let dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        var dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        dto["host"] = ["destinations": ["musicUrl": "https://music.example.com/demo", "merchUrl": "https://shop.example.com/demo", "websiteUrl": "https://demo.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/demo"]]]
+        dto["ticketTiers"] = [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"]]
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
         let invite = PartyPassInvite.fromPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
-        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "Sample Venue", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
+        precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
+        var genericSocialDTO = dto
+        genericSocialDTO["host"] = ["destinations": ["socialUrl": "https://social.example.com/unapproved", "social": ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]]]
+        precondition(PartyPassInvite.fromPayload(genericSocialDTO)?.hostDestinations.contains(where: { $0.kind == .social }) == false, "Party Loop: generic social aliases must not reach recipients without a primary host selection.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("cs_test_123_ABC")?.host == "checkout.stripe.com", "Party Loop: Stripe Checkout session IDs must normalize to Stripe Checkout.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://checkout.stripe.com/c/pay/cs_test_123") != nil, "Party Loop: Stripe-hosted Checkout URLs must be accepted.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://payments.example.com/checkout") == nil, "Party Loop: non-Stripe HTTPS checkout redirects must be rejected.")
+        precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://dashboard.stripe.com/payments") == nil && ClipPatchVerifier.normalizedStripeCheckoutURL("https://stripe.com/") == nil, "Party Loop: non-Checkout Stripe URLs must not be opened.")
+        precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkoutUrl": "cs_test_456_ABC"])?.host == "checkout.stripe.com", "Party Loop: documented Checkout response aliases must normalize before handoff.")
+        precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkout": ["url": "https://payments.example.com/checkout"]]) == nil, "Party Loop: nested non-Stripe Checkout responses must fail closed.")
+        let blackAviation = ClipBookingContext.make(categoryText: "private aviation charter", amountCents: 2_500, tier: .black)
+        let blackMarine = ClipBookingContext.make(categoryText: "marine yacht", amountCents: 2_500, tier: .black)
+        let blackHighValue = ClipBookingContext.make(categoryText: "private event", amountCents: 85_000, tier: .black)
+        guard let regularBlackService = ClipLocalService.fallbacks(for: .black).first(where: { service in
+            let category = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+            return !["aviation", "jet", "charter", "marine", "yacht", "vessel"].contains(where: category.contains)
+        }), let regularBlackVendor = ClipVendor.fallbacks(for: regularBlackService, tier: .black).first else {
+            preconditionFailure("Party Loop: expected a non-aviation/non-marine Black vendor fixture.")
+        }
+        let blackExpandedBooking = ClipBookingContext.make(service: regularBlackService, vendor: regularBlackVendor, tier: .black, amountCents: 85_000)
+        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackExpandedBooking.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://m.uber.com/ul/?action=setPickup")?.host == "m.uber.com", "Party Loop: only HTTPS Uber handoff URLs may open from the Party Pass.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://ride.lyft.com/u?id=lyft")?.host == "ride.lyft.com", "Party Loop: only HTTPS Lyft handoff URLs may open from the Party Pass.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://untrusted.example/handoff") == nil, "Party Loop: arbitrary Party handoff URLs must fail closed.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "uber", "trackingMode": "handoff-only", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) != nil, "Party Loop: matching server handoff metadata must be accepted.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "lyft", "trackingMode": "handoff-only", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) == nil, "Party Loop: a mismatched provider must fail closed.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "uber", "trackingMode": "live-tracking", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) == nil, "Party Loop: a non-handoff tracking mode must fail closed.")
         var protectedPopUp = dto
         protectedPopUp["templateId"] = "pop-up"
         protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
@@ -271,6 +299,61 @@ enum BytspotAviationFallbackTests {
             let denied = ClipPatchVerifier.VerifyResult(verified: false, patch: verify.patch, binding: nil)
             guard case .denied = ClipInvocationModel.verificationState(for: denied, label: "Patch") else { preconditionFailure("Party Loop: unverified taps must fail closed.") }
         }
+    }
+
+    private static func assertPartyPassPreviewContract() {
+        let previewURL = URL(string: "https://bytspot.app/?step=host_party")
+        let previewState = ClipPartyPassPreview.state(for: previewURL, partyID: "party-preview-1")
+        precondition(
+            previewState == ClipPartyPassState(partyID: "party-preview-1", action: .rsvp, guestStatus: "not_joined", accessGranted: false),
+            "Party Loop: the explicit Host Studio preview must render the local RSVP state."
+        )
+        precondition(
+            ClipPartyPassPreview.confirmedRSVP(for: previewURL, partyID: "party-preview-1") == ClipPartyPassState(partyID: "party-preview-1", action: .viewPass, guestStatus: "joined", accessGranted: true),
+            "Party Loop: a preview RSVP must confirm locally instead of calling the production RSVP endpoint."
+        )
+        precondition(
+            PartyInvitationTierPresentation(for: .platinum).heroBadge == "PLATINUM REQUIRED",
+            "Party Loop: the Party tier must be presented as a requirement, not as the recipient membership tier."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/party/party-1"), partyID: "party-1") == nil,
+            "Party Loop: real Party URLs must use the server resolver rather than a local preview state."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/party/party-1?step=host_party&previewAction=view-pass"), partyID: "party-1") == nil,
+            "Party Loop: real Party URLs must not allow preview query parameters to override server access."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party"), partyID: "party-1") == nil,
+            "Party Loop: only the synthetic preview Party identifier can use local access state."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=view-pass"), partyID: "party-preview-1")?.accessGranted == true,
+            "Party Loop: the explicit preview must exercise the confirmed Party Pass presentation."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=ticket"), partyID: "party-preview-1")?.action == .ticket,
+            "Party Loop: the explicit preview must exercise the ticket-tier presentation."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=unavailable"), partyID: "party-preview-1")?.guestStatus == "pending",
+            "Party Loop: the explicit unavailable preview must represent a pending host review."
+        )
+        precondition(
+            PartyInvitationTierPresentation(for: .black).heroBadge == "BLACK REQUIRED" && PartyInvitationTierPresentation(for: .platinum).heroBadge == "PLATINUM REQUIRED" && PartyInvitationTierPresentation(for: .green).heroBadge == "GREEN REQUIRED",
+            "Party Loop: Party membership requirements must remain differentiated by tier."
+        )
+        precondition(
+            PartyPassPresentationRules.unresolvedAccess(isResolving: false).title == "Party Pass unavailable" && PartyPassPresentationRules.accessMetric(for: nil, isResolving: false) == "UNVERIFIED",
+            "Party Loop: an unresolved server response must never imply RSVP access."
+        )
+        precondition(
+            !PartyPassPresentationRules.canStartTicketSelection(for: ClipPartyPassState(partyID: "party-preview-1", action: .ticket, guestStatus: "not_joined", accessGranted: false), tiers: []),
+            "Party Loop: ticket selection must fail closed when the server provides no ticket tiers."
+        )
+        let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public"]
+        precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
     }
 }
 #endif

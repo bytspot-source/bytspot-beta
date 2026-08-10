@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import UIKit
 @testable import App
 
 private final class NativePartyURLProtocolStub: URLProtocol {
@@ -240,7 +241,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     func testVenueDetailCapabilityBindings() {
         XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })?.kind, .capability(.saveToWallet))
-        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind, .capability(.createCheckoutHold))
+        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind, .device)
         XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "checkIn" })?.kind, .authedWrite(endpoint: "venues.checkin", idempotent: true))
     }
 
@@ -1471,6 +1472,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeMembershipTierStore.findBool(named: "isPremium", in: payload), false)
     }
 
+    func testMembershipDecodePrefersExplicitBlackTier() {
+        let payload: [String: Any] = ["result": ["data": ["json": ["membershipTier": "black", "isPremium": true]]]]
+        XCTAssertEqual(NativeMembershipTierStore.findString(named: "membershipTier", in: payload), "black")
+        XCTAssertEqual(BytspotTier(rawValue: NativeMembershipTierStore.findString(named: "membershipTier", in: payload) ?? ""), .black)
+    }
+
     func testMembershipDecodeFailsSafeWhenKeyMissing() {
         let payload: [String: Any] = ["result": ["data": ["isVendorPremium": true]]]
         XCTAssertNil(NativeMembershipTierStore.findBool(named: "isPremium", in: payload))
@@ -1497,10 +1504,10 @@ final class BytspotTrustEngineTests: XCTestCase {
 
 final class NativeProfileDataAPITests: XCTestCase {
     func testTRPCDecodeUnwrapsSuperjsonProfileEnvelope() throws {
-        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Avery Parker", "phone": "+1 404 555 0198", "address": "Atlanta, GA", "birthday": "1994-04-03"]]]]
+        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Test Member", "phone": "+1 555 0100", "address": "Example City", "birthday": "1994-04-03"]]]]
         let record = try decode(NativeUserProfileRecord.self, from: envelope)
         XCTAssertEqual(record.email, "member@example.com")
-        XCTAssertEqual(record.name, "Avery Parker")
+        XCTAssertEqual(record.name, "Test Member")
     }
 
     func testTRPCDecodeUnwrapsVehicleArrayEnvelope() throws {
@@ -1755,16 +1762,107 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePartyStudioAPI.publishedParty(from: ["shareUrl": "https://evil.example/party/1", "passCode": "BAD"], fallbackID: "party-1", draft: partyDraft()))
     }
 
+    func testNativeHostStudioPublishFailuresGiveActionableSafeMessages() {
+        let expired = BytspotAPIClient.APIError.server(status: 401, body: "")
+        let invalidDraft = BytspotAPIClient.APIError.server(status: 422, body: "")
+        let limited = BytspotAPIClient.APIError.server(status: 429, body: "")
+
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: expired), "Your sign-in session expired. Sign in again before publishing.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: invalidDraft), "Review the party setup and try again.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: limited), "Too many publish attempts. Wait a moment and try again.")
+    }
+
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
-        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
         XCTAssertEqual(release.validationMessage, "Add the release title.")
 
-        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
+        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
         XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
 
-        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
+        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
+    }
+
+    func testPartyShareQRRendersConcreteImageWithDarkModules() throws {
+        let image = NativePartyShareQR.image("https://bytspot.app/party/party-1")
+        let cgImage = try XCTUnwrap(image.cgImage)
+        XCTAssertGreaterThan(cgImage.width, 0)
+        XCTAssertGreaterThan(cgImage.height, 0)
+
+        let width = 64
+        let height = 64
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.interpolationQuality = .none
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        XCTAssertTrue(rendered)
+        let hasDarkModule = stride(from: 0, to: pixels.count, by: 4).contains { index in
+            pixels[index] < 64 && pixels[index + 1] < 64 && pixels[index + 2] < 64
+        }
+        XCTAssertTrue(hasDarkModule, "The Party share QR must contain visible scannable modules.")
+    }
+
+    func testSuccessfulPartyPublishClearsProgressBeforePartyPassIsShown() {
+        let party = NativePublishedParty(
+            id: "party-1",
+            shareURL: URL(string: "https://bytspot.app/party/party-1")!,
+            passCode: "BYT-1234",
+            draft: partyDraft()
+        )
+        var presentation = NativePartyPassPresentation()
+        presentation.message = "Preparing Party media…"
+
+        presentation.completePublish(with: party)
+
+        XCTAssertTrue(presentation.isPartyPassVisible)
+        XCTAssertEqual(presentation.party, party)
+        XCTAssertEqual(presentation.message, "")
+    }
+
+    func testArrivalLookupFailureAfterPublishKeepsPartyPassAndClearStatus() {
+        let party = NativePublishedParty(
+            id: "party-1",
+            shareURL: URL(string: "https://bytspot.app/party/party-1")!,
+            passCode: "BYT-1234",
+            draft: partyDraft()
+        )
+        var presentation = NativePartyPassPresentation()
+        presentation.message = "Preparing Party media…"
+        presentation.completePublish(with: party)
+
+        presentation.completeArrivalLookupFailure()
+
+        XCTAssertTrue(presentation.isPartyPassVisible)
+        XCTAssertEqual(presentation.party, party)
+        XCTAssertEqual(presentation.message, "")
+    }
+
+    func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
+        let presenter = UIViewController()
+        presenter.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+
+        let activity = NativePartySharePresentation.activityController(
+            for: try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1")),
+            presenter: presenter
+        )
+        let popover = try XCTUnwrap(activity.popoverPresentationController)
+
+        XCTAssertTrue(popover.sourceView === presenter.view)
+        XCTAssertEqual(popover.sourceRect, presenter.view.bounds)
+        XCTAssertEqual(popover.permittedArrowDirections, [])
     }
 
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {
@@ -1843,9 +1941,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     func testAuthMutationInputsTrimAndNormalizeWithoutLoggingSecrets() {
-        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Avery Parker ", ref: " ab12 ")
+        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Test Member ", ref: " ab12 ")
         XCTAssertEqual(signup["email"] as? String, "member@example.com")
-        XCTAssertEqual(signup["name"] as? String, "Avery Parker")
+        XCTAssertEqual(signup["name"] as? String, "Test Member")
         XCTAssertEqual(signup["ref"] as? String, "AB12")
 
         let login = NativeAuthDataAPI.loginInput(email: " member@example.com ", password: "pw")
@@ -1880,6 +1978,32 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let service = try XCTUnwrap(NSDictionary(contentsOf: serviceURL) as? [String: Any])
         let iosClientID = try XCTUnwrap(service["CLIENT_ID"] as? String)
         XCTAssertNotEqual(serverClientID, iosClientID)
+    }
+
+    func testGoogleSignInFailuresIdentifyTheirSafeBoundary() {
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleConfigurationUnavailable.status,
+            .failed(message: "Google Sign-In isn't configured in this app build. Use email or try again later.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleProviderFailed.status,
+            .failed(message: "Google Sign-In didn't complete. Please try again.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleBackendVerificationFailed.status,
+            .failed(message: "Google confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        )
+    }
+
+    func testAppleSignInFailuresIdentifyTheirSafeBoundary() {
+        XCTAssertEqual(
+            NativeAuthAdapterError.appleProviderFailed.status,
+            .failed(message: "Apple Sign-In didn't complete. Confirm your Apple Account in Settings, then try again.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.appleBackendVerificationFailed.status,
+            .failed(message: "Apple confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        )
     }
 
     @MainActor
@@ -1997,7 +2121,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
 
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
         XCTAssertEqual(NativeMigrationConfig.selfTestsEnvironmentKey, "BYT_NATIVE_SELF_TESTS")
-        XCTAssertEqual(NativeAuthRouteContract.googleNativeSurface, "native_ios")
+        XCTAssertEqual(NativeAuthRouteContract.googleConsumerSurface, "parker")
         XCTAssertEqual(NativeAuthLaunchContract.splashTagline, "Your perfect spot awaits")
         XCTAssertEqual(NativeAuthLaunchContract.splashCapabilities, ["Parking", "Venues", "AI-Powered"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")

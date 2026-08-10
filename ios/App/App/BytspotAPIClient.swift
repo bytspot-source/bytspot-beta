@@ -8,9 +8,19 @@ struct BytspotAPIClient {
         case server(status: Int, body: String)
     }
 
-    var baseURL: URL = URL(string: "https://bytspot-api.onrender.com")!
+    var baseURL: URL = configuredBaseURL
     var tokenProvider: () -> String? = { nil }
     var urlSession: URLSession = .shared
+
+    private static var configuredBaseURL: URL {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
+           let url = URL(string: raw), url.scheme?.lowercased() == "https" {
+            return url
+        }
+        #endif
+        return URL(string: "https://bytspot-api.onrender.com")!
+    }
 
     func makeRequest(path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidURL }
@@ -401,6 +411,25 @@ enum NativePartyStudioError: LocalizedError, Equatable {
         case .missingPartyPass: return "The Party Pass was not returned."
         case .sessionChanged: return "Your session changed. Reopen Host Studio to continue."
         }
+    }
+
+    static func publishUserMessage(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn't reach Bytspot. Check your connection and try again."
+        }
+        if case let BytspotAPIClient.APIError.server(status, _) = error {
+            switch status {
+            case 401: return "Your sign-in session expired. Sign in again before publishing."
+            case 403: return "This account is not allowed to publish this party."
+            case 404: return "Party publishing is unavailable on the current service."
+            case 409: return "This party is already being published. Wait a moment and try again."
+            case 422: return "Review the party setup and try again."
+            case 429: return "Too many publish attempts. Wait a moment and try again."
+            default: return "The service could not publish this party. Please try again."
+            }
+        }
+        return (error as? LocalizedError)?.errorDescription ?? "The party could not be published."
     }
 }
 
@@ -1041,7 +1070,9 @@ struct NativeAuthResponse: Codable, Equatable {
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
-    static let googleNativeSurface = "native_ios"
+    // The deployed backend currently recognizes the consumer Google flow as
+    // "parker"; this is an API contract rather than the operating system.
+    static let googleConsumerSurface = "parker"
     static let passwordRecoveryRoutes = ["/#/forgot-password", "/forgot-password", "/#/reset-password", "/reset-password"]
 }
 
@@ -1056,7 +1087,7 @@ struct NativeAuthDataAPI {
     }
 
     func googleSignIn(idToken: String) async throws -> NativeAuthResponse {
-        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleNativeSurface])
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleConsumerSurface])
     }
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
@@ -1124,7 +1155,7 @@ struct NativeProfileDataAPI {
         return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
     }
 
-    static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Avery Parker", phone: "+1 404 555 0198", profileImage: nil, address: "Atlanta, GA", birthday: "1994-04-03")
+    static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Preview Member", phone: "+1 555 0100", profileImage: nil, address: "Example City", birthday: "1994-04-03")
     static let fixtureVehicles = [NativeVehicleRecord(id: "veh_fixture_1", type: "sedan", make: "Tesla", model: "Model 3", year: 2026, color: "Midnight Blue", licensePlate: "BYT-424", photo: nil, vin: nil, transmissionType: "automatic", trunkCategory: "full")]
     static let fixturePaymentMethods = [NativePaymentMethodRecord(id: "pm_fixture_1", type: "card", brand: "visa", last4: "4242", expiryMonth: "04", expiryYear: "30", isDefault: true)]
     static let fixtureNotificationPreferences = NativeNotificationPreferences.webDefaults
@@ -1396,8 +1427,8 @@ final class NativeAPIState: ObservableObject {
     }
 }
 
-/// Live canonical-membership source for the Map Functions gate. The backend's
-/// legacy isPremium boolean maps to Platinum; guests and failures fail closed to Green.
+/// Live canonical-membership source for the Map Functions gate. Explicit server
+/// tiers take precedence; the legacy isPremium boolean maps to Platinum.
 @MainActor
 final class NativeMembershipTierStore: ObservableObject {
     @Published private(set) var tier: BytspotTier = .membershipPreview
@@ -1421,7 +1452,9 @@ final class NativeMembershipTierStore: ObservableObject {
                 expectedToken: expectedToken, currentToken: sessionStore.token,
                 expectedUserID: expectedUserID, currentUserID: sessionStore.authenticatedUserID
             ) else { return }
-            tier = Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green
+            tier = Self.findString(named: "membershipTier", in: payload)
+                .flatMap(BytspotTier.init(rawValue:))
+                ?? (Self.findBool(named: "isPremium", in: payload) == true ? .platinum : .green)
         } catch {
             guard generation == refreshGeneration else { return }
             tier = .green
@@ -1444,6 +1477,14 @@ final class NativeMembershipTierStore: ObservableObject {
         if let flag = dict[name] as? Bool { return flag }
         if let number = dict[name] as? NSNumber { return number.boolValue }
         for child in dict.values { if let found = findBool(named: name, in: child) { return found } }
+        return nil
+    }
+
+    /// Mirrors findBool for the plain and SuperJSON tRPC envelope shapes.
+    nonisolated static func findString(named name: String, in value: Any) -> String? {
+        guard let dict = value as? [String: Any] else { return nil }
+        if let value = dict[name] as? String { return value }
+        for child in dict.values { if let found = findString(named: name, in: child) { return found } }
         return nil
     }
 }

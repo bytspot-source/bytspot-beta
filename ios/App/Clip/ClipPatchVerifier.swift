@@ -274,7 +274,7 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "platinum-valet", title: "Valet Service", subtitle: "Hand off the keys. Retrieval in under 5 minutes.", action: "Book Valet", iconName: "key.fill", tintName: "cyan", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "valet"),
                 ClipLocalService(id: "platinum-dining", title: "Reserve a Table", subtitle: "Priority seating at top neighborhood restaurants.", action: "Reserve Table", iconName: "fork.knife", tintName: "violet", priceLabel: "From $65", amountCents: 6_500, currency: "USD", source: "curated", heroImageURL: nil, category: "dining"),
                 ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events"),
-                ClipLocalService(id: "platinum-rideshare", title: "Premium Rideshare", subtitle: "On-demand SUV and black-car pickup nearby.", action: "Request Ride", iconName: "car.side.fill", tintName: "cyan", priceLabel: "From $35", amountCents: 3_500, currency: "USD", source: "curated", heroImageURL: nil, category: "rideshare"),
+                ClipLocalService(id: "platinum-arrival", title: "Premium Arrival", subtitle: "Coordinate your arrival with Concierge or open a provider from an authorized Party Pass.", action: "Open Arrival Help", iconName: "car.side.fill", tintName: "cyan", priceLabel: nil, amountCents: 0, currency: "USD", source: "curated", heroImageURL: nil, category: "arrival"),
                 ClipLocalService(id: "platinum-bottle", title: "Nightlife Event Access", subtitle: "VIP table access, digital entry pass, and host-led arrival.", action: "Buy Pass", iconName: "wineglass.fill", tintName: "violet", priceLabel: "From $250", amountCents: 25_000, currency: "USD", source: "curated", heroImageURL: nil, category: "nightlife"),
                 ClipLocalService(id: "platinum-experience", title: "Local Experiences", subtitle: "Curated tours, tastings, and city experiences.", action: "Book Experience", iconName: "sparkles", tintName: "emerald", priceLabel: "From $85", amountCents: 8_500, currency: "USD", source: "curated", heroImageURL: nil, category: "experience")
             ], tier: tier)
@@ -672,6 +672,7 @@ struct ClipPaymentSecureResult: Equatable {
     let bookingId: String?
     let status: String
     let message: String
+    let amountCents: Int
 }
 
 /// Thin REST client for the Clip target. Mirrors the App's tRPC shape but
@@ -844,7 +845,8 @@ struct ClipPatchVerifier {
             partyID: resolvedPartyID,
             action: action,
             guestStatus: Self.string(guest?["status"]) ?? "unknown",
-            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass)
+            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass),
+            premiumMobilityEligible: (root["premiumMobilityEligible"] as? Bool) ?? false
         )
     }
 
@@ -856,10 +858,52 @@ struct ClipPatchVerifier {
 
     func createPartyTicketCheckout(partyID: String, ticketTierName: String, idempotencyKey: String) async throws -> URL {
         let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
-        guard let root = payload as? [String: Any],
-              let rawURL = Self.string(root["url"]),
-              let url = Self.normalizedStripeCheckoutURL(rawURL) else { throw VerifyError.decode }
+        guard let url = Self.partyStripeCheckoutURL(from: payload) else { throw VerifyError.decode }
         return url
+    }
+
+    /// The server verifies both Party access and membership entitlement, then
+    /// returns a provider URL based only on the host-bound registered venue.
+    func createPartyArrivalHandoff(partyID: String, provider: ClipPartyHandoffProvider) async throws -> URL {
+        let payload = try await postTRPC("events.arrival.handoff", input: ["partyId": partyID, "provider": provider.rawValue])
+        guard let url = Self.partyArrivalHandoffURL(from: payload, provider: provider) else { throw VerifyError.decode }
+        return url
+    }
+
+    static func partyArrivalHandoffURL(from payload: Any, provider: ClipPartyHandoffProvider) -> URL? {
+        guard let root = payload as? [String: Any],
+              Self.string(root["provider"]) == provider.rawValue,
+              Self.string(root["trackingMode"]) == "handoff-only",
+              let rawURL = Self.string(root["handoffUrl"]) else { return nil }
+        return normalizedPartyHandoffURL(rawURL)
+    }
+
+    static func normalizedPartyHandoffURL(_ candidate: String) -> URL? {
+        let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https" else { return nil }
+        let host = components.host?.lowercased()
+        if host == "m.uber.com", components.path == "/ul/" { return url }
+        if host == "ride.lyft.com", components.path == "/u" { return url }
+        return nil
+    }
+
+    /// Decodes only the documented Checkout response aliases, then routes every
+    /// candidate through the Stripe-host validation below. A server response can
+    /// use a session identifier or a hosted Checkout URL, but never an arbitrary
+    /// redirect destination.
+    static func partyStripeCheckoutURL(from payload: Any) -> URL? {
+        guard let root = payload as? [String: Any] else { return nil }
+        let checkout = root["checkout"] as? [String: Any]
+        let candidates: [Any?] = [
+            root["url"], root["checkoutUrl"], root["checkoutURL"], root["sessionId"], root["checkoutSessionId"],
+            checkout?["url"], checkout?["checkoutUrl"], checkout?["sessionId"]
+        ]
+        for candidate in candidates {
+            if let rawURL = Self.string(candidate), let url = normalizedStripeCheckoutURL(rawURL) { return url }
+        }
+        return nil
     }
 
     /// Party ticketing must only hand off to Stripe-hosted Checkout. Session IDs
@@ -873,8 +917,8 @@ struct ClipPatchVerifier {
         guard let url = URL(string: value),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == "https",
-              let host = components.host?.lowercased(),
-              host == "stripe.com" || host.hasSuffix(".stripe.com") else { return nil }
+              components.host?.lowercased() == "checkout.stripe.com",
+              components.path.hasPrefix("/c/pay/") else { return nil }
         return url
     }
 
@@ -983,7 +1027,8 @@ struct ClipPatchVerifier {
         return ClipPaymentSecureResult(
             bookingId: Self.string(root?["bookingId"]),
             status: Self.string(root?["status"]) ?? "authorized",
-            message: Self.string(root?["message"]) ?? "Apple Pay Secure authorized."
+            message: Self.string(root?["message"]) ?? "Apple Pay Secure authorized.",
+            amountCents: amountCents
         )
     }
 

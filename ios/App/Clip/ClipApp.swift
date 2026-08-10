@@ -142,11 +142,25 @@ enum ClipPartyPassAction: String, Equatable {
     case unavailable
 }
 
+enum ClipPartyHandoffProvider: String, Equatable {
+    case uber
+    case lyft
+}
+
 struct ClipPartyPassState: Equatable {
     let partyID: String
     let action: ClipPartyPassAction
     let guestStatus: String
     let accessGranted: Bool
+    let premiumMobilityEligible: Bool
+
+    init(partyID: String, action: ClipPartyPassAction, guestStatus: String, accessGranted: Bool, premiumMobilityEligible: Bool = false) {
+        self.partyID = partyID
+        self.action = action
+        self.guestStatus = guestStatus
+        self.accessGranted = accessGranted
+        self.premiumMobilityEligible = premiumMobilityEligible
+    }
 }
 
 struct ClipPartyTicketTier: Identifiable, Equatable {
@@ -170,6 +184,39 @@ struct ClipPartyTicketTier: Identifiable, Equatable {
     }
 }
 
+enum PartyHostDestinationKind: String, CaseIterable, Equatable {
+    case music
+    case merch
+    case website
+    case social
+
+    var title: String {
+        switch self {
+        case .music: return "Music"
+        case .merch: return "Merch"
+        case .website: return "Website"
+        case .social: return "Social"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .music: return "music.note"
+        case .merch: return "bag.fill"
+        case .website: return "globe"
+        case .social: return "person.crop.circle.fill"
+        }
+    }
+}
+
+struct PartyHostDestination: Identifiable, Equatable {
+    let kind: PartyHostDestinationKind
+    let label: String
+    let url: URL
+
+    var id: String { kind.rawValue }
+}
+
 /// The authoritative, Party-only representation used by `/party/<id>`.
 /// It intentionally has no Group Event fallback, fields, or API semantics.
 struct PartyPassInvite: Equatable {
@@ -186,6 +233,7 @@ struct PartyPassInvite: Equatable {
     let ticketTiers: [ClipPartyTicketTier]
     let itinerary: [String]
     let note: String?
+    let hostDestinations: [PartyHostDestination]
     let heroImageURL: URL?
     let thumbnailURL: URL?
 
@@ -205,18 +253,20 @@ struct PartyPassInvite: Equatable {
               let title = string(row["title"]),
               let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
               string(row["source"]) == "host-studio-party" else { return nil }
+        let host = object(row["host"])
         let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
         return Self(
             id: id, title: title, tier: tier,
-            hostName: string(row["hostName"]) ?? "Bytspot Host",
+            hostName: string(row["hostName"]) ?? string(row["host"]) ?? string(host?["name"]) ?? "Bytspot Host",
             scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
-            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : "Location shared after approval",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? string(row["location"]) ?? "Location pending") : "Location shared after approval",
             locationIsWithheld: !locationIsPublic,
             accessMode: string(row["accessMode"]) ?? "free-rsvp",
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
-            itinerary: (row["activityHighlights"] as? [Any])?.compactMap { string($0) } ?? [],
+            itinerary: stringArray(row["activityHighlights"]) ?? stringArray(row["highlights"]) ?? [],
             note: string(row["inviteNote"]),
+            hostDestinations: hostDestinations(row: row, host: host),
             heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
             thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))
         )
@@ -231,6 +281,50 @@ struct PartyPassInvite: Equatable {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
         return nil
+    }
+    private static func object(_ value: Any?) -> [String: Any]? { value as? [String: Any] }
+    private static func stringArray(_ value: Any?) -> [String]? {
+        guard let values = value as? [Any] else { return nil }
+        let strings = values.compactMap { item -> String? in
+            string(item) ?? object(item).flatMap { string($0["title"]) ?? string($0["name"]) ?? string($0["label"]) }
+        }
+        return strings.isEmpty ? nil : strings
+    }
+    private static func secureURL(_ value: Any?) -> URL? {
+        guard let value = string(value), let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
+        return url
+    }
+    private static func hostDestinations(row: [String: Any], host: [String: Any]?) -> [PartyHostDestination] {
+        let hostDestinations = object(host?["destinations"])
+        let rootDestinations = object(row["destinations"])
+        let sources = [row, host, rootDestinations, hostDestinations].compactMap { $0 }
+        func firstURL(_ keys: [String]) -> URL? {
+            for source in sources {
+                for key in keys {
+                    if let url = secureURL(source[key]) { return url }
+                }
+            }
+            return nil
+        }
+        var destinations: [PartyHostDestination] = []
+        if let url = firstURL(["musicUrl", "musicURL", "music"]) {
+            destinations.append(PartyHostDestination(kind: .music, label: "Listen", url: url))
+        }
+        if let url = firstURL(["merchUrl", "merchURL", "shopUrl", "shopURL", "merch"]) {
+            destinations.append(PartyHostDestination(kind: .merch, label: "Shop", url: url))
+        }
+        if let url = firstURL(["websiteUrl", "websiteURL", "website", "officialUrl", "officialURL"]) {
+            destinations.append(PartyHostDestination(kind: .website, label: "Visit website", url: url))
+        }
+        let social = sources.compactMap { object($0["primarySocial"]) }.first
+        let socialURL = secureURL(social?["url"]) ?? secureURL(social?["href"]) ?? firstURL(["primarySocialUrl", "primarySocialURL"])
+        if let socialURL {
+            let socialLabel = string(social?["platform"]) ?? string(social?["label"]) ?? sources.lazy.compactMap { string($0["primarySocialPlatform"]) }.first ?? PartyHostDestinationKind.social.title
+            destinations.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
+        }
+        return destinations
     }
     private static func displayDate(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -545,8 +639,32 @@ enum ClipFlowStep: Equatable {
     case party(PartyPassInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
-    case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
+    case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int)
 }
+
+#if DEBUG
+/// Supplies a deterministic access state only for the explicit simulator Party
+/// walkthrough. Real Party links must always be resolved by the server.
+enum ClipPartyPassPreview {
+    static func state(for invocationURL: URL?, partyID: String) -> ClipPartyPassState? {
+        guard let invocationURL,
+              let components = URLComponents(url: invocationURL, resolvingAgainstBaseURL: false),
+              partyID == "party-preview-1",
+              components.path.isEmpty || components.path == "/",
+              let step = components.queryItems?.first(where: { $0.name == "step" })?.value?.lowercased(),
+              ["party_loop", "host_party", "host_studio_party"].contains(step) else { return nil }
+        let requestedAction = components.queryItems?.first(where: { $0.name == "previewAction" })?.value.flatMap(ClipPartyPassAction.init(rawValue:))
+        let action = requestedAction.flatMap { [.rsvp, .requestApproval, .ticket, .viewPass, .unavailable].contains($0) ? $0 : nil } ?? .rsvp
+        let guestStatus = action == .unavailable ? "pending" : action == .viewPass ? "joined" : "not_joined"
+        return ClipPartyPassState(partyID: partyID, action: action, guestStatus: guestStatus, accessGranted: action == .viewPass)
+    }
+
+    static func confirmedRSVP(for invocationURL: URL?, partyID: String) -> ClipPartyPassState? {
+        guard state(for: invocationURL, partyID: partyID)?.action == .rsvp else { return nil }
+        return ClipPartyPassState(partyID: partyID, action: .viewPass, guestStatus: "joined", accessGranted: true)
+    }
+}
+#endif
 
 enum ClipVendorFilter: String, CaseIterable, Identifiable {
     case now = "Now"
@@ -575,6 +693,7 @@ final class ClipInvocationModel: ObservableObject {
     @Published var vendorFilter: ClipVendorFilter = .now
     @Published var guestCount: Int = 1
     @Published var lineItemQuantities: [String: Int] = [:]
+    @Published private(set) var selectedPartyTicketTier: ClipPartyTicketTier?
 
     private let api = ClipPatchVerifier()
     private var loadTask: Task<Void, Never>?
@@ -601,6 +720,7 @@ final class ClipInvocationModel: ObservableObject {
         vendorFilter = .now
         guestCount = 1
         resetLineItems()
+        selectedPartyTicketTier = nil
         patchContext = nil
         verificationState = .idle
         contextError = nil
@@ -665,7 +785,16 @@ final class ClipInvocationModel: ObservableObject {
     /// If the full app is not installed, the view layer falls back to SKOverlay.
     var mainAppHandoffURL: URL? {
         if case .party(let invite) = flow {
-            return invite.handoffURL
+            guard var components = URLComponents(url: invite.handoffURL ?? URL(string: "https://bytspot.app/party/")!, resolvingAgainstBaseURL: false),
+                  let selectedPartyTicketTier else { return invite.handoffURL }
+            var queryItems = components.queryItems ?? []
+            queryItems.append(contentsOf: [
+                URLQueryItem(name: "ticketTier", value: selectedPartyTicketTier.name),
+                URLQueryItem(name: "ticketTierCents", value: String(selectedPartyTicketTier.priceCents)),
+                URLQueryItem(name: "ticketTierAccess", value: selectedPartyTicketTier.requiredMembershipTier)
+            ])
+            components.queryItems = queryItems
+            return components.url
         }
         let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
@@ -705,17 +834,17 @@ final class ClipInvocationModel: ObservableObject {
         case "party_loop", "host_party", "host_studio_party":
             let payload: [String: Any] = [
                 "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
-                "inviteNote": "One moment. Your people.", "tier": "green", "timing": "thisWeek",
+                "inviteNote": "One moment. Your people.", "tier": tier.rawValue, "timing": "thisWeek",
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
                 "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
-                "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public",
+                "hostName": "Demo Host", "locationLabel": "Preview Venue", "locationDisclosure": "public",
+                "host": ["destinations": ["musicUrl": "https://music.example.com/demo", "merchUrl": "https://shop.example.com/demo", "websiteUrl": "https://demo.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/demo"]]],
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",
                 "requiresApproval": false,
-                "heroImageURL": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
-                "photoURLs": ["https://res.cloudinary.com/demo/image/upload/sample.jpg", "https://res.cloudinary.com/demo/image/upload/woman.jpg"]
+                "ticketTiers": [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"], ["name": "Listening Room", "priceCents": 4500, "quantity": 12, "requiredMembershipTier": "green"]]
             ]
             guard let invite = PartyPassInvite.fromPayload(payload) else { return false }
             tier = invite.tier
@@ -750,7 +879,7 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_marine", "marine_success":
             guard let service = services.first(where: { service in
@@ -761,14 +890,14 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_gh_akwaaba", "success_fifa_matchday", "success_platinum_fifa":
             let service = ClipLocalService.platinumEventAccessService()
             let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
             guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("akwaaba") }) ?? fallbacks.first else { return false }
             vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_platinum_event", "platinum_event_success":
             guard let service = services.first(where: { service in
@@ -779,7 +908,7 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_platinum_nightlife", "platinum_nightlife_success", "success_platinum_bottle":
             guard let service = services.first(where: { service in
@@ -790,7 +919,7 @@ final class ClipInvocationModel: ObservableObject {
             let vendor = fallbacks.first ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
             return true
         case "black_ride", "ride", "valet":
             openValetBoutiqueServices()
@@ -819,8 +948,15 @@ final class ClipInvocationModel: ObservableObject {
         flow = .checkout(service: service, vendor: vendor)
     }
 
-    func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String) {
-        flow = .success(service: service, vendor: vendor, bookingRef: bookingRef)
+    func selectPartyTicketTier(_ ticketTier: ClipPartyTicketTier, partyID: String) {
+        guard case .party(let invite) = flow,
+              invite.id == partyID,
+              invite.ticketTiers.contains(ticketTier) else { return }
+        selectedPartyTicketTier = ticketTier
+    }
+
+    func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int) {
+        flow = .success(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents)
     }
 
     func openValetBoutiqueServices() {

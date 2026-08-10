@@ -39,11 +39,26 @@ struct NativeAuthAdapterResult: Equatable {
 
 enum NativeAuthAdapterError: Error, Equatable {
     case requiresLegacyFallback(provider: NativeAuthProvider)
+    case appleProviderFailed
+    case appleBackendVerificationFailed
+    case googleConfigurationUnavailable
+    case googleProviderFailed
+    case googleBackendVerificationFailed
     case mockedFailure(provider: NativeAuthProvider)
 
     var status: NativeAuthStatus {
         switch self {
         case .requiresLegacyFallback(let provider): return .requiresLegacyFallback(provider: provider)
+        case .appleProviderFailed:
+            return .failed(message: "Apple Sign-In didn't complete. Confirm your Apple Account in Settings, then try again.")
+        case .appleBackendVerificationFailed:
+            return .failed(message: "Apple confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        case .googleConfigurationUnavailable:
+            return .failed(message: "Google Sign-In isn't configured in this app build. Use email or try again later.")
+        case .googleProviderFailed:
+            return .failed(message: "Google Sign-In didn't complete. Please try again.")
+        case .googleBackendVerificationFailed:
+            return .failed(message: "Google confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
         case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
@@ -169,25 +184,44 @@ private struct LegacyFallbackGoogleAuthAdapter: GoogleAuthAdapter {
 @MainActor
 private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
     func signIn() async throws -> NativeAuthAdapterResult {
+        Self.clearGoogleProviderFailure()
         guard let presentingViewController = Self.presentingViewController() else {
             throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
         }
         try Self.configureIfNeeded()
-        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
-        let user = try await Self.refreshedUser(result.user)
-        guard let idToken = user.idToken?.tokenString, !idToken.isEmpty else {
-            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+        let result: GIDSignInResult
+        do {
+            result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+        } catch {
+            Self.recordGoogleProviderFailure(error)
+            throw NativeAuthAdapterError.googleProviderFailed
         }
-        let response = try await NativeAuthDataAPI(client: BytspotAPIClient()).googleSignIn(idToken: idToken)
+        let user: GIDGoogleUser
+        do {
+            user = try await Self.refreshedUser(result.user)
+        } catch {
+            Self.recordGoogleProviderFailure(error)
+            throw NativeAuthAdapterError.googleProviderFailed
+        }
+        guard let idToken = user.idToken?.tokenString, !idToken.isEmpty else {
+            throw NativeAuthAdapterError.googleProviderFailed
+        }
+        let response: NativeAuthResponse
+        do {
+            response = try await NativeAuthDataAPI(client: BytspotAPIClient()).googleSignIn(idToken: idToken)
+        } catch {
+            Self.recordGoogleBackendFailure(error)
+            throw NativeAuthAdapterError.googleBackendVerificationFailed
+        }
         guard let token = response.token, !token.isEmpty else {
-            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+            throw NativeAuthAdapterError.googleBackendVerificationFailed
         }
         return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name)
     }
 
     private static func configureIfNeeded() throws {
         guard let clientID = googleServiceString("CLIENT_ID") else {
-            throw NativeAuthAdapterError.requiresLegacyFallback(provider: .google)
+            throw NativeAuthAdapterError.googleConfigurationUnavailable
         }
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(
             clientID: clientID,
@@ -209,6 +243,40 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
         return trimmed
+    }
+
+    private static func recordGoogleProviderFailure(_ error: Error) {
+        #if DEBUG
+        // Keep troubleshooting safe: persist only the provider code, never
+        // tokens, account data, or the provider's error message.
+        let providerError = error as NSError
+        let code = providerError.code
+        UserDefaults.standard.set(code, forKey: "bytspot_debug_google_provider_failure_code")
+        UserDefaults.standard.set(
+            providerError.domain == kGIDSignInErrorDomain,
+            forKey: "bytspot_debug_google_provider_failure_is_google_domain"
+        )
+        #endif
+    }
+
+    private static func clearGoogleProviderFailure() {
+        #if DEBUG
+        UserDefaults.standard.removeObject(forKey: "bytspot_debug_google_provider_failure_code")
+        UserDefaults.standard.removeObject(forKey: "bytspot_debug_google_provider_failure_is_google_domain")
+        UserDefaults.standard.removeObject(forKey: "bytspot_debug_google_backend_failure_status")
+        #endif
+    }
+
+    private static func recordGoogleBackendFailure(_ error: Error) {
+        #if DEBUG
+        let status: Int
+        if case let BytspotAPIClient.APIError.server(httpStatus, _) = error {
+            status = httpStatus
+        } else {
+            status = 0
+        }
+        UserDefaults.standard.set(status, forKey: "bytspot_debug_google_backend_failure_status")
+        #endif
     }
 
     private static func refreshedUser(_ user: GIDGoogleUser) async throws -> GIDGoogleUser {
@@ -244,6 +312,7 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
     private var continuation: CheckedContinuation<NativeAuthAdapterResult, Error>?
 
     func signIn() async throws -> NativeAuthAdapterResult {
+        Self.clearAppleFailure()
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = [.fullName, .email]
         return try await withCheckedThrowingContinuation { continuation in
@@ -259,7 +328,7 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let tokenData = credential.identityToken,
               let identityToken = String(data: tokenData, encoding: .utf8) else {
-            finish(.failure(NativeAuthAdapterError.requiresLegacyFallback(provider: .apple)))
+            finish(.failure(NativeAuthAdapterError.appleProviderFailed))
             return
         }
         let displayName = [credential.fullName?.givenName, credential.fullName?.familyName]
@@ -270,16 +339,18 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
             do {
                 let api = NativeAuthDataAPI(client: BytspotAPIClient())
                 let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
-                guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.requiresLegacyFallback(provider: .apple) }
+                guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.appleBackendVerificationFailed }
                 finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
             } catch {
-                finish(.failure(error))
+                Self.recordAppleBackendFailure(error)
+                finish(.failure(NativeAuthAdapterError.appleBackendVerificationFailed))
             }
         }
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        finish(.failure(error))
+        Self.recordAppleProviderFailure(error)
+        finish(.failure(NativeAuthAdapterError.appleProviderFailed))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -295,6 +366,31 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
         case .success(let value): continuation.resume(returning: value)
         case .failure(let error): continuation.resume(throwing: error)
         }
+    }
+
+    private static func clearAppleFailure() {
+        #if DEBUG
+        UserDefaults.standard.removeObject(forKey: "bytspot_debug_apple_provider_failure_code")
+        UserDefaults.standard.removeObject(forKey: "bytspot_debug_apple_backend_failure_status")
+        #endif
+    }
+
+    private static func recordAppleProviderFailure(_ error: Error) {
+        #if DEBUG
+        UserDefaults.standard.set((error as NSError).code, forKey: "bytspot_debug_apple_provider_failure_code")
+        #endif
+    }
+
+    private static func recordAppleBackendFailure(_ error: Error) {
+        #if DEBUG
+        let status: Int
+        if case let BytspotAPIClient.APIError.server(httpStatus, _) = error {
+            status = httpStatus
+        } else {
+            status = 0
+        }
+        UserDefaults.standard.set(status, forKey: "bytspot_debug_apple_backend_failure_status")
+        #endif
     }
 }
 

@@ -5,15 +5,15 @@ final class NativePartyArrivalTests: XCTestCase {
     private func context(provider: String = "apple-maps", latitude: Double = 33.749, longitude: Double = -84.388) -> NativePartyArrivalContext {
         NativePartyArrivalContext(
             partyId: "party-1",
-            destination: .init(venueId: "venue-1", name: "The Loft", address: "100 Peachtree St", latitude: latitude, longitude: longitude),
+            destination: .init(venueId: "venue-1", name: "Sample Venue", address: "1 Example Way", latitude: latitude, longitude: longitude),
             map: .init(provider: provider, directionsUrl: "http://maps.apple.com/?daddr=33.749,-84.388")
         )
     }
 
-    func testAppleMapsItemUsesTheVerifiedDestinationCoordinates() throws {
+    func testAppleMapsItemUsesTheAuthorizedDestinationCoordinates() throws {
         let item = try XCTUnwrap(context().appleMapsItem)
 
-        XCTAssertEqual(item.name, "The Loft")
+        XCTAssertEqual(item.name, "Sample Venue")
         XCTAssertEqual(item.placemark.coordinate.latitude, 33.749, accuracy: 0.000_001)
         XCTAssertEqual(item.placemark.coordinate.longitude, -84.388, accuracy: 0.000_001)
     }
@@ -24,13 +24,12 @@ final class NativePartyArrivalTests: XCTestCase {
         XCTAssertNil(context(longitude: -181).appleMapsItem)
     }
 
-    func testVenueCandidateListRequiresThePublishedVerifiedVenueSignal() {
+    func testVenueCandidateListRequiresAnExactRegisteredVenueNameMatch() {
         let payload: [String: Any] = ["venues": [
-            ["id": "unverified", "name": "The Loft", "address": "100 Peachtree St"],
-            ["id": "wrong-name", "name": "Other Loft", "address": "100 Peachtree St", "hardwarePatch": ["verifiedVenue": true]],
-            ["id": "verified", "name": "The Loft", "address": "100 Peachtree St", "hardwarePatch": ["verifiedVenue": true]],
+            ["id": "match", "name": "Sample Venue", "address": "1 Example Way"],
+            ["id": "wrong-name", "name": "Other Venue", "address": "1 Example Way"],
         ]]
 
-        XCTAssertEqual(NativePartyArrivalAPI.verifiedVenueCandidates(from: payload, named: " The   Loft ").map(\.id), ["verified"])
+        XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: " Sample   Venue ").map(\.id), ["match"])
     }
 }

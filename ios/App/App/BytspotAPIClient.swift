@@ -1143,7 +1143,7 @@ struct NativeProfileDataAPI {
         return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
     }
 
-    static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Avery Parker", phone: "+1 404 555 0198", profileImage: nil, address: "Atlanta, GA", birthday: "1994-04-03")
+    static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Preview Member", phone: "+1 555 0100", profileImage: nil, address: "Example City", birthday: "1994-04-03")
     static let fixtureVehicles = [NativeVehicleRecord(id: "veh_fixture_1", type: "sedan", make: "Tesla", model: "Model 3", year: 2026, color: "Midnight Blue", licensePlate: "BYT-424", photo: nil, vin: nil, transmissionType: "automatic", trunkCategory: "full")]
     static let fixturePaymentMethods = [NativePaymentMethodRecord(id: "pm_fixture_1", type: "card", brand: "visa", last4: "4242", expiryMonth: "04", expiryYear: "30", isDefault: true)]
     static let fixtureNotificationPreferences = NativeNotificationPreferences.webDefaults

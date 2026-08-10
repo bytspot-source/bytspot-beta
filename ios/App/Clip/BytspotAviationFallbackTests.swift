@@ -223,14 +223,14 @@ enum BytspotAviationFallbackTests {
 #endif
 
     private static func assertHostStudioPartyMappingContract() {
-        var dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
-        dto["host"] = ["destinations": ["musicUrl": "https://music.example.com/avery", "merchUrl": "https://shop.example.com/avery", "websiteUrl": "https://avery.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/avery"]]]
+        var dto: [String: Any] = ["id": "party-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "timing": "thisWeek", "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp", "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"], "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public", "guestSummary": "3 joined · 80 spots", "activityHighlights": ["Doors open"], "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite", "requiresApproval": false, "heroImageURL": "https://res.cloudinary.com/bytspot/image/upload/cover.jpg", "photoURLs": ["https://res.cloudinary.com/bytspot/image/upload/album-0.jpg"]]
+        dto["host"] = ["destinations": ["musicUrl": "https://music.example.com/demo", "merchUrl": "https://shop.example.com/demo", "websiteUrl": "https://demo.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/demo"]]]
         dto["ticketTiers"] = [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"]]
         let envelope: [String: Any] = ["result": ["data": ["json": dto]]]
         let invite = PartyPassInvite.fromPayload(ClipPatchVerifier.unwrapTRPCValue(envelope))
         precondition(invite != nil, "Party Loop: App Clip must decode the Host Studio Party DTO into its dedicated Party model.")
         precondition(invite?.title == "First Listen" && invite?.capacity == 80, "Party Loop: title/capacity mapping drifted.")
-        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
+        precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "Sample Venue", "Party Loop: access/location mapping drifted.")
         precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
         precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
         var genericSocialDTO = dto
@@ -258,6 +258,9 @@ enum BytspotAviationFallbackTests {
         precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackExpandedBooking.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://m.uber.com/ul/?action=setPickup")?.host == "m.uber.com", "Party Loop: only HTTPS Uber handoff URLs may open from the Party Pass.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://ride.lyft.com/u?id=lyft")?.host == "ride.lyft.com", "Party Loop: only HTTPS Lyft handoff URLs may open from the Party Pass.")
+        precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://untrusted.example/handoff") == nil, "Party Loop: arbitrary Party handoff URLs must fail closed.")
         var protectedPopUp = dto
         protectedPopUp["templateId"] = "pop-up"
         protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
@@ -338,7 +341,7 @@ enum BytspotAviationFallbackTests {
             !PartyPassPresentationRules.canStartTicketSelection(for: ClipPartyPassState(partyID: "party-preview-1", action: .ticket, guestStatus: "not_joined", accessGranted: false), tiers: []),
             "Party Loop: ticket selection must fail closed when the server provides no ticket tiers."
         )
-        let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public"]
+        let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public"]
         precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
     }
 }

@@ -142,11 +142,25 @@ enum ClipPartyPassAction: String, Equatable {
     case unavailable
 }
 
+enum ClipPartyHandoffProvider: String, Equatable {
+    case uber
+    case lyft
+}
+
 struct ClipPartyPassState: Equatable {
     let partyID: String
     let action: ClipPartyPassAction
     let guestStatus: String
     let accessGranted: Bool
+    let premiumMobilityEligible: Bool
+
+    init(partyID: String, action: ClipPartyPassAction, guestStatus: String, accessGranted: Bool, premiumMobilityEligible: Bool = false) {
+        self.partyID = partyID
+        self.action = action
+        self.guestStatus = guestStatus
+        self.accessGranted = accessGranted
+        self.premiumMobilityEligible = premiumMobilityEligible
+    }
 }
 
 struct ClipPartyTicketTier: Identifiable, Equatable {
@@ -819,8 +833,8 @@ final class ClipInvocationModel: ObservableObject {
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
                 "templateId": "listening-party", "templateConfig": ["kind": "listening-party", "format": "listening-session"],
                 "groupType": "Listening Party", "scheduledDate": "2026-08-10T20:00:00Z",
-                "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public",
-                "host": ["destinations": ["musicUrl": "https://music.example.com/avery", "merchUrl": "https://shop.example.com/avery", "websiteUrl": "https://avery.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/avery"]]],
+                "hostName": "Demo Host", "locationLabel": "Preview Venue", "locationDisclosure": "public",
+                "host": ["destinations": ["musicUrl": "https://music.example.com/demo", "merchUrl": "https://shop.example.com/demo", "websiteUrl": "https://demo.example.com", "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/demo"]]],
                 "theme": "One moment. Your people.", "guestSummary": "3 joined · 80 spots",
                 "activityHighlights": ["Doors open", "First listen", "Artist Q&A"],
                 "audienceCircle": "Selected Circles", "privacyStatus": "privateInvite",

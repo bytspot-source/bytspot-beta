@@ -1504,10 +1504,10 @@ final class BytspotTrustEngineTests: XCTestCase {
 
 final class NativeProfileDataAPITests: XCTestCase {
     func testTRPCDecodeUnwrapsSuperjsonProfileEnvelope() throws {
-        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Avery Parker", "phone": "+1 404 555 0198", "address": "Atlanta, GA", "birthday": "1994-04-03"]]]]
+        let envelope: [String: Any] = ["result": ["data": ["json": ["id": "user_1", "email": "member@example.com", "name": "Test Member", "phone": "+1 555 0100", "address": "Example City", "birthday": "1994-04-03"]]]]
         let record = try decode(NativeUserProfileRecord.self, from: envelope)
         XCTAssertEqual(record.email, "member@example.com")
-        XCTAssertEqual(record.name, "Avery Parker")
+        XCTAssertEqual(record.name, "Test Member")
     }
 
     func testTRPCDecodeUnwrapsVehicleArrayEnvelope() throws {
@@ -1773,13 +1773,13 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
-        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
         XCTAssertEqual(release.validationMessage, "Add the release title.")
 
-        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
+        let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
         XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
 
-        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
+        let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "Sample Venue", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
     }
@@ -1941,9 +1941,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     func testAuthMutationInputsTrimAndNormalizeWithoutLoggingSecrets() {
-        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Avery Parker ", ref: " ab12 ")
+        let signup = NativeAuthDataAPI.signupInput(email: " member@example.com ", password: "12345678", name: " Test Member ", ref: " ab12 ")
         XCTAssertEqual(signup["email"] as? String, "member@example.com")
-        XCTAssertEqual(signup["name"] as? String, "Avery Parker")
+        XCTAssertEqual(signup["name"] as? String, "Test Member")
         XCTAssertEqual(signup["ref"] as? String, "AB12")
 
         let login = NativeAuthDataAPI.loginInput(email: " member@example.com ", password: "pw")

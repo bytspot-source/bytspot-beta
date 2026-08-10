@@ -53,19 +53,18 @@ struct NativePartyArrivalAPI {
         return try JSONDecoder().decode(NativePartyArrivalContext.self, from: data)
     }
 
-    func matchingVerifiedVenues(named partyVenueName: String) async throws -> [NativePartyArrivalVenue] {
+    func matchingRegisteredVenues(named partyVenueName: String) async throws -> [NativePartyArrivalVenue] {
         let payload = try await client.trpcQueryPayload(path: "/trpc/venues.list", input: [:])
-        return Self.verifiedVenueCandidates(from: payload, named: partyVenueName)
+        return Self.registeredVenueCandidates(from: payload, named: partyVenueName)
     }
 
-    static func verifiedVenueCandidates(from payload: Any, named partyVenueName: String) -> [NativePartyArrivalVenue] {
+    static func registeredVenueCandidates(from payload: Any, named partyVenueName: String) -> [NativePartyArrivalVenue] {
         guard let root = payload as? [String: Any], let rows = root["venues"] as? [[String: Any]] else { return [] }
         let target = normalizedVenueName(partyVenueName)
         return rows.compactMap { row -> NativePartyArrivalVenue? in
             guard let id = clean(row["id"]), let name = clean(row["name"]),
-                  normalizedVenueName(name) == target,
-                  let hardwarePatch = row["hardwarePatch"] as? [String: Any], hardwarePatch["verifiedVenue"] as? Bool == true else { return nil }
-            return NativePartyArrivalVenue(id: id, name: name, address: clean(row["address"]) ?? "Verified Bytspot Venue")
+                  normalizedVenueName(name) == target else { return nil }
+            return NativePartyArrivalVenue(id: id, name: name, address: clean(row["address"]) ?? "Registered Bytspot Venue")
         }
     }
 

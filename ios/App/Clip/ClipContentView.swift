@@ -428,6 +428,14 @@ struct PartyPassClipView: View {
             Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
                 .disabled(isBusy || passState == nil || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
             Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            if passState?.premiumMobilityEligible == true {
+                HStack(spacing: 10) {
+                    partyHandoffButton(provider: .uber, title: "Open Uber")
+                    partyHandoffButton(provider: .lyft, title: "Open Lyft")
+                }
+                Text("Premium arrival handoff opens in your selected provider. Bytspot does not book or track this ride.")
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.54)).multilineTextAlignment(.center)
+            }
             Button { openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) } label: {
                 Label(arrivalPlanningTitle, systemImage: arrivalPlanningSymbol)
                     .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.80))
@@ -478,6 +486,26 @@ struct PartyPassClipView: View {
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
+    private func partyHandoffButton(provider: ClipPartyHandoffProvider, title: String) -> some View {
+        Button { Task { await openPartyArrivalHandoff(provider) } } label: {
+            Label(title, systemImage: "arrow.up.forward.app.fill").font(.system(size: 12, weight: .black, design: .rounded))
+                .foregroundColor(.white).frame(maxWidth: .infinity).frame(height: 40)
+                .background(Color.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 13))
+        }.buttonStyle(.plain).disabled(isBusy || passState?.premiumMobilityEligible != true)
+    }
+    @MainActor private func openPartyArrivalHandoff(_ provider: ClipPartyHandoffProvider) async {
+        guard !isBusy, passState?.premiumMobilityEligible == true else { return }
+        isPerformingAction = true
+        statusMessage = "Preparing secure provider handoff…"
+        defer { isPerformingAction = false }
+        do {
+            let handoffURL = try await ClipPatchVerifier().createPartyArrivalHandoff(partyID: invite.id, provider: provider)
+            statusMessage = "Opening \(provider.rawValue.capitalized)…"
+            openURL(handoffURL)
+        } catch {
+            statusMessage = "Premium arrival handoff is unavailable for this Party."
+        }
+    }
     private func createCheckout(for tier: ClipPartyTicketTier) {
         let idempotencyKey = UUID().uuidString
         invocation.selectPartyTicketTier(tier, partyID: invite.id)
@@ -3845,8 +3873,8 @@ struct ClipSuccessView: View {
                 actionRow(icon: "location.north.line.fill", title: isPlatinumParkingOrValetService ? "ETA to Parking" : "View Live Route & Valet", foreground: .black, background: LinearGradient(colors: [.white, ClipTheme.cyan.opacity(0.92)], startPoint: .leading, endPoint: .trailing))
             }.buttonStyle(.plain)
 
-            Button(action: { impactLight(); openBlackRide() }) {
-                actionRow(icon: hasGroundLogistics ? "car.fill" : "arrow.up.forward.app.fill", title: "Request Black Ride", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Button(action: { impactLight(); openPremiumArrivalServices() }) {
+                actionRow(icon: hasGroundLogistics ? "car.fill" : "arrow.up.forward.app.fill", title: "Explore Premium Arrival", foreground: .white, background: LinearGradient(colors: [ClipTheme.cyan.opacity(0.34), ClipTheme.violet.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
             }.buttonStyle(.plain)
         }
     }
@@ -3874,8 +3902,8 @@ struct ClipSuccessView: View {
             }
 
             logisticsSection(title: "Outbound Logistics", subtitle: "Departure ride and tarmac timing.", accent: ClipTheme.magenta) {
-                Button(action: { impactHeavy(); openBlackRide() }) {
-                    blackActionRow(icon: "car.fill", title: "Request Black Ride", detail: "Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
+                Button(action: { impactHeavy(); openPremiumArrivalServices() }) {
+                    blackActionRow(icon: "car.fill", title: "Explore Premium Arrival", detail: "Continue to Bytspot arrival services", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
                 }.buttonStyle(.plain)
             }
         }
@@ -3909,8 +3937,8 @@ struct ClipSuccessView: View {
             }
 
             logisticsSection(title: "Outbound Logistics", subtitle: "Departure ride and marina transfer timing.", accent: ClipTheme.magenta) {
-                Button(action: { impactHeavy(); openBlackRide() }) {
-                    blackActionRow(icon: "car.fill", title: "Request Black Ride", detail: "Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
+                Button(action: { impactHeavy(); openPremiumArrivalServices() }) {
+                    blackActionRow(icon: "car.fill", title: "Explore Premium Arrival", detail: "Continue to Bytspot arrival services", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.42), ClipTheme.magenta.opacity(0.34)], startPoint: .topLeading, endPoint: .bottomTrailing), foreground: .white)
                 }.buttonStyle(.plain)
             }
         }
@@ -3952,8 +3980,8 @@ struct ClipSuccessView: View {
             }
 
             logisticsSection(title: "Arrival Logistics", subtitle: "\(platinumEtaSummary). Premium ride coordination for venue arrival and departure.", accent: ClipTheme.violet) {
-                Button(action: { impactMedium(); openBlackRide() }) {
-                    platinumActionRow(icon: "car.fill", title: "Request Platinum Ride", detail: "\(platinumEtaSummary) · Uber or Lyft if installed", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.34), ClipTheme.cyan.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Button(action: { impactMedium(); openPremiumArrivalServices() }) {
+                    platinumActionRow(icon: "car.fill", title: "Explore Premium Arrival", detail: "Continue to Bytspot arrival services", gradient: LinearGradient(colors: [ClipTheme.violet.opacity(0.34), ClipTheme.cyan.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
                 }.buttonStyle(.plain)
             }
         }
@@ -4090,46 +4118,8 @@ struct ClipSuccessView: View {
         }
     }
 
-    private func openBlackRide() {
-        guard let uberCheckURL = URL(string: "uber://"),
-              let lyftCheckURL = URL(string: "lyft://"),
-              let uberBlackURL = URL(string: "uber://?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880&product_id=9a0f7356-61b9-4b71-8854-93c683b519e4"),
-              let lyftBlackURL = URL(string: "lyft://ridetype?id=lyft_lux") else {
-            openValetBoutiqueServices()
-            return
-        }
-
-        if UIApplication.shared.canOpenURL(uberCheckURL) {
-            openUberBlack()
-        } else if UIApplication.shared.canOpenURL(lyftCheckURL) {
-            openLyftBlack()
-        } else {
-            // App Clips ignore LSApplicationQueriesSchemes, so canOpenURL may be
-            // conservative. Try the native URLs in priority order, then fall back
-            // to Bytspot's valet logistics flow if neither app accepts the link.
-            UIApplication.shared.open(uberBlackURL) { openedUber in
-                guard !openedUber else { return }
-                UIApplication.shared.open(lyftBlackURL) { openedLyft in
-                    if !openedLyft { openValetBoutiqueServices() }
-                }
-            }
-        }
-    }
-
-    private func openUberBlack() {
-        guard let appURL = URL(string: "uber://?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880&product_id=9a0f7356-61b9-4b71-8854-93c683b519e4"),
-              let webURL = URL(string: "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff%5Blatitude%5D=33.7490&dropoff%5Blongitude%5D=-84.3880") else { return }
-        UIApplication.shared.open(appURL) { opened in
-            if !opened { UIApplication.shared.open(webURL) }
-        }
-    }
-
-    private func openLyftBlack() {
-        guard let appURL = URL(string: "lyft://ridetype?id=lyft_lux"),
-              let webURL = URL(string: "https://www.lyft.com/rider?ride_type=lyft_lux") else { return }
-        UIApplication.shared.open(appURL) { opened in
-            if !opened { UIApplication.shared.open(webURL) }
-        }
+    private func openPremiumArrivalServices() {
+        openValetBoutiqueServices()
     }
 
     private func openValetBoutiqueServices() {

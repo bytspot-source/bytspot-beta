@@ -845,7 +845,8 @@ struct ClipPatchVerifier {
             partyID: resolvedPartyID,
             action: action,
             guestStatus: Self.string(guest?["status"]) ?? "unknown",
-            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass)
+            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass),
+            premiumMobilityEligible: (root["premiumMobilityEligible"] as? Bool) ?? false
         )
     }
 
@@ -859,6 +860,27 @@ struct ClipPatchVerifier {
         let payload = try await postTRPC("events.tickets.createCheckout", input: ["partyId": partyID, "ticketTierName": ticketTierName, "idempotencyKey": idempotencyKey])
         guard let url = Self.partyStripeCheckoutURL(from: payload) else { throw VerifyError.decode }
         return url
+    }
+
+    /// The server verifies both Party access and membership entitlement, then
+    /// returns a provider URL based only on the host-bound registered venue.
+    func createPartyArrivalHandoff(partyID: String, provider: ClipPartyHandoffProvider) async throws -> URL {
+        let payload = try await postTRPC("events.arrival.handoff", input: ["partyId": partyID, "provider": provider.rawValue])
+        guard let root = payload as? [String: Any],
+              let rawURL = Self.string(root["handoffUrl"]),
+              let url = Self.normalizedPartyHandoffURL(rawURL) else { throw VerifyError.decode }
+        return url
+    }
+
+    static func normalizedPartyHandoffURL(_ candidate: String) -> URL? {
+        let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https" else { return nil }
+        let host = components.host?.lowercased()
+        if host == "m.uber.com", components.path == "/ul/" { return url }
+        if host == "ride.lyft.com", components.path == "/u" { return url }
+        return nil
     }
 
     /// Decodes only the documented Checkout response aliases, then routes every

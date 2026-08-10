@@ -249,7 +249,7 @@ struct PartyPassClipView: View {
         }
         .safeAreaInset(edge: .bottom) { ticketActionBar }
         .sheet(isPresented: $showTicketTiers) {
-            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title, invitationTier: invite.tier) { tier in
+            ClipPartyTicketTierPicker(tiers: invite.ticketTiers, partyTitle: invite.title, partyRequiredTier: invite.tier) { tier in
                 showTicketTiers = false
                 createCheckout(for: tier)
             }
@@ -1832,13 +1832,13 @@ struct ClipInviteView: View {
 private struct ClipPartyTicketTierPicker: View {
     let tiers: [ClipPartyTicketTier]
     let partyTitle: String
-    let invitationTier: BytspotTier
+    let partyRequiredTier: BytspotTier
     let select: (ClipPartyTicketTier) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTierID: String?
 
     private var selectedTier: ClipPartyTicketTier? { tiers.first { $0.id == selectedTierID } }
-    private var accent: Color { ClipTheme.accent(for: invitationTier) }
+    private var accent: Color { ClipTheme.accent(for: partyRequiredTier) }
 
     var body: some View {
         NavigationView {
@@ -1846,13 +1846,13 @@ private struct ClipPartyTicketTierPicker: View {
                 ClipTheme.background.ignoresSafeArea()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("\(invitationTier.displayName.uppercased()) TICKET ACCESS")
+                        Text("REQUIRED PARTY TIER · \(partyRequiredTier.displayName.uppercased())")
                             .font(.system(size: 11, weight: .black, design: .rounded))
                             .foregroundColor(.white.opacity(0.58))
                         Text(partyTitle)
                             .font(.system(size: 28, weight: .black, design: .rounded))
                             .foregroundColor(.white)
-                        Text("Choose a server-published tier. Your \(invitationTier.displayName) eligibility, price, and availability are verified again before Checkout opens.")
+                        Text("Choose a server-published tier. Ticket price, availability, and the selected ticket requirement are verified by Bytspot before Checkout opens.")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.white.opacity(0.68))
                         ForEach(tiers) { tier in
@@ -1861,7 +1861,7 @@ private struct ClipPartyTicketTierPicker: View {
                                 HStack(spacing: 14) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(tier.name).font(.system(size: 17, weight: .black, design: .rounded))
-                                        Text("\(tier.quantity) available · \(tier.requiredMembershipTier.capitalized) access")
+                                        Text("\(tier.quantity) available · \(tier.requiredMembershipTier.capitalized) required")
                                             .font(.system(size: 12, weight: .bold, design: .rounded))
                                             .foregroundColor(.white.opacity(0.62))
                                     }
@@ -1878,7 +1878,7 @@ private struct ClipPartyTicketTierPicker: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("\(tier.name), \(price(tier.priceCents)), \(tier.quantity) available, \(tier.requiredMembershipTier.capitalized) access")
+                            .accessibilityLabel("\(tier.name), \(price(tier.priceCents)), \(tier.quantity) available, \(tier.requiredMembershipTier.capitalized) required")
                             .accessibilityValue(isSelected ? "Selected" : "Not selected")
                             .accessibilityHint("Selects this tier before secure checkout")
                         }

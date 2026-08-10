@@ -280,6 +280,7 @@ struct NativePartyHostDestinations: Equatable {
     static let empty = Self(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "")
 
     var validationMessage: String? {
+        if primarySocialURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add one primary social link." }
         for (label, rawURL) in [("Music", musicURL), ("Merch", merchURL), ("Website", websiteURL), (primarySocialPlatform.title, primarySocialURL)] {
             if !rawURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Self.secureURL(rawURL) == nil { return "\(label) links must use HTTPS." }
         }
@@ -595,12 +596,17 @@ struct NativePartyPassAPI {
               let id = clean(row["id"]),
               let title = clean(row["title"]),
               let scheduledDate = clean(row["scheduledDate"]),
-              let locationLabel = clean(row["locationLabel"]),
               let accessMode = clean(row["accessMode"]),
               let requiredTier = clean(row["tier"]) else { return nil }
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
-        let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
-        let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
+        let locationDisclosure = ["public", "after-approval", "withheld"].contains(clean(row["locationDisclosure"])?.lowercased() ?? "") ? clean(row["locationDisclosure"])!.lowercased() : "after-approval"
+        let safeLocationLabel: String
+        if locationDisclosure == "public" {
+            guard let locationLabel = clean(row["locationLabel"]) else { return nil }
+            safeLocationLabel = locationLabel
+        } else {
+            safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
+        }
         return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
     }
 

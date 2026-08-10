@@ -1790,6 +1790,7 @@ private struct ClipPartyTicketTierPicker: View {
     @State private var selectedTierID: String?
 
     private var selectedTier: ClipPartyTicketTier? { tiers.first { $0.id == selectedTierID } }
+    private var accent: Color { ClipTheme.accent(for: invitationTier) }
 
     var body: some View {
         NavigationView {
@@ -1820,12 +1821,12 @@ private struct ClipPartyTicketTierPicker: View {
                                     Text(price(tier.priceCents))
                                         .font(.system(size: 17, weight: .black, design: .rounded))
                                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 21, weight: .black)).foregroundColor(isSelected ? ClipTheme.cyan : .white.opacity(0.42))
+                                        .font(.system(size: 21, weight: .black)).foregroundColor(isSelected ? accent : .white.opacity(0.42))
                                 }
                                 .foregroundColor(.white)
                                 .padding(16)
-                                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(isSelected ? ClipTheme.cyan.opacity(0.10) : ClipTheme.panelElevated))
-                                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(isSelected ? ClipTheme.cyan : Color.white.opacity(0.20), lineWidth: isSelected ? 1.5 : 1))
+                                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(isSelected ? accent.opacity(0.10) : ClipTheme.panelElevated))
+                                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(isSelected ? accent : Color.white.opacity(0.20), lineWidth: isSelected ? 1.5 : 1))
                             }
                             .buttonStyle(.plain)
                             .accessibilityElement(children: .ignore)
@@ -1844,7 +1845,7 @@ private struct ClipPartyTicketTierPicker: View {
                     } label: {
                         Text(selectedTier.map { "Continue to secure checkout · \(price($0.priceCents))" } ?? "Select a ticket tier")
                             .font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(ClipTheme.background)
-                            .frame(maxWidth: .infinity).frame(height: 54).background(selectedTier == nil ? Color.white.opacity(0.20) : ClipTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 17))
+                            .frame(maxWidth: .infinity).frame(height: 54).background(selectedTier == nil ? Color.white.opacity(0.20) : accent).clipShape(RoundedRectangle(cornerRadius: 17))
                     }.disabled(selectedTier == nil).buttonStyle(.plain)
                     Text("Price and eligibility are verified before Checkout opens.").font(.system(size: 11, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.60))
                 }.padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 12).background(ClipTheme.background.opacity(0.96))

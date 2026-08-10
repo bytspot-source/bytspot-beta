@@ -555,6 +555,8 @@ enum ClipPartyPassPreview {
     static func state(for invocationURL: URL?, partyID: String) -> ClipPartyPassState? {
         guard let invocationURL,
               let components = URLComponents(url: invocationURL, resolvingAgainstBaseURL: false),
+              partyID == "party-preview-1",
+              components.path.isEmpty || components.path == "/",
               let step = components.queryItems?.first(where: { $0.name == "step" })?.value?.lowercased(),
               ["party_loop", "host_party", "host_studio_party"].contains(step) else { return nil }
         let requestedAction = components.queryItems?.first(where: { $0.name == "previewAction" })?.value.flatMap(ClipPartyPassAction.init(rawValue:))

@@ -217,8 +217,11 @@ struct PartyPassClipView: View {
             return PartyAccessStatus("REQUEST PENDING", "The host is reviewing", "You will be notified when access changes.", "clock.fill", .access(accent: ClipTheme.violet))
         case .unavailable:
             return PartyAccessStatus("ACCESS UNAVAILABLE", "Party action unavailable", "This invitation cannot accept a new action right now.", "exclamationmark.triangle.fill", .standard)
-        case .rsvp, nil:
+        case .rsvp:
             return PartyAccessStatus("YOUR ACCESS", "RSVP access", "A private invitation from \(invite.hostName).", "checkmark.seal.fill", .access(accent: accent))
+        case nil:
+            let unresolved = PartyPassPresentationRules.unresolvedAccess(isResolving: isResolving)
+            return PartyAccessStatus(unresolved.eyebrow, unresolved.title, unresolved.detail, unresolved.symbol, .standard)
         }
     }
 
@@ -393,7 +396,7 @@ struct PartyPassClipView: View {
     private var ticketActionBar: some View {
         VStack(spacing: 8) {
             Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
-                .disabled(isBusy || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
+                .disabled(isBusy || passState == nil || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
             Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
             Button { openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) } label: {
                 Label("Continue in app to plan arrival", systemImage: "arrow.down.app.fill")
@@ -408,13 +411,7 @@ struct PartyPassClipView: View {
     }
 
     private var accessMetricValue: String {
-        switch passState?.action {
-        case .ticket: return "TICKETS"
-        case .requestApproval: return "REVIEW"
-        case .viewPass: return "CONFIRMED"
-        case .unavailable where passState?.guestStatus.lowercased() == "pending": return "PENDING"
-        default: return "RSVP"
-        }
+        PartyPassPresentationRules.accessMetric(for: passState, isResolving: isResolving)
     }
     private func resolvePass() async {
         isResolving = true
@@ -434,7 +431,7 @@ struct PartyPassClipView: View {
             statusMessage = "We couldn’t verify ticket availability right now. Please try again."
         }
     }
-    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
     private func createCheckout(for tier: ClipPartyTicketTier) { Task { @MainActor in guard !isBusy, passState?.action == .ticket else { return }; isPerformingAction = true; statusMessage = "Starting secure checkout…"; defer { isPerformingAction = false }; do { let url = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString); statusMessage = "Secure checkout opened."; openURL(url) } catch { statusMessage = "Checkout could not be started. Please try again." } } }
@@ -458,6 +455,37 @@ private struct PartyAccessStatus {
     let variant: PartyGlassCardVariant
     var accent: Color { variant.accent ?? .white.opacity(0.72) }
     init(_ eyebrow: String, _ title: String, _ detail: String, _ symbol: String, _ variant: PartyGlassCardVariant) { self.eyebrow = eyebrow; self.title = title; self.detail = detail; self.symbol = symbol; self.variant = variant }
+}
+
+struct PartyPassUnresolvedAccess: Equatable {
+    let eyebrow: String
+    let title: String
+    let detail: String
+    let symbol: String
+}
+
+enum PartyPassPresentationRules {
+    static func unresolvedAccess(isResolving: Bool) -> PartyPassUnresolvedAccess {
+        isResolving
+            ? PartyPassUnresolvedAccess(eyebrow: "VERIFYING INVITATION", title: "Checking your Party access", detail: "We are confirming the host's access rules before showing an available action.", symbol: "hourglass")
+            : PartyPassUnresolvedAccess(eyebrow: "ACCESS UNVERIFIED", title: "Party Pass unavailable", detail: "We could not verify an authorized Party action. Please try again or continue in the app.", symbol: "exclamationmark.triangle.fill")
+    }
+
+    static func accessMetric(for passState: ClipPartyPassState?, isResolving: Bool) -> String {
+        guard let passState else { return isResolving ? "VERIFYING" : "UNVERIFIED" }
+        switch passState.action {
+        case .authenticate: return "SIGN IN"
+        case .ticket: return "TICKETS"
+        case .rsvp: return "RSVP"
+        case .requestApproval: return "REVIEW"
+        case .viewPass: return "CONFIRMED"
+        case .unavailable: return passState.guestStatus.lowercased() == "pending" ? "PENDING" : "UNAVAILABLE"
+        }
+    }
+
+    static func canStartTicketSelection(for passState: ClipPartyPassState?, tiers: [ClipPartyTicketTier]) -> Bool {
+        passState?.action == .ticket && !tiers.isEmpty
+    }
 }
 
 /// A presentation-only tier treatment. The server remains the sole authority

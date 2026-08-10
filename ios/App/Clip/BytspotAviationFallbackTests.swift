@@ -286,6 +286,14 @@ enum BytspotAviationFallbackTests {
             "Party Loop: real Party URLs must use the server resolver rather than a local preview state."
         )
         precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/party/party-1?step=host_party&previewAction=view-pass"), partyID: "party-1") == nil,
+            "Party Loop: real Party URLs must not allow preview query parameters to override server access."
+        )
+        precondition(
+            ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party"), partyID: "party-1") == nil,
+            "Party Loop: only the synthetic preview Party identifier can use local access state."
+        )
+        precondition(
             ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/?step=host_party&previewAction=view-pass"), partyID: "party-preview-1")?.accessGranted == true,
             "Party Loop: the explicit preview must exercise the confirmed Party Pass presentation."
         )
@@ -300,6 +308,14 @@ enum BytspotAviationFallbackTests {
         precondition(
             PartyRecipientTierPresentation(for: .black).heroBadge == "SIGNATURE INVITE" && PartyRecipientTierPresentation(for: .platinum).heroBadge == "PLATINUM INVITED" && PartyRecipientTierPresentation(for: .green).heroBadge == "PERSONALLY INVITED",
             "Party Loop: recipient invitation treatment must remain differentiated by tier."
+        )
+        precondition(
+            PartyPassPresentationRules.unresolvedAccess(isResolving: false).title == "Party Pass unavailable" && PartyPassPresentationRules.accessMetric(for: nil, isResolving: false) == "UNVERIFIED",
+            "Party Loop: an unresolved server response must never imply RSVP access."
+        )
+        precondition(
+            !PartyPassPresentationRules.canStartTicketSelection(for: ClipPartyPassState(partyID: "party-preview-1", action: .ticket, guestStatus: "not_joined", accessGranted: false), tiers: []),
+            "Party Loop: ticket selection must fail closed when the server provides no ticket tiers."
         )
         let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Avery Parker", "locationLabel": "The Loft", "locationDisclosure": "public"]
         precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")

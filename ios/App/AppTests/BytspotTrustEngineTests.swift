@@ -1665,9 +1665,21 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual((draft.rpcInput["itinerary"] as? [[String: Any]])?.last?["offsetMinutes"] as? Int, 120)
         XCTAssertEqual((draft.rpcInput["cohosts"] as? [[String: Any]])?.first?["role"] as? String, "door")
         XCTAssertEqual((draft.rpcInput["templateConfig"] as? [String: Any])?["kind"] as? String, "standard")
+        XCTAssertEqual(draft.rpcInput["locationDisclosure"] as? String, "public")
         XCTAssertEqual(NativePartyStudioAPI.draftCreateInput(draft, idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertEqual(NativePartyStudioAPI.publishInput(partyID: "party-1", idempotencyKey: "moment-1")["idempotencyKey"] as? String, "moment-1")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: draft.rpcInput))
+    }
+
+    func testNativeHostStudioMapsOnlyCanonicalOfficialDestinations() {
+        let destinations = NativePartyHostDestinations(musicURL: "https://music.example.com/host", merchURL: "https://shop.example.com/host", websiteURL: "https://host.example.com", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host")
+        let draft = NativePartyDraftInput(templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room.", startsAt: Date(), venueName: "Aster Room", locationDisclosure: .withheld, capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: 2500, quantity: 80, requiredMembershipTier: .green)], cohosts: [], templateConfiguration: .standard)
+        let payload = draft.rpcInput["hostDestinations"] as? [String: Any]
+        XCTAssertNil(draft.validationMessage)
+        XCTAssertEqual(draft.rpcInput["locationDisclosure"] as? String, "withheld")
+        XCTAssertEqual(payload?["musicUrl"] as? String, "https://music.example.com/host")
+        XCTAssertEqual((payload?["primarySocial"] as? [String: Any])?["platform"] as? String, "Instagram")
+        XCTAssertEqual(NativePartyHostDestinations(musicURL: "http://not-secure.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "").validationMessage, "Music links must use HTTPS.")
     }
 
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {

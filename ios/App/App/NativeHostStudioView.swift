@@ -56,7 +56,12 @@ struct NativeHostStudioView: View {
     @State private var fanMeetupFormat: NativeFanMeetupFormat = .meetAndGreet
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
-    @State private var popUpLocationDisclosure: NativePopUpLocationDisclosure = .public
+    @State private var locationDisclosure: NativePartyLocationDisclosure = .public
+    @State private var musicURL = ""
+    @State private var merchURL = ""
+    @State private var websiteURL = ""
+    @State private var primarySocialPlatform: NativePartySocialPlatform = .instagram
+    @State private var primarySocialURL = ""
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishPresentation = NativePartyPassPresentation()
@@ -217,6 +222,8 @@ struct NativeHostStudioView: View {
             partyMediaEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
+            locationDisclosureEditor
+            officialDestinationsEditor
             VStack(alignment: .leading, spacing: 7) {
                 Text("RUN OF SHOW").studioLabel()
                 ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
@@ -239,12 +246,9 @@ struct NativeHostStudioView: View {
             }.padding(14).studioSurface()
         case .popUp:
             VStack(alignment: .leading, spacing: 7) {
-                templatePicker("LOCATION RELEASE", selection: $popUpLocationDisclosure, options: NativePopUpLocationDisclosure.allCases)
-                Text(popUpLocationDisclosure == .afterApproval ? "The public Party Pass will hide the venue. Guest-specific reveal requires a later authorized pass action." : "The venue is visible on the public Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+                Text("POP-UP LOCATION").studioLabel()
+                Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
             }.padding(14).studioSurface()
-            .onChange(of: popUpLocationDisclosure) { disclosure in
-                if disclosure == .afterApproval { accessMode = .privateApproval }
-            }
         case .privateParty:
             VStack(alignment: .leading, spacing: 7) {
                 templatePicker("GUEST LIST", selection: $privateGuestPolicy, options: NativePrivatePartyGuestPolicy.allCases)
@@ -253,6 +257,32 @@ struct NativeHostStudioView: View {
         case .comedyNight, .premiere:
             EmptyView()
         }
+    }
+
+    private var locationDisclosureEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            templatePicker("LOCATION ON PARTY PASS", selection: $locationDisclosure, options: NativePartyLocationDisclosure.allCases)
+            Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+        }
+        .padding(14).studioSurface()
+        .onChange(of: locationDisclosure) { disclosure in
+            if disclosure == .afterApproval { accessMode = .privateApproval }
+        }
+    }
+
+    private var officialDestinationsEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("OFFICIAL HOST DESTINATIONS").studioLabel()
+            Text("Only these verified HTTPS links appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL)
+            field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL)
+            field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL)
+            VStack(alignment: .leading, spacing: 7) {
+                Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
+                Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
+                field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
+            }
+        }.padding(14).studioSurface()
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
@@ -274,6 +304,7 @@ struct NativeHostStudioView: View {
         case "creator-conversation": return "Conversation"
         case "community-photo": return "Photo moment"
         case "after-approval": return "After approval"
+        case "withheld": return "Withheld"
         case "named-guests": return "Named guests"
         case "named-guests-plus-one": return "Named + one"
         case "ep": return "EP"
@@ -462,7 +493,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {
@@ -470,7 +501,7 @@ struct NativeHostStudioView: View {
         case .listeningParty: return .listeningParty(listeningFormat)
         case .fanMeetup: return .fanMeetup(fanMeetupFormat)
         case .releaseParty: return .releaseParty(releaseFormat, releaseTitle)
-        case .popUp: return .popUp(popUpLocationDisclosure)
+        case .popUp: return .popUp(NativePopUpLocationDisclosure(rawValue: locationDisclosure.rawValue) ?? .withheld)
         case .privateParty: return .privateParty(privateGuestPolicy)
         case .comedyNight, .premiere: return .standard
         }
@@ -561,7 +592,7 @@ struct NativeHostStudioView: View {
     }
 
     private func field(_ label: String, text: Binding<String>, icon: String, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
-        HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization(keyboard == .emailAddress ? .never : .sentences).autocorrectionDisabled(keyboard == .emailAddress).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
+        HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization([.emailAddress, .URL].contains(keyboard) ? .never : .sentences).autocorrectionDisabled([.emailAddress, .URL].contains(keyboard)).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
     }
 
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }

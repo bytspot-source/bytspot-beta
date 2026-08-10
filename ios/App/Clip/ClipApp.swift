@@ -212,6 +212,7 @@ struct PartyPassInvite: Equatable {
     let hostName: String
     let scheduledDate: String
     let locationLabel: String
+    let locationDisclosure: String
     let locationIsWithheld: Bool
     let accessMode: String
     let capacity: Int?
@@ -222,6 +223,7 @@ struct PartyPassInvite: Equatable {
     let hostDestinations: [PartyHostDestination]
     let heroImageURL: URL?
     let thumbnailURL: URL?
+    let photoURLs: [URL]
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var canonicalURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)") }
@@ -240,21 +242,24 @@ struct PartyPassInvite: Equatable {
               let tier = string(row["tier"]).flatMap(BytspotTier.init(rawValue:)),
               string(row["source"]) == "host-studio-party" else { return nil }
         let host = object(row["host"])
-        let locationIsPublic = (row["locationDisclosure"] as? String) == "public"
+        let locationDisclosure = ["public", "after-approval", "withheld"].contains(row["locationDisclosure"] as? String ?? "") ? (row["locationDisclosure"] as! String) : "withheld"
+        let locationIsPublic = locationDisclosure == "public"
         return Self(
             id: id, title: title, tier: tier,
             hostName: string(row["hostName"]) ?? string(row["host"]) ?? string(host?["name"]) ?? "Bytspot Host",
             scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
-            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? string(row["location"]) ?? "Location pending") : "Location shared after approval",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : locationDisclosure == "after-approval" ? "Location shared after approval" : "Location withheld by host",
+            locationDisclosure: locationDisclosure,
             locationIsWithheld: !locationIsPublic,
             accessMode: string(row["accessMode"]) ?? "free-rsvp",
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
             itinerary: stringArray(row["activityHighlights"]) ?? stringArray(row["highlights"]) ?? [],
             note: string(row["inviteNote"]),
-            hostDestinations: hostDestinations(row: row, host: host),
-            heroImageURL: string(row["heroImageURL"]).flatMap(URL.init(string:)),
-            thumbnailURL: string(row["thumbnailURL"]).flatMap(URL.init(string:))
+            hostDestinations: hostDestinations(host: host),
+            heroImageURL: secureURL(row["heroImageURL"]),
+            thumbnailURL: secureURL(row["thumbnailURL"]),
+            photoURLs: ((row["photoURLs"] as? [Any]) ?? []).compactMap(secureURL).prefix(6).map { $0 }
         )
     }
 
@@ -282,35 +287,23 @@ struct PartyPassInvite: Equatable {
               components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
         return url
     }
-    private static func hostDestinations(row: [String: Any], host: [String: Any]?) -> [PartyHostDestination] {
-        let hostDestinations = object(host?["destinations"])
-        let rootDestinations = object(row["destinations"])
-        let sources = [row, host, rootDestinations, hostDestinations].compactMap { $0 }
-        func firstURL(_ keys: [String]) -> URL? {
-            for source in sources {
-                for key in keys {
-                    if let url = secureURL(source[key]) { return url }
-                }
-            }
-            return nil
+    private static func hostDestinations(host: [String: Any]?) -> [PartyHostDestination] {
+        guard let source = object(host?["destinations"]) else { return [] }
+        var results: [PartyHostDestination] = []
+        if let url = secureURL(source["musicUrl"]) {
+            results.append(PartyHostDestination(kind: .music, label: "Listen", url: url))
         }
-        var destinations: [PartyHostDestination] = []
-        if let url = firstURL(["musicUrl", "musicURL", "music"]) {
-            destinations.append(PartyHostDestination(kind: .music, label: "Listen", url: url))
+        if let url = secureURL(source["merchUrl"]) {
+            results.append(PartyHostDestination(kind: .merch, label: "Shop", url: url))
         }
-        if let url = firstURL(["merchUrl", "merchURL", "shopUrl", "shopURL", "merch"]) {
-            destinations.append(PartyHostDestination(kind: .merch, label: "Shop", url: url))
+        if let url = secureURL(source["websiteUrl"]) {
+            results.append(PartyHostDestination(kind: .website, label: "Visit website", url: url))
         }
-        if let url = firstURL(["websiteUrl", "websiteURL", "website", "officialUrl", "officialURL"]) {
-            destinations.append(PartyHostDestination(kind: .website, label: "Visit website", url: url))
+        let primarySocial = object(source["primarySocial"])
+        if let socialURL = secureURL(primarySocial?["url"]), let socialLabel = string(primarySocial?["platform"]) {
+            results.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
         }
-        let social = sources.compactMap { object($0["primarySocial"]) }.first
-        let socialURL = secureURL(social?["url"]) ?? secureURL(social?["href"]) ?? firstURL(["primarySocialUrl", "primarySocialURL"])
-        if let socialURL {
-            let socialLabel = string(social?["platform"]) ?? string(social?["label"]) ?? sources.lazy.compactMap { string($0["primarySocialPlatform"]) }.first ?? PartyHostDestinationKind.social.title
-            destinations.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
-        }
-        return destinations
+        return results
     }
     private static func displayDate(_ value: String?) -> String? {
         guard let value else { return nil }

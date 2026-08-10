@@ -239,6 +239,7 @@ struct PartyPassClipView: View {
                     details
                     hostDestinations
                     if !invite.itinerary.isEmpty { program }
+                    if !invite.photoURLs.isEmpty { partyAlbum }
                     guestStack
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -378,7 +379,7 @@ struct PartyPassClipView: View {
             Text("The invitation").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
             PartyDetailRow(icon: "person.crop.circle.fill", label: "HOST", value: invite.hostName)
             PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
-            PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationIsWithheld ? "LOCATION AFTER APPROVAL" : "WHERE", value: invite.locationLabel)
+            PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationDisclosure == "after-approval" ? "LOCATION AFTER APPROVAL" : invite.locationIsWithheld ? "LOCATION WITHHELD" : "WHERE", value: invite.locationLabel)
             if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
         }
     }
@@ -413,6 +414,20 @@ struct PartyPassClipView: View {
             Text("Tonight's plan").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
             ForEach(Array(invite.itinerary.prefix(4).enumerated()), id: \.offset) { index, item in
                 HStack(spacing: 11) { Text("\(index + 1)").font(.system(size: 11, weight: .black)).foregroundColor(accent).frame(width: 24, height: 24).background(accent.opacity(0.15)).clipShape(Circle()); Text(item).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.88)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 0) }
+            }
+        }
+    }
+
+    private var partyAlbum: some View {
+        PartyGlassCard {
+            Text("From the host").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(invite.photoURLs.enumerated()), id: \.offset) { _, url in
+                        AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
+                            .frame(width: 132, height: 164).clipped().clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    }
+                }
             }
         }
     }

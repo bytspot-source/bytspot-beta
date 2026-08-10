@@ -261,6 +261,9 @@ enum BytspotAviationFallbackTests {
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://m.uber.com/ul/?action=setPickup")?.host == "m.uber.com", "Party Loop: only HTTPS Uber handoff URLs may open from the Party Pass.")
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://ride.lyft.com/u?id=lyft")?.host == "ride.lyft.com", "Party Loop: only HTTPS Lyft handoff URLs may open from the Party Pass.")
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://untrusted.example/handoff") == nil, "Party Loop: arbitrary Party handoff URLs must fail closed.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "uber", "trackingMode": "handoff-only", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) != nil, "Party Loop: matching server handoff metadata must be accepted.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "lyft", "trackingMode": "handoff-only", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) == nil, "Party Loop: a mismatched provider must fail closed.")
+        precondition(ClipPatchVerifier.partyArrivalHandoffURL(from: ["provider": "uber", "trackingMode": "live-tracking", "handoffUrl": "https://m.uber.com/ul/?action=setPickup"], provider: .uber) == nil, "Party Loop: a non-handoff tracking mode must fail closed.")
         var protectedPopUp = dto
         protectedPopUp["templateId"] = "pop-up"
         protectedPopUp["templateConfig"] = ["kind": "pop-up", "locationDisclosure": "after-approval"]
@@ -306,6 +309,14 @@ enum BytspotAviationFallbackTests {
             "Party Loop: the explicit Host Studio preview must render the local RSVP state."
         )
         precondition(
+            ClipPartyPassPreview.confirmedRSVP(for: previewURL, partyID: "party-preview-1") == ClipPartyPassState(partyID: "party-preview-1", action: .viewPass, guestStatus: "joined", accessGranted: true),
+            "Party Loop: a preview RSVP must confirm locally instead of calling the production RSVP endpoint."
+        )
+        precondition(
+            PartyInvitationTierPresentation(for: .platinum).heroBadge == "PLATINUM REQUIRED",
+            "Party Loop: the Party tier must be presented as a requirement, not as the recipient membership tier."
+        )
+        precondition(
             ClipPartyPassPreview.state(for: URL(string: "https://bytspot.app/party/party-1"), partyID: "party-1") == nil,
             "Party Loop: real Party URLs must use the server resolver rather than a local preview state."
         )
@@ -330,8 +341,8 @@ enum BytspotAviationFallbackTests {
             "Party Loop: the explicit unavailable preview must represent a pending host review."
         )
         precondition(
-            PartyRecipientTierPresentation(for: .black).heroBadge == "SIGNATURE INVITE" && PartyRecipientTierPresentation(for: .platinum).heroBadge == "PLATINUM INVITED" && PartyRecipientTierPresentation(for: .green).heroBadge == "PERSONALLY INVITED",
-            "Party Loop: recipient invitation treatment must remain differentiated by tier."
+            PartyInvitationTierPresentation(for: .black).heroBadge == "BLACK REQUIRED" && PartyInvitationTierPresentation(for: .platinum).heroBadge == "PLATINUM REQUIRED" && PartyInvitationTierPresentation(for: .green).heroBadge == "GREEN REQUIRED",
+            "Party Loop: Party membership requirements must remain differentiated by tier."
         )
         precondition(
             PartyPassPresentationRules.unresolvedAccess(isResolving: false).title == "Party Pass unavailable" && PartyPassPresentationRules.accessMetric(for: nil, isResolving: false) == "UNVERIFIED",

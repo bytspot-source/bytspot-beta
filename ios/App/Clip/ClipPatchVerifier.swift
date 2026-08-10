@@ -274,7 +274,7 @@ struct ClipLocalService: Identifiable, Equatable {
                 ClipLocalService(id: "platinum-valet", title: "Valet Service", subtitle: "Hand off the keys. Retrieval in under 5 minutes.", action: "Book Valet", iconName: "key.fill", tintName: "cyan", priceLabel: "From $25", amountCents: 2_500, currency: "USD", source: "curated", heroImageURL: nil, category: "valet"),
                 ClipLocalService(id: "platinum-dining", title: "Reserve a Table", subtitle: "Priority seating at top neighborhood restaurants.", action: "Reserve Table", iconName: "fork.knife", tintName: "violet", priceLabel: "From $65", amountCents: 6_500, currency: "USD", source: "curated", heroImageURL: nil, category: "dining"),
                 ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events"),
-                ClipLocalService(id: "platinum-rideshare", title: "Premium Rideshare", subtitle: "On-demand SUV and black-car pickup nearby.", action: "Request Ride", iconName: "car.side.fill", tintName: "cyan", priceLabel: "From $35", amountCents: 3_500, currency: "USD", source: "curated", heroImageURL: nil, category: "rideshare"),
+                ClipLocalService(id: "platinum-arrival", title: "Premium Arrival", subtitle: "Coordinate your arrival with Concierge or open a provider from an authorized Party Pass.", action: "Open Arrival Help", iconName: "car.side.fill", tintName: "cyan", priceLabel: nil, amountCents: 0, currency: "USD", source: "curated", heroImageURL: nil, category: "arrival"),
                 ClipLocalService(id: "platinum-bottle", title: "Nightlife Event Access", subtitle: "VIP table access, digital entry pass, and host-led arrival.", action: "Buy Pass", iconName: "wineglass.fill", tintName: "violet", priceLabel: "From $250", amountCents: 25_000, currency: "USD", source: "curated", heroImageURL: nil, category: "nightlife"),
                 ClipLocalService(id: "platinum-experience", title: "Local Experiences", subtitle: "Curated tours, tastings, and city experiences.", action: "Book Experience", iconName: "sparkles", tintName: "emerald", priceLabel: "From $85", amountCents: 8_500, currency: "USD", source: "curated", heroImageURL: nil, category: "experience")
             ], tier: tier)
@@ -866,10 +866,16 @@ struct ClipPatchVerifier {
     /// returns a provider URL based only on the host-bound registered venue.
     func createPartyArrivalHandoff(partyID: String, provider: ClipPartyHandoffProvider) async throws -> URL {
         let payload = try await postTRPC("events.arrival.handoff", input: ["partyId": partyID, "provider": provider.rawValue])
-        guard let root = payload as? [String: Any],
-              let rawURL = Self.string(root["handoffUrl"]),
-              let url = Self.normalizedPartyHandoffURL(rawURL) else { throw VerifyError.decode }
+        guard let url = Self.partyArrivalHandoffURL(from: payload, provider: provider) else { throw VerifyError.decode }
         return url
+    }
+
+    static func partyArrivalHandoffURL(from payload: Any, provider: ClipPartyHandoffProvider) -> URL? {
+        guard let root = payload as? [String: Any],
+              Self.string(root["provider"]) == provider.rawValue,
+              Self.string(root["trackingMode"]) == "handoff-only",
+              let rawURL = Self.string(root["handoffUrl"]) else { return nil }
+        return normalizedPartyHandoffURL(rawURL)
     }
 
     static func normalizedPartyHandoffURL(_ candidate: String) -> URL? {

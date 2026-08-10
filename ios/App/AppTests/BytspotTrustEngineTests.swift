@@ -241,7 +241,7 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     func testVenueDetailCapabilityBindings() {
         XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })?.kind, .capability(.saveToWallet))
-        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind, .capability(.createCheckoutHold))
+        XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind, .device)
         XCTAssertEqual(NativeVenueDetailContract.actions.first(where: { $0.id == "checkIn" })?.kind, .authedWrite(endpoint: "venues.checkin", idempotent: true))
     }
 
@@ -1980,6 +1980,32 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertNotEqual(serverClientID, iosClientID)
     }
 
+    func testGoogleSignInFailuresIdentifyTheirSafeBoundary() {
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleConfigurationUnavailable.status,
+            .failed(message: "Google Sign-In isn't configured in this app build. Use email or try again later.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleProviderFailed.status,
+            .failed(message: "Google Sign-In didn't complete. Please try again.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.googleBackendVerificationFailed.status,
+            .failed(message: "Google confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        )
+    }
+
+    func testAppleSignInFailuresIdentifyTheirSafeBoundary() {
+        XCTAssertEqual(
+            NativeAuthAdapterError.appleProviderFailed.status,
+            .failed(message: "Apple Sign-In didn't complete. Confirm your Apple Account in Settings, then try again.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.appleBackendVerificationFailed.status,
+            .failed(message: "Apple confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        )
+    }
+
     @MainActor
     func testHomeVisibleCopyAvoidsUnprovenAvailabilityClaims() {
         let lateNightHeader = NativeHomeRegionPresentation.contextualEyebrow(hour: 23, location: .verifiedMidtown)
@@ -2095,7 +2121,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
 
     func testLaunchPersonalizationStorageKeysAndTokensAreStable() {
         XCTAssertEqual(NativeMigrationConfig.selfTestsEnvironmentKey, "BYT_NATIVE_SELF_TESTS")
-        XCTAssertEqual(NativeAuthRouteContract.googleNativeSurface, "native_ios")
+        XCTAssertEqual(NativeAuthRouteContract.googleConsumerSurface, "parker")
         XCTAssertEqual(NativeAuthLaunchContract.splashTagline, "Your perfect spot awaits")
         XCTAssertEqual(NativeAuthLaunchContract.splashCapabilities, ["Parking", "Venues", "AI-Powered"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")

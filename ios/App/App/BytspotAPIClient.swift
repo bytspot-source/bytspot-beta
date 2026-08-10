@@ -8,9 +8,19 @@ struct BytspotAPIClient {
         case server(status: Int, body: String)
     }
 
-    var baseURL: URL = URL(string: "https://bytspot-api.onrender.com")!
+    var baseURL: URL = configuredBaseURL
     var tokenProvider: () -> String? = { nil }
     var urlSession: URLSession = .shared
+
+    private static var configuredBaseURL: URL {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
+           let url = URL(string: raw), url.scheme?.lowercased() == "https" {
+            return url
+        }
+        #endif
+        return URL(string: "https://bytspot-api.onrender.com")!
+    }
 
     func makeRequest(path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidURL }
@@ -1060,7 +1070,9 @@ struct NativeAuthResponse: Codable, Equatable {
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
-    static let googleNativeSurface = "native_ios"
+    // The deployed backend currently recognizes the consumer Google flow as
+    // "parker"; this is an API contract rather than the operating system.
+    static let googleConsumerSurface = "parker"
     static let passwordRecoveryRoutes = ["/#/forgot-password", "/forgot-password", "/#/reset-password", "/reset-password"]
 }
 
@@ -1075,7 +1087,7 @@ struct NativeAuthDataAPI {
     }
 
     func googleSignIn(idToken: String) async throws -> NativeAuthResponse {
-        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleNativeSurface])
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleConsumerSurface])
     }
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {

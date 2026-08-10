@@ -658,6 +658,11 @@ enum ClipPartyPassPreview {
         let guestStatus = action == .unavailable ? "pending" : action == .viewPass ? "joined" : "not_joined"
         return ClipPartyPassState(partyID: partyID, action: action, guestStatus: guestStatus, accessGranted: action == .viewPass)
     }
+
+    static func confirmedRSVP(for invocationURL: URL?, partyID: String) -> ClipPartyPassState? {
+        guard state(for: invocationURL, partyID: partyID)?.action == .rsvp else { return nil }
+        return ClipPartyPassState(partyID: partyID, action: .viewPass, guestStatus: "joined", accessGranted: true)
+    }
 }
 #endif
 

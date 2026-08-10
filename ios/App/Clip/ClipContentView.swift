@@ -157,7 +157,7 @@ struct PartyPassClipView: View {
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
-    private var tierPresentation: PartyRecipientTierPresentation { PartyRecipientTierPresentation(for: invite.tier) }
+    private var tierPresentation: PartyInvitationTierPresentation { PartyInvitationTierPresentation(for: invite.tier) }
     private var partyBookingContext: ClipBookingContext? {
         invocation.selectedPartyTicketTier.map { .make(partyTicket: $0, partyTier: invite.tier) }
     }
@@ -198,7 +198,7 @@ struct PartyPassClipView: View {
     private var primaryButtonColor: Color {
         guard let action = passState?.action else { return ClipTheme.panelElevated }
         switch action {
-        case .unavailable, .viewPass: return action == .viewPass ? ClipTheme.emerald : Color.white.opacity(0.14)
+        case .unavailable, .viewPass: return action == .viewPass ? accent : Color.white.opacity(0.14)
         default: return accent
         }
     }
@@ -215,9 +215,11 @@ struct PartyPassClipView: View {
         case .requestApproval:
             return PartyAccessStatus("HOST REVIEW", "Approval required", "Your request stays private until the host responds.", "hand.raised.fill", .access(accent: accent))
         case .viewPass:
-            return PartyAccessStatus("ACCESS CONFIRMED", "Your Party Pass is ready", "Keep this pass ready for arrival.", "checkmark.seal.fill", .access(accent: ClipTheme.emerald))
+            return PartyAccessStatus("ACCESS CONFIRMED", "Your Party Pass is ready", "Keep this pass ready for arrival.", "checkmark.seal.fill", .access(accent: accent))
         case .unavailable where passState?.guestStatus.lowercased() == "pending":
             return PartyAccessStatus("REQUEST PENDING", "The host is reviewing", "You will be notified when access changes.", "clock.fill", .access(accent: ClipTheme.violet))
+        case .unavailable where passState?.guestStatus.lowercased() == "membership-required":
+            return PartyAccessStatus("MEMBERSHIP REQUIRED", "A higher tier is needed", "This Party requires \(invite.tier.displayName) membership.", "lock.fill", .access(accent: accent))
         case .unavailable:
             return PartyAccessStatus("ACCESS UNAVAILABLE", "Party action unavailable", "This invitation cannot accept a new action right now.", "exclamationmark.triangle.fill", .standard)
         case .rsvp:
@@ -299,7 +301,7 @@ struct PartyPassClipView: View {
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
             VStack {
                 HStack {
-                    Text(invite.tier.displayName.uppercased()).font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
+                    Text("\(invite.tier.displayName.uppercased()) REQUIRED").font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
                         .foregroundColor(accent).padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Capsule().fill(Color.black.opacity(0.44))).overlay(Capsule().stroke(accent.opacity(0.42)))
                     Spacer()
@@ -367,7 +369,7 @@ struct PartyPassClipView: View {
             }
             HStack(spacing: 8) {
                 PartyMetric(value: invite.capacity.map { "\($0) max" } ?? "Limited", label: "CAPACITY")
-                PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "TIER")
+                PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "REQUIRED TIER")
                 PartyMetric(value: accessMetricValue, label: "ACCESS")
             }
         }
@@ -485,7 +487,25 @@ struct PartyPassClipView: View {
     }
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
-    private func rsvp() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Sending your request…"; defer { isPerformingAction = false }; do { _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString); await resolvePass() } catch { statusMessage = "Your request could not be sent. Please try again." } }
+    private func rsvp() async {
+        guard !isBusy else { return }
+        isPerformingAction = true
+        statusMessage = "Sending your request…"
+        defer { isPerformingAction = false }
+        #if DEBUG
+        if let confirmedPreview = ClipPartyPassPreview.confirmedRSVP(for: invocation.invocationURL, partyID: invite.id) {
+            passState = confirmedPreview
+            statusMessage = "RSVP confirmed in preview."
+            return
+        }
+        #endif
+        do {
+            _ = try await ClipPatchVerifier().createPartyRSVP(partyID: invite.id, idempotencyKey: UUID().uuidString)
+            await resolvePass()
+        } catch {
+            statusMessage = "Your request could not be sent. Please try again."
+        }
+    }
     private func partyHandoffButton(provider: ClipPartyHandoffProvider, title: String) -> some View {
         Button { Task { await openPartyArrivalHandoff(provider) } } label: {
             Label(title, systemImage: "arrow.up.forward.app.fill").font(.system(size: 12, weight: .black, design: .rounded))
@@ -583,7 +603,7 @@ enum PartyPassPresentationRules {
 
 /// A presentation-only tier treatment. The server remains the sole authority
 /// for RSVP, ticket, approval, and arrival privileges.
-struct PartyRecipientTierPresentation: Equatable {
+struct PartyInvitationTierPresentation: Equatable {
     let headerLabel: String
     let heroBadge: String
     let eyebrow: String
@@ -593,22 +613,22 @@ struct PartyRecipientTierPresentation: Equatable {
     init(for tier: BytspotTier) {
         switch tier {
         case .green:
-            headerLabel = "PRIVATE GREEN INVITATION"
-            heroBadge = "PERSONALLY INVITED"
-            eyebrow = "PRIVATE INVITATION"
-            detail = "A considered invitation from your host—your Party Pass keeps the details and access together."
+            headerLabel = "GREEN PARTY INVITATION"
+            heroBadge = "GREEN REQUIRED"
+            eyebrow = "REQUIRED TIER"
+            detail = "Green membership or higher is required. Bytspot checks eligibility before each Party action."
             symbol = "seal.fill"
         case .platinum:
-            headerLabel = "PRIVATE PLATINUM INVITATION"
-            heroBadge = "PLATINUM INVITED"
-            eyebrow = "PLATINUM INVITATION"
-            detail = "A curated Platinum gathering. Your access is confirmed again before any Party action is completed."
+            headerLabel = "PLATINUM PARTY INVITATION"
+            heroBadge = "PLATINUM REQUIRED"
+            eyebrow = "REQUIRED TIER"
+            detail = "Platinum or Black membership is required. Bytspot checks eligibility before each Party action."
             symbol = "sparkles"
         case .black:
-            headerLabel = "PRIVATE BLACK INVITATION"
-            heroBadge = "SIGNATURE INVITE"
-            eyebrow = "SIGNATURE INVITATION"
-            detail = "A curated Black gathering. Your Party Pass keeps the invitation, access, and arrival details in one place."
+            headerLabel = "BLACK PARTY INVITATION"
+            heroBadge = "BLACK REQUIRED"
+            eyebrow = "REQUIRED TIER"
+            detail = "Black membership is required. Bytspot checks eligibility before each Party action."
             symbol = "crown.fill"
         }
     }

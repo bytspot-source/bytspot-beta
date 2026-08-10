@@ -775,7 +775,7 @@ private struct NativeContextualDestinationView: View {
                     NativePartyPassPreview(route: route)
                         .environmentObject(sessionStore)
                 } else if case .booking(_, _, let ride) = destination, let ride {
-                    NativeMobilityBookingConfirmationCard(ride: ride, openAccess: openAccess)
+                    NativeMobilityHandoffConfirmationCard(ride: ride, openAccess: openAccess)
                 } else {
                     NativeScreenScroll {
                         NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
@@ -801,32 +801,28 @@ private struct NativeContextualDestinationView: View {
     }
 }
 
-private struct NativeMobilityBookingConfirmationCard: View {
+private struct NativeMobilityHandoffConfirmationCard: View {
     let ride: NativeMobilityRideRecord
     let openAccess: () -> Void
 
     var body: some View {
         NativeScreenScroll {
-            NativeHeroCard(title: ride.serviceTitle ?? "Ride request received", eyebrow: "RIDE BOOKING", subtitle: rideStatusDescription)
+            NativeHeroCard(title: ride.serviceTitle ?? "Provider handoff", eyebrow: "PROVIDER HANDOFF", subtitle: rideStatusDescription)
             VStack(alignment: .leading, spacing: 12) {
-                NativeWalletLine(title: "Status", subtitle: ride.normalizedStatus.replacingOccurrences(of: "_", with: " ").capitalized, icon: "checkmark.circle.fill")
-                NativeWalletLine(title: "Pickup", subtitle: ride.pickupLabel ?? "Current location", icon: "location.fill")
                 NativeWalletLine(title: "Destination", subtitle: ride.dropoffLabel ?? "Event destination", icon: "mappin.and.ellipse")
-                if let price = ride.priceLabel { NativeWalletLine(title: "Fare", subtitle: price, icon: "creditcard.fill") }
-                if let eta = ride.etaLabel { NativeWalletLine(title: "ETA", subtitle: eta, icon: "clock.fill") }
-                NativeWalletLine(title: "Reference", subtitle: ride.normalizedProviderReservationId ?? ride.id, icon: "number")
+                NativeWalletLine(title: "Bytspot record", subtitle: ride.id, icon: "number")
             }
             .padding(16)
             .nativePanel()
-            Button(action: openAccess) { NativeCTA(title: "Open My Access", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+            Button(action: openAccess) { NativeCTA(title: "Return to My Access", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
         }
-        .accessibilityIdentifier("native-mobility-booking-confirmation")
+        .accessibilityIdentifier("native-mobility-handoff-confirmation")
     }
 
     private var rideStatusDescription: String {
         let provider = ride.provider?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return provider?.isEmpty == false ? "Your request is with \(provider!). Follow its status in My Access." : "Your ride request is saved in My Access."
+        return provider?.isEmpty == false ? "Open \(provider!) to choose, book, and manage a ride. Bytspot does not track it." : "Open a provider to choose, book, and manage a ride. Bytspot does not track it."
     }
 }
 
@@ -919,12 +915,12 @@ private struct NativePartyPassPreview: View {
         do {
             let client = BytspotAPIClient(tokenProvider: { sessionStore.token })
             guard let mapItem = try await NativePartyArrivalAPI(client: client).context(partyID: party.id).appleMapsItem else {
-                arrivalMessage = "Verified directions are unavailable for this Party."
+                arrivalMessage = "Authorized directions are unavailable for this Party."
                 return
             }
             mapItem.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
         } catch {
-            arrivalMessage = "Arrival guidance is available after Party access and a verified destination are confirmed."
+            arrivalMessage = "Arrival guidance is available after Party access and a host-bound registered venue are confirmed."
         }
     }
 }
@@ -5986,7 +5982,7 @@ private struct NativeRideHandoffRoute {
 }
 
 private enum NativeRideHandoff {
-    static let unavailableMessage = "Airport ride booking is unavailable. Concierge can help arrange the transfer."
+    static let unavailableMessage = "Ride-provider handoff is unavailable. Concierge can help coordinate the transfer."
     static let routeRequiredMessage = "Select pickup and drop-off from search first so the ride app receives an exact route."
     static let handoffMessage = "Opening ride app with your route. Booking and payment happen with the provider."
 
@@ -9118,7 +9114,6 @@ private struct NativeDiscoverView: View {
     @State private var savedCardIDs: Set<String> = []
     @State private var skippedCardIDs: Set<String> = []
     @State private var detailVenue: NativeVenueSummary?
-    @State private var eventRideVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var partnerMenuVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
@@ -9207,9 +9202,6 @@ private struct NativeDiscoverView: View {
         }
         .sheet(item: $parkingBookingVenue) { venue in
             NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
-        }
-        .sheet(item: $eventRideVenue) { venue in
-            NativeEventRideBookingSheet(event: venue, onCompleted: onRideBookingCompleted, onSignIn: openNativeAuth)
         }
         .sheet(item: $partnerMenuVenue) { venue in
             NativePartnerMenuView(menu: PartnerMenu.sample(for: venue), tier: partnerMenuTier(for: venue), isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth)
@@ -9485,11 +9477,12 @@ private struct NativeDiscoverView: View {
         let venue = venueForDetail(card)
         if card.cta == "Book Ride" {
             guard venue.hasKnownCoordinates else {
-                discoverStatusMessage = "This event needs a verified destination before a ride can be requested."
+                discoverStatusMessage = "Directions are unavailable because this event has no registered map destination."
                 detailVenue = venue
                 return
             }
-            eventRideVenue = venue
+            discoverStatusMessage = "Opening directions for \(venue.name). Provider booking happens only in the provider app."
+            openRoute(to: venue)
             return
         }
         if Self.supportsManualCheckIn(card, venue: venue) {
@@ -9510,6 +9503,7 @@ private struct NativeDiscoverView: View {
 
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
         let venue = venueForDetail(card)
+        if card.cta == "Book Ride" { return "Plan Arrival" }
         guard Self.supportsManualCheckIn(card, venue: venue) else { return card.cta }
         return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
     }
@@ -10267,7 +10261,6 @@ private struct NativeVenueDetailView: View {
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
     @State private var showPartnerMenu = false
-    @State private var showEventRideBooking = false
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -10310,15 +10303,6 @@ private struct NativeVenueDetailView: View {
         }
         .sheet(isPresented: $showPartnerMenu) {
             NativePartnerMenuView(menu: partnerMenu, tier: menuTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openAccessFromMenu, onOpenAuth: { openNativeAuth?() })
-        }
-        .sheet(isPresented: $showEventRideBooking) {
-            NativeEventRideBookingSheet(event: venue, onCompleted: { ride in
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { onRideBookingCompleted?(ride) }
-            }, onSignIn: {
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { openNativeAuth?() }
-            })
         }
         .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
         .onChange(of: sessionStore.token ?? "") { _ in resumePendingCheckInIfReady() }
@@ -10661,23 +10645,6 @@ private struct NativeVenueDetailView: View {
     }
 
     private func handleCapability(_ action: NativeVenueDetailAction, capability: BytspotTrustCapability) {
-        if action.id == "bookRide", NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
-            guard venue.hasKnownCoordinates else {
-                statusMessage = "This event needs a verified destination before a ride can be requested."
-                return
-            }
-            showEventRideBooking = true
-            return
-        }
-        if action.id == "bookRide", NativeVenueDetailPresentation.isMobilityVenue(venue) {
-            if venue.name.localizedCaseInsensitiveContains("group") {
-                statusMessage = "Concierge can help coordinate group transport for \(venue.name)."
-                openNativeTab?(.concierge)
-            } else if !NativeRideHandoff.openPreferredRideApp() {
-                statusMessage = NativeRideHandoff.unavailableMessage
-            }
-            return
-        }
         if action.id == "getTickets", venue.discoverType == "parking" {
             showParkingBooking = true
             return
@@ -10749,7 +10716,7 @@ private struct NativeVenueDetailView: View {
 
     private func handleDevice(_ id: String) {
         switch id {
-        case "navigate": openVenueOnNativeMap()
+        case "navigate", "bookRide": openVenueOnNativeMap()
         case "call": openURL(URL(string: "https://www.google.com/search?q=\(urlEncoded(NativeVenueDetailRegionalPresentation.contactSearchQuery(for: venue)))"))
         case "share": presentShare(text: "\(venue.name) — \(venue.address) · \(venue.distance) on Bytspot")
         default: break
@@ -16814,7 +16781,7 @@ enum NativeMapParitySelfTests {
         precondition(NativeVenueDetailContract.checkinEndpoint == "venues.checkin" && NativeVenueDetailContract.checkinIdempotent, "NativeMapParitySelfTests: venues.checkin endpoint/idempotency drifted from contract venueDetail.")
         precondition(NativeVenueDetailContract.actionIDs == ["navigate", "call", "share", "save", "getTickets", "checkIn", "concierge", "bookRide"], "NativeMapParitySelfTests: Venue Details action set drifted from React VenueDetails.tsx / contract venueDetail.actions.")
         precondition(NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })?.kind == NativeVenueActionKind.capability(.saveToWallet), "NativeMapParitySelfTests: Get Tickets must gate on saveToWallet (L1).")
-        precondition(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind == NativeVenueActionKind.capability(.createCheckoutHold), "NativeMapParitySelfTests: Book Ride must gate on createCheckoutHold (L3).")
+        precondition(NativeVenueDetailContract.actions.first(where: { $0.id == "bookRide" })?.kind == NativeVenueActionKind.device, "NativeMapParitySelfTests: Plan Arrival must remain a local directions action.")
 	        let broniVenue = NativeVenueSummary(id: "broni", name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking", distance: "Service", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil)
 	        precondition(NativeVenueDetailPresentation.actionTitle(for: NativeVenueDetailContract.actions.first(where: { $0.id == "getTickets" })!, venue: broniVenue) == "View Menu", "NativeMapParitySelfTests: Broni dining detail primary action must remain View Menu.")
 	        precondition(NativeVenueDetailPresentation.actionTitle(for: NativeVenueDetailContract.actions.first(where: { $0.id == "call" })!, venue: broniVenue) == "Contact", "NativeMapParitySelfTests: Broni dining detail call action must read Contact.")

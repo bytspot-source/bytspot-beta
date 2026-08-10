@@ -233,18 +233,29 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "The Loft", "Party Loop: access/location mapping drifted.")
         precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
         precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
+        var genericSocialDTO = dto
+        genericSocialDTO["host"] = ["destinations": ["socialUrl": "https://social.example.com/unapproved", "social": ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]]]
+        precondition(PartyPassInvite.fromPayload(genericSocialDTO)?.hostDestinations.contains(where: { $0.kind == .social }) == false, "Party Loop: generic social aliases must not reach recipients without a primary host selection.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("cs_test_123_ABC")?.host == "checkout.stripe.com", "Party Loop: Stripe Checkout session IDs must normalize to Stripe Checkout.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://checkout.stripe.com/c/pay/cs_test_123") != nil, "Party Loop: Stripe-hosted Checkout URLs must be accepted.")
         precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://payments.example.com/checkout") == nil, "Party Loop: non-Stripe HTTPS checkout redirects must be rejected.")
+        precondition(ClipPatchVerifier.normalizedStripeCheckoutURL("https://dashboard.stripe.com/payments") == nil && ClipPatchVerifier.normalizedStripeCheckoutURL("https://stripe.com/") == nil, "Party Loop: non-Checkout Stripe URLs must not be opened.")
         precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkoutUrl": "cs_test_456_ABC"])?.host == "checkout.stripe.com", "Party Loop: documented Checkout response aliases must normalize before handoff.")
         precondition(ClipPatchVerifier.partyStripeCheckoutURL(from: ["checkout": ["url": "https://payments.example.com/checkout"]]) == nil, "Party Loop: nested non-Stripe Checkout responses must fail closed.")
         let blackAviation = ClipBookingContext.make(categoryText: "private aviation charter", amountCents: 2_500, tier: .black)
         let blackMarine = ClipBookingContext.make(categoryText: "marine yacht", amountCents: 2_500, tier: .black)
         let blackHighValue = ClipBookingContext.make(categoryText: "private event", amountCents: 85_000, tier: .black)
-        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and high-value bookings must use secure-hold arrival context.")
+        guard let regularBlackService = ClipLocalService.fallbacks(for: .black).first(where: { service in
+            let category = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
+            return !["aviation", "jet", "charter", "marine", "yacht", "vessel"].contains(where: category.contains)
+        }), let regularBlackVendor = ClipVendor.fallbacks(for: regularBlackService, tier: .black).first else {
+            preconditionFailure("Party Loop: expected a non-aviation/non-marine Black vendor fixture.")
+        }
+        let blackExpandedBooking = ClipBookingContext.make(service: regularBlackService, vendor: regularBlackVendor, tier: .black, amountCents: 85_000)
+        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackExpandedBooking.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
         var protectedPopUp = dto

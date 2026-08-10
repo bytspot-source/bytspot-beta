@@ -672,6 +672,7 @@ struct ClipPaymentSecureResult: Equatable {
     let bookingId: String?
     let status: String
     let message: String
+    let amountCents: Int
 }
 
 /// Thin REST client for the Clip target. Mirrors the App's tRPC shape but
@@ -888,8 +889,8 @@ struct ClipPatchVerifier {
         guard let url = URL(string: value),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == "https",
-              let host = components.host?.lowercased(),
-              host == "stripe.com" || host.hasSuffix(".stripe.com") else { return nil }
+              components.host?.lowercased() == "checkout.stripe.com",
+              components.path.hasPrefix("/c/pay/") else { return nil }
         return url
     }
 
@@ -998,7 +999,8 @@ struct ClipPatchVerifier {
         return ClipPaymentSecureResult(
             bookingId: Self.string(root?["bookingId"]),
             status: Self.string(root?["status"]) ?? "authorized",
-            message: Self.string(root?["message"]) ?? "Apple Pay Secure authorized."
+            message: Self.string(root?["message"]) ?? "Apple Pay Secure authorized.",
+            amountCents: amountCents
         )
     }
 

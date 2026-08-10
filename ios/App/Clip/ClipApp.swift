@@ -304,10 +304,10 @@ struct PartyPassInvite: Equatable {
         if let url = firstURL(["websiteUrl", "websiteURL", "website", "officialUrl", "officialURL"]) {
             destinations.append(PartyHostDestination(kind: .website, label: "Visit website", url: url))
         }
-        let social = sources.compactMap { object($0["primarySocial"]) ?? object($0["social"]) }.first
-        let socialURL = secureURL(social?["url"]) ?? secureURL(social?["href"]) ?? firstURL(["primarySocialUrl", "primarySocialURL", "socialUrl", "socialURL"])
+        let social = sources.compactMap { object($0["primarySocial"]) }.first
+        let socialURL = secureURL(social?["url"]) ?? secureURL(social?["href"]) ?? firstURL(["primarySocialUrl", "primarySocialURL"])
         if let socialURL {
-            let socialLabel = string(social?["platform"]) ?? string(social?["label"]) ?? sources.lazy.compactMap { string($0["primarySocialPlatform"]) ?? string($0["socialPlatform"]) }.first ?? PartyHostDestinationKind.social.title
+            let socialLabel = string(social?["platform"]) ?? string(social?["label"]) ?? sources.lazy.compactMap { string($0["primarySocialPlatform"]) }.first ?? PartyHostDestinationKind.social.title
             destinations.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
         }
         return destinations
@@ -625,7 +625,7 @@ enum ClipFlowStep: Equatable {
     case party(PartyPassInvite)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
-    case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String)
+    case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int)
 }
 
 #if DEBUG
@@ -860,7 +860,7 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_marine", "marine_success":
             guard let service = services.first(where: { service in
@@ -871,14 +871,14 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_gh_akwaaba", "success_fifa_matchday", "success_platinum_fifa":
             let service = ClipLocalService.platinumEventAccessService()
             let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
             guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("akwaaba") }) ?? fallbacks.first else { return false }
             vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_platinum_event", "platinum_event_success":
             guard let service = services.first(where: { service in
@@ -889,7 +889,7 @@ final class ClipInvocationModel: ObservableObject {
                 ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
             return true
         case "success_platinum_nightlife", "platinum_nightlife_success", "success_platinum_bottle":
             guard let service = services.first(where: { service in
@@ -900,7 +900,7 @@ final class ClipInvocationModel: ObservableObject {
             let vendor = fallbacks.first ?? vendors(for: service).first
             guard let vendor else { return false }
             vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001")
+            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
             return true
         case "black_ride", "ride", "valet":
             openValetBoutiqueServices()
@@ -936,8 +936,8 @@ final class ClipInvocationModel: ObservableObject {
         selectedPartyTicketTier = ticketTier
     }
 
-    func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String) {
-        flow = .success(service: service, vendor: vendor, bookingRef: bookingRef)
+    func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int) {
+        flow = .success(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents)
     }
 
     func openValetBoutiqueServices() {

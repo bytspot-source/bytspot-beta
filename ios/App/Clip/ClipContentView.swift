@@ -96,8 +96,8 @@ struct ClipContentView: View {
                 case .checkout(let service, let vendor):
                     ClipCheckoutView(service: service, vendor: vendor, paymentSecure: paymentSecure, showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
-                case .success(let service, let vendor, let bookingRef):
-                    ClipSuccessView(service: service, vendor: vendor, bookingRef: bookingRef, showOverlay: $showOverlay)
+                case .success(let service, let vendor, let bookingRef, let amountCents):
+                    ClipSuccessView(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents, showOverlay: $showOverlay)
                         .transition(.opacity)
                 }
             }
@@ -111,7 +111,7 @@ struct ClipContentView: View {
         }
         .onReceive(paymentSecure.$completedResult.compactMap { $0 }) { result in
             guard case .checkout(let service, let vendor) = invocation.flow else { return }
-            invocation.completeCheckout(service: service, vendor: vendor, bookingRef: result.bookingId ?? "BYT-\(Int.random(in: 100000...999999))")
+            invocation.completeCheckout(service: service, vendor: vendor, bookingRef: result.bookingId ?? "BYT-\(Int.random(in: 100000...999999))", amountCents: result.amountCents)
         }
     }
 }
@@ -651,9 +651,9 @@ struct ClipBookingContext: Equatable {
     let requiresSpecialRequests: Bool
     let requiresPhoneNumber: Bool
 
-    static func make(service: ClipLocalService, vendor: ClipVendor, tier: BytspotTier) -> ClipBookingContext {
+    static func make(service: ClipLocalService, vendor: ClipVendor, tier: BytspotTier, amountCents: Int? = nil) -> ClipBookingContext {
         let category = [service.category, service.id, service.title].compactMap { $0 }.joined(separator: " ")
-        return make(categoryText: category, amountCents: vendor.priceFromCents, tier: tier)
+        return make(categoryText: category, amountCents: amountCents ?? vendor.priceFromCents, tier: tier)
     }
 
     static func make(partyTicket: ClipPartyTicketTier, partyTier: BytspotTier) -> ClipBookingContext {
@@ -1675,8 +1675,12 @@ struct ClipInviteView: View {
             defer { isResolvingPartyPass = false }
             do {
                 let checkoutURL = try await ClipPatchVerifier().createPartyTicketCheckout(partyID: invite.id, ticketTierName: tier.name, idempotencyKey: UUID().uuidString)
+                guard let validatedCheckoutURL = ClipPatchVerifier.normalizedStripeCheckoutURL(checkoutURL.absoluteString) else {
+                    statusMessage = "Checkout could not be verified. Please try again."
+                    return
+                }
                 statusMessage = "Secure checkout opened. We'll refresh your Party Pass when you return."
-                openURL(checkoutURL)
+                openURL(validatedCheckoutURL)
             } catch {
                 statusMessage = joinErrorText(from: error)
             }
@@ -2575,11 +2579,11 @@ struct ClipCheckoutView: View {
     @State private var specialRequests = ""
     @State private var phoneNumber = ""
 
-    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
     private var totalCents: Int {
         if hasLineItems { return lineItemsTotalCents }
         return vendor.priceFromCents * max(invocation.guestCount, 1)
     }
+    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier, amountCents: totalCents) }
     private var totalLabel: String {
         let dollars = Double(totalCents) / 100.0
         if service.currency.uppercased() == "USD" { return String(format: "$%.0f", dollars) }
@@ -3036,6 +3040,7 @@ struct ClipSuccessView: View {
     let service: ClipLocalService
     let vendor: ClipVendor
     let bookingRef: String
+    let amountCents: Int
     @Binding var showOverlay: Bool
     @State private var timeRemaining = 0
     @State private var isHoldExpired = false
@@ -3051,7 +3056,7 @@ struct ClipSuccessView: View {
     @State private var didAutoOpenPlatinumPassForPreview = false
     @State private var showShareSheet = false
 
-    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier) }
+    private var bookingContext: ClipBookingContext { .make(service: service, vendor: vendor, tier: invocation.tier, amountCents: amountCents) }
     private var hasGroundLogistics: Bool {
         vendor.includedHighlights.contains { $0.lowercased().contains("ground transport") || $0.lowercased().contains("chauffeur") }
     }
@@ -4317,7 +4322,7 @@ final class ClipPaymentSecureController: NSObject, ObservableObject, PKPaymentAu
         let ref = "BYT-PREVIEW-\(Int.random(in: 1000...9999))"
         statusTone = .success
         statusMessage = "Booking confirmed (preview)."
-        completedResult = ClipPaymentSecureResult(bookingId: ref, status: "authorized_preview", message: "Booking confirmed (preview).")
+        completedResult = ClipPaymentSecureResult(bookingId: ref, status: "authorized_preview", message: "Booking confirmed (preview).", amountCents: amountCents)
     }
     #endif
 

@@ -160,6 +160,9 @@ struct PartyPassClipView: View {
     @State private var attendeeCredential: ClipPatchVerifier.PartyAttendeeCredential?
     @State private var isLoadingAttendeeCredential = false
     @State private var attendeeCredentialMessage = ""
+    /// Changes on every clear/request so an older async response can never
+    /// restore a QR after backgrounding, denial, or a newer request.
+    @State private var attendeeCredentialGeneration = UUID()
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
@@ -546,22 +549,57 @@ struct PartyPassClipView: View {
         }
     }
     private func clearAttendeeCredential() {
+        attendeeCredentialGeneration = UUID()
         attendeeCredential = nil
         attendeeCredentialMessage = ""
+        isLoadingAttendeeCredential = false
     }
     @MainActor private func loadAttendeeCredential() async {
         guard !isBusy, !isLoadingAttendeeCredential,
-              passState?.action == .viewPass, passState?.accessGranted == true else { return }
+              Self.canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState) else { return }
+        let requestGeneration = UUID()
+        attendeeCredentialGeneration = requestGeneration
         isLoadingAttendeeCredential = true
         attendeeCredentialMessage = ""
-        defer { isLoadingAttendeeCredential = false }
+        defer {
+            if attendeeCredentialGeneration == requestGeneration {
+                isLoadingAttendeeCredential = false
+            }
+        }
         do {
-            attendeeCredential = try await ClipPatchVerifier().partyAttendeeCredential(partyID: invite.id)
+            let credential = try await ClipPatchVerifier().partyAttendeeCredential(partyID: invite.id)
+            guard Self.canCommitAttendeeCredential(
+                requestGeneration: requestGeneration,
+                currentGeneration: attendeeCredentialGeneration,
+                scenePhase: scenePhase,
+                passState: passState,
+                credential: credential,
+                expectedPartyID: invite.id
+            ) else { return }
+            attendeeCredential = credential
         } catch {
+            guard attendeeCredentialGeneration == requestGeneration else { return }
             attendeeCredential = nil
             attendeeCredentialMessage = "Your door pass could not be refreshed. Please try again."
         }
     }
+    static func canRequestAttendeeCredential(scenePhase: ScenePhase, passState: ClipPartyPassState?) -> Bool {
+        scenePhase == .active && passState?.action == .viewPass && passState?.accessGranted == true
+    }
+
+    static func canCommitAttendeeCredential(
+        requestGeneration: UUID,
+        currentGeneration: UUID,
+        scenePhase: ScenePhase,
+        passState: ClipPartyPassState?,
+        credential: ClipPatchVerifier.PartyAttendeeCredential,
+        expectedPartyID: String
+    ) -> Bool {
+        requestGeneration == currentGeneration &&
+            canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState) &&
+            credential.partyID == expectedPartyID
+    }
+
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
     private func rsvp() async {

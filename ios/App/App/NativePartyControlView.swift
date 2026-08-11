@@ -21,14 +21,18 @@ struct NativePartyCheckInResult: Codable, Equatable {
 }
 
 enum NativePartyDoorPassInput {
-    static let maximumLength = 256
-
     /// Door Mode receives the opaque QR payload exactly as scanned. It only
     /// trims surrounding whitespace; it must never parse a URL or alter the
     /// bearer credential before the server validates it.
     static func normalized(_ rawValue: String) -> String? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value.count <= maximumLength else { return nil }
+        guard value.count == 43,
+              value.unicodeScalars.allSatisfy({
+                  ($0.value >= 65 && $0.value <= 90) ||
+                  ($0.value >= 97 && $0.value <= 122) ||
+                  ($0.value >= 48 && $0.value <= 57) ||
+                  $0.value == 45 || $0.value == 95
+              }) else { return nil }
         return value
     }
 }
@@ -177,12 +181,28 @@ private struct NativePartyQRScanner: UIViewControllerRepresentable {
         preview.frame = UIScreen.main.bounds
         controller.view.layer.insertSublayer(preview, at: 0)
         context.coordinator.session = session
-        session.startRunning()
+        context.coordinator.captureQueue.async { session.startRunning() }
         return controller
     }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) {
+        let session = coordinator.session
+        coordinator.session = nil
+        coordinator.captureQueue.async { session?.stopRunning() }
+    }
     func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
-    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate { var session: AVCaptureSession?; let onCode: (String) -> Void; init(onCode: @escaping (String) -> Void) { self.onCode = onCode }; func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) { guard let code = metadataObjects.first as? AVMetadataMachineReadableCodeObject, let value = code.stringValue else { return }; session?.stopRunning(); onCode(value) } }
+    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        var session: AVCaptureSession?
+        let captureQueue = DispatchQueue(label: "com.bytspot.party-door-scanner")
+        let onCode: (String) -> Void
+        init(onCode: @escaping (String) -> Void) { self.onCode = onCode }
+        func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+            guard let code = metadataObjects.first as? AVMetadataMachineReadableCodeObject, let value = code.stringValue else { return }
+            let session = self.session
+            captureQueue.async { session?.stopRunning() }
+            onCode(value)
+        }
+    }
 }
 
 private extension View { func controlButton(color: Color) -> some View { font(.system(size: 12, weight: .black)).frame(maxWidth: .infinity).frame(height: 46).foregroundColor(.white).background(color).clipShape(RoundedRectangle(cornerRadius: 15)) }; func partyControlSurface() -> some View { background(Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 17).stroke(Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 17)) }; func partyControlLabel() -> some View { font(.system(size: 9.5, weight: .black)).foregroundColor(.white.opacity(0.45)) } }

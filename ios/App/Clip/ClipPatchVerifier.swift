@@ -835,17 +835,24 @@ struct ClipPatchVerifier {
     /// from the invite template or access mode.
     func resolvePartyPass(partyID: String) async throws -> ClipPartyPassState {
         let payload = try await getTRPC("events.pass.resolve", input: ["partyId": partyID])
+        guard let state = Self.partyPassState(from: payload, expectedPartyID: partyID) else { throw VerifyError.decode }
+        return state
+    }
+
+    /// The resolver contract must explicitly authorize access in `guest`.
+    /// Never infer access from `action`: a partial or drifted response cannot
+    /// unlock a personal attendee credential.
+    static func partyPassState(from payload: Any, expectedPartyID: String) -> ClipPartyPassState? {
         guard let root = payload as? [String: Any],
-              let resolvedPartyID = Self.string(root["partyId"]),
-              resolvedPartyID == partyID,
-              let rawAction = Self.string(root["action"]),
-              let action = ClipPartyPassAction(rawValue: rawAction) else { throw VerifyError.decode }
-        let guest = root["guest"] as? [String: Any]
+              let resolvedPartyID = string(root["partyId"]), resolvedPartyID == expectedPartyID,
+              let rawAction = string(root["action"]), let action = ClipPartyPassAction(rawValue: rawAction),
+              let guest = root["guest"] as? [String: Any],
+              let accessGranted = guest["accessGranted"] as? Bool else { return nil }
         return ClipPartyPassState(
             partyID: resolvedPartyID,
             action: action,
-            guestStatus: Self.string(guest?["status"]) ?? "unknown",
-            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass),
+            guestStatus: string(guest["status"]) ?? "unknown",
+            accessGranted: accessGranted,
             premiumMobilityEligible: (root["premiumMobilityEligible"] as? Bool) ?? false
         )
     }

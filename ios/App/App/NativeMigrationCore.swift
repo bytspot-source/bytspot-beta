@@ -497,20 +497,25 @@ private extension NativeVirtualPatchSavedServiceRequest {
 private enum NativeClipHandoff {
     static let appGroupSuiteName = "group.party.com.bytspot.app"
     static let tokenKey = "bytspot_auth_token"
-    static let userIDKey = "bytspot_user_display_name_user_id"
+    static let userIDKey = "bytspot_clip_handoff_user_id"
+    private static let legacyUserIDKey = "bytspot_user_display_name_user_id"
 
     static func session(from defaults: UserDefaults?) -> (token: String, userID: String?)? {
         guard let defaults,
               let rawToken = defaults.string(forKey: tokenKey) else { return nil }
         let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, token != "guest_session", token != "beta_guest" else { return nil }
-        let userID = defaults.string(forKey: userIDKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userID = [userIDKey, legacyUserIDKey]
+            .lazy
+            .compactMap { defaults.string(forKey: $0)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
         return (token, userID?.isEmpty == false ? userID : nil)
     }
 
     static func clear(from defaults: UserDefaults?) {
         defaults?.removeObject(forKey: tokenKey)
         defaults?.removeObject(forKey: userIDKey)
+        defaults?.removeObject(forKey: legacyUserIDKey)
     }
 }
 
@@ -611,11 +616,13 @@ final class BytspotSessionStore: ObservableObject {
         }
     }
 
-    private func importClipHandoffIfNeeded() {
+    @discardableResult
+    func importClipHandoffIfNeeded() -> Bool {
         guard token == nil || token == "guest_session",
               let handoff = NativeClipHandoff.session(from: clipHandoffDefaults),
-              updateSession(token: handoff.token, userID: handoff.userID) else { return }
+              updateSession(token: handoff.token, userID: handoff.userID) else { return false }
         NativeClipHandoff.clear(from: clipHandoffDefaults)
+        return true
     }
 
     private func readValue(for keychainAccount: String) -> String? {

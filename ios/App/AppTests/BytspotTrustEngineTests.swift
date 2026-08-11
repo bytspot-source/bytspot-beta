@@ -2084,13 +2084,15 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set("clip_session_token", forKey: "bytspot_auth_token")
-        defaults.set("clip-user-id", forKey: "bytspot_user_display_name_user_id")
         let imported = BytspotSessionStore(account: account, service: service, clipHandoffDefaults: defaults)
         defer { imported.signOut() }
+        defaults.set("clip_session_token", forKey: "bytspot_auth_token")
+        defaults.set("clip-user-id", forKey: "bytspot_clip_handoff_user_id")
+        XCTAssertTrue(imported.importClipHandoffIfNeeded())
         XCTAssertEqual(imported.token, "clip_session_token")
         XCTAssertEqual(imported.authenticatedUserID, "clip-user-id")
         XCTAssertNil(defaults.string(forKey: "bytspot_auth_token"))
+        XCTAssertNil(defaults.string(forKey: "bytspot_clip_handoff_user_id"))
 
         XCTAssertTrue(imported.updateSession(token: "full_app_session_token", userID: "full-app-user-id"))
         defaults.set("new_clip_session_token", forKey: "bytspot_auth_token")
@@ -2099,6 +2101,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(preserved.token, "full_app_session_token")
         XCTAssertEqual(preserved.authenticatedUserID, "full-app-user-id")
         XCTAssertEqual(defaults.string(forKey: "bytspot_auth_token"), "new_clip_session_token")
+        XCTAssertFalse(preserved.importClipHandoffIfNeeded())
     }
 
     @MainActor

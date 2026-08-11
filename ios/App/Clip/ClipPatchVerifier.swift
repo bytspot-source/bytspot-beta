@@ -9,7 +9,7 @@ enum ClipAuthStore {
     static let appGroupSuiteName = "group.party.com.bytspot.app"
     static let tokenKey = "bytspot_auth_token"
     static let displayNameKey = "bytspot_user_display_name"
-    static let displayNameUserIDKey = "bytspot_user_display_name_user_id"
+    static let handoffUserIDKey = "bytspot_clip_handoff_user_id"
 
     private static var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupSuiteName)
@@ -41,7 +41,7 @@ enum ClipAuthStore {
 
     static var displayName: String? {
         for defaults in [sharedDefaults, UserDefaults.standard].compactMap({ $0 }) {
-            guard let userID = normalizedUserID(defaults.string(forKey: displayNameUserIDKey)), !userID.isEmpty,
+            guard let userID = normalizedUserID(defaults.string(forKey: handoffUserIDKey)), !userID.isEmpty,
                   let name = greetingName(from: defaults.string(forKey: displayNameKey)) else { continue }
             return name
         }
@@ -50,15 +50,13 @@ enum ClipAuthStore {
 
     static func store(displayName: String?, userID: String?, in defaults: UserDefaults) {
         defaults.removeObject(forKey: displayNameKey)
-        defaults.removeObject(forKey: displayNameUserIDKey)
-        guard let identity = greetingIdentity(displayName: displayName, userID: userID) else { return }
-        defaults.set(identity.name, forKey: displayNameKey)
-        defaults.set(identity.userID, forKey: displayNameUserIDKey)
-    }
-
-    static func greetingIdentity(displayName: String?, userID: String?) -> (userID: String, name: String)? {
-        guard let userID = normalizedUserID(userID), let name = greetingName(from: displayName) else { return nil }
-        return (userID, name)
+        guard let userID = normalizedUserID(userID) else {
+            defaults.removeObject(forKey: handoffUserIDKey)
+            return
+        }
+        defaults.set(userID, forKey: handoffUserIDKey)
+        guard let name = greetingName(from: displayName) else { return }
+        defaults.set(name, forKey: displayNameKey)
     }
 
     private static func normalizedUserID(_ rawUserID: String?) -> String? {

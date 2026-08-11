@@ -172,6 +172,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(locationStore)
             .onAppear {
                 NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
+                sessionStore.importClipHandoffIfNeeded()
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
@@ -192,6 +193,7 @@ struct BytspotNativeAppRoot: View {
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
+                sessionStore.importClipHandoffIfNeeded()
                 Task { await membershipStore.refresh(sessionStore: sessionStore) }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in
@@ -201,15 +203,21 @@ struct BytspotNativeAppRoot: View {
             .onChange(of: launchAtmosphere) { _ in
                 NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
             }
-            .onOpenURL { navigation.notifyPatchScanned(url: $0, source: .deepLink); _ = navigation.handle(url: $0) }
+            .onOpenURL {
+                sessionStore.importClipHandoffIfNeeded()
+                navigation.notifyPatchScanned(url: $0, source: .deepLink)
+                _ = navigation.handle(url: $0)
+            }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 if let url = activity.webpageURL {
+                    sessionStore.importClipHandoffIfNeeded()
                     navigation.notifyPatchScanned(url: url, source: .universalLink)
                     _ = navigation.handle(url: url)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NativeIncomingURLCenter.notification)) { notification in
                 guard let url = notification.object as? URL else { return }
+                sessionStore.importClipHandoffIfNeeded()
                 let sourceRaw = notification.userInfo?[NativeIncomingURLCenter.scanSourceUserInfoKey] as? String
                 let source = sourceRaw.flatMap(NativePatchScanSource.init(rawValue:)) ?? .universalLink
                 navigation.notifyPatchScanned(url: url, source: source)

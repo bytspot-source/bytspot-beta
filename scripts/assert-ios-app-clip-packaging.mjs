@@ -57,7 +57,7 @@ const checks = [
   ['Clip shared scheme', scheme.includes('BlueprintName = "Clip"') && scheme.includes('BuildableName = "Clip.app"')],
   ['Clip Info.plist declares NSAppClip', plist.includes('<key>NSAppClip</key>')],
   ['Clip requests ephemeral notification capability', plistBool('NSAppClipRequestEphemeralUserNotification', true)],
-  ['Clip requests location confirmation capability', plistBool('NSAppClipRequestLocationConfirmation', true)],
+  ['Clip does not request deferred location confirmation', !plist.includes('<key>NSAppClipRequestLocationConfirmation</key>') && !plist.includes('<key>NSLocationWhenInUseUsageDescription</key>')],
   ['Clip associated domain entitlement is bytspot.app only', entitlements.includes('appclips:bytspot.app') && !entitlements.includes('appclips:bytspot.com') && !entitlements.includes('appclips:beta.bytspot.com')],
   ['Main App associated domains are applinks-only for bytspot.app', appEntitlements.includes('applinks:bytspot.app') && !appEntitlements.includes('appclips:bytspot.app') && !appEntitlements.includes('applinks:bytspot.com') && !appEntitlements.includes('applinks:beta.bytspot.com')],
   ['Clip Apple Pay merchant entitlement', entitlements.includes('merchant.com.bytspot.app')],

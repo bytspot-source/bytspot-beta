@@ -55,9 +55,10 @@ enum BytspotAviationFallbackTests {
         greetingDefaults.removePersistentDomain(forName: greetingSuite)
         ClipAuthStore.store(displayName: "Ada Lovelace", userID: "user-1", in: greetingDefaults)
         precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == "Ada")
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.handoffUserIDKey) == "user-1")
         ClipAuthStore.store(displayName: nil, userID: "user-2", in: greetingDefaults)
         precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameKey) == nil)
-        precondition(greetingDefaults.string(forKey: ClipAuthStore.displayNameUserIDKey) == nil)
+        precondition(greetingDefaults.string(forKey: ClipAuthStore.handoffUserIDKey) == "user-2")
         greetingDefaults.removePersistentDomain(forName: greetingSuite)
 
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301-B"), patchId: "BYT424-0301-B") == .black)

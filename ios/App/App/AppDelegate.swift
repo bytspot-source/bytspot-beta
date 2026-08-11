@@ -210,7 +210,6 @@ final class NativePushService: NSObject, ObservableObject {
             _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
             isRequestingAuthorization = false
             await refreshAuthorizationStatus()
-            if systemAlertStatus == .enabled { await UIApplication.shared.registerForRemoteNotifications() }
         case .authorized, .provisional, .ephemeral:
             systemAlertStatus = .enabled
             await UIApplication.shared.registerForRemoteNotifications()

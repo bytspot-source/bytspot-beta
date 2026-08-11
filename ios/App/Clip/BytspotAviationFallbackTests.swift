@@ -265,7 +265,9 @@ enum BytspotAviationFallbackTests {
         let authorizedPassPayload: [String: Any] = ["partyId": "party-1", "action": "view-pass", "guest": ["status": "joined", "accessGranted": true]]
         precondition(ClipPatchVerifier.partyPassState(from: authorizedPassPayload, expectedPartyID: "party-1")?.accessGranted == true, "Party Loop: only an explicit guest authorization may unlock a Party pass.")
         precondition(ClipPatchVerifier.partyPassState(from: ["partyId": "party-1", "action": "view-pass", "guest": ["status": "joined"]], expectedPartyID: "party-1") == nil, "Party Loop: a missing guest authorization must fail closed.")
-        precondition(ClipPatchVerifier.partyPassState(from: ["partyId": "party-1", "action": "view-pass", "guest": ["status": "joined", "accessGranted": false]], expectedPartyID: "party-1")?.accessGranted == false, "Party Loop: an explicit guest denial must remain denied.")
+        let deniedPass = ClipPatchVerifier.partyPassState(from: ["partyId": "party-1", "action": "view-pass", "guest": ["status": "joined", "accessGranted": false]], expectedPartyID: "party-1")
+        precondition(deniedPass?.accessGranted == false, "Party Loop: an explicit guest denial must remain denied.")
+        precondition(PartyPassPresentationRules.effectiveAction(for: deniedPass) == .unavailable && PartyPassPresentationRules.accessMetric(for: deniedPass, isResolving: false) == "UNAVAILABLE", "Party Loop: an explicitly denied view-pass must never be presented as confirmed access.")
         let requestGeneration = UUID()
         let authorizedPass = ClipPartyPassState(partyID: "party-1", action: .viewPass, guestStatus: "joined", accessGranted: true)
         let attendeePass = ClipPatchVerifier.PartyAttendeeCredential(partyID: "party-1", value: doorPassFixture)

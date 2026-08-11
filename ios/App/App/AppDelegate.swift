@@ -215,7 +215,7 @@ final class NativePushService: NSObject, ObservableObject {
             await UIApplication.shared.registerForRemoteNotifications()
         case .denied:
             systemAlertStatus = Self.status(from: settings.authorizationStatus)
-            if let settingsURL = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(settingsURL) }
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(settingsURL) }
         @unknown default:
             systemAlertStatus = .restricted
         }

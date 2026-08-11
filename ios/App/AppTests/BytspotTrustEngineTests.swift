@@ -2076,6 +2076,32 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 
     @MainActor
+    func testClipHandoffImportsIntoKeychainWithoutOverwritingAnExistingSession() {
+        let account = "clip_handoff_\(UUID().uuidString)"
+        let service = "com.bytspot.clip-handoff-tests"
+        let suiteName = "com.bytspot.clip-handoff-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("clip_session_token", forKey: "bytspot_auth_token")
+        defaults.set("clip-user-id", forKey: "bytspot_user_display_name_user_id")
+        let imported = BytspotSessionStore(account: account, service: service, clipHandoffDefaults: defaults)
+        defer { imported.signOut() }
+        XCTAssertEqual(imported.token, "clip_session_token")
+        XCTAssertEqual(imported.authenticatedUserID, "clip-user-id")
+        XCTAssertNil(defaults.string(forKey: "bytspot_auth_token"))
+
+        XCTAssertTrue(imported.updateSession(token: "full_app_session_token", userID: "full-app-user-id"))
+        defaults.set("new_clip_session_token", forKey: "bytspot_auth_token")
+        let preserved = BytspotSessionStore(account: account, service: service, clipHandoffDefaults: defaults)
+        defer { preserved.signOut() }
+        XCTAssertEqual(preserved.token, "full_app_session_token")
+        XCTAssertEqual(preserved.authenticatedUserID, "full-app-user-id")
+        XCTAssertEqual(defaults.string(forKey: "bytspot_auth_token"), "new_clip_session_token")
+    }
+
+    @MainActor
     func testEmailAuthSessionPersistsStableIdentity() throws {
         let account = "native_email_auth_persistence_\(UUID().uuidString)"
         let service = "com.bytspot.native-email-auth-persistence-tests"

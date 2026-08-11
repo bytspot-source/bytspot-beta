@@ -494,6 +494,26 @@ private extension NativeVirtualPatchSavedServiceRequest {
     }
 }
 
+private enum NativeClipHandoff {
+    static let appGroupSuiteName = "group.party.com.bytspot.app"
+    static let tokenKey = "bytspot_auth_token"
+    static let userIDKey = "bytspot_user_display_name_user_id"
+
+    static func session(from defaults: UserDefaults?) -> (token: String, userID: String?)? {
+        guard let defaults,
+              let rawToken = defaults.string(forKey: tokenKey) else { return nil }
+        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty, token != "guest_session", token != "beta_guest" else { return nil }
+        let userID = defaults.string(forKey: userIDKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (token, userID?.isEmpty == false ? userID : nil)
+    }
+
+    static func clear(from defaults: UserDefaults?) {
+        defaults?.removeObject(forKey: tokenKey)
+        defaults?.removeObject(forKey: userIDKey)
+    }
+}
+
 @MainActor
 final class BytspotSessionStore: ObservableObject {
     @Published private(set) var token: String?
@@ -501,16 +521,19 @@ final class BytspotSessionStore: ObservableObject {
     private let account: String
     private let identityAccount: String
     private let service: String
+    private let clipHandoffDefaults: UserDefaults?
 
-    init(account: String = "bytspot_auth_token", service: String = Bundle.main.bundleIdentifier ?? "com.bytspot.app") {
+    init(account: String = "bytspot_auth_token", service: String = Bundle.main.bundleIdentifier ?? "com.bytspot.app", clipHandoffDefaults: UserDefaults? = UserDefaults(suiteName: NativeClipHandoff.appGroupSuiteName)) {
         self.account = account
         self.identityAccount = "\(account)_user_id"
         self.service = service
+        self.clipHandoffDefaults = clipHandoffDefaults
         token = nil
         authenticatedUserID = nil
         token = readValue(for: account)
         authenticatedUserID = readValue(for: identityAccount)
         if token == nil || token == "guest_session" { authenticatedUserID = nil }
+        importClipHandoffIfNeeded()
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         switch ProcessInfo.processInfo.environment[NativeMigrationConfig.previewSessionEnvironmentKey]?.lowercased() {
         case "signed_out": token = nil; authenticatedUserID = nil
@@ -581,10 +604,18 @@ final class BytspotSessionStore: ObservableObject {
         } else {
             clearValue(for: account)
             clearValue(for: identityAccount)
+            NativeClipHandoff.clear(from: clipHandoffDefaults)
             token = nil
             authenticatedUserID = nil
             return true
         }
+    }
+
+    private func importClipHandoffIfNeeded() {
+        guard token == nil || token == "guest_session",
+              let handoff = NativeClipHandoff.session(from: clipHandoffDefaults),
+              updateSession(token: handoff.token, userID: handoff.userID) else { return }
+        NativeClipHandoff.clear(from: clipHandoffDefaults)
     }
 
     private func readValue(for keychainAccount: String) -> String? {

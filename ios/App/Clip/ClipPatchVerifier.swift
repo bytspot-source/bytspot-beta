@@ -2,11 +2,11 @@ import Foundation
 
 // MARK: - ClipAuthStore
 // Shared JWT storage for the Clip. Writes/reads the App Group suite
-// (group.com.bytspot.app) so the installed full app can pick up the guest's
+// (group.party.com.bytspot.app) so the installed full app can pick up the guest's
 // session after handoff, while also mirroring to `UserDefaults.standard` so the
 // Clip keeps working before the App Group entitlement is provisioned.
 enum ClipAuthStore {
-    static let appGroupSuiteName = "group.com.bytspot.app"
+    static let appGroupSuiteName = "group.party.com.bytspot.app"
     static let tokenKey = "bytspot_auth_token"
     static let displayNameKey = "bytspot_user_display_name"
     static let displayNameUserIDKey = "bytspot_user_display_name_user_id"

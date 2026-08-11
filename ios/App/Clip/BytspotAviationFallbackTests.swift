@@ -49,6 +49,7 @@ enum BytspotAviationFallbackTests {
     /// Pulls the actual Black aviation service out of the production fallback
     /// catalog and asserts the vendor pool matches the locked spec verbatim.
     static func run() {
+        precondition(ClipAuthStore.appGroupSuiteName == "group.party.com.bytspot.app", "ClipAuthStore must use the Party handoff App Group.")
         let greetingSuite = "com.bytspot.app.Clip.greeting-tests"
         let greetingDefaults = UserDefaults(suiteName: greetingSuite)!
         greetingDefaults.removePersistentDomain(forName: greetingSuite)

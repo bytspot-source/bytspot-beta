@@ -7,6 +7,7 @@ import PassKit
 import Contacts
 import AVFoundation
 import AVKit
+import CoreImage.CIFilterBuiltins
 import SafariServices
 @_spi(STP) import StripeApplePay
 @_spi(STP) import StripeCore
@@ -154,6 +155,11 @@ struct PartyPassClipView: View {
     @State private var showShareSheet = false
     @State private var viewerName = ClipAuthStore.displayName
     @State private var authController = ClipGuestAuthController()
+    // Opaque attendee credential: intentionally in-memory only. Never persist,
+    // log, share, or route it outside the QR image shown to the door staff.
+    @State private var attendeeCredential: ClipPatchVerifier.PartyAttendeeCredential?
+    @State private var isLoadingAttendeeCredential = false
+    @State private var attendeeCredentialMessage = ""
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
@@ -238,6 +244,7 @@ struct PartyPassClipView: View {
                     header
                     hero
                     passSummary
+                    attendeePassCard
                     details
                     hostDestinations
                     if !invite.itinerary.isEmpty { program }
@@ -258,7 +265,10 @@ struct PartyPassClipView: View {
         .accessibilityIdentifier("party-pass-clip")
         .task(id: invite.id) { await resolvePass() }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                clearAttendeeCredential()
+                return
+            }
             Task { await resolvePass() }
         }
     }
@@ -375,6 +385,36 @@ struct PartyPassClipView: View {
         }
     }
 
+    @ViewBuilder private var attendeePassCard: some View {
+        if let attendeeCredential {
+            PartyGlassCard(variant: .access(accent: accent)) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "qrcode").font(.system(size: 18, weight: .black)).foregroundColor(ctaForeground)
+                        .frame(width: 44, height: 44).background(accent).clipShape(RoundedRectangle(cornerRadius: 13))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PERSONAL DOOR PASS").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1).foregroundColor(accent)
+                        Text("Show this QR at the door").font(.system(size: 18, weight: .bold, design: .serif)).foregroundColor(.white)
+                        Text("This pass is personal and refreshes when requested. Do not share it.")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.64))
+                    }
+                }
+                ClipPersonalAttendeeQR(value: attendeeCredential.value)
+                    .frame(maxWidth: .infinity).padding(.top, 4)
+            }
+        } else if isLoadingAttendeeCredential {
+            PartyGlassCard(variant: .access(accent: accent)) {
+                HStack(spacing: 12) {
+                    ProgressView().tint(accent)
+                    Text("Preparing your personal door pass…").font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white)
+                }
+            }
+        } else if !attendeeCredentialMessage.isEmpty {
+            PartyGlassCard(variant: .standard) {
+                Text(attendeeCredentialMessage).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.74))
+            }
+        }
+    }
+
     private var details: some View {
         PartyGlassCard {
             Text("The invitation").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
@@ -427,9 +467,21 @@ struct PartyPassClipView: View {
 
     private var ticketActionBar: some View {
         VStack(spacing: 8) {
-            Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
-                .disabled(isBusy || passState == nil || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
-            Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            if passState?.action == .viewPass && passState?.accessGranted == true {
+                Button { Task { await loadAttendeeCredential() } } label: {
+                    Label(attendeeCredential == nil ? "Show door QR" : "Refresh pass", systemImage: "qrcode")
+                        .font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(ctaForeground)
+                        .frame(maxWidth: .infinity).frame(height: 54).background(accent).clipShape(RoundedRectangle(cornerRadius: 17))
+                }
+                .disabled(isBusy || isLoadingAttendeeCredential)
+                .buttonStyle(.plain)
+                Text("Show this personal QR only to Door Mode at arrival.")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center)
+            } else {
+                Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
+                    .disabled(isBusy || passState == nil || passState?.action == .unavailable).buttonStyle(.plain)
+                Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            }
             if passState?.premiumMobilityEligible == true {
                 HStack(spacing: 10) {
                     partyHandoffButton(provider: .uber, title: "Open Uber")
@@ -473,16 +525,41 @@ struct PartyPassClipView: View {
         #if DEBUG
         if let previewState = ClipPartyPassPreview.state(for: invocation.invocationURL, partyID: invite.id) {
             passState = previewState
+            if previewState.action != .viewPass || !previewState.accessGranted {
+                clearAttendeeCredential()
+            }
             statusMessage = ""
             return
         }
         #endif
         do {
-            passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            let resolved = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            passState = resolved
+            if resolved.action != .viewPass || !resolved.accessGranted {
+                clearAttendeeCredential()
+            }
             statusMessage = ""
         } catch {
             passState = nil
+            clearAttendeeCredential()
             statusMessage = "We couldn’t verify ticket availability right now. Please try again."
+        }
+    }
+    private func clearAttendeeCredential() {
+        attendeeCredential = nil
+        attendeeCredentialMessage = ""
+    }
+    @MainActor private func loadAttendeeCredential() async {
+        guard !isBusy, !isLoadingAttendeeCredential,
+              passState?.action == .viewPass, passState?.accessGranted == true else { return }
+        isLoadingAttendeeCredential = true
+        attendeeCredentialMessage = ""
+        defer { isLoadingAttendeeCredential = false }
+        do {
+            attendeeCredential = try await ClipPatchVerifier().partyAttendeeCredential(partyID: invite.id)
+        } catch {
+            attendeeCredential = nil
+            attendeeCredentialMessage = "Your door pass could not be refreshed. Please try again."
         }
     }
     private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
@@ -547,6 +624,36 @@ struct PartyPassClipView: View {
         } catch {
             statusMessage = "Checkout could not be started. Please try again."
         }
+    }
+}
+
+/// Clip-local renderer for an opaque attendee bearer credential. The raw value
+/// is encoded into pixels only; it is intentionally never rendered as text.
+private struct ClipPersonalAttendeeQR: View {
+    let value: String
+
+    var body: some View {
+        Image(uiImage: Self.image(value))
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .padding(10)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Personal attendee QR code")
+            .accessibilityHint("Show this code to the host's Door Mode scanner. Do not share it.")
+    }
+
+    static func image(_ value: String) -> UIImage {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
+              let cgImage = CIContext().createCGImage(output, from: output.extent) else {
+            return UIImage()
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 

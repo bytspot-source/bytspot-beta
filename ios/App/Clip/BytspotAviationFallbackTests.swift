@@ -257,6 +257,12 @@ enum BytspotAviationFallbackTests {
         let blackExpandedBooking = ClipBookingContext.make(service: regularBlackService, vendor: regularBlackVendor, tier: .black, amountCents: 85_000)
         precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackExpandedBooking.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
+        let doorPassFixture = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde"
+        precondition(doorPassFixture.count == 43, "Party Loop: attendee-pass fixture must model a 32-byte Base64URL value.")
+        precondition(ClipPatchVerifier.partyAttendeeCredential(from: ["partyId": "party-1", "attendeeCredential": doorPassFixture], expectedPartyID: "party-1") != nil, "Party Loop: only matching Party-bound attendee credentials may render as a QR.")
+        precondition(ClipPatchVerifier.partyAttendeeCredential(from: ["partyId": "other-party", "attendeeCredential": doorPassFixture], expectedPartyID: "party-1") == nil, "Party Loop: attendee credential Party mismatches must fail closed.")
+        precondition(ClipPatchVerifier.partyAttendeeCredential(from: ["partyId": "party-1", "attendeeCredential": "not-a-valid-door-pass"], expectedPartyID: "party-1") == nil, "Party Loop: malformed attendee credentials must fail closed.")
+        precondition(ClipPersonalAttendeeQR.image(doorPassFixture).cgImage != nil, "Party Loop: personal attendee pass must render a scannable QR image.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://m.uber.com/ul/?action=setPickup")?.host == "m.uber.com", "Party Loop: only HTTPS Uber handoff URLs may open from the Party Pass.")
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://ride.lyft.com/u?id=lyft")?.host == "ride.lyft.com", "Party Loop: only HTTPS Lyft handoff URLs may open from the Party Pass.")

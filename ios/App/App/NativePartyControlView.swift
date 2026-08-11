@@ -15,6 +15,24 @@ struct NativePartyControlGuest: Codable, Identifiable {
 
 struct NativePartyControlGuestList: Codable { let guests: [NativePartyControlGuest] }
 
+struct NativePartyCheckInResult: Codable, Equatable {
+    let status: String
+    let guestName: String
+}
+
+enum NativePartyDoorPassInput {
+    static let maximumLength = 256
+
+    /// Door Mode receives the opaque QR payload exactly as scanned. It only
+    /// trims surrounding whitespace; it must never parse a URL or alter the
+    /// bearer credential before the server validates it.
+    static func normalized(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= maximumLength else { return nil }
+        return value
+    }
+}
+
 struct NativePartyShareQR: View {
     let value: String
     var body: some View {
@@ -49,7 +67,14 @@ struct NativePartyControlAPI {
     func guests(_ partyID: String) async throws -> [NativePartyControlGuest] { try await query(NativePartyControlGuestList.self, path: "/trpc/events.control.guests", input: ["partyId": partyID, "status": "all"]).guests }
     func pause(_ partyID: String, paused: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setAdmissionPaused", method: "POST", input: ["partyId": partyID, "paused": paused]) }
     func decide(_ partyID: String, guestID: String, approved: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.decide", method: "POST", input: ["partyId": partyID, "guestId": guestID, "decision": approved ? "approved" : "declined"]) }
-    func checkIn(_ partyID: String, secret: String) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.checkIn", method: "POST", input: ["partyId": partyID, "attendeePassSecret": secret]) }
+    func checkIn(_ partyID: String, attendeeCredential: String) async throws -> NativePartyCheckInResult {
+        let payload = try await client.trpcPayload(path: "/trpc/events.control.checkIn", method: "POST", input: ["partyId": partyID, "attendeeCredential": attendeeCredential])
+        let result = try JSONDecoder().decode(NativePartyCheckInResult.self, from: JSONSerialization.data(withJSONObject: payload))
+        guard result.status == "checked-in", !result.guestName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
+        return result
+    }
 }
 
 struct NativePartyControlView: View {
@@ -59,6 +84,7 @@ struct NativePartyControlView: View {
     @State private var summary: NativePartyControlSummary?
     @State private var guests: [NativePartyControlGuest] = []
     @State private var message = ""; @State private var showingDoor = false; @State private var scanning = false; @State private var passText = ""
+    @State private var isCheckingIn = false
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 15) {
@@ -70,25 +96,90 @@ struct NativePartyControlView: View {
             pendingGuests
             guestList
         }.padding(18) } }
-        .preferredColorScheme(.dark).task { await reload() }.sheet(isPresented: $scanning) { NativePartyQRScanner { value in passText = value; scanning = false } }
+        .preferredColorScheme(.dark).task { await reload() }.sheet(isPresented: $scanning) {
+            NativePartyQRScanner(
+                onCode: { value in passText = value; scanning = false },
+                onUnavailable: { reason in message = reason; scanning = false },
+                onCancel: { scanning = false }
+            )
+        }
     }
 
     private func overview(_ value: NativePartyControlSummary) -> some View {
         VStack(alignment: .leading, spacing: 14) { Text(value.title).font(.system(size: 27, weight: .black, design: .rounded)); HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }; Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan) }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
     }
     private func metric(_ label: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(value).font(.system(size: 20, weight: .black)); Text(label.uppercased()).font(.system(size: 8.5, weight: .black)).foregroundColor(.white.opacity(0.52)) }.frame(maxWidth: .infinity, alignment: .leading) }
-    private var doorMode: some View { VStack(alignment: .leading, spacing: 10) { Text("DOOR MODE").partyControlLabel(); Text("Scan a personal attendee QR. A checked-in pass cannot be used again.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55)); HStack { TextField("Paste attendee QR pass", text: $passText).textInputAutocapitalization(.never).autocorrectionDisabled(); Button(action: { scanning = true }) { Image(systemName: "qrcode.viewfinder") } }.padding(12).partyControlSurface(); Button("Check in attendee") { Task { await checkIn(passText) } }.controlButton(color: NativeTheme.emerald) }.padding(14).partyControlSurface() }
+    private var doorMode: some View { VStack(alignment: .leading, spacing: 10) { Text("DOOR MODE").partyControlLabel(); Text("Scan a personal attendee QR. A checked-in pass cannot be used again.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55)); HStack { TextField("Paste attendee QR pass", text: $passText).textInputAutocapitalization(.never).autocorrectionDisabled(); Button(action: { scanning = true }) { Image(systemName: "qrcode.viewfinder") }.accessibilityLabel("Scan attendee QR pass") }.padding(12).partyControlSurface(); Button(isCheckingIn ? "Checking in…" : "Check in attendee") { Task { await checkIn(passText) } }.disabled(isCheckingIn).controlButton(color: NativeTheme.emerald) }.padding(14).partyControlSurface() }
     private var pendingGuests: some View { let pending = guests.filter { $0.status == "pending" }; return Group { if !pending.isEmpty { VStack(alignment: .leading, spacing: 10) { Text("PENDING APPROVAL · \(pending.count)").partyControlLabel(); ForEach(pending) { guest in HStack { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Spacer(); Button("Decline") { Task { await decide(guest, false) } }.foregroundColor(NativeTheme.orange); Button("Approve") { Task { await decide(guest, true) } }.foregroundColor(NativeTheme.emerald) } } }.padding(14).partyControlSurface() } } }
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
     @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." } }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }
     @MainActor private func decide(_ guest: NativePartyControlGuest, _ approved: Bool) async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).decide(partyID, guestID: guest.id, approved: approved); await reload() } catch { message = "Guest status could not change." } }
-    @MainActor private func checkIn(_ value: String) async { guard let token = sessionStore.token else { return }; let secret = value.split(separator: "/").last.map(String.init) ?? value; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).checkIn(partyID, secret: secret); passText = ""; message = "Checked in."; await reload() } catch { message = "That pass is invalid or was already used." } }
+    @MainActor private func checkIn(_ value: String) async {
+        guard !isCheckingIn, let token = sessionStore.token else { return }
+        guard let attendeeCredential = NativePartyDoorPassInput.normalized(value) else {
+            message = "Scan or paste a valid attendee QR pass."
+            return
+        }
+        isCheckingIn = true
+        defer { isCheckingIn = false }
+        do {
+            let result = try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).checkIn(partyID, attendeeCredential: attendeeCredential)
+            passText = ""
+            message = "Checked in \(result.guestName)."
+            await reload()
+        } catch BytspotAPIClient.APIError.server(let status, _) where status == 409 {
+            message = "This attendee has already been checked in."
+        } catch {
+            message = "That door pass is not recognized. Ask the guest to refresh their pass."
+        }
+    }
 }
 
 private struct NativePartyQRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
-    func makeUIViewController(context: Context) -> UIViewController { let controller = UIViewController(); let session = AVCaptureSession(); guard let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return controller }; session.addInput(input); let output = AVCaptureMetadataOutput(); guard session.canAddOutput(output) else { return controller }; session.addOutput(output); output.setMetadataObjectsDelegate(context.coordinator, queue: .main); output.metadataObjectTypes = [.qr]; let preview = AVCaptureVideoPreviewLayer(session: session); preview.videoGravity = .resizeAspectFill; preview.frame = UIScreen.main.bounds; controller.view.layer.addSublayer(preview); context.coordinator.session = session; session.startRunning(); return controller }
+    let onUnavailable: (String) -> Void
+    let onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let controller = UIViewController()
+        controller.view.backgroundColor = .black
+        let cancel = UIButton(type: .system)
+        cancel.setTitle("Cancel", for: .normal)
+        cancel.tintColor = .white
+        cancel.addAction(UIAction { _ in onCancel() }, for: .touchUpInside)
+        cancel.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(cancel)
+        NSLayoutConstraint.activate([cancel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.topAnchor, constant: 14), cancel.trailingAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.trailingAnchor, constant: -18)])
+
+        guard AVCaptureDevice.authorizationStatus(for: .video) != .denied,
+              let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            DispatchQueue.main.async { onUnavailable("Camera scanning is unavailable. Paste the attendee QR pass instead.") }
+            return controller
+        }
+        let session = AVCaptureSession()
+        guard session.canAddInput(input) else {
+            DispatchQueue.main.async { onUnavailable("Camera scanning is unavailable. Paste the attendee QR pass instead.") }
+            return controller
+        }
+        session.addInput(input)
+        let output = AVCaptureMetadataOutput()
+        guard session.canAddOutput(output) else {
+            DispatchQueue.main.async { onUnavailable("Camera scanning is unavailable. Paste the attendee QR pass instead.") }
+            return controller
+        }
+        session.addOutput(output)
+        output.setMetadataObjectsDelegate(context.coordinator, queue: .main)
+        output.metadataObjectTypes = [.qr]
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.videoGravity = .resizeAspectFill
+        preview.frame = UIScreen.main.bounds
+        controller.view.layer.insertSublayer(preview, at: 0)
+        context.coordinator.session = session
+        session.startRunning()
+        return controller
+    }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
     final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate { var session: AVCaptureSession?; let onCode: (String) -> Void; init(onCode: @escaping (String) -> Void) { self.onCode = onCode }; func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) { guard let code = metadataObjects.first as? AVMetadataMachineReadableCodeObject, let value = code.stringValue else { return }; session?.stopRunning(); onCode(value) } }

@@ -1771,6 +1771,49 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(party.passCode, "LAUGH26")
     }
 
+    func testNativePartyDoorModeSendsExactCredentialContract() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        NativePartyURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/trpc/events.control.checkIn")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer host-token")
+            let data = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(body["partyId"] as? String, "party-1")
+            XCTAssertEqual(body["attendeeCredential"] as? String, "door-pass-fixture")
+            XCTAssertNil(body["attendeePassSecret"])
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["status": "checked-in", "guestName": "Ada"]]]]))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        let result = try await NativePartyControlAPI(client: client).checkIn("party-1", attendeeCredential: "door-pass-fixture")
+        XCTAssertEqual(result, NativePartyCheckInResult(status: "checked-in", guestName: "Ada"))
+    }
+
+    func testNativePartyDoorModeRejectsUnexpectedCheckInStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        NativePartyURLProtocolStub.handler = { _ in
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["status": "pending", "guestName": "Ada"]]]]))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        do {
+            _ = try await NativePartyControlAPI(client: client).checkIn("party-1", attendeeCredential: "door-pass-fixture")
+            XCTFail("Unexpected check-in status must fail closed.")
+        } catch {
+            // Expected: only the documented checked-in status is accepted.
+        }
+    }
+
+    func testNativePartyDoorModeNormalizesOnlySurroundingWhitespace() {
+        XCTAssertEqual(NativePartyDoorPassInput.normalized(" \nraw/opaque-pass\t "), "raw/opaque-pass")
+        XCTAssertNil(NativePartyDoorPassInput.normalized(" \n\t "))
+        XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: NativePartyDoorPassInput.maximumLength + 1)))
+    }
+
     func testNativePartyPassInviteFailsClosedForMissingLocationDisclosure() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]

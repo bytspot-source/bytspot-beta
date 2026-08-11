@@ -22,6 +22,13 @@ enum NativeAuthProvider: String, CaseIterable, Identifiable {
         case .google: return "person.crop.circle.badge.plus"
         }
     }
+
+    var shortName: String {
+        switch self {
+        case .apple: return "Apple"
+        case .google: return "Google"
+        }
+    }
 }
 
 enum NativeAuthIntent: Equatable {
@@ -44,6 +51,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     case googleConfigurationUnavailable
     case googleProviderFailed
     case googleBackendVerificationFailed
+    case accountConflict(provider: NativeAuthProvider)
     case mockedFailure(provider: NativeAuthProvider)
 
     var status: NativeAuthStatus {
@@ -59,6 +67,8 @@ enum NativeAuthAdapterError: Error, Equatable {
             return .failed(message: "Google Sign-In didn't complete. Please try again.")
         case .googleBackendVerificationFailed:
             return .failed(message: "Google confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
+        case .accountConflict(let provider):
+            return .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — \(provider.shortName) sign-in can't be linked automatically.")
         case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
@@ -211,6 +221,9 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
             response = try await NativeAuthDataAPI(client: BytspotAPIClient()).googleSignIn(idToken: idToken)
         } catch {
             Self.recordGoogleBackendFailure(error)
+            if NativeAuthDataAPI.isAccountConflict(error) {
+                throw NativeAuthAdapterError.accountConflict(provider: .google)
+            }
             throw NativeAuthAdapterError.googleBackendVerificationFailed
         }
         guard let token = response.token, !token.isEmpty else {
@@ -341,9 +354,15 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
                 let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
                 guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.appleBackendVerificationFailed }
                 finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
+            } catch let error as NativeAuthAdapterError {
+                finish(.failure(error))
             } catch {
                 Self.recordAppleBackendFailure(error)
-                finish(.failure(NativeAuthAdapterError.appleBackendVerificationFailed))
+                if NativeAuthDataAPI.isAccountConflict(error) {
+                    finish(.failure(NativeAuthAdapterError.accountConflict(provider: .apple)))
+                } else {
+                    finish(.failure(NativeAuthAdapterError.appleBackendVerificationFailed))
+                }
             }
         }
     }

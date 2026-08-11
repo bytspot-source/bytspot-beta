@@ -2060,6 +2060,29 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
     }
 
+    func testProviderSignInSurfacesExistingAccountConflict() {
+        let conflictByStatus = BytspotAPIClient.APIError.server(status: 409, body: "")
+        let conflictByMessage = BytspotAPIClient.APIError.server(
+            status: 400,
+            body: #"{"error":{"json":{"message":"An account already exists for this email. Sign in with its existing method first."}}}"#
+        )
+        let verification = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"Apple sign-in could not be verified"}}}"#)
+
+        XCTAssertTrue(NativeAuthDataAPI.isAccountConflict(conflictByStatus))
+        XCTAssertTrue(NativeAuthDataAPI.isAccountConflict(conflictByMessage))
+        XCTAssertFalse(NativeAuthDataAPI.isAccountConflict(verification))
+        XCTAssertFalse(NativeAuthDataAPI.isAccountConflict(URLError(.timedOut)))
+
+        XCTAssertEqual(
+            NativeAuthAdapterError.accountConflict(provider: .apple).status,
+            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Apple sign-in can't be linked automatically.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.accountConflict(provider: .google).status,
+            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Google sign-in can't be linked automatically.")
+        )
+    }
+
     func testGoogleNativeOAuthAudienceConfigurationIsResolved() throws {
         let serverClientID = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") as? String)
         XCTAssertFalse(serverClientID.isEmpty)

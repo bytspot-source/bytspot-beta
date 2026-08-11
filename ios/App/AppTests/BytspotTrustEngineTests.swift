@@ -1552,12 +1552,15 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativePushTokenNormalizationAndRejection() {
-        XCTAssertEqual(NativePushService.normalizedToken(" AABBcc0011 "), "aabbcc0011")
-        XCTAssertEqual(NativePushService.normalizedToken(Data([0xAA, 0x0B, 0x10])), "aa0b10")
+        let uppercaseToken = String(repeating: "AB", count: 32)
+        let normalizedToken = String(repeating: "ab", count: 32)
+        XCTAssertEqual(NativePushService.normalizedToken(" \(uppercaseToken) "), normalizedToken)
+        XCTAssertEqual(NativePushService.normalizedToken(Data(repeating: 0xAB, count: 32)), normalizedToken)
         XCTAssertNil(NativePushService.normalizedToken(""))
-        XCTAssertNil(NativePushService.normalizedToken("abc"))
+        XCTAssertNil(NativePushService.normalizedToken(String(repeating: "a", count: 63)))
+        XCTAssertNil(NativePushService.normalizedToken(Data(repeating: 0xAB, count: 31)))
         XCTAssertNil(NativePushService.normalizedToken("aa bb"))
-        XCTAssertNil(NativePushService.normalizedToken("zz00"))
+        XCTAssertNil(NativePushService.normalizedToken(String(repeating: "z", count: 64)))
     }
 
     @MainActor
@@ -1578,8 +1581,10 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testNativePushRegistrationInputMatchesProductionContract() throws {
         XCTAssertEqual(NativePushDeviceAPI.registerPath, "/trpc/push.registerIosDevice")
         XCTAssertEqual(NativePushDeviceAPI.unregisterPath, "/trpc/push.unregisterIosDevice")
-        let registration = try XCTUnwrap(NativePushDeviceRegistration.production(token: "AABB0011"))
-        XCTAssertEqual(registration.input["token"] as? String, "aabb0011")
+        let uppercaseToken = String(repeating: "AB", count: 32)
+        let normalizedToken = String(repeating: "ab", count: 32)
+        let registration = try XCTUnwrap(NativePushDeviceRegistration.production(token: uppercaseToken))
+        XCTAssertEqual(registration.input["token"] as? String, normalizedToken)
         XCTAssertEqual(registration.input["environment"] as? String, "production")
         XCTAssertEqual(registration.input["bundleId"] as? String, "com.bytspot.app")
 

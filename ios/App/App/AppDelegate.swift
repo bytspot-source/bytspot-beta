@@ -193,8 +193,11 @@ final class NativePushService: NSObject, ObservableObject {
         UNUserNotificationCenter.current().delegate = delegate
     }
 
+    /// Refreshes system state without prompting. Re-registering when already
+    /// authorized lets APNs deliver a current token after relaunch or rotation.
     func refreshAuthorizationStatus() async {
         systemAlertStatus = Self.status(from: await UNUserNotificationCenter.current().notificationSettings().authorizationStatus)
+        if systemAlertStatus == .enabled { UIApplication.shared.registerForRemoteNotifications() }
     }
 
     /// Invoked only by the explicit notification-settings action.

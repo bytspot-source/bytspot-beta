@@ -2239,9 +2239,16 @@ final class NativeTabContentStore: ObservableObject {
         async let barsRequest = try? api.placesNearbySearch(type: "bar", lat: location.latitude, lng: location.longitude, maxResults: 8)
         async let localNightlifeRequest = try? api.localNightlifeSearch(location: location)
         let (general, clubs, bars, localNightlife) = await (generalRequest, clubsRequest, barsRequest, localNightlifeRequest)
+        let generalPlaces: [NativePlaceSearchResult] = general ?? []
+        let clubPlaces: [NativePlaceSearchResult] = clubs ?? []
+        let barPlaces: [NativePlaceSearchResult] = bars ?? []
+        let nightlifePlaces: [NativePlaceSearchResult] = localNightlife ?? []
+        let placeSources: [[NativePlaceSearchResult]] = [generalPlaces, clubPlaces, barPlaces, nightlifePlaces]
         var places: [NativePlaceSearchResult] = []
-        for place in (general ?? []) + (clubs ?? []) + (bars ?? []) + (localNightlife ?? []) where !places.contains(where: { $0.id == place.id }) {
-            places.append(place)
+        for source in placeSources {
+            for place in source where !places.contains(where: { $0.id == place.id }) {
+                places.append(place)
+            }
         }
         let localPlaces = NativeLiveDiscoveryAPI.validatedLocalPlaces(places, origin: location)
         var cards: [NativeDiscoverSummary] = []

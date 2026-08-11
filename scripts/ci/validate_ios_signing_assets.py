@@ -57,6 +57,11 @@ def require(condition: bool, message: str) -> None:
         fail(message)
 
 
+def associated_domains_allowed(required_domains: set[str], profile_domains: set[str]) -> bool:
+    """Accept explicit domains or Apple's wildcard profile authorization."""
+    return "*" in profile_domains or required_domains.issubset(profile_domains)
+
+
 def check_profile(spec: dict, team_id: str) -> None:
     label = spec["label"]
     bundle_id = spec["bundle_id"]
@@ -76,7 +81,10 @@ def check_profile(spec: dict, team_id: str) -> None:
 
     required_domains = set(app_entitlements.get("com.apple.developer.associated-domains", []))
     profile_domains = set(profile_entitlements.get("com.apple.developer.associated-domains", []))
-    require(required_domains.issubset(profile_domains), f"{label} profile is missing associated-domain entitlements")
+    require(
+        associated_domains_allowed(required_domains, profile_domains),
+        f"{label} profile is missing associated-domain entitlements",
+    )
 
     required_groups = set(app_entitlements.get("com.apple.security.application-groups", []))
     profile_groups = set(profile_entitlements.get("com.apple.security.application-groups", []))

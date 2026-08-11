@@ -197,7 +197,7 @@ final class NativePushService: NSObject, ObservableObject {
     /// authorized lets APNs deliver a current token after relaunch or rotation.
     func refreshAuthorizationStatus() async {
         systemAlertStatus = Self.status(from: await UNUserNotificationCenter.current().notificationSettings().authorizationStatus)
-        if systemAlertStatus == .enabled { UIApplication.shared.registerForRemoteNotifications() }
+        if systemAlertStatus == .enabled { await UIApplication.shared.registerForRemoteNotifications() }
     }
 
     /// Invoked only by the explicit notification-settings action.
@@ -210,11 +210,11 @@ final class NativePushService: NSObject, ObservableObject {
             _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
             isRequestingAuthorization = false
             await refreshAuthorizationStatus()
-            if systemAlertStatus == .enabled { UIApplication.shared.registerForRemoteNotifications() }
+            if systemAlertStatus == .enabled { await UIApplication.shared.registerForRemoteNotifications() }
         case .authorized, .provisional, .ephemeral:
             systemAlertStatus = .enabled
-            UIApplication.shared.registerForRemoteNotifications()
-        case .denied, .restricted:
+            await UIApplication.shared.registerForRemoteNotifications()
+        case .denied:
             systemAlertStatus = Self.status(from: settings.authorizationStatus)
             if let settingsURL = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(settingsURL) }
         @unknown default:
@@ -255,7 +255,6 @@ final class NativePushService: NSObject, ObservableObject {
         case .notDetermined: return .notDetermined
         case .authorized, .provisional, .ephemeral: return .enabled
         case .denied: return .denied
-        case .restricted: return .restricted
         @unknown default: return .restricted
         }
     }

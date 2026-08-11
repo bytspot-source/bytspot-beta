@@ -163,6 +163,9 @@ struct PartyPassClipView: View {
     /// Changes on every clear/request so an older async response can never
     /// restore a QR after backgrounding, denial, or a newer request.
     @State private var attendeeCredentialGeneration = UUID()
+    /// Resolves are also generation-bound. Access remains fail-closed after a
+    /// scene transition until the current active scene has a fresh response.
+    @State private var passResolverGeneration = UUID()
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
@@ -269,7 +272,7 @@ struct PartyPassClipView: View {
         .task(id: invite.id) { await resolvePass() }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else {
-                clearAttendeeCredential()
+                invalidatePassResolution()
                 return
             }
             Task { await resolvePass() }
@@ -522,11 +525,22 @@ struct PartyPassClipView: View {
         case .outboundToVenue: return "location.north.line.fill"
         }
     }
+    @MainActor
     private func resolvePass() async {
+        guard scenePhase == .active else { return }
+        let generation = UUID()
+        passResolverGeneration = generation
         isResolving = true
-        defer { isResolving = false }
+        defer {
+            if passResolverGeneration == generation { isResolving = false }
+        }
         #if DEBUG
         if let previewState = ClipPartyPassPreview.state(for: invocation.invocationURL, partyID: invite.id) {
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
             passState = previewState
             if previewState.action != .viewPass || !previewState.accessGranted {
                 clearAttendeeCredential()
@@ -537,16 +551,33 @@ struct PartyPassClipView: View {
         #endif
         do {
             let resolved = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
             passState = resolved
             if resolved.action != .viewPass || !resolved.accessGranted {
                 clearAttendeeCredential()
             }
             statusMessage = ""
         } catch {
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
             passState = nil
             clearAttendeeCredential()
             statusMessage = "We couldn’t verify ticket availability right now. Please try again."
         }
+    }
+    private func invalidatePassResolution() {
+        passResolverGeneration = UUID()
+        passState = nil
+        isResolving = false
+        statusMessage = ""
+        clearAttendeeCredential()
     }
     private func clearAttendeeCredential() {
         attendeeCredentialGeneration = UUID()
@@ -585,6 +616,14 @@ struct PartyPassClipView: View {
     }
     static func canRequestAttendeeCredential(scenePhase: ScenePhase, passState: ClipPartyPassState?) -> Bool {
         scenePhase == .active && passState?.action == .viewPass && passState?.accessGranted == true
+    }
+
+    static func canCommitPassResolution(
+        resolverGeneration: UUID,
+        currentResolverGeneration: UUID,
+        scenePhase: ScenePhase
+    ) -> Bool {
+        resolverGeneration == currentResolverGeneration && scenePhase == .active
     }
 
     static func canCommitAttendeeCredential(
@@ -667,7 +706,7 @@ struct PartyPassClipView: View {
 
 /// Clip-local renderer for an opaque attendee bearer credential. The raw value
 /// is encoded into pixels only; it is intentionally never rendered as text.
-private struct ClipPersonalAttendeeQR: View {
+struct ClipPersonalAttendeeQR: View {
     let value: String
 
     var body: some View {

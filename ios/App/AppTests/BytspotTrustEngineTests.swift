@@ -1815,7 +1815,8 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePartyDoorPassInput.normalized(" \n\t "))
         XCTAssertNil(NativePartyDoorPassInput.normalized("raw/opaque-pass"))
         XCTAssertNil(NativePartyDoorPassInput.normalized("https://bytspot.app/party/pass"))
-        XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: 43)))
+        XCTAssertNotNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: 43)))
+        XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: 42) + "/"))
         XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "A", count: 44)))
     }
 

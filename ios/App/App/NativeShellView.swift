@@ -2451,7 +2451,7 @@ private struct NativeLocationPrivacyPanel: View {
 
 private enum NativeAppVersionDisplay {
     static var version: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.9"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.10"
     }
 }
 

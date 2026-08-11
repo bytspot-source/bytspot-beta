@@ -4578,9 +4578,50 @@ enum NativeHomeRegionPresentation {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
 
+    /// Known locality → IATA city/airport code overrides, for cities whose real
+    /// code differs from the generated 3-letter abbreviation.
+    private static let iataCityCodes: [String: String] = [
+        "atlanta": "ATL", "san antonio": "SAT", "new york": "NYC", "los angeles": "LAX",
+        "chicago": "CHI", "houston": "HOU", "dallas": "DAL", "washington": "WAS",
+        "san francisco": "SFO", "new orleans": "MSY", "nashville": "BNA", "charlotte": "CLT",
+        "phoenix": "PHX", "philadelphia": "PHL", "detroit": "DTW", "orlando": "MCO",
+        "tampa": "TPA", "san diego": "SAN", "san jose": "SJC", "fort worth": "DFW",
+        "minneapolis": "MSP", "salt lake city": "SLC", "kansas city": "MCI", "st louis": "STL",
+        "saint louis": "STL", "cincinnati": "CVG", "pittsburgh": "PIT", "baltimore": "BWI",
+        "raleigh": "RDU", "jacksonville": "JAX", "columbus": "CMH", "indianapolis": "IND",
+        "milwaukee": "MKE", "oklahoma city": "OKC", "louisville": "SDF", "richmond": "RIC",
+        "norfolk": "ORF", "birmingham": "BHM", "savannah": "SAV", "charleston": "CHS",
+        "knoxville": "TYS", "chattanooga": "CHA", "greenville": "GSP", "honolulu": "HNL",
+        "anchorage": "ANC", "albuquerque": "ABQ", "el paso": "ELP", "fresno": "FAT",
+        "sacramento": "SMF", "portland": "PDX", "newark": "EWR", "brooklyn": "NYC",
+        "queens": "NYC", "bronx": "NYC", "manhattan": "NYC", "staten island": "NYC"
+    ]
+
     static func cityBadge(for location: NativeLocationCoordinate, locality: String? = nil) -> String {
         let resolved = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return resolved.isEmpty ? "Nearby" : resolved
+        guard !resolved.isEmpty else { return "Nearby" }
+        return iataStyleCode(for: resolved)
+    }
+
+    /// IATA-style 3-letter badge: curated real codes where known, otherwise a
+    /// deterministic 3-letter abbreviation of the locality name.
+    static func iataStyleCode(for cityName: String) -> String {
+        let normalized = cityName
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US"))
+            .lowercased()
+        let words = normalized.split(whereSeparator: { !$0.isLetter }).filter { !$0.isEmpty }
+        guard let firstWord = words.first else { return "Nearby" }
+        if let mapped = iataCityCodes[words.joined(separator: " ")] { return mapped }
+        var code: String
+        if words.count == 1 {
+            code = String(firstWord.prefix(3))
+        } else {
+            code = words.prefix(3).compactMap(\.first).map(String.init).joined()
+            if code.count < 3, let last = words.last {
+                code += String(last.dropFirst().prefix(3 - code.count))
+            }
+        }
+        return code.uppercased()
     }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 

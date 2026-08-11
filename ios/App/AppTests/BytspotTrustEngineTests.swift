@@ -684,13 +684,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(venues.map(\.id), [local.id])
         XCTAssertEqual(cards.map(\.id), [localPlaceCard.id])
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "Nearby")
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Seattle"), "Seattle")
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "  Decatur  "), "Decatur")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Seattle"), "SEA")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "  Decatur  "), "DEC")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "San Antonio"), "SAT")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Sandy Springs"), "SSP")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "New York"), "NYC")
         XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "Nearby")
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
-        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown, locality: "Atlanta"), "Atlanta")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown, locality: "Atlanta"), "ATL")
     }
 
     @MainActor

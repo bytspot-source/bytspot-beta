@@ -1551,6 +1551,48 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePaymentSetupSession(url: "https://stripe.evil.example/setup").safeSetupURLString)
     }
 
+    func testNativePushTokenNormalizationAndRejection() {
+        let uppercaseToken = String(repeating: "AB", count: 32)
+        let normalizedToken = String(repeating: "ab", count: 32)
+        XCTAssertEqual(NativePushService.normalizedToken(" \(uppercaseToken) "), normalizedToken)
+        XCTAssertEqual(NativePushService.normalizedToken(Data(repeating: 0xAB, count: 32)), normalizedToken)
+        XCTAssertNil(NativePushService.normalizedToken(""))
+        XCTAssertNil(NativePushService.normalizedToken(String(repeating: "a", count: 63)))
+        XCTAssertNil(NativePushService.normalizedToken(Data(repeating: 0xAB, count: 31)))
+        XCTAssertNil(NativePushService.normalizedToken("aa bb"))
+        XCTAssertNil(NativePushService.normalizedToken(String(repeating: "z", count: 64)))
+    }
+
+    @MainActor
+    func testNativePushPayloadAcceptsOnlyBytspotRoutes() {
+        let partyURL = NativePushURLPolicy.routeURL(from: ["deepLink": "bytspot://party/party_123"])
+        XCTAssertEqual(partyURL?.absoluteString, "bytspot://party/party_123")
+        XCTAssertEqual(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app/party/party_123"])?.host, "bytspot.app")
+        let navigation = NativeNavigationCoordinator()
+        XCTAssertTrue(navigation.handle(url: try! XCTUnwrap(partyURL)))
+        XCTAssertEqual(navigation.requestedDestination?.id, "party-party_123")
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "https://app.bytspot.app/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app.evil.example/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "http://bytspot.app/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "bytspot://evil/redirect"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["redirect": "bytspot://party/party_123"]))
+    }
+
+    func testNativePushRegistrationInputMatchesProductionContract() throws {
+        XCTAssertEqual(NativePushDeviceAPI.registerPath, "/trpc/push.registerIosDevice")
+        XCTAssertEqual(NativePushDeviceAPI.unregisterPath, "/trpc/push.unregisterIosDevice")
+        let uppercaseToken = String(repeating: "AB", count: 32)
+        let normalizedToken = String(repeating: "ab", count: 32)
+        let registration = try XCTUnwrap(NativePushDeviceRegistration.production(token: uppercaseToken))
+        XCTAssertEqual(registration.input["token"] as? String, normalizedToken)
+        XCTAssertEqual(registration.input["environment"] as? String, "production")
+        XCTAssertEqual(registration.input["bundleId"] as? String, "com.bytspot.app")
+
+        let body = try BytspotAPIClient.trpcMutationBody(registration.input)
+        let input = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(input["environment"] as? String, "production")
+    }
+
     func testTRPCDecodeUnwrapsNotificationPreferenceEnvelope() throws {
         let prefs: [String: Any] = ["push": ["reservations": true, "promotions": true, "reminders": true, "insider": true, "nearby": false], "email": ["reservations": true, "promotions": false, "newsletter": true, "receipts": true], "sms": ["reservations": true, "reminders": true, "emergencies": true]]
         let record = try decode(NativeNotificationPreferences.self, from: ["result": ["data": ["json": prefs]]])
@@ -1727,6 +1769,55 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         XCTAssertEqual(paths, [NativeLiveContentV2Contract.partyDraftCreateRoute, NativeLiveContentV2Contract.partyPublishRoute])
         XCTAssertEqual(party.passCode, "LAUGH26")
+    }
+
+    func testNativePartyDoorModeSendsExactCredentialContract() async throws {
+        let credential = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        NativePartyURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/trpc/events.control.checkIn")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer host-token")
+            let data = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(body["partyId"] as? String, "party-1")
+            XCTAssertEqual(body["attendeeCredential"] as? String, credential)
+            XCTAssertNil(body["attendeePassSecret"])
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["status": "checked-in", "guestName": "Ada"]]]]))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        let result = try await NativePartyControlAPI(client: client).checkIn("party-1", attendeeCredential: credential)
+        XCTAssertEqual(result, NativePartyCheckInResult(status: "checked-in", guestName: "Ada"))
+    }
+
+    func testNativePartyDoorModeRejectsUnexpectedCheckInStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        NativePartyURLProtocolStub.handler = { _ in
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": ["status": "pending", "guestName": "Ada"]]]]))
+        }
+        defer { NativePartyURLProtocolStub.handler = nil }
+
+        let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, tokenProvider: { "host-token" }, urlSession: URLSession(configuration: configuration))
+        do {
+            _ = try await NativePartyControlAPI(client: client).checkIn("party-1", attendeeCredential: "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde")
+            XCTFail("Unexpected check-in status must fail closed.")
+        } catch {
+            // Expected: only the documented checked-in status is accepted.
+        }
+    }
+
+    func testNativePartyDoorModeAcceptsOnlyTrimmedOpaqueCredential() {
+        let credential = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde"
+        XCTAssertEqual(NativePartyDoorPassInput.normalized(" \n\(credential)\t "), credential)
+        XCTAssertNil(NativePartyDoorPassInput.normalized(" \n\t "))
+        XCTAssertNil(NativePartyDoorPassInput.normalized("raw/opaque-pass"))
+        XCTAssertNil(NativePartyDoorPassInput.normalized("https://bytspot.app/party/pass"))
+        XCTAssertNotNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: 43)))
+        XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "x", count: 42) + "/"))
+        XCTAssertNil(NativePartyDoorPassInput.normalized(String(repeating: "A", count: 44)))
     }
 
     func testNativePartyPassInviteFailsClosedForMissingLocationDisclosure() async throws {

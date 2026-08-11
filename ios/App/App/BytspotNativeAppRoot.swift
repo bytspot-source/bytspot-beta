@@ -175,6 +175,10 @@ struct BytspotNativeAppRoot: View {
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
+                Task {
+                    await NativePushService.shared.refreshAuthorizationStatus()
+                    await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
+                }
             }
             .task {
                 await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
@@ -188,11 +192,16 @@ struct BytspotNativeAppRoot: View {
                     await walletLedgerStore.refresh(sessionStore: sessionStore)
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
+                    await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
                 }
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
-                Task { await membershipStore.refresh(sessionStore: sessionStore) }
+                Task {
+                    await membershipStore.refresh(sessionStore: sessionStore)
+                    await NativePushService.shared.refreshAuthorizationStatus()
+                    await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
+                }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in
                 tabContentStore.invalidateLocationScopedContent(for: locationStore.coordinate)
@@ -214,6 +223,9 @@ struct BytspotNativeAppRoot: View {
                 let source = sourceRaw.flatMap(NativePatchScanSource.init(rawValue:)) ?? .universalLink
                 navigation.notifyPatchScanned(url: url, source: source)
                 if BytspotPatchRoute(url: url) == nil { _ = navigation.handle(url: url) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NativePushService.tokenDidChangeNotification)) { _ in
+                Task { await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil) }
             }
             .onReceive(NotificationCenter.default.publisher(for: NativeAppearanceMode.userSelectionNotification)) { notification in
                 let selected = NativeAppearanceMode.resolved(raw: notification.userInfo?[NativeAppearanceMode.userSelectionUserInfoKey] as? String)

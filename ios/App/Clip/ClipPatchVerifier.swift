@@ -835,19 +835,63 @@ struct ClipPatchVerifier {
     /// from the invite template or access mode.
     func resolvePartyPass(partyID: String) async throws -> ClipPartyPassState {
         let payload = try await getTRPC("events.pass.resolve", input: ["partyId": partyID])
+        guard let state = Self.partyPassState(from: payload, expectedPartyID: partyID) else { throw VerifyError.decode }
+        return state
+    }
+
+    /// The resolver contract must explicitly authorize access in `guest`.
+    /// Never infer access from `action`: a partial or drifted response cannot
+    /// unlock a personal attendee credential.
+    static func partyPassState(from payload: Any, expectedPartyID: String) -> ClipPartyPassState? {
         guard let root = payload as? [String: Any],
-              let resolvedPartyID = Self.string(root["partyId"]),
-              resolvedPartyID == partyID,
-              let rawAction = Self.string(root["action"]),
-              let action = ClipPartyPassAction(rawValue: rawAction) else { throw VerifyError.decode }
-        let guest = root["guest"] as? [String: Any]
+              let resolvedPartyID = string(root["partyId"]), resolvedPartyID == expectedPartyID,
+              let rawAction = string(root["action"]), let action = ClipPartyPassAction(rawValue: rawAction),
+              let guest = root["guest"] as? [String: Any],
+              let accessGranted = guest["accessGranted"] as? Bool else { return nil }
         return ClipPartyPassState(
             partyID: resolvedPartyID,
             action: action,
-            guestStatus: Self.string(guest?["status"]) ?? "unknown",
-            accessGranted: (guest?["accessGranted"] as? Bool) ?? (action == .viewPass),
+            guestStatus: string(guest["status"]) ?? "unknown",
+            accessGranted: accessGranted,
             premiumMobilityEligible: (root["premiumMobilityEligible"] as? Bool) ?? false
         )
+    }
+
+    /// A bearer credential returned only to its authorized guest. The value is
+    /// deliberately held in memory by the Party Pass view and must never be
+    /// persisted, logged, included in a handoff URL, or placed on a share sheet.
+    struct PartyAttendeeCredential: Equatable {
+        let partyID: String
+        let value: String
+    }
+
+    func partyAttendeeCredential(partyID: String) async throws -> PartyAttendeeCredential {
+        let payload = try await postTRPC("events.pass.attendeeCredential", input: ["partyId": partyID])
+        guard let credential = Self.partyAttendeeCredential(from: payload, expectedPartyID: partyID) else {
+            throw VerifyError.decode
+        }
+        return credential
+    }
+
+    /// Accepts only the documented response, bound to the requested Party, and
+    /// only a 32-byte Base64URL credential (43 characters without padding).
+    /// Keeping this decoder strict prevents arbitrary server payload fields from
+    /// becoming QR contents.
+    static func partyAttendeeCredential(from payload: Any, expectedPartyID: String) -> PartyAttendeeCredential? {
+        guard let root = payload as? [String: Any],
+              let partyID = string(root["partyId"]), partyID == expectedPartyID,
+              let value = string(root["attendeeCredential"]),
+              isValidPartyAttendeeCredential(value) else { return nil }
+        return PartyAttendeeCredential(partyID: partyID, value: value)
+    }
+
+    static func isValidPartyAttendeeCredential(_ value: String) -> Bool {
+        value.count == 43 && value.unicodeScalars.allSatisfy {
+            ($0.value >= 65 && $0.value <= 90) ||
+            ($0.value >= 97 && $0.value <= 122) ||
+            ($0.value >= 48 && $0.value <= 57) ||
+            $0.value == 45 || $0.value == 95
+        }
     }
 
     func createPartyRSVP(partyID: String, idempotencyKey: String) async throws -> String {

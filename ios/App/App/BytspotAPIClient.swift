@@ -90,6 +90,39 @@ struct BytspotAPIClient {
     }
 }
 
+struct NativePushDeviceRegistration: Codable, Equatable {
+    let token: String
+    let environment: String
+    let bundleId: String
+
+    static let productionBundleID = "com.bytspot.app"
+
+    static func production(token: String) -> NativePushDeviceRegistration? {
+        guard let normalizedToken = NativePushService.normalizedToken(token) else { return nil }
+        return NativePushDeviceRegistration(token: normalizedToken, environment: "production", bundleId: productionBundleID)
+    }
+
+    var input: [String: Any] {
+        ["token": token, "environment": environment, "bundleId": bundleId]
+    }
+}
+
+struct NativePushDeviceAPI {
+    static let registerPath = "/trpc/push.registerIosDevice"
+    static let unregisterPath = "/trpc/push.unregisterIosDevice"
+
+    let client: BytspotAPIClient
+
+    func register(_ registration: NativePushDeviceRegistration) async throws {
+        _ = try await client.trpcPayload(path: Self.registerPath, method: "POST", input: registration.input)
+    }
+
+    func unregister(token: String) async throws {
+        guard let normalizedToken = NativePushService.normalizedToken(token) else { return }
+        _ = try await client.trpcPayload(path: Self.unregisterPath, method: "POST", input: ["token": normalizedToken])
+    }
+}
+
 struct NativeUserProfileRecord: Codable, Equatable {
     var id: String?
     var email: String?

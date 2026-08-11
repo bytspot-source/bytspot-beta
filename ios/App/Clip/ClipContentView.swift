@@ -7,6 +7,7 @@ import PassKit
 import Contacts
 import AVFoundation
 import AVKit
+import CoreImage.CIFilterBuiltins
 import SafariServices
 @_spi(STP) import StripeApplePay
 @_spi(STP) import StripeCore
@@ -154,6 +155,17 @@ struct PartyPassClipView: View {
     @State private var showShareSheet = false
     @State private var viewerName = ClipAuthStore.displayName
     @State private var authController = ClipGuestAuthController()
+    // Opaque attendee credential: intentionally in-memory only. Never persist,
+    // log, share, or route it outside the QR image shown to the door staff.
+    @State private var attendeeCredential: ClipPatchVerifier.PartyAttendeeCredential?
+    @State private var isLoadingAttendeeCredential = false
+    @State private var attendeeCredentialMessage = ""
+    /// Changes on every clear/request so an older async response can never
+    /// restore a QR after backgrounding, denial, or a newer request.
+    @State private var attendeeCredentialGeneration = UUID()
+    /// Resolves are also generation-bound. Access remains fail-closed after a
+    /// scene transition until the current active scene has a fresh response.
+    @State private var passResolverGeneration = UUID()
 
     private var accent: Color { ClipTheme.accent(for: invite.tier) }
     private var ctaForeground: Color { ClipTheme.background }
@@ -162,8 +174,14 @@ struct PartyPassClipView: View {
         invocation.selectedPartyTicketTier.map { .make(partyTicket: $0, partyTier: invite.tier) }
     }
     private var isBusy: Bool { isResolving || isPerformingAction }
+    /// A server `view-pass` action is presentationally valid only when the
+    /// guest explicitly has access. Keep an explicit denial fail-closed in all
+    /// visual, VoiceOver, and CTA states—not merely QR issuance.
+    private var effectiveAction: ClipPartyPassAction? {
+        PartyPassPresentationRules.effectiveAction(for: passState)
+    }
     private var primaryTitle: String {
-        guard let action = passState?.action else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
+        guard let action = effectiveAction else { return isResolving ? "Preparing your Party Pass…" : "Party Pass unavailable" }
         switch action {
         case .authenticate: return "Sign in to get tickets"
         case .ticket: return "Choose a ticket"
@@ -174,7 +192,7 @@ struct PartyPassClipView: View {
         }
     }
     private var primarySymbol: String {
-        switch passState?.action {
+        switch effectiveAction {
         case .authenticate: return "person.badge.key.fill"
         case .ticket: return "ticket.fill"
         case .rsvp: return "checkmark.seal.fill"
@@ -185,7 +203,7 @@ struct PartyPassClipView: View {
         }
     }
     private var primarySubtitle: String {
-        switch passState?.action {
+        switch effectiveAction {
         case .authenticate: return "Sign in with Apple to verify your access."
         case .ticket: return "Choose a tier before secure checkout."
         case .rsvp: return "Free RSVP · your place is requested instantly."
@@ -196,18 +214,18 @@ struct PartyPassClipView: View {
         }
     }
     private var primaryButtonColor: Color {
-        guard let action = passState?.action else { return ClipTheme.panelElevated }
+        guard let action = effectiveAction else { return ClipTheme.panelElevated }
         switch action {
         case .unavailable, .viewPass: return action == .viewPass ? accent : Color.white.opacity(0.14)
         default: return accent
         }
     }
     private var primaryButtonForeground: Color {
-        guard let action = passState?.action else { return .white.opacity(0.66) }
+        guard let action = effectiveAction else { return .white.opacity(0.66) }
         return action == .unavailable ? .white.opacity(0.66) : ctaForeground
     }
     private var accessStatus: PartyAccessStatus {
-        switch passState?.action {
+        switch effectiveAction {
         case .authenticate:
             return PartyAccessStatus("SIGN IN REQUIRED", "Verify your invitation", "Use Apple sign-in to see your authorized Party action.", "person.badge.key.fill", .access(accent: accent))
         case .ticket:
@@ -238,6 +256,7 @@ struct PartyPassClipView: View {
                     header
                     hero
                     passSummary
+                    attendeePassCard
                     details
                     hostDestinations
                     if !invite.itinerary.isEmpty { program }
@@ -258,7 +277,10 @@ struct PartyPassClipView: View {
         .accessibilityIdentifier("party-pass-clip")
         .task(id: invite.id) { await resolvePass() }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                invalidatePassResolution()
+                return
+            }
             Task { await resolvePass() }
         }
     }
@@ -375,6 +397,36 @@ struct PartyPassClipView: View {
         }
     }
 
+    @ViewBuilder private var attendeePassCard: some View {
+        if let attendeeCredential {
+            PartyGlassCard(variant: .access(accent: accent)) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "qrcode").font(.system(size: 18, weight: .black)).foregroundColor(ctaForeground)
+                        .frame(width: 44, height: 44).background(accent).clipShape(RoundedRectangle(cornerRadius: 13))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PERSONAL DOOR PASS").font(.system(size: 10, weight: .black, design: .rounded)).tracking(1).foregroundColor(accent)
+                        Text("Show this QR at the door").font(.system(size: 18, weight: .bold, design: .serif)).foregroundColor(.white)
+                        Text("This pass is personal and refreshes when requested. Do not share it.")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.64))
+                    }
+                }
+                ClipPersonalAttendeeQR(value: attendeeCredential.value)
+                    .frame(maxWidth: .infinity).padding(.top, 4)
+            }
+        } else if isLoadingAttendeeCredential {
+            PartyGlassCard(variant: .access(accent: accent)) {
+                HStack(spacing: 12) {
+                    ProgressView().tint(accent)
+                    Text("Preparing your personal door pass…").font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white)
+                }
+            }
+        } else if !attendeeCredentialMessage.isEmpty {
+            PartyGlassCard(variant: .standard) {
+                Text(attendeeCredentialMessage).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.74))
+            }
+        }
+    }
+
     private var details: some View {
         PartyGlassCard {
             Text("The invitation").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
@@ -427,10 +479,22 @@ struct PartyPassClipView: View {
 
     private var ticketActionBar: some View {
         VStack(spacing: 8) {
-            Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
-                .disabled(isBusy || passState == nil || passState?.action == .unavailable || passState?.action == .viewPass).buttonStyle(.plain)
-            Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-            if passState?.premiumMobilityEligible == true {
+            if effectiveAction == .viewPass {
+                Button { Task { await loadAttendeeCredential() } } label: {
+                    Label(attendeeCredential == nil ? "Show door QR" : "Refresh pass", systemImage: "qrcode")
+                        .font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(ctaForeground)
+                        .frame(maxWidth: .infinity).frame(height: 54).background(accent).clipShape(RoundedRectangle(cornerRadius: 17))
+                }
+                .disabled(isBusy || isLoadingAttendeeCredential)
+                .buttonStyle(.plain)
+                Text("Show this personal QR only to Door Mode at arrival.")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center)
+            } else {
+                Button(action: primaryAction) { Label(primaryTitle, systemImage: primarySymbol).font(.system(size: 15, weight: .black, design: .rounded)).foregroundColor(primaryButtonForeground).frame(maxWidth: .infinity).frame(height: 54).background(primaryButtonColor).clipShape(RoundedRectangle(cornerRadius: 17)) }
+                    .disabled(isBusy || effectiveAction == nil || effectiveAction == .unavailable).buttonStyle(.plain)
+                Text(primarySubtitle).font(.system(size: 11.5, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+            }
+            if effectiveAction == .viewPass && passState?.premiumMobilityEligible == true {
                 HStack(spacing: 10) {
                     partyHandoffButton(provider: .uber, title: "Open Uber")
                     partyHandoffButton(provider: .lyft, title: "Open Lyft")
@@ -467,26 +531,127 @@ struct PartyPassClipView: View {
         case .outboundToVenue: return "location.north.line.fill"
         }
     }
+    @MainActor
     private func resolvePass() async {
+        guard scenePhase == .active else { return }
+        let generation = UUID()
+        passResolverGeneration = generation
         isResolving = true
-        defer { isResolving = false }
+        defer {
+            if passResolverGeneration == generation { isResolving = false }
+        }
         #if DEBUG
         if let previewState = ClipPartyPassPreview.state(for: invocation.invocationURL, partyID: invite.id) {
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
             passState = previewState
+            if previewState.action != .viewPass || !previewState.accessGranted {
+                clearAttendeeCredential()
+            }
             statusMessage = ""
             return
         }
         #endif
         do {
-            passState = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            let resolved = try await ClipPatchVerifier().resolvePartyPass(partyID: invite.id)
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
+            passState = resolved
+            if resolved.action != .viewPass || !resolved.accessGranted {
+                clearAttendeeCredential()
+            }
             statusMessage = ""
         } catch {
+            guard Self.canCommitPassResolution(
+                resolverGeneration: generation,
+                currentResolverGeneration: passResolverGeneration,
+                scenePhase: scenePhase
+            ) else { return }
             passState = nil
+            clearAttendeeCredential()
             statusMessage = "We couldn’t verify ticket availability right now. Please try again."
         }
     }
-    private func primaryAction() { guard !isBusy, let action = passState?.action else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    @MainActor
+    private func invalidatePassResolution() {
+        passResolverGeneration = UUID()
+        passState = nil
+        isResolving = false
+        statusMessage = ""
+        clearAttendeeCredential()
+    }
+    @MainActor
+    private func clearAttendeeCredential() {
+        attendeeCredentialGeneration = UUID()
+        attendeeCredential = nil
+        attendeeCredentialMessage = ""
+        isLoadingAttendeeCredential = false
+    }
+    @MainActor private func loadAttendeeCredential() async {
+        guard !isBusy, !isLoadingAttendeeCredential,
+              Self.canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState) else { return }
+        let requestGeneration = UUID()
+        attendeeCredentialGeneration = requestGeneration
+        isLoadingAttendeeCredential = true
+        attendeeCredentialMessage = ""
+        defer {
+            if attendeeCredentialGeneration == requestGeneration {
+                isLoadingAttendeeCredential = false
+            }
+        }
+        do {
+            let credential = try await ClipPatchVerifier().partyAttendeeCredential(partyID: invite.id)
+            guard Self.canCommitAttendeeCredential(
+                requestGeneration: requestGeneration,
+                currentGeneration: attendeeCredentialGeneration,
+                scenePhase: scenePhase,
+                passState: passState,
+                credential: credential,
+                expectedPartyID: invite.id
+            ) else { return }
+            attendeeCredential = credential
+        } catch {
+            guard attendeeCredentialGeneration == requestGeneration else { return }
+            attendeeCredential = nil
+            attendeeCredentialMessage = "Your door pass could not be refreshed. Please try again."
+        }
+    }
+    static func canRequestAttendeeCredential(scenePhase: ScenePhase, passState: ClipPartyPassState?) -> Bool {
+        scenePhase == .active && passState?.action == .viewPass && passState?.accessGranted == true
+    }
+
+    static func canCommitPassResolution(
+        resolverGeneration: UUID,
+        currentResolverGeneration: UUID,
+        scenePhase: ScenePhase
+    ) -> Bool {
+        resolverGeneration == currentResolverGeneration && scenePhase == .active
+    }
+
+    static func canCommitAttendeeCredential(
+        requestGeneration: UUID,
+        currentGeneration: UUID,
+        scenePhase: ScenePhase,
+        passState: ClipPartyPassState?,
+        credential: ClipPatchVerifier.PartyAttendeeCredential,
+        expectedPartyID: String
+    ) -> Bool {
+        requestGeneration == currentGeneration &&
+            canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState) &&
+            credential.partyID == expectedPartyID
+    }
+
+    @MainActor
+    private func primaryAction() { guard !isBusy, let action = effectiveAction else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
+    @MainActor
     private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
+    @MainActor
     private func rsvp() async {
         guard !isBusy else { return }
         isPerformingAction = true
@@ -514,7 +679,7 @@ struct PartyPassClipView: View {
         }.buttonStyle(.plain).disabled(isBusy || passState?.premiumMobilityEligible != true)
     }
     @MainActor private func openPartyArrivalHandoff(_ provider: ClipPartyHandoffProvider) async {
-        guard !isBusy, passState?.premiumMobilityEligible == true else { return }
+        guard !isBusy, effectiveAction == .viewPass, passState?.premiumMobilityEligible == true else { return }
         isPerformingAction = true
         statusMessage = "Preparing secure provider handoff…"
         defer { isPerformingAction = false }
@@ -550,6 +715,36 @@ struct PartyPassClipView: View {
     }
 }
 
+/// Clip-local renderer for an opaque attendee bearer credential. The raw value
+/// is encoded into pixels only; it is intentionally never rendered as text.
+struct ClipPersonalAttendeeQR: View {
+    let value: String
+
+    var body: some View {
+        Image(uiImage: Self.image(value))
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .padding(10)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Personal attendee QR code")
+            .accessibilityHint("Show this code to the host's Door Mode scanner. Do not share it.")
+    }
+
+    static func image(_ value: String) -> UIImage {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
+              let cgImage = CIContext().createCGImage(output, from: output.extent) else {
+            return UIImage()
+        }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
 private enum PartyGlassCardVariant {
     case standard
     case access(accent: Color)
@@ -578,6 +773,13 @@ struct PartyPassUnresolvedAccess: Equatable {
 }
 
 enum PartyPassPresentationRules {
+    /// `view-pass` never means access on its own: only an explicit true server
+    /// authorization is allowed to reach confirmed-pass presentation or CTAs.
+    static func effectiveAction(for passState: ClipPartyPassState?) -> ClipPartyPassAction? {
+        guard let passState else { return nil }
+        return passState.action == .viewPass && !passState.accessGranted ? .unavailable : passState.action
+    }
+
     static func unresolvedAccess(isResolving: Bool) -> PartyPassUnresolvedAccess {
         isResolving
             ? PartyPassUnresolvedAccess(eyebrow: "VERIFYING INVITATION", title: "Checking your Party access", detail: "We are confirming the host's access rules before showing an available action.", symbol: "hourglass")
@@ -585,8 +787,8 @@ enum PartyPassPresentationRules {
     }
 
     static func accessMetric(for passState: ClipPartyPassState?, isResolving: Bool) -> String {
-        guard let passState else { return isResolving ? "VERIFYING" : "UNVERIFIED" }
-        switch passState.action {
+        guard let passState, let action = effectiveAction(for: passState) else { return isResolving ? "VERIFYING" : "UNVERIFIED" }
+        switch action {
         case .authenticate: return "SIGN IN"
         case .ticket: return "TICKETS"
         case .rsvp: return "RSVP"

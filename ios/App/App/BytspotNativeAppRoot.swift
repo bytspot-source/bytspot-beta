@@ -943,9 +943,27 @@ private struct NativeBytspotMark: View {
         RadialGradient(colors: [NativeLaunchTheme.cyan.opacity(0.30), Color.clear], center: .center, startRadius: 0, endRadius: size * 0.10)
     }
     var body: some View {
-        Image("BytspotBrandMark")
-            .resizable()
-            .scaledToFit()
+        // Drawn natively to match BytspotBrandMark.svg geometry (120pt viewBox).
+        // Asset-catalog SVG rendering drops gradient fills in Release builds,
+        // so the mark must not depend on the catalog image.
+        ZStack {
+            Circle().stroke(outerRingGradient, lineWidth: size * (3.0 / 120.0))
+                .frame(width: size * (96.0 / 120.0), height: size * (96.0 / 120.0))
+            Circle().stroke(middleRingGradient, lineWidth: size * (2.0 / 120.0))
+                .frame(width: size * (76.0 / 120.0), height: size * (76.0 / 120.0))
+                .opacity(0.4)
+            Hexagon().fill(hexFillGradient)
+                .frame(width: size * (28.0 / 120.0), height: size * (36.0 / 120.0))
+                .opacity(0.95)
+                .overlay(Hexagon().stroke(hexBorderGradient, lineWidth: size * (1.5 / 120.0)).opacity(0.8))
+                .offset(y: -size * (10.0 / 120.0))
+            Circle().fill(centerGlowGradient)
+                .frame(width: size * (24.0 / 120.0), height: size * (24.0 / 120.0))
+                .offset(y: -size * (10.0 / 120.0))
+            Circle().fill(centerDotGradient)
+                .frame(width: size * (16.0 / 120.0), height: size * (16.0 / 120.0))
+                .offset(y: -size * (10.0 / 120.0))
+        }
         .frame(width: size, height: size)
         .shadow(color: showGlow ? NativeLaunchTheme.cyan.opacity(0.40) : .clear, radius: showGlow ? size * 0.10 : 0)
         .shadow(color: showGlow ? NativeLaunchTheme.purple.opacity(0.30) : .clear, radius: showGlow ? size * 0.20 : 0)

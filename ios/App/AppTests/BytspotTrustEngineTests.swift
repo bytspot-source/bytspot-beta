@@ -1551,6 +1551,43 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePaymentSetupSession(url: "https://stripe.evil.example/setup").safeSetupURLString)
     }
 
+    func testNativePushTokenNormalizationAndRejection() {
+        XCTAssertEqual(NativePushService.normalizedToken(" AABBcc0011 "), "aabbcc0011")
+        XCTAssertEqual(NativePushService.normalizedToken(Data([0xAA, 0x0B, 0x10])), "aa0b10")
+        XCTAssertNil(NativePushService.normalizedToken(""))
+        XCTAssertNil(NativePushService.normalizedToken("abc"))
+        XCTAssertNil(NativePushService.normalizedToken("aa bb"))
+        XCTAssertNil(NativePushService.normalizedToken("zz00"))
+    }
+
+    @MainActor
+    func testNativePushPayloadAcceptsOnlyBytspotRoutes() {
+        let partyURL = NativePushURLPolicy.routeURL(from: ["deepLink": "bytspot://party/party_123"])
+        XCTAssertEqual(partyURL?.absoluteString, "bytspot://party/party_123")
+        XCTAssertEqual(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app/party/party_123"])?.host, "bytspot.app")
+        let navigation = NativeNavigationCoordinator()
+        XCTAssertTrue(navigation.handle(url: try! XCTUnwrap(partyURL)))
+        XCTAssertEqual(navigation.requestedDestination?.id, "party-party_123")
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "https://app.bytspot.app/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app.evil.example/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "http://bytspot.app/party/party_123"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["url": "bytspot://evil/redirect"]))
+        XCTAssertNil(NativePushURLPolicy.routeURL(from: ["redirect": "bytspot://party/party_123"]))
+    }
+
+    func testNativePushRegistrationInputMatchesProductionContract() throws {
+        XCTAssertEqual(NativePushDeviceAPI.registerPath, "/trpc/push.registerIosDevice")
+        XCTAssertEqual(NativePushDeviceAPI.unregisterPath, "/trpc/push.unregisterIosDevice")
+        let registration = try XCTUnwrap(NativePushDeviceRegistration.production(token: "AABB0011"))
+        XCTAssertEqual(registration.input["token"] as? String, "aabb0011")
+        XCTAssertEqual(registration.input["environment"] as? String, "production")
+        XCTAssertEqual(registration.input["bundleId"] as? String, "com.bytspot.app")
+
+        let body = try BytspotAPIClient.trpcMutationBody(registration.input)
+        let input = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(input["environment"] as? String, "production")
+    }
+
     func testTRPCDecodeUnwrapsNotificationPreferenceEnvelope() throws {
         let prefs: [String: Any] = ["push": ["reservations": true, "promotions": true, "reminders": true, "insider": true, "nearby": false], "email": ["reservations": true, "promotions": false, "newsletter": true, "receipts": true], "sms": ["reservations": true, "reminders": true, "emergencies": true]]
         let record = try decode(NativeNotificationPreferences.self, from: ["result": ["data": ["json": prefs]]])

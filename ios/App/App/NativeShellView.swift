@@ -2341,11 +2341,18 @@ private struct NativeNotificationSettingsPanel: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var statusMessage = ""
+    @ObservedObject private var pushService = NativePushService.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeProfilePanelStat(value: enabledCount, label: "Enabled", color: NativeTheme.cyan)
             NativeWalletLine(title: "Push Notifications", subtitle: "Push alerts can include reservations, reminders, deals, profile updates, and nearby spots.", icon: "bell.fill")
+            NativeWalletLine(title: pushService.systemAlertStatus.title, subtitle: pushService.systemAlertStatus.subtitle, icon: "bell.badge.fill")
+            Button(action: requestSystemAlerts) {
+                NativeCTA(title: pushService.systemAlertStatus.actionTitle, color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant)
+            }
+            .buttonStyle(.plain)
+            .disabled(pushService.isRequestingAuthorization)
             NativePreferenceToggleRow(title: "Reservation Updates", subtitle: "Confirmations, changes, and cancellations.", icon: "calendar.badge.checkmark", color: NativeTheme.purple, isOn: $pushReservations)
             NativePreferenceToggleRow(title: "Promotions & Deals", subtitle: "Special offers and discounts.", icon: "tag.fill", color: NativeTheme.pink, isOn: $pushPromotions)
             NativePreferenceToggleRow(title: "Reminders", subtitle: "Parking session expiration alerts.", icon: "clock.badge.exclamationmark.fill", color: NativeTheme.orange, isOn: $pushReminders)
@@ -2365,7 +2372,10 @@ private struct NativeNotificationSettingsPanel: View {
                 .disabled(isSaving)
             NativeWalletLine(title: statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill")
         }
-        .task { await loadNotificationPreferencesIfNeeded() }
+        .task {
+            await pushService.refreshAuthorizationStatus()
+            await loadNotificationPreferencesIfNeeded()
+        }
     }
 
     private var enabledCount: String {
@@ -2384,6 +2394,14 @@ private struct NativeNotificationSettingsPanel: View {
             email: NativeNotificationPreferences.Email(reservations: emailReservations, promotions: emailPromotions, newsletter: emailNewsletter, receipts: emailReceipts),
             sms: NativeNotificationPreferences.SMS(reservations: smsReservations, reminders: smsReminders, emergencies: smsEmergencies)
         )
+    }
+
+    private func requestSystemAlerts() {
+        nativeImpactLight()
+        Task {
+            await pushService.requestAuthorizationFromUser()
+            await pushService.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
+        }
     }
 
     private func loadNotificationPreferencesIfNeeded() async {

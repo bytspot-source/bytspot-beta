@@ -1,9 +1,11 @@
 import UIKit
 import SwiftUI
 import GoogleSignIn
+import UserNotifications
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
+@MainActor
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var window: UIWindow?
 
@@ -14,6 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
         appWindow.makeKeyAndVisible()
         window = appWindow
+        NativePushService.shared.configure(delegate: self)
         publishLaunchOptions(launchOptions)
         return true
     }
@@ -25,6 +28,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         if let activityDictionary = launchOptions[.userActivityDictionary] as? [AnyHashable: Any] {
             for value in activityDictionary.values { publishLaunchUserActivityValue(value) }
+        }
+        if let payload = launchOptions[.remoteNotification] as? [AnyHashable: Any] {
+            NativePushService.publishRoute(from: payload)
         }
     }
 
@@ -74,6 +80,191 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+}
+
+// MARK: - Native APNs push
+
+extension AppDelegate {
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NativePushService.shared.didReceiveDeviceToken(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Do not log provider or device details. Users can retry from settings.
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        NativePushService.publishRoute(from: response.notification.request.content.userInfo)
+        completionHandler()
+    }
+}
+
+/// Allows notification-tap navigation only to an explicit Bytspot route.
+enum NativePushURLPolicy {
+    private static let allowedCustomHosts: Set<String> = [
+        "map", "discover", "venue", "v", "concierge", "profile", "access",
+        "party", "booking", "privacy", "terms", "disclaimer", "patch", "p", "clip"
+    ]
+
+    static func routeURL(from payload: [AnyHashable: Any]) -> URL? {
+        for key in ["deepLink", "url"] {
+            if let value = payload[key] as? String, let url = allowedURL(value) { return url }
+        }
+        return nil
+    }
+
+    static func allowedURL(_ rawValue: String) -> URL? {
+        let candidate = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty,
+              let url = URL(string: candidate),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil, components.password == nil else { return nil }
+        switch components.scheme?.lowercased() {
+        case "https":
+            guard components.host?.lowercased() == "bytspot.app", components.port == nil else { return nil }
+            return url
+        case "bytspot":
+            guard let host = components.host?.lowercased(), allowedCustomHosts.contains(host) else { return nil }
+            return url
+        default:
+            return nil
+        }
+    }
+}
+
+private enum NativePushTokenPolicy {
+    static func normalized(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard value.count == 64, value.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return value
+    }
+
+    static func normalized(_ data: Data) -> String? {
+        guard data.count == 32 else { return nil }
+        return normalized(data.map { String(format: "%02x", $0) }.joined())
+    }
+}
+
+enum NativePushSystemAlertStatus: Equatable {
+    case notDetermined, enabled, denied, restricted
+
+    var title: String {
+        switch self {
+        case .notDetermined: return "System Alerts Not Enabled"
+        case .enabled: return "System Alerts Enabled"
+        case .denied: return "System Alerts Blocked"
+        case .restricted: return "System Alerts Restricted"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .notDetermined: return "Enable iOS alerts before Bytspot can deliver push updates."
+        case .enabled: return "iOS alerts are enabled for this device."
+        case .denied: return "Enable Notifications for Bytspot in iOS Settings to receive push updates."
+        case .restricted: return "Notifications are restricted by this device's system policy."
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .notDetermined: return "Enable System Alerts"
+        case .enabled: return "Refresh System Alerts"
+        case .denied, .restricted: return "Open iOS Notification Settings"
+        }
+    }
+}
+
+@MainActor
+final class NativePushService: NSObject, ObservableObject {
+    static let shared = NativePushService()
+    static let tokenDidChangeNotification = Notification.Name("BytspotNativePushTokenDidChange")
+    private static let storedTokenKey = "bytspot_apns_device_token"
+
+    @Published private(set) var systemAlertStatus: NativePushSystemAlertStatus = .notDetermined
+    @Published private(set) var isRequestingAuthorization = false
+    private var lastSyncedRegistrationKey: String?
+
+    func configure(delegate: UNUserNotificationCenterDelegate) {
+        UNUserNotificationCenter.current().delegate = delegate
+    }
+
+    func refreshAuthorizationStatus() async {
+        systemAlertStatus = Self.status(from: await UNUserNotificationCenter.current().notificationSettings().authorizationStatus)
+    }
+
+    /// Invoked only by the explicit notification-settings action.
+    func requestAuthorizationFromUser() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            isRequestingAuthorization = true
+            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+            isRequestingAuthorization = false
+            await refreshAuthorizationStatus()
+            if systemAlertStatus == .enabled { UIApplication.shared.registerForRemoteNotifications() }
+        case .authorized, .provisional, .ephemeral:
+            systemAlertStatus = .enabled
+            UIApplication.shared.registerForRemoteNotifications()
+        case .denied, .restricted:
+            systemAlertStatus = Self.status(from: settings.authorizationStatus)
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(settingsURL) }
+        @unknown default:
+            systemAlertStatus = .restricted
+        }
+    }
+
+    func didReceiveDeviceToken(_ data: Data) {
+        guard let token = NativePushTokenPolicy.normalized(data) else { return }
+        UserDefaults.standard.set(token, forKey: Self.storedTokenKey)
+        lastSyncedRegistrationKey = nil
+        NotificationCenter.default.post(name: Self.tokenDidChangeNotification, object: nil)
+    }
+
+    /// Registers only with an authenticated session. Generic sign-out never
+    /// unregisters a device, avoiding disruption for a shared device.
+    func reconcile(sessionToken: String?) async {
+        guard let sessionToken, !sessionToken.isEmpty, sessionToken != "guest_session",
+              let token = persistedToken,
+              systemAlertStatus == .enabled else { return }
+        let key = "\(sessionToken)|\(token)"
+        guard key != lastSyncedRegistrationKey,
+              let registration = NativePushDeviceRegistration.production(token: token) else { return }
+        do {
+            try await NativePushDeviceAPI(client: BytspotAPIClient(tokenProvider: { sessionToken })).register(registration)
+            lastSyncedRegistrationKey = key
+        } catch {
+            // Keep the token so a later authenticated lifecycle can retry.
+        }
+    }
+
+    private var persistedToken: String? {
+        UserDefaults.standard.string(forKey: Self.storedTokenKey).flatMap(NativePushTokenPolicy.normalized)
+    }
+
+    private static func status(from authorizationStatus: UNAuthorizationStatus) -> NativePushSystemAlertStatus {
+        switch authorizationStatus {
+        case .notDetermined: return .notDetermined
+        case .authorized, .provisional, .ephemeral: return .enabled
+        case .denied: return .denied
+        case .restricted: return .restricted
+        @unknown default: return .restricted
+        }
+    }
+
+    nonisolated static func normalizedToken(_ rawValue: String) -> String? { NativePushTokenPolicy.normalized(rawValue) }
+    nonisolated static func normalizedToken(_ data: Data) -> String? { NativePushTokenPolicy.normalized(data) }
+
+    static func publishRoute(from payload: [AnyHashable: Any]) {
+        guard let url = NativePushURLPolicy.routeURL(from: payload) else { return }
+        let source: NativePatchScanSource = url.scheme?.lowercased() == "bytspot" ? .deepLink : .universalLink
+        NativeIncomingURLCenter.publish(url, scanSource: source)
+    }
 }
 
 // MARK: - BytspotTier (App-target mirror)

@@ -10929,7 +10929,7 @@ private struct NativeVenueDetailView: View {
     private var categoryEmoji: String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "mobility": "🚘", "service": "🛎️", "boutique_apartment": "🏡"][venue.discoverType] ?? "📍" }
     private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
     private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
-    private func presentShare(text: String) { guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first, let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }; root.present(UIActivityViewController(activityItems: [text], applicationActivities: nil), animated: true) }
+    private func presentShare(text: String) { _ = NativePartySharePresentation.share([text]) }
 }
 
 private struct NativeEventRideBookingSheet: View {

@@ -6,6 +6,8 @@ import UIKit
 struct NativePartyControlSummary: Codable {
     let partyId: String; let title: String; let admissionPaused: Bool
     let capacity: Int; let confirmed: Int; let spacesRemaining: Int; let pending: Int; let checkedIn: Int
+    // Share-link expiry (older servers omit these; treat as unknown).
+    let shareLinkExpiresAt: String?; let shareLinkExpired: Bool?; let shareLinkExpiryIsDefault: Bool?
 }
 
 struct NativePartyControlGuest: Codable, Identifiable {
@@ -34,6 +36,21 @@ enum NativePartyDoorPassInput {
                   $0.value == 45 || $0.value == 95
               }) else { return nil }
         return value
+    }
+}
+
+extension ISO8601DateFormatter {
+    /// Serializer for `events.control.setShareLinkExpiry` input.
+    static let partyControlInstant = ISO8601DateFormatter()
+    /// Server timestamps arrive from `Date.toISOString()` with milliseconds.
+    static let partyControlFractionalInstant: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static func partyControlDate(from raw: String) -> Date? {
+        partyControlFractionalInstant.date(from: raw) ?? partyControlInstant.date(from: raw)
     }
 }
 
@@ -70,6 +87,7 @@ struct NativePartyControlAPI {
     func summary(_ partyID: String) async throws -> NativePartyControlSummary { try await query(NativePartyControlSummary.self, path: "/trpc/events.control.summary", input: ["partyId": partyID]) }
     func guests(_ partyID: String) async throws -> [NativePartyControlGuest] { try await query(NativePartyControlGuestList.self, path: "/trpc/events.control.guests", input: ["partyId": partyID, "status": "all"]).guests }
     func pause(_ partyID: String, paused: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setAdmissionPaused", method: "POST", input: ["partyId": partyID, "paused": paused]) }
+    func setShareLinkExpiry(_ partyID: String, expiresAt: String?) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setShareLinkExpiry", method: "POST", input: ["partyId": partyID, "expiresAt": expiresAt ?? NSNull()]) }
     func decide(_ partyID: String, guestID: String, approved: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.decide", method: "POST", input: ["partyId": partyID, "guestId": guestID, "decision": approved ? "approved" : "declined"]) }
     func checkIn(_ partyID: String, attendeeCredential: String) async throws -> NativePartyCheckInResult {
         let payload = try await client.trpcPayload(path: "/trpc/events.control.checkIn", method: "POST", input: ["partyId": partyID, "attendeeCredential": attendeeCredential])
@@ -110,7 +128,29 @@ struct NativePartyControlView: View {
     }
 
     private func overview(_ value: NativePartyControlSummary) -> some View {
-        VStack(alignment: .leading, spacing: 14) { Text(value.title).font(.system(size: 27, weight: .black, design: .rounded)); HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }; Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan) }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
+        VStack(alignment: .leading, spacing: 14) { Text(value.title).font(.system(size: 27, weight: .black, design: .rounded)); HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }; Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan); shareLinkStatus(value) }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+
+    @ViewBuilder private func shareLinkStatus(_ value: NativePartyControlSummary) -> some View {
+        if let expiresAt = value.shareLinkExpiresAt {
+            HStack(spacing: 8) {
+                Image(systemName: value.shareLinkExpired == true ? "link.badge.plus" : "link").font(.system(size: 11, weight: .bold)).foregroundColor(value.shareLinkExpired == true ? NativeTheme.orange : .white.opacity(0.55))
+                Text(shareLinkCaption(expiresAt: expiresAt, expired: value.shareLinkExpired == true, isDefault: value.shareLinkExpiryIsDefault ?? true)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+                Spacer()
+                Menu {
+                    Button("When the Party ends (default)") { Task { await setShareExpiry(nil) } }
+                    Button("1 day after now") { Task { await setShareExpiry(Date().addingTimeInterval(86_400)) } }
+                    Button("3 days after now") { Task { await setShareExpiry(Date().addingTimeInterval(3 * 86_400)) } }
+                    Button("7 days after now") { Task { await setShareExpiry(Date().addingTimeInterval(7 * 86_400)) } }
+                } label: { Text("LINK EXPIRY").font(.system(size: 9, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.cyan) }
+            }
+        }
+    }
+
+    private func shareLinkCaption(expiresAt: String, expired: Bool, isDefault: Bool) -> String {
+        let when = ISO8601DateFormatter.partyControlDate(from: expiresAt).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? expiresAt
+        if expired { return "Share link expired \(when). New guests can no longer join from the link." }
+        return isDefault ? "Share link dies when the Party ends (\(when))." : "Share link expires \(when)."
     }
     private func metric(_ label: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(value).font(.system(size: 20, weight: .black)); Text(label.uppercased()).font(.system(size: 8.5, weight: .black)).foregroundColor(.white.opacity(0.52)) }.frame(maxWidth: .infinity, alignment: .leading) }
     private var doorMode: some View { VStack(alignment: .leading, spacing: 10) { Text("DOOR MODE").partyControlLabel(); Text("Scan a personal attendee QR. A checked-in pass cannot be used again.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55)); HStack { TextField("Paste attendee QR pass", text: $passText).textInputAutocapitalization(.never).autocorrectionDisabled(); Button(action: { scanning = true }) { Image(systemName: "qrcode.viewfinder") }.accessibilityLabel("Scan attendee QR pass") }.padding(12).partyControlSurface(); Button(isCheckingIn ? "Checking in…" : "Check in attendee") { Task { await checkIn(passText) } }.disabled(isCheckingIn).controlButton(color: NativeTheme.emerald) }.padding(14).partyControlSurface() }
@@ -118,6 +158,7 @@ struct NativePartyControlView: View {
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
     @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." } }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }
+    @MainActor private func setShareExpiry(_ date: Date?) async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).setShareLinkExpiry(partyID, expiresAt: date.map { ISO8601DateFormatter.partyControlInstant.string(from: $0) }); await reload() } catch { message = "Share link expiry could not change." } }
     @MainActor private func decide(_ guest: NativePartyControlGuest, _ approved: Bool) async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).decide(partyID, guestID: guest.id, approved: approved); await reload() } catch { message = "Guest status could not change." } }
     @MainActor private func checkIn(_ value: String) async {
         guard !isCheckingIn, let token = sessionStore.token else { return }

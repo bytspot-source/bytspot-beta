@@ -2014,6 +2014,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(presentation.message, "")
     }
 
+    @MainActor
     func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
         let presenter = UIViewController()
         presenter.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
@@ -2027,6 +2028,44 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(popover.sourceView === presenter.view)
         XCTAssertEqual(popover.sourceRect, presenter.view.bounds)
         XCTAssertEqual(popover.permittedArrowDirections, [])
+    }
+
+    @MainActor
+    func testPartyShareTopPresenterWalksToDeepestPresentedController() {
+        // The share sheet must present from the topmost presented controller;
+        // presenting from the window root fails silently when Host Studio is
+        // already shown inside a sheet.
+        let root = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        let sheet = UIViewController()
+        root.present(sheet, animated: false)
+
+        let presenter = NativePartySharePresentation.topPresenter()
+        XCTAssertTrue(presenter === sheet)
+        window.isHidden = true
+    }
+
+    func testPartyControlSummaryDecodesWithAndWithoutShareLinkExpiry() throws {
+        let legacy = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":41,"spacesRemaining":39,"pending":6,"checkedIn":12}
+        """.utf8))
+        XCTAssertNil(legacy.shareLinkExpiresAt)
+        XCTAssertNil(legacy.shareLinkExpired)
+
+        let current = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":41,"spacesRemaining":39,"pending":6,"checkedIn":12,"shareLinkExpiresAt":"2026-08-16T04:00:00.000Z","shareLinkExpired":false,"shareLinkExpiryIsDefault":true}
+        """.utf8))
+        XCTAssertEqual(current.shareLinkExpiresAt, "2026-08-16T04:00:00.000Z")
+        XCTAssertEqual(current.shareLinkExpired, false)
+        XCTAssertEqual(current.shareLinkExpiryIsDefault, true)
+    }
+
+    func testPartyControlInstantParsingAcceptsServerMillisecondTimestamps() {
+        XCTAssertNotNil(ISO8601DateFormatter.partyControlDate(from: "2026-08-16T04:00:00.000Z"))
+        XCTAssertNotNil(ISO8601DateFormatter.partyControlDate(from: "2026-08-16T04:00:00Z"))
+        XCTAssertNil(ISO8601DateFormatter.partyControlDate(from: "not-a-date"))
     }
 
     func testAuthenticatedFixtureContractIsNonSecretAndSafeForSmoke() {

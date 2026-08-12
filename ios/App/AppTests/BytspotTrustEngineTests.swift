@@ -2014,6 +2014,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(presentation.message, "")
     }
 
+    @MainActor
     func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
         let presenter = UIViewController()
         presenter.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
@@ -2029,6 +2030,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(popover.permittedArrowDirections, [])
     }
 
+    @MainActor
     func testPartyShareTopPresenterWalksToDeepestPresentedController() {
         // The share sheet must present from the topmost presented controller;
         // presenting from the window root fails silently when Host Studio is

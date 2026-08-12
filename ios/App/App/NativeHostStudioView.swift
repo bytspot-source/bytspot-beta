@@ -19,6 +19,7 @@ struct NativePartyPassPresentation {
     }
 }
 
+@MainActor
 enum NativePartySharePresentation {
     static func activityController(for items: [Any], presenter: UIViewController) -> UIActivityViewController {
         let activityController = UIActivityViewController(activityItems: items, applicationActivities: nil)

@@ -43,6 +43,8 @@
     <string>$(GOOGLE_CLIENT_ID)</string>
     <key>BytspotApplePayMerchantID</key>
     <string>merchant.com.bytspot.app</string>
+    <key>BytspotContactHashSalt</key>
+    <string>$(BYTSPOT_CONTACT_HASH_SALT)</string>
     <key>BytspotStripePublishableKey</key>
     <string>$(STRIPE_PUBLISHABLE_KEY)</string>
     <key>LSRequiresIPhoneOS</key>

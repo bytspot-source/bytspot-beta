@@ -186,6 +186,7 @@ jobs:
           APP_CLIP_PROVISIONING_PROFILE_UUID: ${{ env.APP_CLIP_PROVISIONING_PROFILE_UUID }}
           STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID || vars.VITE_GOOGLE_CLIENT_ID || secrets.VITE_GOOGLE_CLIENT_ID }}
+          CONTACT_HASH_SALT: ${{ secrets.CONTACT_HASH_SALT || secrets.BYTSPOT_CONTACT_HASH_SALT }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bundle exec fastlane beta

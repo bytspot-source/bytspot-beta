@@ -412,7 +412,17 @@ struct BytspotNativeShellView: View {
         .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
-            if suppressInitialTabRequestAfterLaunch { navigation.requestedDestination = nil; return }
+            // Launch suppression exists to swallow stale *tab* restoration, not
+            // explicit link intents. A Party or patch universal link arriving
+            // during the launch/post-auth hold window (cold start from a share
+            // link, or the Stripe Checkout success return) must still present.
+            if suppressInitialTabRequestAfterLaunch {
+                guard Self.destinationBypassesLaunchSuppression(destination) else {
+                    navigation.requestedDestination = nil
+                    return
+                }
+                cancelPostAuthHomeHold()
+            }
             if case .patch(let route) = destination {
                 activeTier = route.tier
                 pairingStore.markPaired(route: route)
@@ -631,6 +641,16 @@ struct BytspotNativeShellView: View {
     private func cancelPostAuthHomeHold() {
         postAuthHomeHoldGeneration += 1
         suppressInitialTabRequestAfterLaunch = false
+    }
+
+    /// Destinations that originate from an explicit external URL (share link,
+    /// QR scan, Stripe Checkout return) are user intent and must never be
+    /// dropped by the launch/post-auth suppression window.
+    static func destinationBypassesLaunchSuppression(_ destination: NativeContextualDestination) -> Bool {
+        switch destination {
+        case .party, .patch: return true
+        case .profile, .accessWallet, .booking, .legal: return false
+        }
     }
 
     private func openNativeProfile(panel: NativeProfilePanel?) {

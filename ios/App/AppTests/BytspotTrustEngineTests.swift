@@ -105,6 +105,22 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeAuthLaunchContract.bypassesLaunchFlow(for: nil))
     }
 
+    func testExternalLinkDestinationsBypassLaunchSuppression() throws {
+        // Party share links and Stripe Checkout returns arrive as `.party`
+        // destinations during the cold-start / post-auth hold window; they are
+        // explicit user intent and must not be swallowed like stale tab requests.
+        let partyURL = try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1?checkout=success"))
+        let partyRoute = try XCTUnwrap(NativePartyPassRoute(url: partyURL))
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.party(partyRoute)))
+
+        let patchURL = try XCTUnwrap(URL(string: "https://bytspot.app/p/BYT424-0301"))
+        let patchRoute = try XCTUnwrap(BytspotPatchRoute(url: patchURL))
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.patch(patchRoute)))
+
+        XCTAssertFalse(BytspotNativeShellView.destinationBypassesLaunchSuppression(.profile))
+        XCTAssertFalse(BytspotNativeShellView.destinationBypassesLaunchSuppression(.accessWallet))
+    }
+
     private func evidence(
         discovery: Bool = true,
         meters: CLLocationDistance? = nil,

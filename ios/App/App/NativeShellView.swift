@@ -910,7 +910,7 @@ private struct NativePartyPassPreview: View {
             if let tagline = party.tagline { Text(tagline).nativeBody(size: 14) }
             NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
-            NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
+            NativeWalletLine(title: party.locationDisclosure == "after-approval" ? "Location after approval" : party.isLocationWithheld ? "Location withheld" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
             Button(action: { Task { await planArrival(for: party) } }) {
                 Label(isOpeningArrival ? "Opening Apple Maps…" : "Plan arrival in Apple Maps", systemImage: "map.fill")
@@ -3104,12 +3104,14 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     case people = "People"
     case circles = "Social Circles"
     case invitations = "Invitations"
+    case peopleMet = "People You Met"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .people: return "person.2.fill"
         case .circles: return "person.3.fill"
         case .invitations: return "envelope.fill"
+        case .peopleMet: return "person.2.wave.2.fill"
         }
     }
 }
@@ -3159,6 +3161,10 @@ private struct NativeNetworkHubView: View {
     @State private var statusMessage = ""
     @State private var isWorking = false
     @State private var showHostStudio = false
+    @State private var peopleMetPartyCode = ""
+    @State private var peopleMetPartyID: String?
+    @State private var peopleMetOptedIn = false
+    @State private var peopleMetPeople: [NativePeopleMetPerson] = []
     let requestAuthentication: () -> Void
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
@@ -3182,6 +3188,7 @@ private struct NativeNetworkHubView: View {
                         case .people: peopleContent
                         case .circles: circlesContent
                         case .invitations: invitationsContent
+                        case .peopleMet: peopleMetContent
                         }
                     }
                 }
@@ -3222,7 +3229,7 @@ private struct NativeNetworkHubView: View {
         HStack(spacing: 5) {
             ForEach(NativeNetworkSegment.allCases) { item in
                 Button(action: { nativeImpactLight(); segment = item }) {
-                    HStack(spacing: 5) { Image(systemName: item.icon); Text(item.rawValue) }.font(.system(size: 12, weight: .black)).foregroundColor(segment == item ? .black : NativeProfileStyle.body).frame(maxWidth: .infinity).frame(height: 38).background(segment == item ? NativeTheme.cyan : NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    HStack(spacing: 5) { Image(systemName: item.icon); Text(item.rawValue).lineLimit(1).minimumScaleFactor(0.62) }.font(.system(size: 12, weight: .black)).foregroundColor(segment == item ? .black : NativeProfileStyle.body).frame(maxWidth: .infinity).frame(height: 38).background(segment == item ? NativeTheme.cyan : NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }.buttonStyle(.plain).accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
             }
         }
@@ -3317,6 +3324,54 @@ private struct NativeNetworkHubView: View {
         }
     }
 
+    private var peopleMetContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Consent-first. You choose per party whether to appear here. Only mutual opt-ins are shown, and only after the event ends. Opting out removes you immediately.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+            if !sessionStore.isAuthenticated {
+                networkAuthenticationPrompt
+            } else {
+                HStack(spacing: 8) {
+                    TextField("Party link or party ID", text: $peopleMetPartyCode).textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled().padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    Button("Load") { Task { await loadPeopleMetParty() } }.font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 42).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).disabled(NativePeopleMetPerson.normalizedPartyID(peopleMetPartyCode) == nil || isWorking)
+                }
+                if peopleMetPartyID == nil {
+                    NativeProfileEmptyState(title: "No party selected", subtitle: "Paste the party link (or party ID) from a Party Pass you attended to manage opt-in for that party.", icon: "ticket.fill")
+                } else {
+                    peopleMetOptInRow
+                    if !peopleMetOptedIn {
+                        NativeProfileEmptyState(title: "You're not opted in", subtitle: "Turn on opt-in to appear to people who also opt in after the event ends.", icon: "hand.raised.fill")
+                    } else if peopleMetPeople.isEmpty {
+                        NativeProfileEmptyState(title: "No people found yet", subtitle: "Mutual opt-ins appear here after the event ends.", icon: "person.2.slash.fill")
+                    } else {
+                        ForEach(peopleMetPeople) { person in peopleMetRow(person) }
+                    }
+                }
+            }
+            statusView
+        }
+    }
+
+    private var peopleMetOptInRow: some View {
+        Toggle(isOn: Binding(get: { peopleMetOptedIn }, set: { newValue in Task { await setPeopleMetOptIn(newValue) } })) {
+            VStack(alignment: .leading, spacing: 3) { Text("Show me to people I met").nativeTitle(15); Text("Off by default. Applies only to this party.").nativeBody(size: 11.5) }
+        }
+        .toggleStyle(SwitchToggleStyle(tint: NativeTheme.emerald))
+        .disabled(isWorking)
+        .padding(13).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier("native-network-people-met-opt-in")
+    }
+
+    private func peopleMetRow(_ person: NativePeopleMetPerson) -> some View {
+        HStack(spacing: 12) {
+            NativeIcon(symbol: "person.crop.circle", color: NativeTheme.purple)
+            VStack(alignment: .leading, spacing: 3) { Text(person.name).nativeTitle(15); Text(person.inviteStatusLabel).nativeBody(size: 11.5) }
+            Spacer()
+            if person.canSendInvite {
+                Button(action: { Task { await sendPeopleMetInvitation(to: person) } }) { Label("Send invite", systemImage: "paperplane.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 12).frame(height: 38).background(NativeTheme.cyan.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)) }.buttonStyle(.plain).disabled(isWorking)
+            }
+        }.padding(12).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).accessibilityIdentifier("native-network-people-met-\(person.userId)")
+    }
+
     private var networkAuthenticationPrompt: some View {
         VStack(alignment: .leading, spacing: 11) {
             NativeProfileEmptyState(title: "Sign in to use Network", subtitle: "People, circles, and invitations stay private to your account.", icon: "person.crop.circle.badge.exclamationmark")
@@ -3367,7 +3422,7 @@ private struct NativeNetworkHubView: View {
     }
 
     private func refreshNetwork() async {
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; return }
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
@@ -3403,6 +3458,35 @@ private struct NativeNetworkHubView: View {
     private func respond(to invitation: NativeSocialInvitation, response: String) async {
         isWorking = true; defer { isWorking = false }
         do { try await api.respondToSocialInvitationViaRpc(id: invitation.id, response: response); invitations = try await api.listSocialInvitationsViaRpc(); statusMessage = response == "accepted" ? "Invitation accepted." : "Invitation declined." } catch { statusMessage = "The invitation response couldn't be saved." }
+    }
+
+    private func loadPeopleMetParty() async {
+        guard let partyID = NativePeopleMetPerson.normalizedPartyID(peopleMetPartyCode) else { statusMessage = "Enter a party code first."; return }
+        isWorking = true; defer { isWorking = false }
+        peopleMetPartyID = partyID
+        peopleMetOptedIn = (try? await api.peopleMetStatusViaRpc(partyID: partyID)) ?? false
+        peopleMetPeople = peopleMetOptedIn ? ((try? await api.peopleMetListViaRpc(partyID: partyID)) ?? []) : []
+        statusMessage = ""
+    }
+
+    private func setPeopleMetOptIn(_ optIn: Bool) async {
+        guard let partyID = peopleMetPartyID else { return }
+        isWorking = true; defer { isWorking = false }
+        do {
+            if optIn { try await api.peopleMetOptInViaRpc(partyID: partyID) } else { try await api.peopleMetOptOutViaRpc(partyID: partyID) }
+            peopleMetOptedIn = optIn
+            if optIn { peopleMetPeople = (try? await api.peopleMetListViaRpc(partyID: partyID)) ?? []; statusMessage = "Opted in for this party." }
+            else { peopleMetPeople = []; statusMessage = "You've been removed from this party's People You Met." }
+        } catch { statusMessage = "The opt-in change couldn't be saved. Try again." }
+    }
+
+    private func sendPeopleMetInvitation(to person: NativePeopleMetPerson) async {
+        isWorking = true; defer { isWorking = false }
+        do {
+            if let invitation = try await api.sendSocialInvitationViaRpc(userID: person.userId, circleID: nil) { invitations.removeAll { $0.id == invitation.id }; invitations.insert(invitation, at: 0) }
+            if let index = peopleMetPeople.firstIndex(where: { $0.userId == person.userId }) { peopleMetPeople[index].inviteStatus = "pending" }
+            statusMessage = "Invitation sent to \(person.name)."
+        } catch { statusMessage = "The invitation couldn't be sent. Try again." }
     }
 }
 
@@ -17076,7 +17160,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, and Invitations.")
+        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, Invitations, and People You Met.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: Profile must not reintroduce a redundant Friends panel.")
         precondition(NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("venue and access details"), "NativeAccountParitySelfTests: Saved Places details-only copy drifted.")
@@ -17097,7 +17181,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations", "Active Job Tracking"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")
-        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations"], "NativeAccountParitySelfTests: Network segment copy drifted.")
+        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network segment copy drifted.")
 
         precondition(NativeMigrationConfig.previewSessionEnvironmentKey == "BYT_NATIVE_PREVIEW_SESSION", "NativeAccountParitySelfTests: preview session env key drifted.")
         precondition(NativeMigrationConfig.previewTokenEnvironmentKey == "BYT_NATIVE_PREVIEW_TOKEN", "NativeAccountParitySelfTests: preview token env key drifted.")

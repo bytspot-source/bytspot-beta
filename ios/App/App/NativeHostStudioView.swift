@@ -56,7 +56,12 @@ struct NativeHostStudioView: View {
     @State private var fanMeetupFormat: NativeFanMeetupFormat = .meetAndGreet
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
-    @State private var popUpLocationDisclosure: NativePopUpLocationDisclosure = .public
+    @State private var locationDisclosure: NativePartyLocationDisclosure = .public
+    @State private var musicURL = ""
+    @State private var merchURL = ""
+    @State private var websiteURL = ""
+    @State private var primarySocialPlatform: NativePartySocialPlatform = .instagram
+    @State private var primarySocialURL = ""
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishPresentation = NativePartyPassPresentation()
@@ -82,6 +87,11 @@ struct NativeHostStudioView: View {
     }
 
     private var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? template.name : title }
+
+    /// Wizard accent follows the selected party tier from step 1 through publish.
+    /// Reuses the shared checkout/pass palette in BytspotTheme so hosts see the
+    /// same tier tokens guests will see on the Party Pass.
+    private var tierAccent: Color { BytspotTheme.accent(for: requiredTier) }
 
     var body: some View {
         ZStack {
@@ -122,7 +132,7 @@ struct NativeHostStudioView: View {
                 Text("The backstage").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.52))
             }
             Spacer()
-            Text(membershipTier.displayName.uppercased()).font(.system(size: 9, weight: .black)).foregroundColor(BytspotTheme.accent(for: membershipTier)).padding(.horizontal, 9).frame(height: 28).background(BytspotTheme.accent(for: membershipTier).opacity(0.13)).clipShape(Capsule())
+            Text("\(requiredTier.displayName.uppercased()) TIER").font(.system(size: 9, weight: .black)).foregroundColor(tierAccent).padding(.horizontal, 9).frame(height: 28).background(tierAccent.opacity(0.13)).clipShape(Capsule()).accessibilityLabel("Party tier \(requiredTier.displayName)")
         }
         .padding(.horizontal, 18).frame(height: 58).background(Color.black.opacity(0.72))
     }
@@ -144,7 +154,7 @@ struct NativeHostStudioView: View {
         HStack(spacing: 7) {
             ForEach(Array(Step.allCases.enumerated()), id: \.offset) { index, item in
                 VStack(spacing: 5) {
-                    Capsule().fill(index <= step.rawValue ? NativeTheme.pink : Color.white.opacity(0.12)).frame(height: 4)
+                    Capsule().fill(index <= step.rawValue ? tierAccent : Color.white.opacity(0.12)).frame(height: 4)
                     Text(["Spark", "Build", "Door", "Invite"][index]).font(.system(size: 9.5, weight: .bold)).foregroundColor(item == step ? .white : .white.opacity(0.38))
                 }
             }
@@ -201,9 +211,44 @@ struct NativeHostStudioView: View {
                     Button(action: { nativeImpactLight(); selectTemplate(item.id) }) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.emoji).font(.system(size: 27)); Text(item.name).font(.system(size: 14, weight: .black)); Text(item.hook).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)).lineLimit(2)
-                        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(templateID == item.id ? NativeTheme.pink.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(templateID == item.id ? NativeTheme.pink : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
+                        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(templateID == item.id ? tierAccent.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(templateID == item.id ? tierAccent : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
                     }.buttonStyle(.plain).accessibilityLabel(item.name)
                 }
+            }
+            VStack(alignment: .leading, spacing: 9) {
+                Text("PARTY TIER").studioLabel()
+                HStack(spacing: 7) {
+                    ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in tierOptionCard(tier) }
+                }
+                Text("The studio re-skins to the selected tier instantly. The same palette follows this Party to its pass and checkout.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            }.padding(14).studioSurface()
+        }
+    }
+
+    private func tierOptionCard(_ tier: BytspotTier) -> some View {
+        let accent = BytspotTheme.accent(for: tier)
+        let selected = requiredTier == tier
+        return Button(action: { nativeImpactLight(); requiredTier = tier }) {
+            Text(tier.displayName)
+                .font(.system(size: 11, weight: .black))
+                .foregroundColor(selected ? (tier == .black ? accent : .black) : accent)
+                .frame(maxWidth: .infinity).frame(height: 38)
+                .background(tierOptionBackground(tier, selected: selected))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? accent : accent.opacity(0.30)))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(.plain).accessibilityLabel("\(tier.displayName) tier")
+    }
+
+    /// Tier-shaped option surfaces: Green = emerald fill, Platinum = silver/light
+    /// gradient over the cyan token, Black = OLED deep black with the amber accent.
+    @ViewBuilder private func tierOptionBackground(_ tier: BytspotTier, selected: Bool) -> some View {
+        if !selected {
+            BytspotTheme.accent(for: tier).opacity(0.10)
+        } else {
+            switch tier {
+            case .green: BytspotTheme.accent(for: .green)
+            case .platinum: LinearGradient(colors: [Color.white, BytspotTheme.accent(for: .platinum).opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            case .black: NativeTheme.slate950
             }
         }
     }
@@ -217,6 +262,8 @@ struct NativeHostStudioView: View {
             partyMediaEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
+            locationDisclosureEditor
+            officialDestinationsEditor
             VStack(alignment: .leading, spacing: 7) {
                 Text("RUN OF SHOW").studioLabel()
                 ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
@@ -239,12 +286,9 @@ struct NativeHostStudioView: View {
             }.padding(14).studioSurface()
         case .popUp:
             VStack(alignment: .leading, spacing: 7) {
-                templatePicker("LOCATION RELEASE", selection: $popUpLocationDisclosure, options: NativePopUpLocationDisclosure.allCases)
-                Text(popUpLocationDisclosure == .afterApproval ? "The public Party Pass will hide the venue. Guest-specific reveal requires a later authorized pass action." : "The venue is visible on the public Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+                Text("POP-UP LOCATION").studioLabel()
+                Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
             }.padding(14).studioSurface()
-            .onChange(of: popUpLocationDisclosure) { disclosure in
-                if disclosure == .afterApproval { accessMode = .privateApproval }
-            }
         case .privateParty:
             VStack(alignment: .leading, spacing: 7) {
                 templatePicker("GUEST LIST", selection: $privateGuestPolicy, options: NativePrivatePartyGuestPolicy.allCases)
@@ -253,6 +297,32 @@ struct NativeHostStudioView: View {
         case .comedyNight, .premiere:
             EmptyView()
         }
+    }
+
+    private var locationDisclosureEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            templatePicker("LOCATION ON PARTY PASS", selection: $locationDisclosure, options: NativePartyLocationDisclosure.allCases)
+            Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+        }
+        .padding(14).studioSurface()
+        .onChange(of: locationDisclosure) { disclosure in
+            if disclosure == .afterApproval { accessMode = .privateApproval }
+        }
+    }
+
+    private var officialDestinationsEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("OFFICIAL HOST DESTINATIONS").studioLabel()
+            Text("Only these verified HTTPS links appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL)
+            field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL)
+            field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL)
+            VStack(alignment: .leading, spacing: 7) {
+                Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
+                Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
+                field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
+            }
+        }.padding(14).studioSurface()
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
@@ -274,6 +344,7 @@ struct NativeHostStudioView: View {
         case "creator-conversation": return "Conversation"
         case "community-photo": return "Photo moment"
         case "after-approval": return "After approval"
+        case "withheld": return "Withheld"
         case "named-guests": return "Named guests"
         case "named-guests-plus-one": return "Named + one"
         case "ep": return "EP"
@@ -330,7 +401,7 @@ struct NativeHostStudioView: View {
             sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
             ForEach(templateConfiguration.allowedAccessModes) { mode in
                 Button(action: { accessMode = mode }) {
-                    HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(NativeTheme.pink); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode)
+                    HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(tierAccent); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode, accent: tierAccent)
                 }.buttonStyle(.plain)
             }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
@@ -338,9 +409,7 @@ struct NativeHostStudioView: View {
             VStack(alignment: .leading, spacing: 9) {
                 Text("MINIMUM MEMBERSHIP").studioLabel()
                 HStack(spacing: 7) {
-                    ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in
-                        Button(tier.displayName) { requiredTier = tier }.font(.system(size: 11, weight: .black)).foregroundColor(requiredTier == tier ? .black : .white.opacity(0.62)).frame(maxWidth: .infinity).frame(height: 38).background(requiredTier == tier ? BytspotTheme.accent(for: tier) : Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
+                    ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in tierOptionCard(tier) }
                 }
             }.padding(14).studioSurface()
         }
@@ -462,7 +531,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {
@@ -470,7 +539,7 @@ struct NativeHostStudioView: View {
         case .listeningParty: return .listeningParty(listeningFormat)
         case .fanMeetup: return .fanMeetup(fanMeetupFormat)
         case .releaseParty: return .releaseParty(releaseFormat, releaseTitle)
-        case .popUp: return .popUp(popUpLocationDisclosure)
+        case .popUp: return .popUp(NativePopUpLocationDisclosure(rawValue: locationDisclosure.rawValue) ?? .withheld)
         case .privateParty: return .privateParty(privateGuestPolicy)
         case .comedyNight, .premiere: return .standard
         }
@@ -549,7 +618,7 @@ struct NativeHostStudioView: View {
 
     private func sharePartyLink(_ url: URL) {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              let presenter = scene.windows.first(where: \ .isKeyWindow)?.rootViewController else {
+              let presenter = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
             publishPresentation.message = "Party link is ready to share."
             return
         }
@@ -557,11 +626,11 @@ struct NativeHostStudioView: View {
     }
 
     private func sectionHeading(_ eyebrow: String, _ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) { Text(eyebrow).font(.system(size: 10, weight: .black)).tracking(1.5).foregroundColor(NativeTheme.pink); Text(title).font(.system(size: 25, weight: .black, design: .rounded)); Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.48)) }
+        VStack(alignment: .leading, spacing: 4) { Text(eyebrow).font(.system(size: 10, weight: .black)).tracking(1.5).foregroundColor(tierAccent); Text(title).font(.system(size: 25, weight: .black, design: .rounded)); Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.48)) }
     }
 
     private func field(_ label: String, text: Binding<String>, icon: String, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
-        HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization(keyboard == .emailAddress ? .never : .sentences).autocorrectionDisabled(keyboard == .emailAddress).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
+        HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization([.emailAddress, .URL].contains(keyboard) ? .never : .sentences).autocorrectionDisabled([.emailAddress, .URL].contains(keyboard)).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
     }
 
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
@@ -644,6 +713,6 @@ private extension Text {
 }
 
 private extension View {
-    func studioSurface(selected: Bool = false) -> some View { background(selected ? NativeTheme.pink.opacity(0.13) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 17).stroke(selected ? NativeTheme.pink.opacity(0.72) : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 17)) }
+    func studioSurface(selected: Bool = false, accent: Color = NativeTheme.pink) -> some View { background(selected ? accent.opacity(0.13) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 17).stroke(selected ? accent.opacity(0.72) : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 17)) }
     func studioSecondaryButton() -> some View { font(.system(size: 13, weight: .black)).foregroundColor(.white).padding(.horizontal, 19).frame(height: 52).background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 17)) }
 }

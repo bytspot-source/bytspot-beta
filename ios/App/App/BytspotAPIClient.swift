@@ -267,6 +267,56 @@ struct NativeSocialInvitation: Equatable, Identifiable {
     }
 }
 
+/// One mutual opt-in from social.peopleMet.list. Fail-closed: rows without a
+/// usable userId are dropped, and opt-in status decodes to false unless the
+/// server explicitly says otherwise.
+struct NativePeopleMetPerson: Equatable, Identifiable {
+    var userId: String
+    var name: String
+    var inviteStatus: String?
+
+    var id: String { userId }
+
+    var canSendInvite: Bool { inviteStatus == nil }
+    var inviteStatusLabel: String {
+        switch inviteStatus {
+        case "pending": return "Invite sent"
+        case "accepted": return "Connected"
+        case "declined": return "Invite declined"
+        default: return "Met at this party"
+        }
+    }
+
+    static func normalize(_ value: Any) -> NativePeopleMetPerson? {
+        guard let row = value as? [String: Any] else { return nil }
+        guard let userId = NativeSocialCircle.cleanValue(row["userId"] ?? row["id"]) else { return nil }
+        return NativePeopleMetPerson(userId: userId, name: NativeSocialCircle.cleanValue(row["name"] ?? row["displayName"]) ?? "Bytspot member", inviteStatus: NativeSocialCircle.cleanValue(row["inviteStatus"])?.lowercased())
+    }
+
+    static func normalizeList(_ response: Any) -> [NativePeopleMetPerson] {
+        NativeSocialCircle.rows(from: response, keys: ["people", "items"]).compactMap(normalize)
+    }
+
+    static func normalizeOptInStatus(_ response: Any) -> Bool {
+        guard let root = response as? [String: Any] else { return false }
+        return (root["optedIn"] as? Bool) ?? false
+    }
+
+    /// Accepts either a raw party ID or a pasted Party Pass share link
+    /// (https://bytspot.app/party/<id>) and resolves the party ID.
+    static func normalizedPartyID(_ rawValue: String) -> String? {
+        guard let cleaned = NativeSocialCircle.cleanValue(rawValue) else { return nil }
+        if let url = URL(string: cleaned), let host = url.host?.lowercased(),
+           host == "bytspot.app" || host == "www.bytspot.app" || host == "bytspot.com" || host == "www.bytspot.com" {
+            let parts = url.path.split(separator: "/").map(String.init)
+            guard parts.count >= 2, parts[0] == "party" else { return nil }
+            return NativeSocialCircle.cleanValue(parts[1])
+        }
+        guard !cleaned.contains("/"), !cleaned.contains(":") else { return nil }
+        return cleaned
+    }
+}
+
 enum NativePartyTemplateID: String, CaseIterable, Codable, Identifiable {
     case listeningParty = "listening-party"
     case comedyNight = "comedy-night"
@@ -299,8 +349,52 @@ struct NativePartyTemplate: Equatable, Identifiable {
 enum NativeListeningPartyFormat: String, CaseIterable, Codable, Identifiable { case listeningSession = "listening-session", djMixPremiere = "dj-mix-premiere", livePerformance = "live-performance", labelShowcase = "label-showcase"; var id: String { rawValue }; var title: String { self == .listeningSession ? "Listen" : self == .djMixPremiere ? "DJ mix" : self == .livePerformance ? "Live set" : "Label" } }
 enum NativeFanMeetupFormat: String, CaseIterable, Codable, Identifiable { case meetAndGreet = "meet-and-greet", creatorConversation = "creator-conversation", communityPhoto = "community-photo"; var id: String { rawValue }; var title: String { self == .meetAndGreet ? "Meet & greet" : self == .creatorConversation ? "Conversation" : "Photo moment" } }
 enum NativeReleaseFormat: String, CaseIterable, Codable, Identifiable { case single, ep, album, mix, video; var id: String { rawValue }; var title: String { rawValue.uppercased() == "EP" ? "EP" : rawValue.capitalized } }
-enum NativePopUpLocationDisclosure: String, CaseIterable, Codable, Identifiable { case `public`, afterApproval = "after-approval"; var id: String { rawValue }; var title: String { self == .public ? "Public" : "After approval" } }
+enum NativePartyLocationDisclosure: String, CaseIterable, Codable, Identifiable {
+    case `public`, afterApproval = "after-approval", withheld
+    var id: String { rawValue }
+    var title: String { self == .public ? "Public" : self == .afterApproval ? "After approval" : "Withheld" }
+    var recipientExplanation: String { self == .public ? "The Party Pass shows the venue." : self == .afterApproval ? "The Party Pass reveals the venue only after host approval." : "The Party Pass never shows the venue." }
+}
+enum NativePopUpLocationDisclosure: String, CaseIterable, Codable, Identifiable { case `public`, afterApproval = "after-approval", withheld; var id: String { rawValue }; var title: String { NativePartyLocationDisclosure(rawValue: rawValue)?.title ?? rawValue } }
 enum NativePrivatePartyGuestPolicy: String, CaseIterable, Codable, Identifiable { case namedGuests = "named-guests", namedGuestsPlusOne = "named-guests-plus-one"; var id: String { rawValue }; var title: String { self == .namedGuests ? "Named guests" : "Named + one" } }
+enum NativePartySocialPlatform: String, CaseIterable, Codable, Identifiable {
+    case instagram, tiktok, youtube, x, facebook, linkedin
+    var id: String { rawValue }
+    var title: String { rawValue == "x" ? "X" : rawValue.capitalized }
+}
+
+struct NativePartyHostDestinations: Equatable {
+    let musicURL: String
+    let merchURL: String
+    let websiteURL: String
+    let primarySocialPlatform: NativePartySocialPlatform
+    let primarySocialURL: String
+
+    static let empty = Self(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "")
+
+    var validationMessage: String? {
+        if primarySocialURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add one primary social link." }
+        for (label, rawURL) in [("Music", musicURL), ("Merch", merchURL), ("Website", websiteURL), (primarySocialPlatform.title, primarySocialURL)] {
+            if !rawURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Self.secureURL(rawURL) == nil { return "\(label) links must use HTTPS." }
+        }
+        return nil
+    }
+
+    var rpcInput: [String: Any] {
+        var input: [String: Any] = [:]
+        if let url = Self.secureURL(musicURL) { input["musicUrl"] = url }
+        if let url = Self.secureURL(merchURL) { input["merchUrl"] = url }
+        if let url = Self.secureURL(websiteURL) { input["websiteUrl"] = url }
+        if let url = Self.secureURL(primarySocialURL) { input["primarySocial"] = ["platform": primarySocialPlatform.title, "url": url] }
+        return input
+    }
+
+    private static func secureURL(_ raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, let components = URLComponents(string: value), components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
+        return components.url?.absoluteString
+    }
+}
 
 enum NativePartyTemplateConfiguration: Equatable {
     case standard
@@ -387,24 +481,46 @@ struct NativePartyDraftInput: Equatable {
     let tagline: String
     let startsAt: Date
     let venueName: String
+    let locationDisclosure: NativePartyLocationDisclosure
     let capacity: Int
     let accessMode: NativePartyAccessMode
     let requiredMembershipTier: BytspotTier
+    let hostDestinations: NativePartyHostDestinations
     let audienceCircleIDs: [String]
     let itinerary: [NativePartyItineraryItem]
     let ticketTiers: [NativePartyTicketTier]
     let cohosts: [NativePartyHostAssignment]
     let templateConfiguration: NativePartyTemplateConfiguration
 
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration) {
+        self.templateID = templateID
+        self.title = title
+        self.tagline = tagline
+        self.startsAt = startsAt
+        self.venueName = venueName
+        self.locationDisclosure = locationDisclosure
+        self.capacity = capacity
+        self.accessMode = accessMode
+        self.requiredMembershipTier = requiredMembershipTier
+        self.hostDestinations = hostDestinations
+        self.audienceCircleIDs = audienceCircleIDs
+        self.itinerary = itinerary
+        self.ticketTiers = ticketTiers
+        self.cohosts = cohosts
+        self.templateConfiguration = templateConfiguration
+    }
+
     var validationMessage: String? {
         if title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "Add a party title." }
         if venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add a venue." }
         if capacity < 2 { return "Capacity must be at least 2." }
+        if let message = hostDestinations.validationMessage { return message }
         if let configuredTemplate = templateConfiguration.templateID, configuredTemplate != templateID { return "Choose the matching Party format." }
         if templateConfiguration.templateID == nil && ![NativePartyTemplateID.comedyNight, .premiere].contains(templateID) { return "Choose the matching Party format." }
         if let message = templateConfiguration.validationMessage { return message }
         if case .privateParty = templateConfiguration, accessMode != .privateApproval { return "Private Parties require host approval." }
-        if case .popUp(.afterApproval) = templateConfiguration, accessMode != .privateApproval { return "Hidden Pop-Up locations require host approval." }
+        if case .popUp(.afterApproval) = templateConfiguration, (locationDisclosure != .afterApproval || accessMode != .privateApproval) { return "Hidden Pop-Up locations require host approval." }
+        if locationDisclosure == .afterApproval && accessMode != .privateApproval { return "Locations revealed after approval require host approval." }
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
@@ -415,8 +531,10 @@ struct NativePartyDraftInput: Equatable {
         [
             "templateId": templateID.rawValue, "title": title, "tagline": tagline,
             "startsAt": ISO8601DateFormatter().string(from: startsAt), "venueName": venueName,
+            "locationDisclosure": locationDisclosure.rawValue,
             "capacity": capacity, "accessMode": accessMode.rawValue,
             "requiredMembershipTier": requiredMembershipTier.rawValue,
+            "hostDestinations": hostDestinations.rpcInput,
             "audienceCircleIds": audienceCircleIDs,
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
             "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
@@ -571,12 +689,17 @@ struct NativePartyPassAPI {
               let id = clean(row["id"]),
               let title = clean(row["title"]),
               let scheduledDate = clean(row["scheduledDate"]),
-              let locationLabel = clean(row["locationLabel"]),
               let accessMode = clean(row["accessMode"]),
               let requiredTier = clean(row["tier"]) else { return nil }
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
-        let locationDisclosure = clean(row["locationDisclosure"])?.lowercased() == "public" ? "public" : "after-approval"
-        let safeLocationLabel = locationDisclosure == "public" ? locationLabel : "Location shared after approval"
+        let locationDisclosure = ["public", "after-approval", "withheld"].contains(clean(row["locationDisclosure"])?.lowercased() ?? "") ? clean(row["locationDisclosure"])!.lowercased() : "after-approval"
+        let safeLocationLabel: String
+        if locationDisclosure == "public" {
+            guard let locationLabel = clean(row["locationLabel"]) else { return nil }
+            safeLocationLabel = locationLabel
+        } else {
+            safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
+        }
         return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
     }
 
@@ -1029,6 +1152,10 @@ enum NativeLiveContentV2Contract {
     static let socialInvitesCreateRoute = "/trpc/social.invites.create"
     static let socialInvitesListRoute = "/trpc/social.invites.list"
     static let socialInvitesRespondRoute = "/trpc/social.invites.respond"
+    static let socialPeopleMetOptInRoute = "/trpc/social.peopleMet.optIn"
+    static let socialPeopleMetOptOutRoute = "/trpc/social.peopleMet.optOut"
+    static let socialPeopleMetStatusRoute = "/trpc/social.peopleMet.status"
+    static let socialPeopleMetListRoute = "/trpc/social.peopleMet.list"
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
@@ -1320,6 +1447,24 @@ struct NativeProfileDataAPI {
 
     func respondToSocialInvitationViaRpc(id: String, response: String) async throws {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesRespondRoute, method: "POST", input: ["inviteId": id, "response": response, "surface": "network"])
+    }
+
+    func peopleMetStatusViaRpc(partyID: String) async throws -> Bool {
+        let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialPeopleMetStatusRoute, input: ["partyId": partyID])
+        return NativePeopleMetPerson.normalizeOptInStatus(response)
+    }
+
+    func peopleMetOptInViaRpc(partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialPeopleMetOptInRoute, method: "POST", input: ["partyId": partyID])
+    }
+
+    func peopleMetOptOutViaRpc(partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialPeopleMetOptOutRoute, method: "POST", input: ["partyId": partyID])
+    }
+
+    func peopleMetListViaRpc(partyID: String) async throws -> [NativePeopleMetPerson] {
+        let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialPeopleMetListRoute, input: ["partyId": partyID])
+        return NativePeopleMetPerson.normalizeList(response)
     }
 
     func setDefaultPaymentMethod(id: String) async throws {

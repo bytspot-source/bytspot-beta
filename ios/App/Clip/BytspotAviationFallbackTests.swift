@@ -233,9 +233,15 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.accessMode == "free-rsvp" && invite?.locationLabel == "Sample Venue", "Party Loop: access/location mapping drifted.")
         precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
         precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
+        precondition(invite?.photoURLs.count == 1, "Party Loop: host-selected album media must reach the Party Pass.")
         var genericSocialDTO = dto
         genericSocialDTO["host"] = ["destinations": ["socialUrl": "https://social.example.com/unapproved", "social": ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]]]
         precondition(PartyPassInvite.fromPayload(genericSocialDTO)?.hostDestinations.contains(where: { $0.kind == .social }) == false, "Party Loop: generic social aliases must not reach recipients without a primary host selection.")
+        var rootDestinationDTO = dto
+        rootDestinationDTO["host"] = [:]
+        rootDestinationDTO["musicUrl"] = "https://music.example.com/unapproved"
+        rootDestinationDTO["primarySocial"] = ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]
+        precondition(PartyPassInvite.fromPayload(rootDestinationDTO)?.hostDestinations.isEmpty == true, "Party Loop: only canonical host.destinations fields may reach recipients.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
@@ -307,6 +313,11 @@ enum BytspotAviationFallbackTests {
         hiddenLocation["locationLabel"] = "Location shared after approval"
         hiddenLocation["locationDisclosure"] = "after-approval"
         precondition(PartyPassInvite.fromPayload(hiddenLocation)?.locationIsWithheld == true, "Party Loop: protected Party locations must remain redacted.")
+        var withheldLocation = dto
+        withheldLocation["locationDisclosure"] = "withheld"
+        withheldLocation["locationLabel"] = "Do not expose"
+        let withheldInvite = PartyPassInvite.fromPayload(withheldLocation)
+        precondition(withheldInvite?.locationIsWithheld == true && withheldInvite?.locationLabel == "Location withheld by host", "Party Loop: host-withheld locations must remain redacted.")
         precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
         var missingSource = dto

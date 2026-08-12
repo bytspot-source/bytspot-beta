@@ -267,6 +267,46 @@ struct NativeSocialInvitation: Equatable, Identifiable {
     }
 }
 
+/// One mutual opt-in from social.peopleMet.list. Fail-closed: rows without a
+/// usable userId are dropped, and opt-in status decodes to false unless the
+/// server explicitly says otherwise.
+struct NativePeopleMetPerson: Equatable, Identifiable {
+    var userId: String
+    var name: String
+    var inviteStatus: String?
+
+    var id: String { userId }
+
+    var canSendInvite: Bool { inviteStatus == nil }
+    var inviteStatusLabel: String {
+        switch inviteStatus {
+        case "pending": return "Invite sent"
+        case "accepted": return "Connected"
+        case "declined": return "Invite declined"
+        default: return "Met at this party"
+        }
+    }
+
+    static func normalize(_ value: Any) -> NativePeopleMetPerson? {
+        guard let row = value as? [String: Any] else { return nil }
+        guard let userId = NativeSocialCircle.cleanValue(row["userId"] ?? row["id"]) else { return nil }
+        return NativePeopleMetPerson(userId: userId, name: NativeSocialCircle.cleanValue(row["name"] ?? row["displayName"]) ?? "Bytspot member", inviteStatus: NativeSocialCircle.cleanValue(row["inviteStatus"])?.lowercased())
+    }
+
+    static func normalizeList(_ response: Any) -> [NativePeopleMetPerson] {
+        NativeSocialCircle.rows(from: response, keys: ["people", "items"]).compactMap(normalize)
+    }
+
+    static func normalizeOptInStatus(_ response: Any) -> Bool {
+        guard let root = response as? [String: Any] else { return false }
+        return (root["optedIn"] as? Bool) ?? false
+    }
+
+    static func normalizedPartyID(_ rawValue: String) -> String? {
+        NativeSocialCircle.cleanValue(rawValue)
+    }
+}
+
 enum NativePartyTemplateID: String, CaseIterable, Codable, Identifiable {
     case listeningParty = "listening-party"
     case comedyNight = "comedy-night"
@@ -1102,6 +1142,10 @@ enum NativeLiveContentV2Contract {
     static let socialInvitesCreateRoute = "/trpc/social.invites.create"
     static let socialInvitesListRoute = "/trpc/social.invites.list"
     static let socialInvitesRespondRoute = "/trpc/social.invites.respond"
+    static let socialPeopleMetOptInRoute = "/trpc/social.peopleMet.optIn"
+    static let socialPeopleMetOptOutRoute = "/trpc/social.peopleMet.optOut"
+    static let socialPeopleMetStatusRoute = "/trpc/social.peopleMet.status"
+    static let socialPeopleMetListRoute = "/trpc/social.peopleMet.list"
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
@@ -1383,6 +1427,24 @@ struct NativeProfileDataAPI {
 
     func respondToSocialInvitationViaRpc(id: String, response: String) async throws {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesRespondRoute, method: "POST", input: ["inviteId": id, "response": response, "surface": "network"])
+    }
+
+    func peopleMetStatusViaRpc(partyID: String) async throws -> Bool {
+        let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialPeopleMetStatusRoute, input: ["partyId": partyID])
+        return NativePeopleMetPerson.normalizeOptInStatus(response)
+    }
+
+    func peopleMetOptInViaRpc(partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialPeopleMetOptInRoute, method: "POST", input: ["partyId": partyID])
+    }
+
+    func peopleMetOptOutViaRpc(partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialPeopleMetOptOutRoute, method: "POST", input: ["partyId": partyID])
+    }
+
+    func peopleMetListViaRpc(partyID: String) async throws -> [NativePeopleMetPerson] {
+        let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialPeopleMetListRoute, input: ["partyId": partyID])
+        return NativePeopleMetPerson.normalizeList(response)
     }
 
     func setDefaultPaymentMethod(id: String) async throws {

@@ -20,14 +20,35 @@ struct NativePartyPassPresentation {
 }
 
 enum NativePartySharePresentation {
-    static func activityController(for url: URL, presenter: UIViewController) -> UIActivityViewController {
-        let activityController = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    static func activityController(for items: [Any], presenter: UIViewController) -> UIActivityViewController {
+        let activityController = UIActivityViewController(activityItems: items, applicationActivities: nil)
         if let popover = activityController.popoverPresentationController {
             popover.sourceView = presenter.view
             popover.sourceRect = presenter.view.bounds
             popover.permittedArrowDirections = []
         }
         return activityController
+    }
+
+    static func activityController(for url: URL, presenter: UIViewController) -> UIActivityViewController {
+        activityController(for: [url], presenter: presenter)
+    }
+
+    /// Host Studio lives inside presented sheets, so presenting the share
+    /// sheet from the window's root fails silently ("already presenting").
+    /// Walk to the topmost presented controller and present from there.
+    static func topPresenter() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return nil }
+        var top = root
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top
+    }
+
+    static func share(_ items: [Any]) -> Bool {
+        guard let presenter = topPresenter() else { return false }
+        presenter.present(activityController(for: items, presenter: presenter), animated: true)
+        return true
     }
 }
 
@@ -555,7 +576,13 @@ struct NativeHostStudioView: View {
                     Text(party.draft.title).font(.system(size: 25, weight: .black, design: .rounded))
                     Text("\(party.draft.startsAt.formatted(date: .abbreviated, time: .shortened)) · \(party.draft.venueName)").font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.52))
                     partyPassCode(party.passCode)
-                    HStack(spacing: 12) { NativePartyShareQR(value: party.shareURL.absoluteString).frame(width: 72, height: 72); VStack(alignment: .leading, spacing: 4) { Text("SHARE PARTY QR").font(.system(size: 9, weight: .black)).tracking(1.3).foregroundColor(NativeTheme.cyan); Text("Anyone can scan this to open the Party and RSVP, request approval, or buy a ticket.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)) } }
+                    HStack(spacing: 12) {
+                        Button(action: { sharePartyQR(party) }) { NativePartyShareQR(value: party.shareURL.absoluteString).frame(width: 72, height: 72) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Share Party QR code")
+                            .accessibilityHint("Opens the share sheet with the QR image and Party link.")
+                        VStack(alignment: .leading, spacing: 4) { Text("SHARE PARTY QR").font(.system(size: 9, weight: .black)).tracking(1.3).foregroundColor(NativeTheme.cyan); Text("Tap the code to share it. Anyone can scan it to open the Party and RSVP, request approval, or buy a ticket. The link stops working when the Party ends.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)) }
+                    }
                 }.padding(20).background(Color.white.opacity(0.07)).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))).clipShape(RoundedRectangle(cornerRadius: 25)).accessibilityIdentifier("native-party-pass")
                 arrivalDestinationControls(for: party)
                 Button(action: { sharePartyLink(party.shareURL) }) { Label("Share Party Link", systemImage: "square.and.arrow.up.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.white).background(NativeTheme.purple).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
@@ -617,12 +644,16 @@ struct NativeHostStudioView: View {
     }
 
     private func sharePartyLink(_ url: URL) {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              let presenter = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
+        if !NativePartySharePresentation.share([url]) {
             publishPresentation.message = "Party link is ready to share."
-            return
         }
-        presenter.present(NativePartySharePresentation.activityController(for: url, presenter: presenter), animated: true)
+    }
+
+    private func sharePartyQR(_ party: NativePublishedParty) {
+        let qrImage = NativePartyShareQR.image(party.shareURL.absoluteString)
+        if !NativePartySharePresentation.share([qrImage, party.shareURL]) {
+            publishPresentation.message = "Party link is ready to share."
+        }
     }
 
     private func sectionHeading(_ eyebrow: String, _ title: String, _ subtitle: String) -> some View {

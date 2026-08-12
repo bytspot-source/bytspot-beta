@@ -878,7 +878,7 @@ private struct NativePartyPassPreview: View {
             if let tagline = party.tagline { Text(tagline).nativeBody(size: 14) }
             NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
-            NativeWalletLine(title: party.isLocationWithheld ? "Location after approval" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
+            NativeWalletLine(title: party.locationDisclosure == "after-approval" ? "Location after approval" : party.isLocationWithheld ? "Location withheld" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
             Button(action: { Task { await planArrival(for: party) } }) {
                 Label(isOpeningArrival ? "Opening Apple Maps…" : "Plan arrival in Apple Maps", systemImage: "map.fill")

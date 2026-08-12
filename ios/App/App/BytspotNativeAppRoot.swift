@@ -1308,10 +1308,13 @@ private struct NativeLaunchPickRow: View {
         let token = response.token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let userID = response.user?.id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !token.isEmpty, !userID.isEmpty else {
+            NativeSignedInIdentity.clear()
             sessionStore.signOut()
             return false
         }
-        return sessionStore.updateSession(token: token, userID: userID)
+        guard sessionStore.updateSession(token: token, userID: userID) else { return false }
+        NativeSignedInIdentity.store(displayName: response.user?.name)
+        return true
     }
 }
 

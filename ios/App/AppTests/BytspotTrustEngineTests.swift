@@ -2133,6 +2133,73 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
     }
 
+    func testProviderSignInSurfacesExistingAccountConflict() {
+        let conflictByStatus = BytspotAPIClient.APIError.server(status: 409, body: "")
+        let conflictByMessage = BytspotAPIClient.APIError.server(
+            status: 400,
+            body: #"{"error":{"json":{"message":"An account already exists for this email. Sign in with its existing method first."}}}"#
+        )
+        let conflictByCode = BytspotAPIClient.APIError.server(
+            status: 400,
+            body: #"{"error":{"json":{"message":"Provider sign-in rejected","code":"CONFLICT"}}}"#
+        )
+        let verification = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"Apple sign-in could not be verified"}}}"#)
+        let unrelatedConflictWording = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"token conflict detected"}}}"#)
+
+        XCTAssertTrue(NativeAuthDataAPI.isAccountConflict(conflictByStatus))
+        XCTAssertTrue(NativeAuthDataAPI.isAccountConflict(conflictByMessage))
+        XCTAssertTrue(NativeAuthDataAPI.isAccountConflict(conflictByCode))
+        XCTAssertFalse(NativeAuthDataAPI.isAccountConflict(verification))
+        XCTAssertFalse(NativeAuthDataAPI.isAccountConflict(unrelatedConflictWording), "Generic 'conflict' wording on non-409 must not surface account-linking copy.")
+        XCTAssertFalse(NativeAuthDataAPI.isAccountConflict(URLError(.timedOut)))
+
+        XCTAssertEqual(
+            NativeAuthAdapterError.accountConflict(provider: .apple).status,
+            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Apple sign-in can't be linked automatically.")
+        )
+        XCTAssertEqual(
+            NativeAuthAdapterError.accountConflict(provider: .google).status,
+            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Google sign-in can't be linked automatically.")
+        )
+    }
+
+    func testSignedInIdentityStoresAndGreetsByFirstName() {
+        defer { NativeSignedInIdentity.clear() }
+
+        NativeSignedInIdentity.store(displayName: "  Avery Johnson  ")
+        XCTAssertEqual(NativeSignedInIdentity.displayName, "Avery Johnson")
+        XCTAssertTrue(NativeSignedInIdentity.consumePendingWelcome())
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome(), "Welcome must be one-shot per sign-in.")
+        XCTAssertEqual(NativeSignedInIdentity.firstName(from: "Avery Johnson"), "Avery")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: "Avery Johnson"), "Welcome, Avery")
+
+        NativeSignedInIdentity.store(displayName: nil)
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertTrue(NativeSignedInIdentity.consumePendingWelcome(), "Nameless providers still trigger the welcome moment.")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: nil), "Welcome to Bytspot")
+
+        NativeSignedInIdentity.store(displayName: "Sam")
+        NativeSignedInIdentity.clear()
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome(), "Sign-out must clear the pending welcome.")
+    }
+
+    @MainActor
+    func testSessionStoreSignOutAndGuestClearSignedInIdentity() {
+        let store = BytspotSessionStore(account: "native_identity_cleanup_\(UUID().uuidString)", service: "com.bytspot.identity-cleanup-tests")
+
+        NativeSignedInIdentity.store(displayName: "Avery")
+        store.signOut()
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome())
+
+        NativeSignedInIdentity.store(displayName: "Avery")
+        store.continueAsGuest()
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome())
+        store.signOut()
+    }
+
     func testGoogleNativeOAuthAudienceConfigurationIsResolved() throws {
         let serverClientID = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") as? String)
         XCTAssertFalse(serverClientID.isEmpty)
@@ -2212,7 +2279,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let account = "native_auth_persistence_\(UUID().uuidString)"
         let service = "com.bytspot.native-auth-persistence-tests"
         let store = BytspotSessionStore(account: account, service: service)
-        defer { store.signOut() }
+        defer { store.signOut(); NativeSignedInIdentity.clear() }
 
         let apple = NativeAuthCoordinator(appleAdapter: KeychainAppleAdapter(), googleAdapter: FailingGoogleAdapter())
         apple.handle(.signIn(.apple), sessionStore: store)

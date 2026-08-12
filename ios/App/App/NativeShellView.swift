@@ -344,7 +344,7 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
                             .environmentObject(directMapRouteStore)
                     case .concierge:
@@ -359,6 +359,7 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
                 BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -653,9 +654,10 @@ struct BytspotNativeShellView: View {
         if tab == .map && !hasExplicitMapHandoff {
             preparePlainMapOpen()
         }
-        withAnimation(.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)) {
-            selectedTab = tab
-        }
+        // Immediate state change: the tab bar highlight must respond on the
+        // same frame as the tap. The content crossfade is animated separately
+        // via the .animation modifier on the tab content container.
+        selectedTab = tab
     }
 
     static func requiresLocationForNearbyContent(_ tab: BytspotNativeTab) -> Bool {
@@ -678,7 +680,6 @@ struct BytspotNativeShellView: View {
 
     private func openDiscoverFilter(_ filter: String) {
         UserDefaults.standard.removeObject(forKey: NativeDiscoverView.filterDefaultsKey)
-        UserDefaults.standard.synchronize()
         pendingDiscoverFilter = filter
         selectNativeTab(.discover)
     }
@@ -741,9 +742,9 @@ private struct BytspotNativeBottomTabBar: View {
     private func select(_ tab: BytspotNativeTab) {
         nativeImpactLight()
         guard selectedTab != tab else { return }
-        withAnimation(.easeInOut(duration: 0.18)) {
-            selectedTab = tab
-        }
+        // Assign without an animation gate so the active pill moves on the
+        // tap frame; content transitions are owned by the shell container.
+        selectedTab = tab
     }
 }
 
@@ -3191,8 +3192,11 @@ private struct NativeNetworkHubView: View {
                         case .peopleMet: peopleMetContent
                         }
                     }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                    .id(segment)
                 }
                 .padding(.horizontal, 20).padding(.bottom, 30)
+                .animation(.spring(response: 0.32, dampingFraction: 0.82), value: segment)
             }
         }
         .background(NativePolish.screenBackground.ignoresSafeArea())
@@ -3226,13 +3230,67 @@ private struct NativeNetworkHubView: View {
     }
 
     private var segmentControl: some View {
-        HStack(spacing: 5) {
-            ForEach(NativeNetworkSegment.allCases) { item in
-                Button(action: { nativeImpactLight(); segment = item }) {
-                    HStack(spacing: 5) { Image(systemName: item.icon); Text(item.rawValue).lineLimit(1).minimumScaleFactor(0.62) }.font(.system(size: 12, weight: .black)).foregroundColor(segment == item ? .black : NativeProfileStyle.body).frame(maxWidth: .infinity).frame(height: 38).background(segment == item ? NativeTheme.cyan : NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }.buttonStyle(.plain).accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(NativeNetworkSegment.allCases) { item in
+                    Button(action: { nativeImpactLight(); withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { segment = item } }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: item.icon).font(.system(size: 12, weight: .bold))
+                            Text(item.rawValue).font(.system(size: 13, weight: .bold)).lineLimit(1).fixedSize()
+                        }
+                        .foregroundColor(segment == item ? .black : NativeProfileStyle.body)
+                        .padding(.horizontal, 16)
+                        .frame(height: 40)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(segment == item ? AnyShapeStyle(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.cyan.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(NativeProfileStyle.insetSurface))
+                        )
+                        .overlay(Capsule(style: .continuous).stroke(segment == item ? Color.white.opacity(0.25) : NativePolish.softBorder, lineWidth: 1))
+                        .shadow(color: segment == item ? NativeTheme.cyan.opacity(0.28) : .clear, radius: 8, x: 0, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(segment == item ? .isSelected : [])
+                    .accessibilityIdentifier("native-network-segment-\(item.rawValue.lowercased().replacingOccurrences(of: " ", with: "-"))")
+                }
             }
+            .padding(.vertical, 2)
         }
+    }
+
+    /// Initial-based avatar consistent with the pass/tier visual language:
+    /// a tinted gradient circle with the person's first initials in SF Pro.
+    private func networkAvatar(_ name: String, color: Color) -> some View {
+        Text(NativeNetworkHubView.avatarInitials(name))
+            .font(.system(size: 15, weight: .heavy, design: .rounded))
+            .foregroundColor(.white)
+            .frame(width: 44, height: 44)
+            .background(LinearGradient(colors: [color.opacity(0.85), color.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
+            .clipShape(Circle())
+            .shadow(color: color.opacity(0.22), radius: 8, x: 0, y: 4)
+    }
+
+    static func avatarInitials(_ name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }
+        let joined = parts.joined().uppercased()
+        return joined.isEmpty ? "•" : joined
+    }
+
+    private func networkSectionHeader(_ title: String, count: Int? = nil) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.system(size: 11, weight: .black)).tracking(1.4).foregroundColor(NativeProfileStyle.muted)
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 7)
+                    .frame(height: 18)
+                    .background(NativeTheme.cyan)
+                    .clipShape(Capsule())
+            }
+            Spacer()
+        }
+        .padding(.top, 8)
     }
 
     private var peopleContent: some View {
@@ -3257,13 +3315,28 @@ private struct NativeNetworkHubView: View {
     }
 
     private func personRow(_ person: NativeFriendSuggestion) -> some View {
-        Button(action: { nativeImpactLight(); selectedPersonID = person.userId; statusMessage = "Selected \(person.name)." }) {
+        Button(action: { nativeImpactLight(); withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { selectedPersonID = person.userId }; statusMessage = "Selected \(person.name)." }) {
             HStack(spacing: 12) {
-                NativeIcon(symbol: person.relationshipStatus == "connected" ? "person.2.circle.fill" : "person.crop.circle", color: NativeTheme.purple)
-                VStack(alignment: .leading, spacing: 3) { Text(person.name).nativeTitle(15); Text(person.reason).nativeBody(size: 11.5) }
-                Spacer()
-                Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle").foregroundColor(NativeTheme.cyan)
-            }.padding(12).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                networkAvatar(person.name, color: person.relationshipStatus == "connected" ? NativeTheme.emerald : NativeTheme.purple)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(person.name).nativeTitle(15)
+                    HStack(spacing: 6) {
+                        if person.relationshipStatus == "connected" {
+                            Image(systemName: "link").font(.system(size: 9, weight: .bold)).foregroundColor(NativeTheme.emerald)
+                        }
+                        Text(person.reason).nativeBody(size: 12).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(selectedPersonID == person.userId ? NativeTheme.cyan : NativeProfileStyle.muted.opacity(0.5))
+                    .scaleEffect(selectedPersonID == person.userId ? 1.06 : 1.0)
+            }
+            .padding(16)
+            .background(NativeProfileStyle.insetSurface)
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(selectedPersonID == person.userId ? NativeTheme.cyan.opacity(0.45) : NativePolish.softBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }.buttonStyle(.plain).accessibilityIdentifier("native-network-person-\(person.userId)")
     }
 
@@ -3293,22 +3366,33 @@ private struct NativeNetworkHubView: View {
                 }
             }
             if sessionStore.isAuthenticated, !circleSnapshot.groups.isEmpty {
-                Text("YOUR CIRCLES").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.emerald).tracking(1)
+                networkSectionHeader("YOUR CIRCLES", count: circleSnapshot.groups.count)
                 ForEach(circleSnapshot.groups) { circle in circleRow(circle) }
             } else if sessionStore.isAuthenticated {
-                Text("No synced circles yet").font(.system(size: 18, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                NativeProfileEmptyState(title: "No circles yet", subtitle: "Create a circle above to save the people you invite together.", icon: "person.3.sequence.fill")
             }
             statusView
         }
     }
 
     private func circleRow(_ circle: NativeSocialCircle) -> some View {
-        Button(action: { selectedCircleID = circle.id; segment = .people }) { HStack(spacing: 12) {
-            Image(systemName: "person.3.fill").font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.emerald).frame(width: 40, height: 40).background(NativeTheme.emerald.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) { Text(circle.name).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title); Text(circle.memberLabel).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
-            Spacer()
-            Image(systemName: "chevron.right").foregroundColor(NativeTheme.emerald)
-        }.padding(13).background(NativeProfileStyle.insetSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous)) }.buttonStyle(.plain)
+        Button(action: { nativeImpactLight(); selectedCircleID = circle.id; withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { segment = .people } }) { HStack(spacing: 12) {
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.85), NativeTheme.emerald.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.22), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: NativeTheme.emerald.opacity(0.22), radius: 8, x: 0, y: 4)
+            VStack(alignment: .leading, spacing: 4) { Text(circle.name).font(.system(size: 15, weight: .bold)).foregroundColor(NativeProfileStyle.title); Text(circle.memberLabel).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeProfileStyle.body) }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+        }
+        .padding(16)
+        .background(NativeProfileStyle.insetSurface)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
     }
 
     private var invitationsContent: some View {
@@ -3363,13 +3447,27 @@ private struct NativeNetworkHubView: View {
 
     private func peopleMetRow(_ person: NativePeopleMetPerson) -> some View {
         HStack(spacing: 12) {
-            NativeIcon(symbol: "person.crop.circle", color: NativeTheme.purple)
-            VStack(alignment: .leading, spacing: 3) { Text(person.name).nativeTitle(15); Text(person.inviteStatusLabel).nativeBody(size: 11.5) }
-            Spacer()
+            networkAvatar(person.name, color: NativeTheme.purple)
+            VStack(alignment: .leading, spacing: 4) { Text(person.name).nativeTitle(15); Text(person.inviteStatusLabel).nativeBody(size: 12).lineLimit(1) }
+            Spacer(minLength: 8)
             if person.canSendInvite {
-                Button(action: { Task { await sendPeopleMetInvitation(to: person) } }) { Label("Send invite", systemImage: "paperplane.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 12).frame(height: 38).background(NativeTheme.cyan.opacity(0.14)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)) }.buttonStyle(.plain).disabled(isWorking)
+                Button(action: { nativeImpactLight(); Task { await sendPeopleMetInvitation(to: person) } }) {
+                    Label("Invite", systemImage: "paperplane.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(NativeTheme.cyan)
+                        .clipShape(Capsule())
+                        .shadow(color: NativeTheme.cyan.opacity(0.25), radius: 6, x: 0, y: 3)
+                }.buttonStyle(.plain).disabled(isWorking)
             }
-        }.padding(12).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).accessibilityIdentifier("native-network-people-met-\(person.userId)")
+        }
+        .padding(16)
+        .background(NativeProfileStyle.insetSurface)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier("native-network-people-met-\(person.userId)")
     }
 
     private var networkAuthenticationPrompt: some View {
@@ -3384,17 +3482,46 @@ private struct NativeNetworkHubView: View {
     }
 
     private func invitationSection(title: String, items: [NativeSocialInvitation]) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            if !items.isEmpty { Text(title).font(.system(size: 10.5, weight: .black)).foregroundColor(NativeProfileStyle.muted).tracking(1) }
+        VStack(alignment: .leading, spacing: 8) {
+            if !items.isEmpty { networkSectionHeader(title, count: items.count) }
             ForEach(items) { invitation in invitationRow(invitation) }
         }
     }
 
     private func invitationRow(_ invitation: NativeSocialInvitation) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(invitation.personName).nativeTitle(15); Text([invitation.circleName, invitation.status.capitalized].compactMap { $0 }.joined(separator: " · ")).nativeBody(size: 11.5) }; Spacer(); Image(systemName: invitation.direction == "incoming" ? "tray.and.arrow.down.fill" : "paperplane.fill").foregroundColor(NativeTheme.cyan) }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                networkAvatar(invitation.personName, color: invitation.direction == "incoming" ? NativeTheme.cyan : NativeTheme.purple)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(invitation.personName).nativeTitle(15)
+                    HStack(spacing: 6) {
+                        invitationStatusBadge(invitation.status)
+                        if let circleName = invitation.circleName { Text(circleName).nativeBody(size: 12).lineLimit(1) }
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: invitation.direction == "incoming" ? "tray.and.arrow.down.fill" : "paperplane.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(NativeTheme.cyan)
+            }
             if invitation.direction == "incoming", invitation.status == "pending" { HStack(spacing: 8) { networkAction("Accept", icon: "checkmark", color: NativeTheme.emerald) { Task { await respond(to: invitation, response: "accepted") } }; networkAction("Decline", icon: "xmark", color: NativeTheme.orange) { Task { await respond(to: invitation, response: "declined") } } } }
-        }.padding(13).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        }
+        .padding(16)
+        .background(NativeProfileStyle.insetSurface)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func invitationStatusBadge(_ status: String) -> some View {
+        let color: Color = status == "accepted" ? NativeTheme.emerald : status == "declined" ? NativeTheme.orange : NativeTheme.cyan
+        return Text(status.uppercased())
+            .font(.system(size: 9, weight: .black))
+            .tracking(0.8)
+            .foregroundColor(color)
+            .padding(.horizontal, 8)
+            .frame(height: 18)
+            .background(color.opacity(0.14))
+            .clipShape(Capsule())
     }
 
     private func networkAction(_ title: String, icon: String, color: Color, requiresCircle: Bool = false, disabled: Bool = false, action: @escaping () -> Void) -> some View {
@@ -12076,6 +12203,9 @@ enum NativeMapSearchRoutePolicy {
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
+    /// Shell-owned Discover handoff: sets the pending filter AND switches the
+    /// tab in one place, so Map → Discover can never leave the tab state stale.
+    var openDiscoverFilter: (String) -> Void = { _ in }
     let openNativeAuth: () -> Void
     let openNativeProfile: (NativeProfilePanel?) -> Void
     let openNativeAccess: () -> Void
@@ -12921,12 +13051,18 @@ private struct NativeMapExploreView: View {
             showFunctionSheet = true
             mapStatusMessage = "No route-ready destination found. Try an exact place with a verified location."
         case .discoverFilter(let filter):
-            UserDefaults.standard.set(filter, forKey: NativeDiscoverView.filterDefaultsKey)
-            openNativeTab(.discover)
+            handOffToDiscover(filter: filter)
         case .rideHandoff:
-            UserDefaults.standard.set("mobility", forKey: NativeDiscoverView.filterDefaultsKey)
-            openNativeTab(.discover)
+            handOffToDiscover(filter: "mobility")
         }
+    }
+
+    /// Sequence the tab switch after the search sheet finishes dismissing —
+    /// mutating the shell tab during an active sheet dismissal can be dropped
+    /// by SwiftUI, which left the app stuck on Map with a stale filter.
+    private func handOffToDiscover(filter: String) {
+        showFunctionSheet = false
+        DispatchQueue.main.async { openDiscoverFilter(filter) }
     }
 
     private func focusMapSearchVenue(_ venue: NativeVenueSummary) {
@@ -13105,8 +13241,29 @@ private struct NativeMapExploreView: View {
         }
     }
 
+    /// Normalized (0...1) position of the device on the stylized map,
+    /// projected against the live MKCoordinateRegion. Nil until CoreLocation
+    /// resolves a real fix (accuracy >= 0) or when the user pans far away.
+    private var userLocationMapPoint: CGPoint? {
+        guard hasResolvedDeviceLocation,
+              let location = headingProvider.userLocation ?? locationStore.lastLocation else { return nil }
+        let dx = (location.coordinate.longitude - region.center.longitude) / max(region.span.longitudeDelta, 0.0001)
+        let dy = (region.center.latitude - location.coordinate.latitude) / max(region.span.latitudeDelta, 0.0001)
+        let x = 0.5 + dx
+        let y = 0.5 + dy
+        guard x >= 0.03, x <= 0.97, y >= 0.03, y <= 0.97 else { return nil }
+        return CGPoint(x: x, y: y)
+    }
+
     private func mapMarkers(in size: CGSize) -> some View {
         ZStack {
+            if let point = userLocationMapPoint {
+                NativeMapUserLocationDot(heading: recenterMode == .followWithHeading ? headingProvider.heading : nil)
+                    .position(zoomedMapPoint(x: point.x, y: point.y, in: size))
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("Your current location")
+                    .accessibilityIdentifier("native-map-user-location-dot")
+            }
             ForEach(visualMarkers) { marker in
                 Button(action: { selectMarker(marker) }) {
                     NativeMapVisualMarkerView(marker: marker, selected: selectedPin?.id == marker.pinID)
@@ -14879,6 +15036,47 @@ private struct NativeDarkMapBackdrop: View {
             .foregroundColor(NativePolish.mapLabelText)
             .rotationEffect(.degrees(angle))
             .position(x: size.width * x, y: size.height * y)
+    }
+}
+
+/// Standard iOS-style user location indicator: pulsing accuracy halo, white
+/// ring, saturated blue core — with an optional heading cone when the map is
+/// in compass-follow mode.
+private struct NativeMapUserLocationDot: View {
+    var heading: Double?
+    @State private var pulsing = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color(red: 0.04, green: 0.52, blue: 1.0).opacity(0.22))
+                .frame(width: 44, height: 44)
+                .scaleEffect(pulsing ? 1.25 : 0.85)
+                .opacity(pulsing ? 0.35 : 0.75)
+                .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: pulsing)
+            if let heading {
+                NativeUserHeadingCone()
+                    .fill(LinearGradient(colors: [Color(red: 0.04, green: 0.52, blue: 1.0).opacity(0.5), .clear], startPoint: .bottom, endPoint: .top))
+                    .frame(width: 30, height: 26)
+                    .offset(y: -16)
+                    .rotationEffect(.degrees(heading))
+            }
+            Circle().fill(.white).frame(width: 18, height: 18)
+                .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
+            Circle().fill(Color(red: 0.04, green: 0.52, blue: 1.0)).frame(width: 12, height: 12)
+        }
+        .onAppear { pulsing = true }
+    }
+}
+
+private struct NativeUserHeadingCone: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

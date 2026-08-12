@@ -1,6 +1,6 @@
 import 'leaflet/dist/leaflet.css';
 import { Capacitor } from '@capacitor/core';
-import { MapContainer, TileLayer, useMap, useMapEvents, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, useMapEvents, Polyline, CircleMarker } from 'react-leaflet';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Navigation,
@@ -895,6 +895,25 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
             positions={[mapCenter, selectedDestinationCoords]}
             pathOptions={{ color: '#22d3ee', weight: 4, opacity: 0.78, dashArray: '10 12' }}
           />
+        )}
+
+        {/* User location — iOS-style blue dot with accuracy halo. Only rendered
+            with real device coords (never the city-center fallback). */}
+        {userCoords && (
+          <>
+            <CircleMarker
+              center={[userCoords.lat, userCoords.lng]}
+              radius={16}
+              pathOptions={{ color: 'transparent', fillColor: '#0A84FF', fillOpacity: 0.18 }}
+              interactive={false}
+            />
+            <CircleMarker
+              center={[userCoords.lat, userCoords.lng]}
+              radius={7}
+              pathOptions={{ color: '#FFFFFF', weight: 3, fillColor: '#0A84FF', fillOpacity: 1 }}
+              interactive={false}
+            />
+          </>
         )}
 
         {/* Clean canvas: only base tiles and the optional route line render inside the map. */}

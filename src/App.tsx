@@ -1513,6 +1513,7 @@ export default function App() {
             scrollContainerRef={homeScrollRef}
             weather={weather.current}
             weatherLoading={weather.loading}
+            city={userCity}
           />
         )}
 
@@ -1539,7 +1540,10 @@ export default function App() {
           className="flex-1 relative"
           style={{ minHeight: 0, paddingBottom: 'calc(6rem + var(--safe-area-bottom, 0px))' }}
         >
-          <AnimatePresence mode="wait">
+          {/* popLayout mounts the incoming tab immediately instead of
+              serializing exit → enter, which stacked ~400ms of dead time on
+              every tab switch (exit 200ms + lazy chunk + enter 200ms). */}
+          <AnimatePresence mode="popLayout">
             {activeTab === 'home' && (
               <motion.div
                 key="home"

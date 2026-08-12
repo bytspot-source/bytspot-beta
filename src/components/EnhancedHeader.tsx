@@ -24,9 +24,25 @@ interface EnhancedHeaderProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
   weather?: WeatherSnapshot | null;
   weatherLoading?: boolean;
+  /** Reverse-geocoded city from useCity (e.g. "Atlanta"); null while resolving. */
+  city?: string | null;
 }
 
-function getMidtownContext(hour: number) {
+/**
+ * Compact badge label from a reverse-geocoded city name. Trims verbose
+ * geocoder output ("City of Atlanta", "Atlanta Metropolitan Area") to the
+ * concise display city; caps length so the pill never wraps.
+ */
+export function formatCityBadge(city: string | null | undefined): string {
+  const cleaned = (city ?? '')
+    .replace(/^city of\s+/i, '')
+    .replace(/\s+(metropolitan area|metro area|county|municipality)$/i, '')
+    .trim();
+  if (!cleaned) return 'Nearby';
+  return cleaned.length > 14 ? `${cleaned.slice(0, 13)}…` : cleaned;
+}
+
+function getLocalContext(hour: number) {
   if (hour >= 5 && hour < 9) return 'Coffee, work spots, and easy arrivals nearby';
   if (hour >= 9 && hour < 12) return 'Coffee, errands, and low-friction parking';
   if (hour >= 12 && hour < 14) return 'A good table, a short walk, and an easy return';
@@ -43,15 +59,15 @@ function getTimeGreeting(hour: number) {
   return 'Late night';
 }
 
-function getGuestGreetingTitle(hour: number) {
-  if (hour >= 5 && hour < 12) return 'Morning in Midtown';
-  if (hour >= 12 && hour < 17) return 'Afternoon in Midtown';
-  if (hour >= 17 && hour < 20) return 'Evening in Midtown';
+function getGuestGreetingTitle(hour: number, city: string) {
+  if (hour >= 5 && hour < 12) return `Morning in ${city}`;
+  if (hour >= 12 && hour < 17) return `Afternoon in ${city}`;
+  if (hour >= 17 && hour < 20) return `Evening in ${city}`;
   if (hour >= 20 && hour < 23) return 'Tonight is still open';
   return 'Still out?';
 }
 
-export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false }: EnhancedHeaderProps) {
+export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false, city = null }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [spotsNearby, setSpotsNearby] = useState(12);
   const [aiRecs, setAiRecs] = useState(8);
@@ -152,10 +168,11 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
     minute: '2-digit',
     hour12: false,
   });
-  const midtownContext = getMidtownContext(currentTime.getHours());
+  const cityBadge = formatCityBadge(city);
+  const midtownContext = getLocalContext(currentTime.getHours());
   const timeGreeting = getTimeGreeting(currentTime.getHours());
   const userName = localStorage.getItem('bytspot_user_name') || '';
-  const greeting = userName ? `${timeGreeting}, ${userName}` : getGuestGreetingTitle(currentTime.getHours());
+  const greeting = userName ? `${timeGreeting}, ${userName}` : getGuestGreetingTitle(currentTime.getHours(), cityBadge === 'Nearby' ? 'your city' : cityBadge);
 
   // Get weather icon
   const getWeatherIcon = () => {
@@ -226,10 +243,10 @@ export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, we
                 </div>
                 
                 {/* Location */}
-                <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-[#00BFFF]/[0.25] bg-[#00BFFF]/[0.12] px-3">
+                <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-[#00BFFF]/[0.25] bg-[#00BFFF]/[0.12] px-3" data-testid="header-city-badge">
                   <MapPin className="h-[13px] w-[13px] text-[#00BFFF]" strokeWidth={2.5} />
-                  <span className="text-[12px] leading-4 text-[#7DE3FF]" style={{ fontWeight: 750 }}>
-                    ATL
+                  <span className="whitespace-nowrap text-[12px] leading-4 text-[#7DE3FF]" style={{ fontWeight: 750 }}>
+                    {cityBadge}
                   </span>
                 </div>
                 

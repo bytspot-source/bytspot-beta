@@ -106,6 +106,52 @@ enum NativeAuthStatus: Equatable {
     }
 }
 
+/// Non-secret display identity for the signed-in member. Stored in
+/// UserDefaults (never Keychain) so greeting surfaces can render a name
+/// without another profile fetch; cleared on sign-out and guest sessions.
+enum NativeSignedInIdentity {
+    static let displayNameKey = "bytspot_signed_in_display_name"
+    static let pendingWelcomeKey = "bytspot_signed_in_pending_welcome"
+
+    static func store(displayName: String?) {
+        let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: displayNameKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: displayNameKey)
+        }
+        UserDefaults.standard.set(true, forKey: pendingWelcomeKey)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: displayNameKey)
+        UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
+    }
+
+    /// One-shot: true only for the first call after a fresh sign-in.
+    static func consumePendingWelcome() -> Bool {
+        guard UserDefaults.standard.bool(forKey: pendingWelcomeKey) else { return false }
+        UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
+        return true
+    }
+
+    static var displayName: String? {
+        let stored = UserDefaults.standard.string(forKey: displayNameKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return stored.isEmpty ? nil : stored
+    }
+
+    static func firstName(from displayName: String?) -> String? {
+        let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.split(separator: " ").first.map(String.init)
+    }
+
+    static func welcomeMessage(displayName: String?) -> String {
+        guard let first = firstName(from: displayName) else { return "Welcome to Bytspot" }
+        return "Welcome, \(first)"
+    }
+}
+
 @MainActor
 protocol NativeAuthSessionStoring: AnyObject {
     @discardableResult func updateToken(_ newToken: String?) -> Bool
@@ -141,9 +187,11 @@ final class NativeAuthCoordinator: ObservableObject {
             status = .authenticating(provider: provider)
             Task { await signIn(provider: provider, sessionStore: sessionStore) }
         case .continueAsGuest:
+            NativeSignedInIdentity.clear()
             sessionStore.continueAsGuest()
             status = .guest
         case .signOut:
+            NativeSignedInIdentity.clear()
             sessionStore.signOut()
             status = .signedOut
         }
@@ -167,6 +215,7 @@ final class NativeAuthCoordinator: ObservableObject {
             case .google: result = try await googleAdapter.signIn()
             }
             if sessionStore.updateSession(token: result.token, userID: result.userID) {
+                NativeSignedInIdentity.store(displayName: result.displayName)
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
                 status = .failed(message: "We couldn't save your sign-in. Please try again.")

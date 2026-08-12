@@ -2083,6 +2083,27 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         )
     }
 
+    func testSignedInIdentityStoresAndGreetsByFirstName() {
+        defer { NativeSignedInIdentity.clear() }
+
+        NativeSignedInIdentity.store(displayName: "  Avery Johnson  ")
+        XCTAssertEqual(NativeSignedInIdentity.displayName, "Avery Johnson")
+        XCTAssertTrue(NativeSignedInIdentity.consumePendingWelcome())
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome(), "Welcome must be one-shot per sign-in.")
+        XCTAssertEqual(NativeSignedInIdentity.firstName(from: "Avery Johnson"), "Avery")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: "Avery Johnson"), "Welcome, Avery")
+
+        NativeSignedInIdentity.store(displayName: nil)
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertTrue(NativeSignedInIdentity.consumePendingWelcome(), "Nameless providers still trigger the welcome moment.")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: nil), "Welcome to Bytspot")
+
+        NativeSignedInIdentity.store(displayName: "Sam")
+        NativeSignedInIdentity.clear()
+        XCTAssertNil(NativeSignedInIdentity.displayName)
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome(), "Sign-out must clear the pending welcome.")
+    }
+
     func testGoogleNativeOAuthAudienceConfigurationIsResolved() throws {
         let serverClientID = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") as? String)
         XCTAssertFalse(serverClientID.isEmpty)

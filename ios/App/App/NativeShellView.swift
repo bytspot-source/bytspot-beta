@@ -260,6 +260,7 @@ struct BytspotNativeShellView: View {
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
     @State private var pendingPostAuthIntent: NativePostAuthIntent?
+    @State private var welcomeBannerText: String?
     @State private var networkResumeGeneration = 0
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
@@ -360,6 +361,23 @@ struct BytspotNativeShellView: View {
                 BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let welcomeBannerText {
+                VStack {
+                    Text(welcomeBannerText)
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(NativeTheme.cyan)
+                        .clipShape(Capsule())
+                        .shadow(color: NativeTheme.cyan.opacity(0.35), radius: 14, x: 0, y: 6)
+                        .accessibilityIdentifier("native-welcome-banner")
+                    Spacer()
+                }
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
         }
         .onAppear {
             #if DEBUG
@@ -388,8 +406,8 @@ struct BytspotNativeShellView: View {
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { route in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedHybridRoute = nil; return }; handleRequestedHybridRoute(route) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
         .onReceive(navigation.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { navigation.requestedTab = nil; return }; applyRequestedTab(tab) }
-        .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady() }
-        .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady() } }
+        .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() }
+        .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
             if suppressInitialTabRequestAfterLaunch { navigation.requestedDestination = nil; return }
             if case .patch(let route) = destination {
@@ -553,6 +571,15 @@ struct BytspotNativeShellView: View {
             NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
         }
         nativeAuthDismissalHandled = false
+    }
+
+    private func presentWelcomeBannerIfNeeded() {
+        guard sessionStore.isAuthenticated, NativeSignedInIdentity.consumePendingWelcome() else { return }
+        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+            withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
+        }
     }
 
     private func resolvePendingPostAuthIntentIfReady() {
@@ -1021,8 +1048,15 @@ private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
     let socialCircleSnapshot: NativeSocialCircleSnapshot
 
+    @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
+    @AppStorage("bytspot_profile_display_name") private var profileDisplayName = ""
+
     private var userName: String {
-        sessionStore.isAuthenticated ? "Signed in" : NativeProfileDefaults.userName
+        guard sessionStore.isAuthenticated else { return NativeProfileDefaults.userName }
+        let name = [signedInDisplayName, profileDisplayName]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return name ?? "Signed in"
     }
 
     private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }

@@ -1147,8 +1147,8 @@ struct NativeAuthDataAPI {
     static func isAccountConflict(_ error: Error) -> Bool {
         guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
         if status == 409 { return true }
-        let message = serverMessage(in: body).lowercased()
-        return message.contains("already exists") || message.contains("conflict")
+        if body.contains("\"code\":\"CONFLICT\"") { return true }
+        return serverMessage(in: body).lowercased().contains("already exists")
     }
 
     static func userMessage(for error: Error, mode: NativeAuthMode) -> String {

@@ -66,6 +66,7 @@ enum NativeAuthSeamSelfTests {
         precondition(store.userID == "selftest-apple-user", "NativeAuthSeamSelfTests: Apple success did not persist stable account identity.")
         precondition(coordinator.status == .signedIn(provider: .apple, displayName: "Apple Self-Test"), "NativeAuthSeamSelfTests: Apple success status drifted.")
         store.signOut()
+        NativeSignedInIdentity.clear()
     }
 
     private static func assertGoogleSuccessWiresSessionToken() async {
@@ -78,6 +79,7 @@ enum NativeAuthSeamSelfTests {
         precondition(store.userID == "selftest-google-user", "NativeAuthSeamSelfTests: Google success did not persist stable account identity.")
         precondition(coordinator.status == .signedIn(provider: .google, displayName: "Google Self-Test"), "NativeAuthSeamSelfTests: Google success status drifted.")
         store.signOut()
+        NativeSignedInIdentity.clear()
     }
 
     private static func assertAdapterFailureKeepsSessionSignedOut() async {

@@ -261,6 +261,7 @@ struct BytspotNativeShellView: View {
     @State private var nativeAuthMode: NativeAuthMode = .login
     @State private var pendingPostAuthIntent: NativePostAuthIntent?
     @State private var welcomeBannerText: String?
+    @State private var welcomeBannerGeneration = 0
     @State private var networkResumeGeneration = 0
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
@@ -384,6 +385,7 @@ struct BytspotNativeShellView: View {
             authCoordinator.runDebugAutorunIfRequested(sessionStore: sessionStore)
             #endif
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
+            presentWelcomeBannerIfNeeded()
             if preferHomeAfterLaunch {
                 suppressInitialTabRequestAfterLaunch = true
                 bridgeStore.requestedTab = nil
@@ -576,8 +578,11 @@ struct BytspotNativeShellView: View {
     private func presentWelcomeBannerIfNeeded() {
         guard sessionStore.isAuthenticated, NativeSignedInIdentity.consumePendingWelcome() else { return }
         let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName)
+        welcomeBannerGeneration += 1
+        let generation = welcomeBannerGeneration
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+            guard welcomeBannerGeneration == generation else { return }
             withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
         }
     }
@@ -1049,14 +1054,14 @@ private struct NativeProfileHeaderCard: View {
     let socialCircleSnapshot: NativeSocialCircleSnapshot
 
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
-    @AppStorage("bytspot_profile_display_name") private var profileDisplayName = ""
 
+    // The local personal-info draft ("bytspot_profile_display_name") is
+    // deliberately not used here: it is unscoped and may hold a previous
+    // guest's or account's name on shared devices.
     private var userName: String {
         guard sessionStore.isAuthenticated else { return NativeProfileDefaults.userName }
-        let name = [signedInDisplayName, profileDisplayName]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-        return name ?? "Signed in"
+        let name = signedInDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Signed in" : name
     }
 
     private var connectionCount: Int { sessionStore.isAuthenticated ? socialCircleSnapshot.totalMembers : 0 }

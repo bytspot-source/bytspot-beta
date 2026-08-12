@@ -541,10 +541,12 @@ final class BytspotSessionStore: ObservableObject {
     }
 
     func continueAsGuest() {
+        NativeSignedInIdentity.clear()
         updateToken("guest_session")
     }
 
     func signOut() {
+        NativeSignedInIdentity.clear()
         updateToken(nil)
     }
 

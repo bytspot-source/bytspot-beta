@@ -1629,6 +1629,10 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesRespondRoute, "/trpc/social.invites.respond")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetOptInRoute, "/trpc/social.peopleMet.optIn")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetOptOutRoute, "/trpc/social.peopleMet.optOut")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetStatusRoute, "/trpc/social.peopleMet.status")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetListRoute, "/trpc/social.peopleMet.list")
         XCTAssertEqual(NativeProfileDataAPI.socialCircleListInput()["surface"] as? String, "network")
 
         let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.socialGroupsListRoute, input: NativeProfileDataAPI.socialCircleListInput())
@@ -1674,9 +1678,39 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(invites.last?.circleName, "Family")
     }
 
-    func testNativeNetworkHasExactlyPeopleCirclesAndInvitations() {
+    func testPeopleMetNormalizationFailsClosedAndSupportsInviteStatus() {
+        let people = NativePeopleMetPerson.normalizeList(["people": [
+            ["userId": "user-1", "name": "Ama", "inviteStatus": "PENDING"],
+            ["id": "user-2", "displayName": "Kojo"],
+            ["name": "No ID row must be dropped"],
+            ["userId": "   "]
+        ]])
+
+        XCTAssertEqual(people.map(\.userId), ["user-1", "user-2"])
+        XCTAssertEqual(people.first?.inviteStatus, "pending")
+        XCTAssertEqual(people.first?.inviteStatusLabel, "Invite sent")
+        XCTAssertFalse(people.first?.canSendInvite ?? true)
+        XCTAssertEqual(people.last?.name, "Kojo")
+        XCTAssertNil(people.last?.inviteStatus)
+        XCTAssertTrue(people.last?.canSendInvite ?? false)
+        XCTAssertEqual(people.last?.inviteStatusLabel, "Met at this party")
+
+        XCTAssertTrue(NativePeopleMetPerson.normalizeList(["unexpected": "shape"]).isEmpty)
+    }
+
+    func testPeopleMetOptInStatusDecodesConsentFirst() {
+        XCTAssertTrue(NativePeopleMetPerson.normalizeOptInStatus(["optedIn": true]))
+        XCTAssertFalse(NativePeopleMetPerson.normalizeOptInStatus(["optedIn": false]))
+        XCTAssertFalse(NativePeopleMetPerson.normalizeOptInStatus([:]))
+        XCTAssertFalse(NativePeopleMetPerson.normalizeOptInStatus("not a dictionary"))
+
+        XCTAssertEqual(NativePeopleMetPerson.normalizedPartyID("  party-1  "), "party-1")
+        XCTAssertNil(NativePeopleMetPerson.normalizedPartyID("   "))
+    }
+
+    func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {
         XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
-        XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations"])
+        XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met"])
         XCTAssertFalse(NativeProfileWireframeGuard.networkSegments.contains("Plans"))
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
     }

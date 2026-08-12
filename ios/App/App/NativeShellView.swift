@@ -3292,11 +3292,11 @@ private struct NativeNetworkHubView: View {
                 networkAuthenticationPrompt
             } else {
                 HStack(spacing: 8) {
-                    TextField("Party code from your Party Pass", text: $peopleMetPartyCode).textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled().padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    TextField("Party link or party ID", text: $peopleMetPartyCode).textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled().padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     Button("Load") { Task { await loadPeopleMetParty() } }.font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 14).frame(height: 42).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).disabled(NativePeopleMetPerson.normalizedPartyID(peopleMetPartyCode) == nil || isWorking)
                 }
                 if peopleMetPartyID == nil {
-                    NativeProfileEmptyState(title: "No party selected", subtitle: "Enter the code from a Party Pass you attended to manage opt-in for that party.", icon: "ticket.fill")
+                    NativeProfileEmptyState(title: "No party selected", subtitle: "Paste the party link (or party ID) from a Party Pass you attended to manage opt-in for that party.", icon: "ticket.fill")
                 } else {
                     peopleMetOptInRow
                     if !peopleMetOptedIn {

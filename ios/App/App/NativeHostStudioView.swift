@@ -618,7 +618,7 @@ struct NativeHostStudioView: View {
 
     private func sharePartyLink(_ url: URL) {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              let presenter = scene.windows.first(where: \ .isKeyWindow)?.rootViewController else {
+              let presenter = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
             publishPresentation.message = "Party link is ready to share."
             return
         }

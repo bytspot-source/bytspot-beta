@@ -1706,6 +1706,10 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         XCTAssertEqual(NativePeopleMetPerson.normalizedPartyID("  party-1  "), "party-1")
         XCTAssertNil(NativePeopleMetPerson.normalizedPartyID("   "))
+        XCTAssertEqual(NativePeopleMetPerson.normalizedPartyID("https://bytspot.app/party/party-9"), "party-9")
+        XCTAssertEqual(NativePeopleMetPerson.normalizedPartyID("https://www.bytspot.com/party/party-9"), "party-9")
+        XCTAssertNil(NativePeopleMetPerson.normalizedPartyID("https://evil.example/party/party-9"))
+        XCTAssertNil(NativePeopleMetPerson.normalizedPartyID("https://bytspot.app/other/party-9"))
     }
 
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {

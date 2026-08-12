@@ -302,8 +302,18 @@ struct NativePeopleMetPerson: Equatable, Identifiable {
         return (root["optedIn"] as? Bool) ?? false
     }
 
+    /// Accepts either a raw party ID or a pasted Party Pass share link
+    /// (https://bytspot.app/party/<id>) and resolves the party ID.
     static func normalizedPartyID(_ rawValue: String) -> String? {
-        NativeSocialCircle.cleanValue(rawValue)
+        guard let cleaned = NativeSocialCircle.cleanValue(rawValue) else { return nil }
+        if let url = URL(string: cleaned), let host = url.host?.lowercased(),
+           host == "bytspot.app" || host == "www.bytspot.app" || host == "bytspot.com" || host == "www.bytspot.com" {
+            let parts = url.path.split(separator: "/").map(String.init)
+            guard parts.count >= 2, parts[0] == "party" else { return nil }
+            return NativeSocialCircle.cleanValue(parts[1])
+        }
+        guard !cleaned.contains("/"), !cleaned.contains(":") else { return nil }
+        return cleaned
     }
 }
 

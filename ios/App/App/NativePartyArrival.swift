@@ -77,7 +77,7 @@ struct NativePartyArrivalAPI {
     private static func normalizedVenueName(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-            .split(whereSeparator: \ .isWhitespace)
+            .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
     }
 }

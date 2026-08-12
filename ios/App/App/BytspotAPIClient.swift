@@ -1141,6 +1141,16 @@ struct NativeAuthDataAPI {
         ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password]
     }
 
+    /// True when the backend refused the provider sign-in because a Bytspot
+    /// account already owns this email (HTTP 409 / tRPC CONFLICT). The server
+    /// intentionally never auto-links provider identities by email.
+    static func isAccountConflict(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
+        if status == 409 { return true }
+        if body.contains("\"code\":\"CONFLICT\"") { return true }
+        return serverMessage(in: body).lowercased().contains("already exists")
+    }
+
     static func userMessage(for error: Error, mode: NativeAuthMode) -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {

@@ -119,6 +119,12 @@ platform :ios do
     else
       xcargs << "GOOGLE_CLIENT_ID=#{Shellwords.escape(google_client_id)}"
     end
+    contact_hash_salt = ENV["CONTACT_HASH_SALT"].to_s.strip
+    if contact_hash_salt.empty?
+      UI.important("CONTACT_HASH_SALT is not set; contact discovery hashes will use the dev salt and will NOT match production.")
+    else
+      xcargs << "BYTSPOT_CONTACT_HASH_SALT=#{Shellwords.escape(contact_hash_salt)}"
+    end
 
     # Build the signed .ipa with embedded App Clip
     build_app(

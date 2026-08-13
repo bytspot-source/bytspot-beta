@@ -619,7 +619,14 @@ private struct NativePatchAPIClient {
         let patch = payload?["patch"] as? [String: Any]
         let vendor = payload?["vendor"] as? [String: Any]
         let service = payload?["service"] as? [String: Any]
-        let title = string(vendor?["displayName"]) ?? string(patch?["label"]) ?? "Bytspot Patch"
+        let venue = (payload?["venue"] as? [String: Any]) ?? (payload?["location"] as? [String: Any])
+        let venueName = string(venue?["displayName"]) ?? string(venue?["venueName"]) ?? string(venue?["name"]) ?? string(venue?["label"]) ?? string(venue?["address"])
+        let vendorName = string(vendor?["displayName"]) ?? string(vendor?["name"])
+        let patchLabel = string(patch?["displayName"]) ?? string(patch?["label"]) ?? string(patch?["name"])
+        let title = [venueName, vendorName, patchLabel].compactMap { candidate in
+            guard let candidate, candidate != patchId, candidate != string(patch?["id"]), candidate != string(patch?["uid"]) else { return nil }
+            return candidate
+        }.first ?? "Bytspot Access"
         let subtitle = string(service?["title"]) ?? string(service?["name"]) ?? tier.defaultSubtitle
         let serverTierRaw = string(payload?["tier"]) ?? string(patch?["tier"]) ?? string(vendor?["tier"])
         let serverTier = serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) }

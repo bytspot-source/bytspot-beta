@@ -29,11 +29,6 @@ interface EnhancedHeaderProps {
   city?: string | null;
 }
 
-/**
- * Compact badge label from a reverse-geocoded city name. Trims verbose
- * geocoder output ("City of Atlanta", "Atlanta Metropolitan Area") to the
- * concise display city; caps length so the pill never wraps.
- */
 function getLocalContext(hour: number) {
   if (hour >= 5 && hour < 9) return 'Coffee, work spots, and easy arrivals nearby';
   if (hour >= 9 && hour < 12) return 'Coffee, errands, and low-friction parking';

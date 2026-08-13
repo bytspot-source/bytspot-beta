@@ -10,5 +10,6 @@ export function formatCityBadge(city: string | null | undefined): string {
   if (!cleaned) return 'Nearby';
   // Keep the home header pill short even when a geocoder returns a county,
   // metro, or multi-word administrative label.
-  return cleaned.length > 12 ? `${cleaned.slice(0, 11)}…` : cleaned;
+  const compact = Array.from(cleaned);
+  return compact.length > 12 ? `${compact.slice(0, 11).join('')}…` : cleaned;
 }

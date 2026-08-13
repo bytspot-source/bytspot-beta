@@ -733,10 +733,13 @@ struct ClipPatchVerifier {
         let service = root["service"] as? [String: Any]
 
         let resolvedId = string(patch?["id"]) ?? string(patch?["uid"]) ?? patchId
+        let venue = (root["venue"] as? [String: Any]) ?? (root["location"] as? [String: Any])
+        let venueName = string(venue?["displayName"]) ?? string(venue?["venueName"]) ?? string(venue?["name"]) ?? string(venue?["label"]) ?? string(venue?["address"])
         let vendorName = string(vendor?["displayName"]) ?? string(vendor?["name"])
         let serviceName = string(service?["title"]) ?? string(service?["name"])
-        let label = string(patch?["label"]) ?? string(patch?["name"])
-        let title = vendorName ?? label ?? "Bytspot Patch"
+        let label = string(patch?["displayName"]) ?? string(patch?["label"]) ?? string(patch?["name"])
+        let patchIDValues = Set([patchId, resolvedId, string(patch?["id"]), string(patch?["uid"])].compactMap { $0 })
+        let title = [venueName, vendorName, label].first { !patchIDValues.contains($0) } ?? "Bytspot Access"
         let subtitle = serviceName ?? string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle
         let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
         let lat = Self.double(coords?["lat"]) ?? Self.double(coords?["latitude"]) ?? Self.double(vendor?["lat"]) ?? Self.double(vendor?["latitude"])
@@ -1270,8 +1273,9 @@ struct ClipPatchVerifier {
             ?? Self.string(venue?["address"])
         let vendorName = Self.string(vendor?["displayName"]) ?? Self.string(vendor?["name"])
         let serviceName = Self.string(service?["title"]) ?? Self.string(service?["name"])
-        let label = Self.string(patch?["label"]) ?? Self.string(patch?["displayName"]) ?? Self.string(patch?["name"])
-        let humanTitle = venueName ?? vendorName ?? label ?? Self.string(root["venueName"]) ?? "Bytspot Access"
+        let label = Self.string(patch?["displayName"]) ?? Self.string(patch?["label"]) ?? Self.string(patch?["name"])
+        let opaqueIDs = Set([patchId, resolvedId, Self.string(patch?["id"]), Self.string(patch?["uid"])].compactMap { $0 })
+        let humanTitle = [venueName, vendorName, label, Self.string(root["venueName"])].compactMap { $0 }.first { !opaqueIDs.contains($0) } ?? "Bytspot Access"
         let coords = (venue?["coordinates"] as? [String: Any]) ?? (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
         let serverTierRaw = Self.string(root["tier"]) ?? Self.string(root["serviceTier"])
             ?? Self.string(patch?["tier"]) ?? Self.string(patch?["serviceTier"])

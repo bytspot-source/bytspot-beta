@@ -98,7 +98,7 @@ struct ClipContentView: View {
                     ClipCheckoutView(service: service, vendor: vendor, paymentSecure: paymentSecure, showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
                 case .success(let service, let vendor, let bookingRef, let amountCents):
-                    ClipSuccessView(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents, showOverlay: $showOverlay)
+                    ClipSuccessView(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents, partyShareURL: invocation.partyShareURL, showOverlay: $showOverlay)
                         .transition(.opacity)
                 }
             }
@@ -3307,6 +3307,7 @@ struct ClipSuccessView: View {
     let vendor: ClipVendor
     let bookingRef: String
     let amountCents: Int
+    let partyShareURL: URL?
     @Binding var showOverlay: Bool
     @State private var timeRemaining = 0
     @State private var isHoldExpired = false
@@ -3657,12 +3658,9 @@ struct ClipSuccessView: View {
 
     private var shareAccessURL: URL {
         // A completed party must share the authoritative Party Pass URL. The
-        // Clip can have arrived through a vendor `/p` or `/access` URL before
-        // resolving the party flow; never leak that discovery route into the
-        // party share sheet.
-        if case .party(let invite) = invocation.flow, let partyURL = invite.canonicalURL {
-            return partyURL
-        }
+        // party URL is retained before checkout transitions the flow to
+        // `.success`; never leak a vendor `/p` or `/access` route.
+        if let partyShareURL { return partyShareURL }
         if let url = invocation.mainAppHandoffURL { return url }
         if let url = invocation.invocationURL, Self.isPartyURL(url) { return url }
         if let url = URL(string: "https://bytspot.app/p/\(bookingRef)?tier=\(invocation.tier.rawValue)") { return url }

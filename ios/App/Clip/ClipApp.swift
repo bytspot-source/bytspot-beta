@@ -688,6 +688,9 @@ final class ClipInvocationModel: ObservableObject {
     @Published var patchId: String?
     @Published var token: String?
     @Published var invocationURL: URL?
+    /// Retained across checkout/success transitions so Party sharing never
+    /// falls back to a vendor or generic access URL.
+    @Published private(set) var partyShareURL: URL?
     @Published var patchContext: ClipPatchContext?
     @Published var tier: BytspotTier = .black
     @Published var services: [ClipLocalService] = ClipLocalService.fallbacks(for: .black)
@@ -725,6 +728,7 @@ final class ClipInvocationModel: ObservableObject {
         vendorTasks.removeAll()
 
         invocationURL = url
+        partyShareURL = nil
         flow = .catalog
         vendorFilter = .now
         guestCount = 1
@@ -1046,6 +1050,7 @@ final class ClipInvocationModel: ObservableObject {
             let invite = try await api.partyInvite(partyID: partyID)
             try Task.checkCancellation()
             tier = invite.tier
+            partyShareURL = invite.canonicalURL
             flow = .party(invite)
         } catch is CancellationError {
             return

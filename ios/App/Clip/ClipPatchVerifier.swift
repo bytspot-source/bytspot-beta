@@ -739,7 +739,7 @@ struct ClipPatchVerifier {
         let serviceName = string(service?["title"]) ?? string(service?["name"])
         let label = string(patch?["displayName"]) ?? string(patch?["label"]) ?? string(patch?["name"])
         let patchIDValues = Set([patchId, resolvedId, string(patch?["id"]), string(patch?["uid"])].compactMap { $0 })
-        let title = [venueName, vendorName, label].first { !patchIDValues.contains($0) } ?? "Bytspot Access"
+        let title = [venueName, vendorName, label].compactMap { $0 }.first { !patchIDValues.contains($0) } ?? "Bytspot Access"
         let subtitle = serviceName ?? string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle
         let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
         let lat = Self.double(coords?["lat"]) ?? Self.double(coords?["latitude"]) ?? Self.double(vendor?["lat"]) ?? Self.double(vendor?["latitude"])

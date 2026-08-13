@@ -6,6 +6,7 @@ import { trpc } from '../utils/trpc';
 import type { WeatherSnapshot } from '../utils/hooks/useWeather';
 import { describeWeatherCode } from '../utils/hooks/useWeather';
 import { canUseAutomaticBrowserGeolocation } from '../utils/nativeLocationPolicy';
+import { formatCityBadge } from '../utils/cityBadge';
 import {
   getPersonalizedCategories,
   getUserPreferences,
@@ -33,15 +34,6 @@ interface EnhancedHeaderProps {
  * geocoder output ("City of Atlanta", "Atlanta Metropolitan Area") to the
  * concise display city; caps length so the pill never wraps.
  */
-export function formatCityBadge(city: string | null | undefined): string {
-  const cleaned = (city ?? '')
-    .replace(/^city of\s+/i, '')
-    .replace(/\s+(metropolitan area|metro area|county|municipality)$/i, '')
-    .trim();
-  if (!cleaned) return 'Nearby';
-  return cleaned.length > 14 ? `${cleaned.slice(0, 13)}…` : cleaned;
-}
-
 function getLocalContext(hour: number) {
   if (hour >= 5 && hour < 9) return 'Coffee, work spots, and easy arrivals nearby';
   if (hour >= 9 && hour < 12) return 'Coffee, errands, and low-friction parking';

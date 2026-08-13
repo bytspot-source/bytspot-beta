@@ -102,6 +102,13 @@ struct BytspotPatchRoute: Equatable, Identifiable {
 
     var id: String { patchId }
 
+    /// Human-readable location label for UI. A patch ID is retained only as a
+    /// fallback identifier and must not be presented as the venue name.
+    var displayLocationName: String {
+        let candidate = venueName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return candidate.isEmpty ? "Bytspot Access" : candidate
+    }
+
     var canonicalAccessPath: String {
         canonicalPath(prefix: "access", includePatchAlias: false)
     }

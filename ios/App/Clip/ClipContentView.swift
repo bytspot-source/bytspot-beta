@@ -3656,10 +3656,22 @@ struct ClipSuccessView: View {
     }
 
     private var shareAccessURL: URL {
-        if let url = invocation.invocationURL { return url }
+        // A completed party must share the authoritative Party Pass URL. The
+        // Clip can have arrived through a vendor `/p` or `/access` URL before
+        // resolving the party flow; never leak that discovery route into the
+        // party share sheet.
+        if case .party(let invite) = invocation.flow, let partyURL = invite.canonicalURL {
+            return partyURL
+        }
         if let url = invocation.mainAppHandoffURL { return url }
+        if let url = invocation.invocationURL, Self.isPartyURL(url) { return url }
         if let url = URL(string: "https://bytspot.app/p/\(bookingRef)?tier=\(invocation.tier.rawValue)") { return url }
         return URL(string: "https://bytspot.app")!
+    }
+
+    private static func isPartyURL(_ url: URL) -> Bool {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        return parts.count == 2 && parts[0].lowercased() == "party" && !parts[1].isEmpty
     }
 
     private var shareAccessItems: [Any] {

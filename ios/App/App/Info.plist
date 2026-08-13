@@ -39,6 +39,9 @@
         </array>
       </dict>
     </array>
+    <!-- Native Google Sign-In must use the server/web OAuth audience for
+         backend ID-token verification; the iOS client ID lives in
+         GoogleService-Info.plist. -->
     <key>GIDServerClientID</key>
     <string>$(GOOGLE_CLIENT_ID)</string>
     <key>BytspotApplePayMerchantID</key>

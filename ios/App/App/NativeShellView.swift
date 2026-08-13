@@ -4313,7 +4313,7 @@ private struct NativePatchAccessPreview: View {
                 NativeIcon(symbol: "key.radiowaves.forward.fill", color: tierColor)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(route.tier.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(tierColor).tracking(1.3)
-                    Text(route.patchId).nativeTitle(19)
+                    Text(route.displayLocationName).nativeTitle(19)
                     Text(route.normalizedSummary).nativeBody(size: 12.5)
                 }
                 Spacer()

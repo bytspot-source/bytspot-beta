@@ -389,7 +389,8 @@ private final class NativePatchViewModel: ObservableObject {
         self.tier = route.tier
         self.subtitle = route.tier.defaultSubtitle
         self.services = NativePatchService.fallbacks(for: route.tier)
-        self.title = route.venueName?.replacingOccurrences(of: "-", with: " ").capitalized ?? "Bytspot Patch"
+        let venue = route.venueName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.title = venue.isEmpty ? "Bytspot Access" : venue
         Task { await load() }
     }
 

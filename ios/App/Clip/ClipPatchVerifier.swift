@@ -1260,17 +1260,26 @@ struct ClipPatchVerifier {
 
     private func makeContext(root: [String: Any], patch: [String: Any]?, vendor: [String: Any]?, service: [String: Any]?, patchId: String, tier: BytspotTier) -> ClipPatchContext {
         let resolvedId = Self.string(patch?["id"]) ?? Self.string(patch?["uid"]) ?? patchId
+        let venue = Self.firstObject(root, names: ["venue", "location"]) ?? Self.firstObject(vendor ?? [:], names: ["venue", "location"])
+        // Location copy must come from the venue/patch record, never from the
+        // opaque patch ID. Vendor/service names remain useful fallbacks.
+        let venueName = Self.string(venue?["displayName"])
+            ?? Self.string(venue?["venueName"])
+            ?? Self.string(venue?["name"])
+            ?? Self.string(venue?["label"])
+            ?? Self.string(venue?["address"])
         let vendorName = Self.string(vendor?["displayName"]) ?? Self.string(vendor?["name"])
         let serviceName = Self.string(service?["title"]) ?? Self.string(service?["name"])
-        let label = Self.string(patch?["label"]) ?? Self.string(patch?["name"])
-        let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
+        let label = Self.string(patch?["label"]) ?? Self.string(patch?["displayName"]) ?? Self.string(patch?["name"])
+        let humanTitle = venueName ?? vendorName ?? label ?? Self.string(root["venueName"]) ?? "Bytspot Access"
+        let coords = (venue?["coordinates"] as? [String: Any]) ?? (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
         let serverTierRaw = Self.string(root["tier"]) ?? Self.string(root["serviceTier"])
             ?? Self.string(patch?["tier"]) ?? Self.string(patch?["serviceTier"])
             ?? Self.string(service?["tier"]) ?? Self.string(service?["serviceTier"])
             ?? Self.string(vendor?["tier"]) ?? Self.string(vendor?["serviceTier"])
         return ClipPatchContext(
             patchId: resolvedId,
-            title: vendorName ?? label ?? "Bytspot Patch",
+            title: humanTitle,
             subtitle: serviceName ?? Self.string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle,
             status: Self.string(patch?["status"]) ?? "active",
             venueId: Self.string(vendor?["id"]) ?? Self.string(root["venueId"]),

@@ -242,9 +242,16 @@ async function resolveCustomerPatchDeepLinkContext(patchId: string, fallbackTier
     const payload = await trpc.vendors.getByPatch.query({ patchId, tier: fallbackTier ?? undefined });
     const service = payload?.service ?? payload?.vendorService ?? payload?.listing ?? null;
     const vendor = payload?.vendor ?? payload?.provider ?? service?.vendor ?? null;
+    const venue = payload?.venue ?? payload?.location ?? service?.venue ?? vendor?.venue ?? null;
     const patch = payload?.patch ?? payload?.virtualPatch ?? null;
-    const venueName = [vendor?.displayName, vendor?.name, payload?.venueName, patch?.venueName, patch?.label]
-      .find((value) => typeof value === 'string' && value.trim()) as string | undefined;
+    // Prefer human-readable venue fields at every response level. Never use an
+    // ID as a location label; IDs are identifiers, not user-facing places.
+    const venueName = [
+      venue?.displayName, venue?.name, venue?.venueName, venue?.label, venue?.address,
+      vendor?.displayName, vendor?.name, vendor?.venueName,
+      service?.venueName, payload?.venueName, payload?.displayName,
+      patch?.venueName, patch?.displayName, patch?.label,
+    ].find((value) => typeof value === 'string' && value.trim()) as string | undefined;
     const tier = normalizeBytspotPatchTier(
       service?.tier ?? service?.serviceTier ?? payload?.tier ?? payload?.serviceTier ?? patch?.tier ?? patch?.serviceTier ?? vendor?.tier ?? vendor?.serviceTier,
       fallbackTier ?? null,

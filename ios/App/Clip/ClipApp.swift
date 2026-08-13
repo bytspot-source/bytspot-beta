@@ -241,7 +241,20 @@ struct PartyPassInvite: Equatable {
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var canonicalURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)") }
-    var handoffURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)?source=host-studio-party&handoff=1") }
+    /// The only valid full-app/App Clip handoff for a Host Studio Party.
+    /// Keep this independent of any vendor/service discovery route.
+    var handoffURL: URL? {
+        guard let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed), !encodedID.isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bytspot.app"
+        components.path = "/party/\(encodedID)"
+        components.queryItems = [
+            URLQueryItem(name: "source", value: "host-studio-party"),
+            URLQueryItem(name: "handoff", value: "1")
+        ]
+        return components.url
+    }
 
     static func partyID(from pathParts: [String]) -> String? {
         guard pathParts.count == 2, pathParts[0].lowercased() == "party" else { return nil }
@@ -782,6 +795,7 @@ final class ClipInvocationModel: ObservableObject {
     var mainAppHandoffURL: URL? {
         if case .party(let invite) = flow {
             guard var components = URLComponents(url: invite.handoffURL ?? URL(string: "https://bytspot.app/party/")!, resolvingAgainstBaseURL: false),
+                  components.host == "bytspot.app", components.path.hasPrefix("/party/"),
                   let selectedPartyTicketTier else { return invite.handoffURL }
             var queryItems = components.queryItems ?? []
             queryItems.append(contentsOf: [
@@ -1129,7 +1143,7 @@ final class ClipInvocationModel: ObservableObject {
         verificationState = .verifying
         do {
             let result = try await api.verify(token: token)
-            let label = result.patch.label ?? patchContext?.title ?? venueSlug ?? "Patch \(result.patch.id)"
+            let label = patchContext?.title ?? result.patch.label ?? venueSlug ?? "Bytspot Access"
             verificationState = Self.verificationState(for: result, label: label)
         } catch {
             let msg: String

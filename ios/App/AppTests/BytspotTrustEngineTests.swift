@@ -1746,6 +1746,20 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.partyItineraryRoute, "/trpc/events.itinerary.upsert")
         XCTAssertEqual(NativeLiveContentV2Contract.partyRoleAssignRoute, "/trpc/events.roles.assign")
         XCTAssertEqual(NativeLiveContentV2Contract.partyAudienceAttachRoute, "/trpc/events.audiences.attach")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyControlHostedRoute, "/trpc/events.control.hosted")
+    }
+
+    func testHostedPartyListDecodesControlReentryShape() throws {
+        let list = try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
+        {"parties":[{"id":"party-1","title":"First Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":false,"capacity":80}]}
+        """.utf8))
+        XCTAssertEqual(list.parties.count, 1)
+        XCTAssertEqual(list.parties[0].id, "party-1")
+        XCTAssertEqual(list.parties[0].title, "First Listen")
+        XCTAssertEqual(list.parties[0].venueName, "The Basement")
+        XCTAssertFalse(list.parties[0].admissionPaused)
+        XCTAssertFalse(list.parties[0].shareLinkExpired)
+        XCTAssertNotNil(list.parties[0].startsAtDate)
     }
 
     func testNativeHostStudioRolesAreCapabilityScoped() {

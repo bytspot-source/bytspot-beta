@@ -1127,6 +1127,7 @@ enum NativeLiveContentV2Contract {
     static let partyItineraryRoute = "/trpc/events.itinerary.upsert"
     static let partyRoleAssignRoute = "/trpc/events.roles.assign"
     static let partyAudienceAttachRoute = "/trpc/events.audiences.attach"
+    static let partyControlHostedRoute = "/trpc/events.control.hosted"
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"

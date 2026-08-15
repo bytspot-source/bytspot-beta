@@ -1681,6 +1681,23 @@ struct NativeCrowdSummary: Equatable {
     let level: Int
     let label: String
     let waitMins: Int?
+    /// `bytspot` / `user_report` / `sensor` are Live. Everything else — including
+    /// `typical`, leftover `simulation`, and a missing source — is a catalog.
+    let source: String?
+
+    init(level: Int, label: String, waitMins: Int?, source: String? = nil) {
+        self.level = level
+        self.label = label
+        self.waitMins = waitMins
+        self.source = source
+    }
+
+    var isLiveOccupancy: Bool {
+        switch source?.lowercased() {
+        case "bytspot", "user_report", "sensor": return true
+        default: return false
+        }
+    }
 }
 
 struct NativeParkingSummary: Equatable {
@@ -2983,7 +3000,7 @@ final class NativeTabContentStore: ObservableObject {
             guard let rawLabel = string(value, ["label"]) else { return nil }
             let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !label.isEmpty else { return nil }
-            return NativeCrowdSummary(level: int(value, ["level"]) ?? 1, label: label, waitMins: int(value, ["waitMins"]))
+            return NativeCrowdSummary(level: int(value, ["level"]) ?? 1, label: label, waitMins: int(value, ["waitMins"]), source: string(value, ["source"]))
         }
         let patch = (item["hardwarePatch"] as? [String: Any]).flatMap { string($0, ["id", "patchId"]) }
         return NativeVenueSummary(

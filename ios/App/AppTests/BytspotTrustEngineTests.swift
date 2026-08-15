@@ -2063,6 +2063,19 @@ final class NativeProfileDataAPITests: XCTestCase {
         window.isHidden = true
     }
 
+    func testCrowdSummaryOnlyTreatsDoorHostOrSensorAsLive() {
+        let typical = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12, source: "typical")
+        let missing = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12)
+        let leftoverSim = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 20, source: "simulation")
+        let door = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 8, source: "bytspot")
+        let report = NativeCrowdSummary(level: 2, label: "Active", waitMins: 5, source: "user_report")
+        XCTAssertFalse(typical.isLiveOccupancy)
+        XCTAssertFalse(missing.isLiveOccupancy)
+        XCTAssertFalse(leftoverSim.isLiveOccupancy)
+        XCTAssertTrue(door.isLiveOccupancy)
+        XCTAssertTrue(report.isLiveOccupancy)
+    }
+
     func testPartyControlSummaryDecodesWithAndWithoutShareLinkExpiry() throws {
         let legacy = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
         {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":41,"spacesRemaining":39,"pending":6,"checkedIn":12}

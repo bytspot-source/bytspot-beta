@@ -57,10 +57,10 @@ export function PromotionalFlyer() {
         <div style={{ marginTop: 8 }}><Wordmark fontSize={48} /></div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, color: BRAND.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.12em', marginTop: 10, marginBottom: 28 }}>📍 Atlanta · Now Live</div>
         <h1 style={{ fontSize: 38, fontWeight: 800, textAlign: 'center', lineHeight: 1.15, marginBottom: 12, letterSpacing: '-0.02em' }}>Know{' '}<span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Before</span>{' '}You Go.</h1>
-        <p style={{ fontSize: 17, color: BRAND.textSecondary, textAlign: 'center', maxWidth: 420, lineHeight: 1.5, marginBottom: 32 }}>Live crowd levels, real-time parking, and ride comparison — all in one app for Atlanta's best venues.</p>
+        <p style={{ fontSize: 17, color: BRAND.textSecondary, textAlign: 'center', maxWidth: 420, lineHeight: 1.5, marginBottom: 32 }}>Typical occupancy, listed parking, and ride comparison — all in one app for Atlanta's best venues.</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 460, marginBottom: 24 }}>
-          <FeaturePill emoji="📊" label="Live Crowd Levels" />
-          <FeaturePill emoji="🅿️" label="Real-Time Parking" />
+          <FeaturePill emoji="📊" label="Typical Occupancy" />
+          <FeaturePill emoji="🅿️" label="Listed Parking" />
           <FeaturePill emoji="🚗" label="Uber vs Lyft Compare" />
           <FeaturePill emoji="🗺️" label="Venue Discovery" />
         </div>
@@ -113,7 +113,7 @@ export function QRCodeSticker() {
         <div style={{ background: '#fff', padding: 10, borderRadius: 12 }}>
           <QRCodeSVG value={APP_URL} size={140} level="H" bgColor="#FFFFFF" fgColor="#000000" />
         </div>
-        <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'center', background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>See live crowd levels around Midtown before you go</div>
+        <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'center', background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>See typical occupancy around Midtown before you go</div>
         <div style={{ fontSize: 8, color: BRAND.textMuted, textAlign: 'center' }}>{APP_URL.replace('https://', '')}</div>
       </div>
     </div>
@@ -171,7 +171,7 @@ export function AppStoreBanner() {
           </div>
           <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
             {[
-              { emoji: '📊', label: 'Live Crowds' },
+              { emoji: '📊', label: 'Typical Occupancy' },
               { emoji: '🅿️', label: 'Parking' },
               { emoji: '🚗', label: 'Rides' },
               { emoji: '🤖', label: 'AI Concierge' },
@@ -246,10 +246,10 @@ export function SocialBanner() {
           Know <span style={{ background: BRAND.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>Before</span> You Go.
         </div>
         <div style={{ fontSize: 16, color: BRAND.textMuted, marginTop: 4 }}>
-          Live crowd levels · Real-time parking · AI-powered recommendations
+          Typical occupancy · Listed parking · AI-powered recommendations
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-          {['📊 Live Crowds', '🅿️ Parking', '🚗 Ride Compare', '🤖 AI Concierge'].map((f) => (
+          {['📊 Typical Occupancy', '🅿️ Parking', '🚗 Ride Compare', '🤖 AI Concierge'].map((f) => (
             <div key={f} style={{
               padding: '8px 18px',
               borderRadius: 999,

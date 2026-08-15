@@ -2000,7 +2000,7 @@ export default function App() {
                           <div className="mb-3 flex items-center justify-between">
 				                            <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>🔥 Trending Now</h2>
                             <span className="text-[11px] text-orange-300/80" style={{ fontWeight: 600 }}>
-                              {byCheckins ? 'By check-ins' : 'Live crowd'}
+                              {byCheckins ? 'By check-ins' : 'Typical occupancy'}
                             </span>
                           </div>
 				                          <div className={HOME_CAROUSEL_CLASS}>

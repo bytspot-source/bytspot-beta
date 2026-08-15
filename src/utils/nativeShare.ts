@@ -72,7 +72,7 @@ export function shareVenue(venueName: string, venueId?: string) {
     : 'https://bytspot.com';
   return nativeShare({
     title: `Check out ${venueName} on Bytspot`,
-    text: `🔥 ${venueName} — see live crowd levels, parking & more on Bytspot`,
+    text: `🔥 ${venueName} — typical occupancy, parking & more on Bytspot`,
     url,
   });
 }
@@ -83,7 +83,7 @@ export function shareVenue(venueName: string, venueId?: string) {
 export function shareReferral(referralUrl: string) {
   return nativeShare({
     title: 'Join me on Bytspot',
-    text: '🔥 I\'m using Bytspot to find the best spots in the city — live crowds, parking, everything. Use my link:',
+    text: '🔥 I\'m using Bytspot to find the best spots in the city — typical occupancy, parking, everything. Use my link:',
     url: referralUrl,
   });
 }

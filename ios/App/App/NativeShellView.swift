@@ -3182,6 +3182,8 @@ private struct NativeNetworkHubView: View {
     @State private var statusMessage = ""
     @State private var isWorking = false
     @State private var showHostStudio = false
+    @State private var hostedParties: [NativeHostedParty] = []
+    @State private var hostedControlTarget: HostedControlTarget?
     @State private var peopleMetPartyCode = ""
     @State private var peopleMetPartyID: String?
     @State private var peopleMetOptedIn = false
@@ -3204,6 +3206,7 @@ private struct NativeNetworkHubView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     hostStudioCard
+                    hostedRooms
                     Group {
                         switch segment {
                         case .people: peopleContent
@@ -3224,6 +3227,14 @@ private struct NativeNetworkHubView: View {
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
         .fullScreenCover(isPresented: $showHostStudio) {
             NativeHostStudioView(circles: circleSnapshot.groups, membershipTier: membershipStore.tier)
+        }
+        .sheet(item: $hostedControlTarget) { target in
+            NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
+        }
+        .onChange(of: showHostStudio) { isOpen in
+            if !isOpen, sessionStore.isAuthenticated {
+                Task { await refreshHostedRooms() }
+            }
         }
     }
 
@@ -3247,6 +3258,46 @@ private struct NativeNetworkHubView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-host-studio-launch")
+    }
+
+    private struct HostedControlTarget: Identifiable {
+        let id: String
+    }
+
+    @ViewBuilder private var hostedRooms: some View {
+        if sessionStore.isAuthenticated {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("YOUR ROOMS").font(.system(size: 10, weight: .black)).tracking(1.4).foregroundColor(NativeTheme.cyan)
+                if hostedParties.isEmpty {
+                    Text("After you publish, the room stays here so you can reopen Party Control — guest list, door scan, pause, and link expiry.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                } else {
+                    ForEach(hostedParties) { party in
+                        Button(action: {
+                            nativeImpactLight()
+                            hostedControlTarget = HostedControlTarget(id: party.id)
+                        }) {
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(party.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                                    Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                                    if party.admissionPaused {
+                                        Text("ADMISSIONS PAUSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                                    }
+                                }
+                                Spacer()
+                                Text("Control").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 32).background(NativeTheme.cyan).clipShape(Capsule())
+                            }
+                            .padding(14)
+                            .background(NativeProfileStyle.insetSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-hosted-room-\(party.id)")
+                    }
+                }
+            }
+            .accessibilityIdentifier("native-hosted-rooms")
+        }
     }
 
     private var segmentControl: some View {
@@ -3569,11 +3620,21 @@ private struct NativeNetworkHubView: View {
     }
 
     private func refreshNetwork() async {
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; return }
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
         if selectedCircleID == nil { selectedCircleID = circleSnapshot.groups.first?.id }
+        await refreshHostedRooms()
+    }
+
+    private func refreshHostedRooms() async {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { hostedParties = []; return }
+        do {
+            hostedParties = try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).hosted()
+        } catch {
+            hostedParties = hostedParties
+        }
     }
 
     private func createCircle() async {

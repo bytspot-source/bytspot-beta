@@ -81,7 +81,7 @@
     <false />
     <!-- â”€â”€ Privacy Usage Descriptions (required by App Store Review) â”€â”€ -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Bytspot needs your location to show nearby venues, live crowd levels, and available parking so you can find the best spots around you.</string>
+    <string>Bytspot needs your location to show nearby venues, typical occupancy, and available parking so you can find the best spots around you.</string>
     <key>NSCameraUsageDescription</key>
     <string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
     <key>NFCReaderUsageDescription</key>

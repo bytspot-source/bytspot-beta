@@ -333,7 +333,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
     const sample = venues.slice(0, 3);
     return { reply: sample.length > 0
       ? `Here are some spots in ${cityName}:\n\n${sample.map(v => `• **${v.name}** — ${v.crowd?.label ?? 'Open'}`).join('\n')}\n\nSign in to chat with the full AI concierge — live events, Google Places, and personalized picks! 🚀`
-      : `I'm your ${cityName} guide! Sign in to unlock AI-powered recommendations with live crowd data, events, and more 🔓`, matchedVenues: sample };
+      : `I'm your ${cityName} guide! Sign in to unlock AI-powered recommendations with typical occupancy, events, and more 🔓`, matchedVenues: sample };
   };
 
   const handleSend = async (text?: string) => {

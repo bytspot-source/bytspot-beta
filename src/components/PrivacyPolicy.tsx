@@ -18,7 +18,7 @@ export function PrivacyPolicy() {
       <Section title="1. Information We Collect">
         <BulletList items={[
           <><B>Account Information</B> — Email address, name, and password when you create an account.</>,
-          <><B>Location Data (When In Use)</B> — We access your device's location <em>only while the App is open</em> to show nearby venues, live crowd levels, and parking availability. We never track your location in the background.</>,
+          <><B>Location Data (When In Use)</B> — We access your device's location <em>only while the App is open</em> to show nearby venues, typical occupancy, and parking availability. We never track your location in the background.</>,
           <><B>Usage Data</B> — Category clicks, venue visits, and search queries stored locally on your device to personalize recommendations. This data is not sent to our servers unless you are signed in.</>,
           <><B>Push Notification Tokens</B> — If you opt in to notifications, we store your device token to send crowd alerts for your saved venues.</>,
           <><B>Camera & Photos</B> — Accessed only when you choose to create a post or update your profile picture. We do not access your camera or photo library without your explicit action.</>,

@@ -18,6 +18,7 @@ import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
 import { useVenues } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
 import { trpc, type ApiVenue } from '../utils/trpc';
+import { venueAvailabilityLabel, venueCrowdFallbackLabel, venueWaitFallbackLabel } from '../utils/occupancyLabel';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
@@ -225,17 +226,20 @@ function estimateEtaMinutes(from: [number, number], to: [number, number]): numbe
 }
 
 function formatVenueAvailability(venue: ApiVenue): string {
-  if (venue.crowd?.waitMins) return `~${venue.crowd.waitMins}m wait`;
-  if (venue.availability) return String(venue.availability);
-  return (venue.crowd?.level ?? 1) >= 4 ? 'High activity' : 'Live availability';
+  return venueAvailabilityLabel({
+    source: venue.crowd?.source,
+    waitMins: venue.crowd?.waitMins,
+    level: venue.crowd?.level,
+    availability: venue.availability,
+  });
 }
 
 function getVenueCrowdLabel(venue: ApiVenue): string {
-  return venue.crowd?.label ?? CROWD_LEVEL_LABELS[venue.crowd?.level ?? 1] ?? 'Live';
+  return venue.crowd?.label ?? CROWD_LEVEL_LABELS[venue.crowd?.level ?? 1] ?? venueCrowdFallbackLabel(venue.crowd?.source);
 }
 
 function getVenueWaitLabel(venue: ApiVenue): string {
-  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins} min wait` : 'Live wait';
+  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins} min wait` : venueWaitFallbackLabel(venue.crowd?.source);
 }
 
 function getVenueWaitShortLabel(venue: ApiVenue): string {

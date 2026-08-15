@@ -5842,11 +5842,13 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeCrowdFreshnessLabel: String {
-        switch regionalSnapshot.source {
-        case .live: return "Live crowd"
-        case .mixed: return "Live + curated"
-        case .fallback: return "Curated"
-        }
+        // Snapshot `.live` only means the venue catalog came from the API.
+        // Occupancy is Typical unless a door / host / user report wrote it.
+        let crowds = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).compactMap(\.crowd)
+        let liveCount = crowds.filter(\.isLiveOccupancy).count
+        if liveCount == 0 { return "Typical" }
+        if liveCount == crowds.count { return "Live crowd" }
+        return "Live + typical"
     }
 
     private var weatherSmartCard: some View {
@@ -5958,7 +5960,11 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func crowdBadge(_ crowd: NativeCrowdSummary?) -> String { "\(crowdEmoji(crowd)) \(crowd?.label ?? "Chill")" }
+    private func crowdBadge(_ crowd: NativeCrowdSummary?) -> String {
+        let label = crowd?.label ?? "Chill"
+        guard let crowd, crowd.isLiveOccupancy else { return "Typical · \(label)" }
+        return "\(crowdEmoji(crowd)) \(label)"
+    }
     private func crowdEmoji(_ crowd: NativeCrowdSummary?) -> String { (crowd?.level ?? 1) >= 4 ? "🔴" : (crowd?.level ?? 1) == 3 ? "🟠" : (crowd?.level ?? 1) == 2 ? "🟡" : "🟢" }
     private func crowdColor(_ crowd: NativeCrowdSummary?) -> Color { (crowd?.level ?? 1) >= 4 ? .red : (crowd?.level ?? 1) == 3 ? NativeTheme.orange : (crowd?.level ?? 1) == 2 ? .yellow : NativeTheme.emerald }
     private func categoryEmoji(_ type: String) -> String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "mobility": "🚘", "boutique_apartment": "🏡"][type] ?? "📍" }
@@ -10553,7 +10559,11 @@ private struct NativeVenueDetailView: View {
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
     private var ratingText: String { venue.rating.map { String(format: "%.1f", $0) } ?? "4.9" }
-    private var crowdText: String { venue.crowd.map { "\($0.label)" + ($0.waitMins.map { " · \($0)m wait" } ?? "") } ?? "Live crowd pending" }
+    private var crowdText: String {
+        guard let crowd = venue.crowd else { return "Typical occupancy" }
+        let wait = crowd.waitMins.map { " · \($0)m wait" } ?? ""
+        return crowd.isLiveOccupancy ? "\(crowd.label)\(wait)" : "Typical · \(crowd.label)\(wait)"
+    }
     private var entryText: String { venue.parking.priceLabel == "—" ? "Free entry" : venue.parking.priceLabel }
     private var isBoutiqueStay: Bool { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) }
     private var detailHorizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
@@ -13850,7 +13860,7 @@ private struct NativeMapExploreView: View {
 
     private var functionFeatureRows: some View {
         VStack(spacing: NativePolish.mapFunctionRowGap) {
-            functionFeatureRow(icon: "car.fill", title: "Smart Parking", subtitle: "Available spots with live pricing", colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
+            functionFeatureRow(icon: "car.fill", title: "Smart Parking", subtitle: "Available spots with listed pricing", colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
                 selectedMode = "Smart Parking"
                 showFunctionSheet = false
                 selectedPin = pins.first(where: { $0.kind == .parking })
@@ -14336,7 +14346,7 @@ private struct NativeMapExploreView: View {
         switch selectedMode {
         case "Tap Zones": return "Verified"
         case "Route": return "Navigation"
-        case "Smart Parking": return "Live"
+        case "Smart Parking": return "Spots"
         default: return "General"
         }
     }

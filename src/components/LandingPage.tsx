@@ -36,7 +36,7 @@ export function LandingPage({ isDarkMode, onGetStarted }: LandingPageProps) {
                 Know <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">Before</span> You Go.
               </h1>
               <p className={`mt-2 text-[15px] leading-relaxed ${isDarkMode ? 'text-white/60' : 'text-black/60'}`}>
-                Live crowd levels, parking & ride ETAs<br />for Atlanta Midtown — all in one place.
+                Typical occupancy, parking & ride ETAs<br />for Atlanta Midtown — all in one place.
               </p>
             </div>
           </div>
@@ -44,8 +44,8 @@ export function LandingPage({ isDarkMode, onGetStarted }: LandingPageProps) {
           {/* Feature pills */}
           <div className="flex flex-col gap-3">
             {[
-              { icon: <Radio className="w-4 h-4 text-red-400" />, label: 'Live crowd levels at Midtown venues' },
-              { icon: <Car className="w-4 h-4 text-cyan-400" />, label: 'Smart parking with live spot availability' },
+              { icon: <Radio className="w-4 h-4 text-red-400" />, label: 'Typical occupancy at Midtown venues' },
+              { icon: <Car className="w-4 h-4 text-cyan-400" />, label: 'Smart parking with listed spot availability' },
               { icon: <Clock className="w-4 h-4 text-purple-400" />, label: 'Ride ETAs & valet options nearby' },
             ].map(({ icon, label }) => (
               <div key={label} className="flex items-center gap-3 px-4 py-3 rounded-[14px] bg-white/5 border border-white/10">

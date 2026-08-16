@@ -1760,6 +1760,18 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(list.parties[0].admissionPaused)
         XCTAssertFalse(list.parties[0].shareLinkExpired)
         XCTAssertNotNil(list.parties[0].startsAtDate)
+        XCTAssertNil(list.parties[0].shareUrl)
+        XCTAssertNil(list.parties[0].passCode)
+        XCTAssertEqual(list.parties[0].retrievedShareURL, URL(string: "https://bytspot.app/party/party-1"))
+
+        let withShare = try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
+        {"parties":[{"id":"party-1","title":"First Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareUrl":"https://bytspot.app/party/party-1","passCode":"BYT-EXISTING","shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":false,"capacity":80}]}
+        """.utf8))
+        XCTAssertEqual(withShare.parties[0].retrievedPassCode, "BYT-EXISTING")
+        XCTAssertEqual(withShare.parties[0].retrievedShareURL, URL(string: "https://bytspot.app/party/party-1"))
+        XCTAssertEqual(NativePartyShareLink.url(for: "party-1"), URL(string: "https://bytspot.app/party/party-1"))
+        XCTAssertNil(NativePartyShareLink.url(for: "https://evil.example/party/x"))
+        XCTAssertNil(NativePartyShareLink.url(from: "http://bytspot.app/party/party-1"))
     }
 
     func testNativeHostStudioRolesAreCapabilityScoped() {
@@ -2103,6 +2115,15 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(current.shareLinkExpiresAt, "2026-08-16T04:00:00.000Z")
         XCTAssertEqual(current.shareLinkExpired, false)
         XCTAssertEqual(current.shareLinkExpiryIsDefault, true)
+        XCTAssertNil(legacy.shareUrl)
+        XCTAssertNil(legacy.passCode)
+        XCTAssertEqual(legacy.retrievedShareURL, URL(string: "https://bytspot.app/party/party-1"))
+
+        let retrieved = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":41,"spacesRemaining":39,"pending":6,"checkedIn":12,"shareUrl":"https://bytspot.app/party/party-1","passCode":"BYT-EXISTING","shareLinkExpiresAt":"2026-08-16T04:00:00.000Z","shareLinkExpired":false,"shareLinkExpiryIsDefault":true}
+        """.utf8))
+        XCTAssertEqual(retrieved.retrievedPassCode, "BYT-EXISTING")
+        XCTAssertEqual(retrieved.retrievedShareURL, URL(string: "https://bytspot.app/party/party-1"))
     }
 
     func testPartyControlInstantParsingAcceptsServerMillisecondTimestamps() {

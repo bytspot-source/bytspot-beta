@@ -3269,29 +3269,52 @@ private struct NativeNetworkHubView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("YOUR ROOMS").font(.system(size: 10, weight: .black)).tracking(1.4).foregroundColor(NativeTheme.cyan)
                 if hostedParties.isEmpty {
-                    Text("After you publish, the room stays here so you can reopen Party Control — guest list, door scan, pause, and link expiry.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                    Text("After you publish, the room stays here so you can reopen Party Control — guest list, door scan, pause — and retrieve the same share link if you forgot to send it.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
                 } else {
                     ForEach(hostedParties) { party in
-                        Button(action: {
-                            nativeImpactLight()
-                            hostedControlTarget = HostedControlTarget(id: party.id)
-                        }) {
-                            HStack(alignment: .center, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(party.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
-                                    Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
-                                    if party.admissionPaused {
-                                        Text("ADMISSIONS PAUSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                        HStack(alignment: .center, spacing: 10) {
+                            Button(action: {
+                                nativeImpactLight()
+                                hostedControlTarget = HostedControlTarget(id: party.id)
+                            }) {
+                                HStack(alignment: .center, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(party.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                                        Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                                        if let passCode = party.retrievedPassCode {
+                                            Text(passCode).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.cyan)
+                                        }
+                                        if party.admissionPaused {
+                                            Text("ADMISSIONS PAUSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                                        } else if party.shareLinkExpired {
+                                            Text("NEW ARRIVALS CLOSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                                        }
                                     }
+                                    Spacer()
+                                    Text("Control").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 32).background(NativeTheme.cyan).clipShape(Capsule())
                                 }
-                                Spacer()
-                                Text("Control").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 32).background(NativeTheme.cyan).clipShape(Capsule())
                             }
-                            .padding(14)
-                            .background(NativeProfileStyle.insetSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .buttonStyle(.plain)
+                            if let url = party.retrievedShareURL {
+                                Button(action: {
+                                    nativeImpactLight()
+                                    _ = NativePartyShareLink.share(url)
+                                }) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 14, weight: .black))
+                                        .foregroundColor(NativeTheme.purple)
+                                        .frame(width: 40, height: 40)
+                                        .background(NativeTheme.purple.opacity(0.14))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Share \(party.title)")
+                                .accessibilityIdentifier("native-hosted-room-share-\(party.id)")
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(14)
+                        .background(NativeProfileStyle.insetSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .accessibilityIdentifier("native-hosted-room-\(party.id)")
                     }
                 }

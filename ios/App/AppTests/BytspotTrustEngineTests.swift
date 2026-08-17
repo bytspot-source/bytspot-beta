@@ -707,6 +707,13 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "Nearby")
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: .midtown).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .verifiedMidtown, locality: "Atlanta"), "Atlanta")
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Douglasville"), "Douglas…")
+        XCTAssertEqual(NativeCityBadge.format("City of Atlanta"), "Atlanta")
+        XCTAssertEqual(NativeCityBadge.format("Atlanta Metropolitan Area"), "Atlanta")
+        XCTAssertEqual(NativeCityBadge.format("Atlanta, Georgia, United States"), "Atlanta")
+        XCTAssertEqual(NativeCityBadge.format("A very long city name"), "A very long…")
+        XCTAssertEqual(NativeCityBadge.headerPill("Douglasville"), "Douglas…")
+        XCTAssertEqual(NativeCityBadge.headerPill("Decatur"), "Decatur")
     }
 
     @MainActor
@@ -1207,6 +1214,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: seattle, defaults: defaults))
         NativeMapFocusHandoff.store(venue: venue, locationScopeOrigin: .midtown, defaults: defaults)
         XCTAssertFalse(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+    }
+
+    func testAppleMapsHandoffBuildsDrivingDirectionsAndFailsClosedWithoutCoordinates() {
+        let url = NativeAppleMapsHandoff.directionsURL(latitude: 33.7870, longitude: -84.3830)
+        XCTAssertEqual(url?.absoluteString, "http://maps.apple.com/?daddr=33.787,-84.383&dirflg=d")
+        XCTAssertNil(NativeAppleMapsHandoff.directionsURL(latitude: 0, longitude: 0))
+        XCTAssertNil(NativeAppleMapsHandoff.directionsURL(latitude: .nan, longitude: -84.3830))
+        XCTAssertTrue(NativeDiscoverCardIntent.tapOpensDirections(selectedFilter: "nightlife", hasRouteVenue: true))
+        XCTAssertFalse(NativeDiscoverCardIntent.tapOpensDirections(selectedFilter: nil, hasRouteVenue: true))
+        XCTAssertFalse(NativeDiscoverCardIntent.tapOpensDirections(selectedFilter: "nightlife", hasRouteVenue: false))
     }
 
     @MainActor

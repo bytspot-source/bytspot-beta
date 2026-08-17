@@ -342,7 +342,7 @@ struct BytspotNativeShellView: View {
                     case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in _ = NativeAppleMapsHandoff.openDirections(to: venue) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
                             .environmentObject(pairingStore)
@@ -4927,14 +4927,65 @@ enum NativeHomeCopyContract {
     }
 }
 
+enum NativeCityBadge {
+    static let fallback = "Nearby"
+    /// 72pt header pill + pin icon cannot hold a raw 12-letter suburb.
+    static let headerPillMaxCharacters = 8
+    static let compactMaxCharacters = 12
+
+    static func format(_ city: String?, maxCharacters: Int = compactMaxCharacters) -> String {
+        var cleaned = (city ?? "")
+            .replacingOccurrences(of: #"(?i)^city of\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\s+(metropolitan area|metro area|metropolitan district|metro district|county|municipality|region|province|state)$"#, with: "", options: .regularExpression)
+        if let comma = cleaned.firstIndex(of: ",") {
+            cleaned = String(cleaned[..<comma])
+        }
+        cleaned = cleaned.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return fallback }
+        if cleaned.count > maxCharacters {
+            return String(cleaned.prefix(maxCharacters - 1)) + "…"
+        }
+        return cleaned
+    }
+
+    static func headerPill(_ city: String?) -> String {
+        format(city, maxCharacters: headerPillMaxCharacters)
+    }
+}
+
+enum NativeAppleMapsHandoff {
+    static func directionsURL(latitude: Double, longitude: Double) -> URL? {
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
+        return URL(string: "http://maps.apple.com/?daddr=\(latitude),\(longitude)&dirflg=d")
+    }
+
+    @MainActor
+    @discardableResult
+    static func openDirections(to venue: NativeVenueSummary) -> Bool {
+        guard venue.hasKnownCoordinates,
+              let url = directionsURL(latitude: venue.latitude, longitude: venue.longitude) else { return false }
+        UIApplication.shared.open(url)
+        return true
+    }
+}
+
+enum NativeDiscoverCardIntent {
+    /// A selected category rail is destination intent: tap/swipe opens Apple Maps.
+    /// The All rail stays card-detail-first.
+    static func tapOpensDirections(selectedFilter: String?, hasRouteVenue: Bool) -> Bool {
+        selectedFilter != nil && hasRouteVenue
+    }
+}
+
 enum NativeHomeRegionPresentation {
     static func isAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
 
     static func cityBadge(for location: NativeLocationCoordinate, locality: String? = nil) -> String {
-        let resolved = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return resolved.isEmpty ? "Nearby" : resolved
+        NativeCityBadge.headerPill(locality)
     }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
@@ -5811,6 +5862,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
+        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
         NativeOnboardingMapHandoff.write(destination: venue.name, mode: venue.discoverType == "parking" ? "Smart Parking" : "Route")
         openNativeTab(.map)
     }
@@ -7879,6 +7931,7 @@ private struct NativeParkingBookingSheet: View {
     private func openVenueOnNativeMap() {
         guard venue.hasKnownCoordinates else { NativeMapFocusHandoff.clear(); return }
         nativeImpactLight()
+        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
         NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
@@ -9765,7 +9818,15 @@ private struct NativeDiscoverView: View {
                         card: card,
                         isSaved: savedCardIDs.contains(card.id),
                         primaryCTATitle: primaryTitle(for: card),
-                        openDetails: { detailVenue = venueForDetail(card) },
+                        openDetails: {
+                            // A selected category rail is destination intent: tap/swipe
+                            // opens Apple Maps. The All rail stays card-detail-first.
+                            if NativeDiscoverCardIntent.tapOpensDirections(selectedFilter: selectedFilter, hasRouteVenue: routeVenue != nil), let routeVenue {
+                                openRoute(to: routeVenue)
+                            } else {
+                                detailVenue = venueForDetail(card)
+                            }
+                        },
                         primaryAction: { handlePrimaryCTA(card) },
                         routeAction: routeVenue.map { venue in { openRoute(to: venue) } },
                         toggleFavorite: { toggleSaved(card.id) },
@@ -11147,6 +11208,7 @@ private struct NativeVenueDetailView: View {
 
     private func openVenueOnNativeMap() {
         nativeImpactLight()
+        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
         NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }

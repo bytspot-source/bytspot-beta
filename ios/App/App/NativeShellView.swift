@@ -4961,10 +4961,19 @@ enum NativeAppleMapsHandoff {
         return URL(string: "http://maps.apple.com/?daddr=\(latitude),\(longitude)&dirflg=d")
     }
 
+    enum Disposition: Equatable {
+        case openAppleMaps
+        case failClosed
+    }
+
+    static func disposition(for venue: NativeVenueSummary) -> Disposition {
+        venue.hasKnownCoordinates ? .openAppleMaps : .failClosed
+    }
+
     @MainActor
     @discardableResult
     static func openDirections(to venue: NativeVenueSummary) -> Bool {
-        guard venue.hasKnownCoordinates,
+        guard disposition(for: venue) == .openAppleMaps,
               let url = directionsURL(latitude: venue.latitude, longitude: venue.longitude) else { return false }
         UIApplication.shared.open(url)
         return true
@@ -5862,9 +5871,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
-        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
-        NativeOnboardingMapHandoff.write(destination: venue.name, mode: venue.discoverType == "parking" ? "Smart Parking" : "Route")
-        openNativeTab(.map)
+        _ = NativeAppleMapsHandoff.openDirections(to: venue)
     }
 
     private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
@@ -7929,12 +7936,8 @@ private struct NativeParkingBookingSheet: View {
     }
 
     private func openVenueOnNativeMap() {
-        guard venue.hasKnownCoordinates else { NativeMapFocusHandoff.clear(); return }
         nativeImpactLight()
-        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
-        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
+        _ = NativeAppleMapsHandoff.openDirections(to: venue)
     }
 
     private func runPreviewAutoconfirmIfNeeded() {
@@ -11021,6 +11024,7 @@ private struct NativeVenueDetailView: View {
         }
         return priorityIDs
             .filter { $0 != "navigate" || NativeLocationAwareUIContent.hasKnownCoordinates(venue) }
+            .filter { $0 != "bookRide" || NativeLocationAwareUIContent.hasKnownCoordinates(venue) }
             .compactMap { id in NativeVenueDetailContract.actions.first(where: { $0.id == id }) }
     }
 
@@ -11208,10 +11212,7 @@ private struct NativeVenueDetailView: View {
 
     private func openVenueOnNativeMap() {
         nativeImpactLight()
-        if NativeAppleMapsHandoff.openDirections(to: venue) { return }
-        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { openNativeTab?(.map) }
+        _ = NativeAppleMapsHandoff.openDirections(to: venue)
     }
 
     private func openStayBookingFlow() {

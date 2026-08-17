@@ -372,6 +372,65 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Events Worth Leaving For", category: "entertainment", address: "Shows and event experiences")), "Get Tickets")
     }
 
+    // MARK: - Discover card control gate (local vs vendor)
+
+    func testDiscoverControlGateOnlyControlsCanonicalVendorsAndRealPatches() {
+        // Canonical vendor IDs are controlled.
+        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
+        // Local dining/coverage/Google-shaped IDs are not.
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "dinner-vibe"))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "coverage-dining-1-dinner-vibe"))
+        // A real hardware patch controls the venue; the DISCOVER-VERIFIED pseudo-badge does not.
+        XCTAssertTrue(NativeDiscoverCardControl.isControlled(venue: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: venue(name: "Local Diner", category: "dining", address: "Somewhere", patchId: "DISCOVER-VERIFIED")))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: venue(name: "Local Diner", category: "dining", address: "Somewhere", patchId: nil)))
+    }
+
+    func testLocalDiningVenueNeverEarnsMenuChrome() {
+        let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
+        let localDiner = venue(name: "Local Diner", category: "dining", address: "Open now")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: localDiner), "Plan Dining")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: primaryAction, venue: localDiner), "fork.knife")
+        let section = NativeVenueDetailPresentation.detailSection(for: localDiner)
+        XCTAssertEqual(section?.title, "Good for")
+        XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true, "Local dining must not advertise menu items.")
+    }
+
+    func testControlledDiningVenueKeepsMenuChrome() {
+        let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
+        let patchDiner = venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: patchDiner), "View Menu")
+        XCTAssertEqual(NativeVenueDetailPresentation.detailSection(for: patchDiner)?.title, "Included")
+    }
+
+    func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
+        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
+        XCTAssertTrue(NativeTabContentSnapshot.canonicalMobilityCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
+        XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
+    }
+
+    func testServicesRailOnlyListsControlledVendorCards() {
+        let snapshot = NativeTabContentSnapshot.fallback
+        let services = NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service")
+        XCTAssertFalse(services.isEmpty)
+        XCTAssertTrue(services.allSatisfy { $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) })
+    }
+
+    @MainActor
+    func testLocationAwareDistanceRebuildPreservesVendorControl() {
+        let midtown = NativeLocationCoordinate.verifiedMidtown
+        let patchVenue = NativeVenueSummary(id: "patch-diner", name: "Patch Diner", category: "restaurant", address: "Midtown", distance: "—", rating: 4.8, latitude: midtown.latitude + 0.002, longitude: midtown.longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)
+        let patchCard = NativeDiscoverSummary(id: "venue-patch-diner", type: "dining", title: "Patch Diner", subtitle: "Midtown", distance: "—", rating: "4.8", icon: "fork.knife", verified: true, entryType: "free", cta: "View Menu", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 8, availability: "Open", membershipRequired: false, control: NativeDiscoverCardControl.vendor)
+
+        let rebuilt = NativeTabContentStore.locationAwareCards([patchCard], sourceVenues: [patchVenue], location: midtown)
+
+        let card = rebuilt.first { $0.id == patchCard.id }
+        XCTAssertNotNil(card, "A nearby patch venue card must survive location-aware filtering.")
+        XCTAssertNotEqual(card?.distance, "—", "Distance must be recalculated from the source venue.")
+        XCTAssertEqual(card?.control, NativeDiscoverCardControl.vendor, "Distance rebuild must not drop vendor control from a patch-verified venue card.")
+    }
+
     func testVenueDetailHeaderBadgesStayConsumerFacing() {
         XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: nil)))
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: "DISCOVER-VERIFIED")), "DINING")

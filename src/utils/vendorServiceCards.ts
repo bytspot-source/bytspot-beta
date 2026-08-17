@@ -76,7 +76,8 @@ export const curatedServiceRecommendationCards: DiscoverCard[] = [
   vendorServiceId: String(id),
   vendorId: `vendor-${String(id)}`,
   vendorServiceStatus: 'active',
-    curatedFallback: true,
+  curatedFallback: true,
+  control: 'local',
 }) as DiscoverCard);
 
 function formatRequestStatus(status: VirtualPatchSavedServiceRequest['status']): string {
@@ -103,6 +104,11 @@ export function savedServiceRequestToCard(
     request.booking?.partySize ? `${request.booking.partySize} guests` : null,
   ].filter((feature): feature is string => Boolean(feature));
 
+  // Fail-closed: only requests backed by a live vendor service (real vendor +
+  // real service id from the live registry) earn vendor control. Venue-scoped
+  // and fallback scanner requests stay Mode A — no Book chrome, no checkout.
+  const liveVendorBacked = request.source === 'live' && Boolean(request.vendorId) && Boolean(request.serviceId);
+
   return {
     id: stableNumericId(request.id, 40_000 + index),
     type: 'service',
@@ -115,9 +121,11 @@ export function savedServiceRequestToCard(
     location: request.vendorName,
     features,
     verified: false,
-    vendorServiceId: request.id,
-    vendorId: request.vendorId ?? undefined,
+    vendorServiceId: liveVendorBacked ? request.serviceId ?? request.id : undefined,
+    vendorId: liveVendorBacked ? request.vendorId ?? undefined : undefined,
     vendorServiceStatus: 'active',
+    discoverSource: liveVendorBacked ? 'bytspot_vendor' : undefined,
+    control: liveVendorBacked ? 'vendor' : 'local',
   } as DiscoverCard;
 }
 
@@ -178,5 +186,6 @@ export function vendorServiceToCard(
     platformFeeCents: service.cashFlow?.platformFeeCents,
     providerPayoutEstimateCents: service.cashFlow?.providerPayoutEstimateCents,
     vendorServiceStatus: 'active',
+    control: 'vendor',
   } as DiscoverCard;
 }

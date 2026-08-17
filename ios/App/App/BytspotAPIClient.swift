@@ -1812,10 +1812,11 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let vibeScore: Int
     let availability: String
     let membershipRequired: Bool
+    let control: String
     let latitude: Double?
     let longitude: Double?
 
-    init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, latitude: Double? = nil, longitude: Double? = nil) {
+    init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = id
         self.type = type
         self.title = title
@@ -1834,6 +1835,7 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
         self.vibeScore = vibeScore
         self.availability = availability
         self.membershipRequired = membershipRequired
+        self.control = control
         self.latitude = latitude
         self.longitude = longitude
     }
@@ -1841,6 +1843,27 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     var hasKnownCoordinates: Bool {
         guard let latitude, let longitude else { return false }
         return NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude)
+    }
+}
+
+/// Controlled-vendor gate for the Discover card contract. A card or venue is
+/// Bytspot-controlled (Mode B: menus, booking, checkout chrome) only when it
+/// is a canonical Bytspot vendor or carries a real hardware patch. The
+/// "DISCOVER-VERIFIED" pseudo-badge and every Google/Apple/Ticketmaster,
+/// coverage-clone, or curated card stays local (Mode A: details + route only).
+enum NativeDiscoverCardControl {
+    static let local = "local"
+    static let vendor = "vendor"
+
+    /// Canonical Bytspot-controlled listings shipped in the binary.
+    static let controlledCardIDs: Set<String> = ["broni-home-taste", "gh-akwaaba-pass", "service-valet-ride", "group-transport", "broni"]
+
+    static func isControlled(cardID: String) -> Bool { controlledCardIDs.contains(cardID) }
+
+    static func isControlled(venue: NativeVenueSummary) -> Bool {
+        if controlledCardIDs.contains(venue.id) { return true }
+        guard let patch = venue.verifiedPatchId?.trimmingCharacters(in: .whitespacesAndNewlines), !patch.isEmpty else { return false }
+        return patch.uppercased() != "DISCOVER-VERIFIED"
     }
 }
 
@@ -2529,7 +2552,9 @@ final class NativeTabContentStore: ObservableObject {
         let prefixes = ["Best", "Nearby", "For you", "Tonight", "Popular", "Local", "Worth it", "Quick pick"]
         let prefix = prefixes[(index - 1) % prefixes.count]
         let live = template.badgeText.localizedCaseInsensitiveContains("LIVE") || template.metadataLine.localizedCaseInsensitiveContains("API")
-        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired, latitude: template.latitude, longitude: template.longitude)
+        // Coverage clones are synthetic rail filler: never controlled, even when
+        // cloned from a vendor card, so they can't inherit menu/booking chrome.
+        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired, control: NativeDiscoverCardControl.local, latitude: template.latitude, longitude: template.longitude)
     }
 
     private static func categoryStarterCard(type: String, index: Int) -> NativeDiscoverSummary? {
@@ -2587,6 +2612,7 @@ final class NativeTabContentStore: ObservableObject {
                 vibeScore: vibe,
                 availability: venue.crowd?.label ?? "Open",
                 membershipRequired: false,
+                control: NativeDiscoverCardControl.isControlled(venue: venue) ? NativeDiscoverCardControl.vendor : NativeDiscoverCardControl.local,
                 latitude: venue.latitude,
                 longitude: venue.longitude
             )
@@ -2712,7 +2738,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, latitude: card.latitude, longitude: card.longitude)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
         }
     }
 
@@ -2800,6 +2826,7 @@ final class NativeTabContentStore: ObservableObject {
             vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
             availability: string(item, ["availability"]) ?? "Available now",
             membershipRequired: true,
+            control: NativeDiscoverCardControl.vendor,
             latitude: double(item, ["lat", "latitude"]) ?? double(vendor, ["lat", "latitude"]),
             longitude: double(item, ["lng", "longitude"]) ?? double(vendor, ["lng", "longitude"])
         )
@@ -3112,13 +3139,13 @@ extension NativeTabContentSnapshot {
     ]
 
     static let canonicalMobilityCards = [
-        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot + Elife · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true),
-        NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true)
+        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot + Elife · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
+        NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
     ]
 
     static let canonicalServiceCards = [
-        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "Ghanaian comfort food, ready for pickup or delivery.", distance: "Service", rating: "4.9", icon: "fork.knife", verified: true, entryType: "paid", cta: "View Menu", imageUrl: URL(string: "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Dining", badgeText: "Dining", metadataLine: "From $21 • Available now", features: ["Jollof + chicken", "Banku + tilapia", "Family-style portions"], vibeScore: 9, availability: "Available now", membershipRequired: true),
-        NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true)
+        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "Ghanaian comfort food, ready for pickup or delivery.", distance: "Service", rating: "4.9", icon: "fork.knife", verified: true, entryType: "paid", cta: "View Menu", imageUrl: URL(string: "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Dining", badgeText: "Dining", metadataLine: "From $21 • Available now", features: ["Jollof + chicken", "Banku + tilapia", "Family-style portions"], vibeScore: 9, availability: "Available now", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
+        NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
     ]
 
     static let specialDiscoverCards = canonicalMobilityCards + canonicalServiceCards

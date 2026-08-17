@@ -4,7 +4,7 @@ import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket, Cred
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
-import { type DiscoverCard, type CardType } from '../utils/mockData';
+import { type DiscoverCard, type CardType, discoverCardControl } from '../utils/mockData';
 import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
@@ -45,6 +45,7 @@ function getTypeColor(type: CardType): string {
     case 'entertainment': return 'from-violet-500 to-purple-500';
     case 'fitness': return 'from-green-500 to-emerald-500';
     case 'service': return 'from-cyan-400 to-violet-500';
+    case 'mobility': return 'from-sky-500 to-cyan-500';
     default: return 'from-gray-500 to-gray-600';
   }
 }
@@ -65,6 +66,7 @@ function normalizeCardType(type: string | null | undefined): CardType | null {
     'entertainment',
     'fitness',
     'service',
+    'mobility',
   ];
 
   return validTypes.includes(normalized as CardType)
@@ -112,26 +114,20 @@ function getDiscoverMatchQuery(): string {
   ].filter(Boolean).join(' ');
 }
 
+/**
+ * Mode B gate for the Services rail and Book chrome. Only Bytspot-controlled
+ * vendor cards (real vendor + service/patch, vendor-sourced, not curated)
+ * qualify. Curated fixtures and service-shaped local cards render Mode A.
+ */
 function isVendorServiceCard(card: DiscoverCard): boolean {
   if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return false;
   const status = cardField<string>(card, serviceStatusKey);
-  return Boolean(cardField<string>(card, serviceIdKey) && status !== 'draft' && status !== 'archived');
+  if (status === 'draft' || status === 'archived') return false;
+  return discoverCardControl(card) === 'vendor';
 }
 
 function isCheckoutBackedServiceCard(card: DiscoverCard): boolean {
   return isVendorServiceCard(card) && cardField<boolean>(card, curatedFallbackKey) !== true;
-}
-
-function isCottageServiceFallbackCard(card: DiscoverCard): boolean {
-  if (isVendorServiceCard(card)) return false;
-  const type = normalizeCardType(card.type);
-  if (type === 'dining' || type === 'fitness' || type === 'entertainment') return true;
-
-  const searchable = [card.name, card.description, card.location, ...(card.features ?? [])]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return ['chef', 'massage', 'wellness', 'service', 'private', 'cottage'].some((term) => searchable.includes(term));
 }
 
 function hasCheckoutAuth(): boolean {
@@ -381,7 +377,10 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
               </>
             ) : (
               <>
-                {card.description && (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>{card.description}</p>)}
+                {/* Boutique stays hide the street address until a booking exists. */}
+                {card.type === 'boutique_apartment'
+                  ? (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white/80 drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>Location shown after booking</p>)
+                  : card.description && (<p className="text-[13px] line-clamp-2 flex-shrink-0 text-white drop-shadow-sm shadow-black" style={{ fontWeight: 500 }}>{card.description}</p>)}
                 {card.entryType === 'paid' && (
                   <div className="flex flex-wrap gap-1.5 flex-shrink-0">
                     <div className="px-2.5 py-1 rounded-full border bg-amber-500/10 border-amber-400/25">
@@ -500,9 +499,6 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   const serviceDiscoveryHidden = APP_STORE_CONSUMER_ONLY_COMPILE_TIME || APPLE_REVIEW_HIDE_PROVIDER_AND_VALET;
   const vendorServiceCards = serviceDiscoveryHidden ? [] : cards.filter(isVendorServiceCard);
   const standardDeckCards = serviceDiscoveryHidden ? cards.filter(card => card.type !== 'service') : cards.filter(card => !isVendorServiceCard(card));
-  const cottageServiceFallbackCards = appliedFilter === 'service' && vendorServiceCards.length === 0
-    ? standardDeckCards.filter(isCottageServiceFallbackCard).slice(0, 8)
-    : [];
   const defaultDeckCards = standardDeckCards;
   const hasLiveVenueCards = cards.length > 0;
   const isSurfaceLoading = (isEventSurface && eventsLoading) || (!isEventSurface && loading);
@@ -539,10 +535,12 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
   };
 
   // 1. Category filter
+  // Services is a vendor rail: only controlled vendor cards, never a cottage
+  // fallback of dining/fitness/lookalike local cards.
   let filteredCards = isEventSurface
     ? eventCards
     : appliedFilter === 'service'
-      ? vendorServiceCards.length > 0 ? vendorServiceCards : cottageServiceFallbackCards
+      ? vendorServiceCards
     : appliedFilter
       ? standardDeckCards.filter(card => normalizeCardType(card.type) === appliedFilter)
       : defaultDeckCards;
@@ -800,8 +798,8 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       setSelectedValetService(valetService);
     } else if (card.type === 'venue' || card.type === 'coffee' || card.type === 'dining' ||
                card.type === 'shopping' || card.type === 'boutique_apartment' || card.type === 'nightlife' || card.type === 'entertainment' ||
-               card.type === 'fitness') {
-      // Show venue details
+               card.type === 'fitness' || card.type === 'mobility' || card.type === 'service') {
+      // Show venue details (local service-shaped cards get Mode A details, not checkout)
       setSelectedVenue(card);
     }
   };
@@ -955,6 +953,7 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
           {([
             { label: 'All',    value: null },
             { label: '🏡 Boutique Stay', value: 'boutique_apartment' },
+            { label: '🚘 Mobility', value: 'mobility' as CardType },
             { label: '🍸 Nightlife',    value: 'nightlife' },
             { label: '🍽️ Dining',       value: 'dining' },
             { label: '☕ Coffee',        value: 'coffee' },

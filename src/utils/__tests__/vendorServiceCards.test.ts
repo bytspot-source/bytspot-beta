@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
-import { vendorServiceToCard } from '../vendorServiceCards.ts';
+import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorServiceToCard } from '../vendorServiceCards.ts';
+import { discoverCardControl } from '../mockData/discover.ts';
 
 test('vendorServiceToCard maps patch-verified services into paid discover cards', () => {
   const card = vendorServiceToCard({
@@ -34,6 +35,47 @@ test('vendorServiceToCard maps patch-verified services into paid discover cards'
   assert.ok(card.features?.includes('Patch-verified'));
   assert.ok(card.features?.includes('Connect-ready provider'));
   assert.equal(card.platformFeeCents, 1200);
+  assert.equal(card.control, 'vendor');
+  assert.equal(discoverCardControl(card), 'vendor');
+});
+
+test('discoverCardControl keeps curated fixtures and local places out of vendor mode', () => {
+  for (const curated of curatedServiceRecommendationCards) {
+    assert.equal(curated.control, 'local');
+    assert.equal(discoverCardControl(curated), 'local', `${curated.name} must not earn Book chrome`);
+  }
+  // Google place shape: no vendor fields at all.
+  assert.equal(discoverCardControl({ id: 20_001, type: 'dining', name: 'Local Diner', image: 'x.jpg', distance: '0.3 mi', placeId: 'gp-1' } as never), 'local');
+  // vendorId without a service or patch is still local.
+  assert.equal(discoverCardControl({ id: 9, type: 'service', name: 'Half-wired vendor', image: 'x.jpg', distance: '1 mi', vendorId: 'vendor-9', discoverSource: 'bytspot_vendor' } as never), 'local');
+});
+
+test('saved virtual-patch requests only earn vendor control when live-vendor backed', () => {
+  const base = {
+    id: 'req-1',
+    kind: 'service' as const,
+    vendorName: 'Scanner Vendor',
+    serviceName: 'Table Service',
+    actionLabel: 'Request',
+    status: 'requested' as const,
+    requestedAt: new Date().toISOString(),
+  };
+
+  // Fallback scanner request with a synthetic vendorId must stay local.
+  const fallback = savedServiceRequestToCard({ ...base, vendorId: 'fallback-vendor-1', source: 'fallback' } as never, 0);
+  assert.equal(fallback.control, 'local');
+  assert.equal(discoverCardControl(fallback), 'local');
+  assert.equal(fallback.vendorServiceId, undefined);
+
+  // Venue-scoped request (vendorId = venueId) must stay local.
+  const venueScoped = savedServiceRequestToCard({ ...base, id: 'req-2', vendorId: 'venue-77', source: 'venue' } as never, 1);
+  assert.equal(venueScoped.control, 'local');
+  assert.equal(discoverCardControl(venueScoped), 'local');
+
+  // Live registry request with real vendor + service ids earns vendor control.
+  const live = savedServiceRequestToCard({ ...base, id: 'req-3', vendorId: 'vendor-1', serviceId: 'svc-9', source: 'live' } as never, 2);
+  assert.equal(live.control, 'vendor');
+  assert.equal(live.vendorServiceId, 'svc-9');
 });
 
 test('Simplex ranking consumes attached live vendor match documents without generic card flattening', () => {

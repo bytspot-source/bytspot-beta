@@ -2916,7 +2916,9 @@ struct ClipCheckoutView: View {
     }
 
     private var checkoutLineItems: [ClipLineItem] {
-        vendor.items?.filter { !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
+        // Mode B only: local fallback listings never expose vendor line items.
+        guard vendor.isControlledVendor else { return [] }
+        return vendor.items?.filter { !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? []
     }
 
     private var hasLineItems: Bool { !checkoutLineItems.isEmpty }

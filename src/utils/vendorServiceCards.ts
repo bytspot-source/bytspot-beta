@@ -76,7 +76,8 @@ export const curatedServiceRecommendationCards: DiscoverCard[] = [
   vendorServiceId: String(id),
   vendorId: `vendor-${String(id)}`,
   vendorServiceStatus: 'active',
-    curatedFallback: true,
+  curatedFallback: true,
+  control: 'local',
 }) as DiscoverCard);
 
 function formatRequestStatus(status: VirtualPatchSavedServiceRequest['status']): string {
@@ -118,6 +119,8 @@ export function savedServiceRequestToCard(
     vendorServiceId: request.id,
     vendorId: request.vendorId ?? undefined,
     vendorServiceStatus: 'active',
+    discoverSource: 'bytspot_vendor',
+    control: request.vendorId ? 'vendor' : 'local',
   } as DiscoverCard;
 }
 
@@ -178,5 +181,6 @@ export function vendorServiceToCard(
     platformFeeCents: service.cashFlow?.platformFeeCents,
     providerPayoutEstimateCents: service.cashFlow?.providerPayoutEstimateCents,
     vendorServiceStatus: 'active',
+    control: 'vendor',
   } as DiscoverCard;
 }

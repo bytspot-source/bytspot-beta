@@ -2,8 +2,9 @@
 
 import type { BytspotProviderSource, BytspotVendorMatchDocument } from '../vendorMatching.ts';
 
-export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service' | 'boutique_apartment';
+export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service' | 'boutique_apartment' | 'mobility';
 export type DiscoverCardSource = Extract<BytspotProviderSource, 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated'>;
+export type DiscoverCardControl = 'local' | 'vendor';
 
 export interface DiscoverCard {
   id: number;
@@ -65,6 +66,23 @@ export interface DiscoverCard {
   platformFeeCents?: number;
   vendorServiceStatus?: 'active' | 'draft' | 'archived';
   curatedFallback?: boolean;
+  control?: DiscoverCardControl;
+}
+
+/**
+ * A card is Bytspot-controlled (Mode B) only when every controlled-gate signal
+ * agrees: a real vendor, a real service or patch, vendor-sourced, and not a
+ * curated fixture. Everything else — Google/Apple places, Ticketmaster,
+ * Typical catalog, coverage clones, cottage lookalikes — is local (Mode A).
+ * Only controlled cards may enter menu / booking / checkout flows.
+ */
+export function discoverCardControl(card: DiscoverCard): DiscoverCardControl {
+  if (card.control) return card.control;
+  if (card.curatedFallback === true) return 'local';
+  if (card.discoverSource !== 'bytspot_vendor') return 'local';
+  if (!card.vendorId) return 'local';
+  if (!card.vendorServiceId && !card.patchId) return 'local';
+  return 'vendor';
 }
 
 export const discoverCards: DiscoverCard[] = [];

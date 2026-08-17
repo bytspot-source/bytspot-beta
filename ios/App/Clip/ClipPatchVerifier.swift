@@ -388,6 +388,12 @@ struct ClipVendor: Identifiable, Equatable {
     let serviceId: String
     let media: ClipVendorMedia?
     let items: [ClipLineItem]?
+    /// Discover card contract: "vendor" = Bytspot-controlled listing (live API
+    /// row or canonical Broni/Akwaaba product) that may show line items and
+    /// checkout. "local" = synthetic fallback pool — details only.
+    var control: String = "local"
+
+    var isControlledVendor: Bool { control == "vendor" }
     var videoURL: URL? = nil
     var thumbnailURL: URL? = nil
     var heroBannerURL: URL? = nil
@@ -640,7 +646,8 @@ struct ClipVendor: Identifiable, Equatable {
                 includedHighlights: entry.2,
                 serviceId: service.id,
                 media: Self.previewMedia(service: service, index: idx, posterFallback: productHeroURL),
-                items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : isBroniHomeTaste ? ClipLineItem.broniHomeTasteFavorites : nil
+                items: isGhAkwaabaProduct ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : isBroniHomeTaste ? ClipLineItem.broniHomeTasteFavorites : nil,
+                control: (isGhAkwaabaProduct || isBroniHomeTaste) ? "vendor" : "local"
             )
             return enrichVendor(vendor, service: service, tier: tier, index: idx)
         }
@@ -1222,7 +1229,8 @@ struct ClipPatchVerifier {
             includedHighlights: highlights,
             serviceId: service.id,
             media: media,
-            items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems
+            items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems,
+            control: "vendor"
         )
         let rowVideo = Self.url(row["videoUrl"])
             ?? Self.url(row["videoURL"])

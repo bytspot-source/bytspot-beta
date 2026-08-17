@@ -4702,6 +4702,12 @@ enum NativeLocationAwareUIContent {
 
     static func discoverCards(in snapshot: NativeTabContentSnapshot, matching type: String? = nil) -> [NativeDiscoverSummary] {
         guard let type else { return snapshot.discoverCards }
+        // Services is a vendor rail: only Bytspot-controlled listings qualify.
+        // Service-shaped local cards (cottage lookalikes, coverage clones)
+        // never earn Book chrome, so they don't earn the rail either.
+        if type == "service" {
+            return snapshot.discoverCards.filter { $0.type == type && ($0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id)) }
+        }
         return snapshot.discoverCards.filter { $0.type == type }
     }
 
@@ -5838,7 +5844,10 @@ private struct NativeHomeDashboardView: View {
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
         if card.categoryLabel.localizedCaseInsensitiveContains("Pass") || card.title.localizedCaseInsensitiveContains("Pass") { return "View Pass" }
-        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") || card.cta.localizedCaseInsensitiveContains("Menu") { return "View Menu" }
+        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") || card.cta.localizedCaseInsensitiveContains("Menu") {
+            // View Menu is Mode B chrome — local dining plans the stop instead.
+            return card.control == NativeDiscoverCardControl.vendor ? "View Menu" : "Plan Dining"
+        }
         return card.cta.isEmpty || card.cta == "Open details" ? "Details" : card.cta
     }
 
@@ -9564,8 +9573,11 @@ private struct NativeDiscoverView: View {
         let vibeScore: Int
         let availability: String
         let membershipRequired: Bool
+        var control: String = NativeDiscoverCardControl.local
         let latitude: Double?
         let longitude: Double?
+
+        var isControlledVendor: Bool { control == NativeDiscoverCardControl.vendor }
     }
 
     static let categoryLabels = ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"]
@@ -9883,7 +9895,7 @@ private struct NativeDiscoverView: View {
     }
 
     private static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
-        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, latitude: card.latitude, longitude: card.longitude)
+        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
@@ -9907,7 +9919,7 @@ private struct NativeDiscoverView: View {
             performManualCheckIn(from: venue)
             return
         }
-        if Self.isDiningCard(card) || NativeVenueDetailPresentation.isDiningVenue(venue) {
+        if Self.isDiningCard(card) {
             partnerMenuVenue = venue
         } else {
             detailVenue = venue
@@ -9968,8 +9980,12 @@ private struct NativeDiscoverView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    /// Menu access is Mode B chrome: only a Bytspot-controlled dining vendor
+    /// may open the partner menu. Local dining (Google, coverage clones,
+    /// Typical catalog) gets the detail sheet — Details + Route only.
     private static func isDiningCard(_ card: DiscoverCardSpec) -> Bool {
-        card.type == "dining"
+        guard card.isControlledVendor || NativeDiscoverCardControl.isControlled(cardID: card.id) else { return false }
+        return card.type == "dining"
             || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
             || card.cta.localizedCaseInsensitiveContains("Menu")
     }
@@ -11076,7 +11092,13 @@ private struct NativeVenueDetailView: View {
             return
         }
         if action.id == "getTickets", NativeVenueDetailPresentation.isDiningVenue(venue) {
-            showPartnerMenu = true
+            // Mode B only: local dining venues never open the sample partner
+            // menu — they stay on the detail sheet's Details + Route surface.
+            if NativeDiscoverCardControl.isControlled(venue: venue) {
+                showPartnerMenu = true
+            } else {
+                statusMessage = "Menus are not available for \(venue.name) yet. Use Directions or Contact to plan the stop."
+            }
             return
         }
         guard sessionStore.isAuthenticated else {

@@ -77,6 +77,7 @@ function mapCategory(category: string): CardType {
     gym: 'fitness',
     coffee: 'coffee',
     cafe: 'coffee',
+    mobility: 'mobility',
   };
   return map[normalized] || 'venue';
 }
@@ -120,6 +121,7 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     price: v.parking.spots[0] ? `$${v.parking.spots[0].pricePerHr}/hr` : undefined,
     spots: v.parking.totalAvailable || undefined,
     verified: true,
+    control: 'local',
     // Entry type — pass through from API or default to 'free'
     entryType: (v as any).entryType || 'free',
     entryPrice: (v as any).entryPrice || null,
@@ -137,7 +139,7 @@ const GOOGLE_TYPE_TO_CARD: Record<string, CardType> = {
   bar: 'nightlife', night_club: 'nightlife',
   clothing_store: 'shopping', shopping_mall: 'shopping',
   gym: 'fitness', movie_theater: 'entertainment', amusement_park: 'entertainment',
-  parking: 'parking',
+  parking: 'parking', lodging: 'boutique_apartment',
 };
 
 function googleTypeToCardType(types: string[], primaryType: string | null): CardType {
@@ -181,6 +183,7 @@ export function placeToCard(
     placeId: p.placeId,
     photoUrls: p.photoUrls,
     verified: false,
+    control: 'local',
     _lat: p.lat,
     _lng: p.lng,
   } as DiscoverCard;

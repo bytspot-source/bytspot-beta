@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
-import { vendorServiceToCard } from '../vendorServiceCards.ts';
+import { curatedServiceRecommendationCards, vendorServiceToCard } from '../vendorServiceCards.ts';
+import { discoverCardControl } from '../mockData/discover.ts';
 
 test('vendorServiceToCard maps patch-verified services into paid discover cards', () => {
   const card = vendorServiceToCard({
@@ -34,6 +35,19 @@ test('vendorServiceToCard maps patch-verified services into paid discover cards'
   assert.ok(card.features?.includes('Patch-verified'));
   assert.ok(card.features?.includes('Connect-ready provider'));
   assert.equal(card.platformFeeCents, 1200);
+  assert.equal(card.control, 'vendor');
+  assert.equal(discoverCardControl(card), 'vendor');
+});
+
+test('discoverCardControl keeps curated fixtures and local places out of vendor mode', () => {
+  for (const curated of curatedServiceRecommendationCards) {
+    assert.equal(curated.control, 'local');
+    assert.equal(discoverCardControl(curated), 'local', `${curated.name} must not earn Book chrome`);
+  }
+  // Google place shape: no vendor fields at all.
+  assert.equal(discoverCardControl({ id: 20_001, type: 'dining', name: 'Local Diner', image: 'x.jpg', distance: '0.3 mi', placeId: 'gp-1' } as never), 'local');
+  // vendorId without a service or patch is still local.
+  assert.equal(discoverCardControl({ id: 9, type: 'service', name: 'Half-wired vendor', image: 'x.jpg', distance: '1 mi', vendorId: 'vendor-9', discoverSource: 'bytspot_vendor' } as never), 'local');
 });
 
 test('Simplex ranking consumes attached live vendor match documents without generic card flattening', () => {

@@ -48,7 +48,7 @@ enum NativeVenueDetailPresentation {
         guard action.id == "getTickets" else { return action.title }
         if isCoffeeVenue(venue) { return "Plan Stop" }
         if isBoutiqueApartmentVenue(venue) { return "Check Dates" }
-        if isDiningVenue(venue) { return "View Menu" }
+        if isDiningVenue(venue) { return NativeDiscoverCardControl.isControlled(venue: venue) ? "View Menu" : "Plan Dining" }
         if isEventOrPassVenue(venue) { return venue.name.localizedCaseInsensitiveContains("pass") ? "View Pass" : "Get Tickets" }
         if isServiceVenue(venue) { return "Request Service" }
         if venue.discoverType == "parking" { return "Reserve" }
@@ -59,7 +59,7 @@ enum NativeVenueDetailPresentation {
         guard action.id == "getTickets" else { return action.systemImage }
         if isCoffeeVenue(venue) { return "figure.walk.circle.fill" }
         if isBoutiqueApartmentVenue(venue) { return "house.fill" }
-        if isDiningVenue(venue) { return "menucard.fill" }
+        if isDiningVenue(venue) { return NativeDiscoverCardControl.isControlled(venue: venue) ? "menucard.fill" : "fork.knife" }
         if isServiceVenue(venue) { return "checkmark.seal.fill" }
         if venue.discoverType == "parking" { return "parkingsign.circle.fill" }
         return action.systemImage
@@ -87,7 +87,11 @@ enum NativeVenueDetailPresentation {
             return NativeVenueDetailSection(title: "Good for", subtitle: "A low-key coffee stop matched for a quick walk, brunch, or a calm reset nearby.", systemImage: "cup.and.saucer.fill", highlights: ["Coffee", "Brunch", "Quick walk", "Low-key morning"])
         }
         if isDiningVenue(venue) {
-            return NativeVenueDetailSection(title: "Included", subtitle: venue.name.localizedCaseInsensitiveContains("broni") ? "Ghanaian comfort food, ready for pickup or delivery." : "Menu, pickup, and table options for this dining spot.", systemImage: "fork.knife", highlights: venue.name.localizedCaseInsensitiveContains("broni") ? ["Jollof + chicken", "Banku + tilapia", "Family-style portions", "Pickup or delivery"] : ["Menu preview", "Pickup options", "Group plans", "Ask Concierge"])
+            if NativeDiscoverCardControl.isControlled(venue: venue) {
+                return NativeVenueDetailSection(title: "Included", subtitle: venue.name.localizedCaseInsensitiveContains("broni") ? "Ghanaian comfort food, ready for pickup or delivery." : "Menu, pickup, and table options for this dining spot.", systemImage: "fork.knife", highlights: venue.name.localizedCaseInsensitiveContains("broni") ? ["Jollof + chicken", "Banku + tilapia", "Family-style portions", "Pickup or delivery"] : ["Menu preview", "Pickup options", "Group plans", "Ask Concierge"])
+            }
+            // Local dining: no menu-item highlights — hours, plans, and route only.
+            return NativeVenueDetailSection(title: "Good for", subtitle: "A dining stop matched to your plans. Check hours and route before you head out.", systemImage: "fork.knife", highlights: ["Dining", "Date night", "Group plans", "Ask Concierge"])
         }
         if isEventOrPassVenue(venue) {
             return NativeVenueDetailSection(title: "Included", subtitle: venue.name.localizedCaseInsensitiveContains("akwaaba") ? "Ghana matchday access, ready on your phone." : "Ticketing, arrival, and access details for this event.", systemImage: "ticket.fill", highlights: venue.name.localizedCaseInsensitiveContains("akwaaba") ? ["Fast-track entry", "VIP lounge access", "Digital pass delivery", "On-site host support"] : ["Tickets", "Entry details", "Arrival help", "Share pass"])

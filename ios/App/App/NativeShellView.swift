@@ -5190,13 +5190,27 @@ private struct NativeHomeDashboardView: View {
         NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: regionalSnapshot, launchPicksCompleted: launchPicksCompleted, launchPickCount: launchRecommendationPicks.count)
     }
 
+    private var typicalHomePlan: NativeCollapsePlan? {
+        NativeAtlantaCorridor.homePlan(
+            at: locationStore.coordinate,
+            hour: Calendar.current.component(.hour, from: headerNow),
+            vibeTokens: NativeAtlantaCorridor.vibeTokens(forLaunchIntent: launchIntent)
+        )
+    }
+
+    /// Empty-state copy stays for cities with no live inventory and no Typical Plan.
+    /// Atlanta / Midtown fallback may show a Typical card without claiming Live.
+    private var shouldShowHomeEmptyState: Bool {
+        shouldShowLocalEmptyState && typicalHomePlan == nil
+    }
+
     var body: some View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
             if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
-            if shouldShowLocalEmptyState { noLocalRecommendationsSection }
-            if hasTrustedLocalRecommendations { tonightPickCard }
+            if shouldShowHomeEmptyState { noLocalRecommendationsSection }
+            if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
             quickActionsSection
             weatherSmartCard
             categoryQuickSearchSection
@@ -5666,7 +5680,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var tonightPickCard: some View {
-        if let card = personalizedAIPick {
+        if hasTrustedLocalRecommendations, let card = personalizedAIPick {
             let venue = venueForAIPick(card)
             NativeHomeHeroCard(
                 venue: venue,
@@ -5684,7 +5698,33 @@ private struct NativeHomeDashboardView: View {
                 secondaryAction: { openAIPickDetails(card: card, venue: venue) }
             )
             .accessibilityIdentifier("native-home-ai-pick")
+        } else if let plan = typicalHomePlan {
+            let venue = NativeAtlantaCorridor.heroVenue(for: plan)
+            NativeHomeHeroCard(
+                venue: venue,
+                eyebrow: "Typical Plan",
+                eyebrowIcon: "map",
+                eyebrowColor: NativeTheme.cyan,
+                reason: plan.because,
+                crowdEmoji: crowdEmoji(venue.crowd),
+                crowdLabel: NativeAtlantaCorridor.crowdLabel(for: plan),
+                categoryEmoji: categoryEmoji(venue.discoverType),
+                primaryCTATitle: NativeAtlantaCorridor.primaryCTATitle(for: plan),
+                primaryCTAIcon: NativeAtlantaCorridor.primaryCTAIcon(for: plan),
+                secondaryCTATitle: Self.aiPickSecondaryCTA,
+                primaryAction: { triggerTypicalPlan(plan, venue: venue) },
+                secondaryAction: { aiPickDetailVenue = venue }
+            )
+            .accessibilityIdentifier("native-home-typical-plan")
         }
+    }
+
+    private func triggerTypicalPlan(_ plan: NativeCollapsePlan, venue: NativeVenueSummary) {
+        if NativeAtlantaCorridor.primaryCTATitle(for: plan) == "Route" {
+            routeToAIPick(venue)
+            return
+        }
+        aiPickDetailVenue = venue
     }
 
     private var personalizedAIPick: NativeDiscoverSummary? {

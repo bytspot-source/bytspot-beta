@@ -2591,4 +2591,74 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertEqual(NativeMenuCheckoutProbe.paymentMethods, ["Apple Pay", "Credit / Debit Card"])
         XCTAssertTrue(NativeMenuCheckoutProbe.sharesNativeCheckoutPaymentMethods, "Menu checkout must offer the same payment methods as other native checkouts.")
     }
+
+    func testCatalogOccupancyCannotBeLive() {
+        let plan = NativeCollapseInstrument.collapse(
+            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio", vibeTokens: ["chill"], occupancySource: "typical"),
+            stall: NativeStallInput(name: "1380 W Peachtree Garage", source: .vendor, walkMinutes: 3, paid: true)
+        )
+        XCTAssertEqual(plan.occupancy.kind, .typical)
+        XCTAssertTrue(plan.because.localizedCaseInsensitiveContains("usually"))
+        XCTAssertFalse(plan.canCheckout)
+    }
+
+    func testOnlyADoorWriteIsLive() {
+        let plan = NativeCollapseInstrument.collapse(
+            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio", vibeTokens: ["chill"], occupancySource: "user_report"),
+            stall: NativeStallInput(name: "1380 W Peachtree Garage", source: .vendor, walkMinutes: 3, paid: true),
+            detector: .room,
+            settlementReady: true
+        )
+        XCTAssertEqual(plan.occupancy.kind, .live)
+        XCTAssertTrue(plan.because.localizedCaseInsensitiveContains("door wrote"))
+        XCTAssertTrue(plan.canCheckout)
+    }
+
+    func testPlaceDetectorNeverSettles() {
+        XCTAssertFalse(NativeCollapseInstrument.detectorCanSettle(.place, stallSource: .vendor, settlementReady: true))
+        let plan = NativeCollapseInstrument.collapse(
+            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio"),
+            stall: NativeStallInput(name: "1380 W Peachtree Garage", source: .vendor, walkMinutes: 3, paid: true),
+            detector: .place,
+            settlementReady: true
+        )
+        XCTAssertFalse(plan.canCheckout)
+    }
+
+    func testFortyAtlantaDoorsStayTypicalCatalog() {
+        XCTAssertEqual(NativeAtlantaCorridor.midtown.count, NativeAtlantaCorridor.kitDoorCount)
+        XCTAssertEqual(NativeAtlantaCorridor.kitDoorCount, 10)
+        XCTAssertEqual(NativeAtlantaCorridor.atlanta.count, NativeAtlantaCorridor.catalogDoorCount)
+        XCTAssertEqual(NativeAtlantaCorridor.catalogDoorCount, 40)
+        for plan in NativeAtlantaCorridor.catalogPlans() {
+            XCTAssertEqual(plan.occupancy.kind, .typical)
+            XCTAssertFalse(plan.canCheckout)
+            XCTAssertTrue(plan.because.contains("min walk"))
+            XCTAssertFalse(NativeAtlantaCorridor.crowdLabel(for: plan).localizedCaseInsensitiveContains("Live"))
+        }
+        let kinds = Set(NativeAtlantaCorridor.atlanta.map(\.kind))
+        XCTAssertTrue(kinds.contains(.sport))
+        XCTAssertTrue(kinds.contains(.event))
+        XCTAssertEqual(NativeAtlantaCorridor.atlanta.filter { $0.kind == .sport }.count, 6)
+        XCTAssertEqual(NativeAtlantaCorridor.atlanta.filter { $0.kind == .event }.count, 13)
+        XCTAssertEqual(Set(NativeAtlantaCorridor.atlanta.map(\.id)).count, NativeAtlantaCorridor.atlanta.count)
+    }
+
+    func testTypicalHomePlanIsOfferedOnAtlantaOrFallbackAndNeverOnSeattle() {
+        XCTAssertNotNil(NativeAtlantaCorridor.homePlan(at: .midtown, hour: 19))
+        XCTAssertNotNil(NativeAtlantaCorridor.homePlan(at: .verifiedMidtown, hour: 9))
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        XCTAssertNil(NativeAtlantaCorridor.homePlan(at: seattle, hour: 19))
+        XCTAssertFalse(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: seattle))
+        XCTAssertTrue(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: .midtown))
+        let evening = NativeAtlantaCorridor.homePlan(at: .midtown, hour: 20)
+        XCTAssertNotEqual(evening?.hang.id.hasPrefix("door-host-"), true)
+        XCTAssertEqual(evening?.occupancy.kind, .typical)
+    }
+
+    func testTypicalHomePlanDoesNotChangeEmptyStatePredicate() {
+        let emptySnapshot = NativeTabContentSnapshot(venues: [], discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
+        XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: emptySnapshot, launchPicksCompleted: true, launchPickCount: 0))
+        XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: emptySnapshot))
+    }
 }

@@ -6,8 +6,18 @@ import UIKit
 struct NativePartyControlSummary: Codable {
     let partyId: String; let title: String; let admissionPaused: Bool
     let capacity: Int; let confirmed: Int; let spacesRemaining: Int; let pending: Int; let checkedIn: Int
-    // Share-link expiry (older servers omit these; treat as unknown).
+    // Share-link retrieval + expiry (older servers omit these; treat as unknown).
+    let shareUrl: String?; let passCode: String?
     let shareLinkExpiresAt: String?; let shareLinkExpired: Bool?; let shareLinkExpiryIsDefault: Bool?
+
+    /// Canonical Party Pass URL. Prefer the server value; fall back to the
+    /// deterministic https://bytspot.app/party/<id> host already owns.
+    var retrievedShareURL: URL? { NativePartyShareLink.url(from: shareUrl) ?? NativePartyShareLink.url(for: partyId) }
+    var retrievedPassCode: String? {
+        guard let passCode else { return nil }
+        let trimmed = passCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 struct NativePartyControlGuest: Codable, Identifiable {
@@ -88,11 +98,48 @@ struct NativeHostedParty: Codable, Identifiable, Equatable {
     let startsAt: String
     let endsAt: String?
     let admissionPaused: Bool
+    let shareUrl: String?
+    let passCode: String?
     let shareLinkExpiresAt: String
     let shareLinkExpired: Bool
     let capacity: Int
 
     var startsAtDate: Date? { ISO8601DateFormatter.partyControlDate(from: startsAt) }
+    var retrievedShareURL: URL? { NativePartyShareLink.url(from: shareUrl) ?? NativePartyShareLink.url(for: id) }
+    var retrievedPassCode: String? {
+        guard let passCode else { return nil }
+        let trimmed = passCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+enum NativePartyShareLink {
+    /// Deterministic Party Pass URL. Never minted client-side as a new code —
+    /// this is the same https://bytspot.app/party/<id> issued at publish.
+    static func url(for partyID: String) -> URL? {
+        let trimmed = partyID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains(":") else { return nil }
+        return URL(string: "https://bytspot.app/party/\(trimmed)")
+    }
+
+    static func url(from raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "bytspot.app" || host.hasSuffix(".bytspot.app") || host == "bytspot.com" || host.hasSuffix(".bytspot.com") else { return nil }
+        return url
+    }
+
+    @MainActor
+    static func share(_ url: URL) -> Bool {
+        NativePartySharePresentation.share([url])
+    }
+
+    @MainActor
+    static func shareQR(for url: URL) -> Bool {
+        NativePartySharePresentation.share([NativePartyShareQR.image(url.absoluteString), url])
+    }
 }
 
 struct NativeHostedPartyList: Codable { let parties: [NativeHostedParty] }
@@ -145,7 +192,53 @@ struct NativePartyControlView: View {
     }
 
     private func overview(_ value: NativePartyControlSummary) -> some View {
-        VStack(alignment: .leading, spacing: 14) { Text(value.title).font(.system(size: 27, weight: .black, design: .rounded)); HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }; Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan); shareLinkStatus(value) }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
+        VStack(alignment: .leading, spacing: 14) {
+            Text(value.title).font(.system(size: 27, weight: .black, design: .rounded))
+            HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }
+            Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan)
+            roomShareCard(url: value.retrievedShareURL, passCode: value.retrievedPassCode, expired: value.shareLinkExpired == true)
+            shareLinkStatus(value)
+        }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+
+    @ViewBuilder private func roomShareCard(url: URL?, passCode: String?, expired: Bool) -> some View {
+        if let url {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(expired ? "ROOM LINK · NEW ARRIVALS CLOSED" : "ROOM LINK · STILL LIVE").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundColor(expired ? NativeTheme.orange : NativeTheme.cyan)
+                HStack(alignment: .center, spacing: 12) {
+                    Button(action: { shareRetrievedQR(url) }) {
+                        NativePartyShareQR(value: url.absoluteString).frame(width: 72, height: 72)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Share Party QR")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(expired ? "New guests cannot join from this link. You can still retrieve it." : "Forgot to send it? Share the same Party Pass from this room.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.62))
+                        Text(url.absoluteString).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.42)).lineLimit(1)
+                    }
+                }
+                if let passCode {
+                    VStack(spacing: 4) {
+                        Text("PARTY CODE").font(.system(size: 9, weight: .black)).tracking(1.6).foregroundColor(.white.opacity(0.45))
+                        Text(passCode).font(.system(size: 22, weight: .black, design: .monospaced)).tracking(3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(14)
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(.white.opacity(0.22)))
+                    .accessibilityIdentifier("native-party-control-pass-code")
+                }
+                Button(action: { shareRetrievedLink(url) }) {
+                    Label("Share Party Link", systemImage: "square.and.arrow.up.fill")
+                        .font(.system(size: 14, weight: .black))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .foregroundColor(.white)
+                        .background(NativeTheme.purple)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-party-control-share")
+            }
+        }
     }
 
     @ViewBuilder private func shareLinkStatus(_ value: NativePartyControlSummary) -> some View {
@@ -162,6 +255,14 @@ struct NativePartyControlView: View {
                 } label: { Text("LINK EXPIRY").font(.system(size: 9, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.cyan) }
             }
         }
+    }
+
+    private func shareRetrievedLink(_ url: URL) {
+        if NativePartyShareLink.share(url) { message = "" } else { message = "Party link is ready to share." }
+    }
+
+    private func shareRetrievedQR(_ url: URL) {
+        if NativePartyShareLink.shareQR(for: url) { message = "" } else { message = "Party link is ready to share." }
     }
 
     private func shareLinkCaption(expiresAt: String, expired: Bool, isDefault: Bool) -> String {

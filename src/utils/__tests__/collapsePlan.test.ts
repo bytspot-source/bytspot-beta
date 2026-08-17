@@ -9,7 +9,14 @@ import {
   stallMayClaimAvailability,
   walkBudgetMinutes,
 } from '../collapsePlan.ts';
-import { corridorPlans, MIDTOWN_CORRIDOR } from '../midtownCorridor.ts';
+import {
+  ATLANTA_CORRIDOR,
+  CATALOG_DOOR_COUNT,
+  catalogPlans,
+  corridorPlans,
+  KIT_DOOR_COUNT,
+  MIDTOWN_CORRIDOR,
+} from '../midtownCorridor.ts';
 import type { MapParkingSpot } from '../mapParking.ts';
 
 const hang = {
@@ -118,7 +125,8 @@ test('Profile basis is the measurement, not a social hub', () => {
 });
 
 test('ten Midtown doors are Typical, unsettleable catalog, and complete sentences', () => {
-  assert.equal(MIDTOWN_CORRIDOR.length, 10);
+  assert.equal(MIDTOWN_CORRIDOR.length, KIT_DOOR_COUNT);
+  assert.equal(KIT_DOOR_COUNT, 10);
   const plans = corridorPlans();
   assert.equal(plans.length, 10);
   for (const plan of plans) {
@@ -128,6 +136,25 @@ test('ten Midtown doors are Typical, unsettleable catalog, and complete sentence
   }
   const kinds = new Set(MIDTOWN_CORRIDOR.map((d) => d.kind));
   assert.deepEqual([...kinds].sort(), ['cottage', 'daypart', 'host-capable', 'stall-first']);
+});
+
+test('forty Atlanta doors stay Typical catalog and include sports plus event collage', () => {
+  assert.equal(ATLANTA_CORRIDOR.length, CATALOG_DOOR_COUNT);
+  assert.equal(CATALOG_DOOR_COUNT, 40);
+  const plans = catalogPlans();
+  assert.equal(plans.length, 40);
+  for (const plan of plans) {
+    assert.equal(plan.occupancy.kind, 'Typical');
+    assert.equal(plan.canCheckout, false);
+    assert.match(plan.because, /min walk/);
+  }
+  const kinds = new Set(ATLANTA_CORRIDOR.map((d) => d.kind));
+  assert.ok(kinds.has('sport'));
+  assert.ok(kinds.has('event'));
+  assert.equal(ATLANTA_CORRIDOR.filter((d) => d.kind === 'sport').length, 6);
+  assert.equal(ATLANTA_CORRIDOR.filter((d) => d.kind === 'event').length, 13);
+  const ids = ATLANTA_CORRIDOR.map((d) => d.id);
+  assert.equal(new Set(ids).size, ids.length);
 });
 
 test('every plan finishes the because sentence', () => {

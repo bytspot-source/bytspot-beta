@@ -29,7 +29,7 @@ enum NativeAtlantaCorridor {
     static let kitDoorCount = 10
     static let catalogDoorCount = 40
 
-    private static func stall(_ name: String, walkMinutes: Int, paid: Bool = true) -> NativeStallInput {
+    private static func stall(_ name: String, _ walkMinutes: Int, paid: Bool = true) -> NativeStallInput {
         NativeStallInput(name: name, source: .fallback, walkMinutes: walkMinutes, paid: paid)
     }
 

@@ -417,6 +417,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(services.allSatisfy { $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) })
     }
 
+    @MainActor
     func testLocationAwareDistanceRebuildPreservesVendorControl() {
         let midtown = NativeLocationCoordinate.verifiedMidtown
         let patchVenue = NativeVenueSummary(id: "patch-diner", name: "Patch Diner", category: "restaurant", address: "Midtown", distance: "—", rating: 4.8, latitude: midtown.latitude + 0.002, longitude: midtown.longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)

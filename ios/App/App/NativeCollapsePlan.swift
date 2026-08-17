@@ -1,3 +1,5 @@
+import Foundation
+
 /// Collapse instrument — one hang + how you stop + why you stay.
 /// Typical ≠ Live. Checkout is false unless that detector can settle.
 

@@ -1,3 +1,5 @@
+import Foundation
+
 /// Corridor inventory — forty Atlanta situations, handwritten.
 /// Ten is the kit count. Forty is the first catalog Home may rank.
 /// Occupancy is Typical until a door writes. This is not a Live atlas.

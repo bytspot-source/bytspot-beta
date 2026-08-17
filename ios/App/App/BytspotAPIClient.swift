@@ -2738,7 +2738,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, latitude: card.latitude, longitude: card.longitude)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
         }
     }
 

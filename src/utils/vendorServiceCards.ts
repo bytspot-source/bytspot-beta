@@ -104,6 +104,11 @@ export function savedServiceRequestToCard(
     request.booking?.partySize ? `${request.booking.partySize} guests` : null,
   ].filter((feature): feature is string => Boolean(feature));
 
+  // Fail-closed: only requests backed by a live vendor service (real vendor +
+  // real service id from the live registry) earn vendor control. Venue-scoped
+  // and fallback scanner requests stay Mode A — no Book chrome, no checkout.
+  const liveVendorBacked = request.source === 'live' && Boolean(request.vendorId) && Boolean(request.serviceId);
+
   return {
     id: stableNumericId(request.id, 40_000 + index),
     type: 'service',
@@ -116,11 +121,11 @@ export function savedServiceRequestToCard(
     location: request.vendorName,
     features,
     verified: false,
-    vendorServiceId: request.id,
-    vendorId: request.vendorId ?? undefined,
+    vendorServiceId: liveVendorBacked ? request.serviceId ?? request.id : undefined,
+    vendorId: liveVendorBacked ? request.vendorId ?? undefined : undefined,
     vendorServiceStatus: 'active',
-    discoverSource: 'bytspot_vendor',
-    control: request.vendorId ? 'vendor' : 'local',
+    discoverSource: liveVendorBacked ? 'bytspot_vendor' : undefined,
+    control: liveVendorBacked ? 'vendor' : 'local',
   } as DiscoverCard;
 }
 

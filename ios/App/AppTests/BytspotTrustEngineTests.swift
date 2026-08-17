@@ -417,6 +417,19 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(services.allSatisfy { $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) })
     }
 
+    func testLocationAwareDistanceRebuildPreservesVendorControl() {
+        let midtown = NativeLocationCoordinate.verifiedMidtown
+        let patchVenue = NativeVenueSummary(id: "patch-diner", name: "Patch Diner", category: "restaurant", address: "Midtown", distance: "—", rating: 4.8, latitude: midtown.latitude + 0.002, longitude: midtown.longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)
+        let patchCard = NativeDiscoverSummary(id: "venue-patch-diner", type: "dining", title: "Patch Diner", subtitle: "Midtown", distance: "—", rating: "4.8", icon: "fork.knife", verified: true, entryType: "free", cta: "View Menu", imageUrl: nil, categoryLabel: "Dining", badgeText: "LIVE", metadataLine: "Live", features: [], vibeScore: 8, availability: "Open", membershipRequired: false, control: NativeDiscoverCardControl.vendor)
+
+        let rebuilt = NativeTabContentStore.locationAwareCards([patchCard], sourceVenues: [patchVenue], location: midtown)
+
+        let card = rebuilt.first { $0.id == patchCard.id }
+        XCTAssertNotNil(card, "A nearby patch venue card must survive location-aware filtering.")
+        XCTAssertNotEqual(card?.distance, "—", "Distance must be recalculated from the source venue.")
+        XCTAssertEqual(card?.control, NativeDiscoverCardControl.vendor, "Distance rebuild must not drop vendor control from a patch-verified venue card.")
+    }
+
     func testVenueDetailHeaderBadgesStayConsumerFacing() {
         XCTAssertNil(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: nil)))
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Dinner Spots", category: "dining", address: "Open now", patchId: "DISCOVER-VERIFIED")), "DINING")

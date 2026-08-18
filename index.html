@@ -4,44 +4,37 @@
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-      <title>Bytspot Platinum Access</title>
+      <title>Bytspot</title>
 
-      <!-- PWA -->
-      <link rel="manifest" href="/manifest.json" />
-      <meta name="theme-color" content="#00BFFF" />
-      <meta name="mobile-web-app-capable" content="yes" />
-      <meta name="apple-mobile-web-app-capable" content="yes" />
-      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-      <meta name="apple-mobile-web-app-title" content="Bytspot" />
+      <meta name="theme-color" content="#000000" />
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <link rel="apple-touch-icon" href="/icon-192.png" />
 
-      <meta name="description" content="Tap to open the Bytspot App Clip for Platinum access, event entry, local services, rides, and concierge support." />
-      <link rel="canonical" href="https://bytspot.app/BYT424?patchId=BYT424-0301&amp;tier=platinum" />
+      <meta name="description" content="Open Bytspot on iPhone. Party Pass, rooms, and Midtown plans live in the native app and App Clip — not the old web app." />
+      <link rel="canonical" href="https://bytspot.app/" />
       <meta property="og:type" content="website" />
       <meta property="og:site_name" content="Bytspot" />
-      <meta property="og:title" content="Bytspot Platinum Access" />
-      <meta property="og:description" content="Open the Bytspot App Clip for Platinum access, event entry, rides, and concierge services." />
-      <meta property="og:url" content="https://bytspot.app/BYT424?patchId=BYT424-0301&amp;tier=platinum" />
+      <meta property="og:title" content="Bytspot" />
+      <meta property="og:description" content="Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip." />
+      <meta property="og:url" content="https://bytspot.app/" />
       <meta property="og:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
       <meta property="og:image:secure_url" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
       <meta property="og:image:type" content="image/png" />
       <meta property="og:image:width" content="1800" />
       <meta property="og:image:height" content="1200" />
-      <meta property="og:image:alt" content="Bytspot Platinum App Clip access card" />
+      <meta property="og:image:alt" content="Bytspot" />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content="Bytspot Platinum Access" />
-      <meta name="twitter:description" content="Open the Bytspot App Clip for Platinum access, event entry, rides, and concierge services." />
+      <meta name="twitter:title" content="Bytspot" />
+      <meta name="twitter:description" content="Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip." />
       <meta name="twitter:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
-      <!-- Smart App Banner — default app-argument must itself match AASA.
-           JS below canonicalizes scanned BYT/patch links onto /p/app-clip so iOS
-           never reads a bare /patch argument before showing the App Clip card. -->
-      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/p/app-clip?patchId=BYT424&amp;tier=platinum" />
+      <!-- Smart App Banner — default argument is this page, never the retired
+           Platinum /p/app-clip catalog. JS below rewrites /party/<id> and
+           patch URLs before iOS caches the card. -->
+      <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/" />
     </head>
 
     <body>
       <div id="root"></div>
-      <!-- SPA path restore: must run before React so pathname is correct -->
       <script>
         (function () {
           var redirect = sessionStorage.getItem('spa_redirect');
@@ -51,7 +44,7 @@
           }
           var banner = document.querySelector('meta[name="apple-itunes-app"]');
           if (banner) {
-            var canonicalArgument = 'https://bytspot.app/p/app-clip?patchId=BYT424&tier=platinum';
+            var canonicalArgument = window.location.href;
             try {
               var current = new URL(window.location.href);
               var patchId = current.searchParams.get('patchId') || current.searchParams.get('patch') || current.searchParams.get('p');
@@ -67,15 +60,17 @@
                   if (key !== 'patchId' && key !== 'patch' && key !== 'p') next.searchParams.set(key, value);
                 });
                 canonicalArgument = next.toString();
-              } else if (current.pathname.indexOf('/p/') === 0 || current.pathname.indexOf('/access/') === 0 || current.pathname.toUpperCase().indexOf('/BYT') === 0) {
-                canonicalArgument = current.toString();
               }
             } catch (_) {}
             banner.setAttribute('content', 'app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + canonicalArgument);
+          }
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (reg) { reg.unregister(); });
+            }).catch(function () {});
           }
         })();
       </script>
       <script type="module" src="/src/main.tsx"></script>
     </body>
   </html>
-  

@@ -62,13 +62,14 @@ struct NativeHostStudioView: View {
     let membershipTier: BytspotTier
 
     @State private var step: Step = .spark
-    @State private var templateID: NativePartyTemplateID = .listeningParty
+    @State private var taxonomy = NativeHostTaxonomySelection.default
+    @State private var templateID: NativePartyTemplateID = NativeHostTaxonomySelection.default.type.printer
     @State private var title = ""
     @State private var tagline = "One moment. Your people."
     @State private var startsAt = Self.defaultStart
     @State private var venueName = ""
-    @State private var capacity = "80"
-    @State private var accessMode: NativePartyAccessMode = .freeRSVP
+    @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
+    @State private var accessMode: NativePartyAccessMode = .privateApproval
     @State private var requiredTier: BytspotTier = .green
     @State private var ticketPrice = "25"
     @State private var selectedCircleIDs: Set<String> = []
@@ -227,16 +228,44 @@ struct NativeHostStudioView: View {
 
     private var sparkContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("SPARK THE VIBE", "What are we making?", "Pick a feeling. We build the night around it.")
+            sectionHeading("SPARK THE VIBE", "What kind of night?", "Pick a category. Then a type. Same room printer.")
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(NativePartyTemplate.catalog) { item in
-                    Button(action: { nativeImpactLight(); selectTemplate(item.id) }) {
+                ForEach(NativeHostCategory.allCases) { category in
+                    Button(action: { nativeImpactLight(); selectCategory(category) }) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(item.emoji).font(.system(size: 27)); Text(item.name).font(.system(size: 14, weight: .black)); Text(item.hook).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)).lineLimit(2)
-                        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(templateID == item.id ? tierAccent.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(templateID == item.id ? tierAccent : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
-                    }.buttonStyle(.plain).accessibilityLabel(item.name)
+                            Text(category.emoji).font(.system(size: 27)); Text(category.title).font(.system(size: 14, weight: .black)); Text(category.hook).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)).lineLimit(2)
+                        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(taxonomy.category == category ? tierAccent.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(taxonomy.category == category ? tierAccent : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
+                    }.buttonStyle(.plain).accessibilityLabel(category.title)
                 }
             }
+            VStack(alignment: .leading, spacing: 9) {
+                Text("TYPE").studioLabel()
+                Text("This is a tag. The door is still RSVP, ticket, or approval.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(NativeHostType.types(in: taxonomy.category)) { type in
+                        Button(action: { nativeImpactLight(); selectType(type) }) {
+                            Text(type.name)
+                                .font(.system(size: 12, weight: .black))
+                                .frame(maxWidth: .infinity, minHeight: 38)
+                                .foregroundColor(taxonomy.type.id == type.id ? .black : .white)
+                                .background(taxonomy.type.id == type.id ? Color.white : Color.white.opacity(0.06))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }.buttonStyle(.plain).accessibilityLabel(type.name)
+                    }
+                }
+            }.padding(14).studioSurface()
+            VStack(alignment: .leading, spacing: 9) {
+                Text("FORMAT · OPTIONAL").studioLabel()
+                taxonomyChipRow(titles: NativeHostFormat.allCases.map(\.title), selected: taxonomy.format?.title) { title in
+                    let format = NativeHostFormat.allCases.first { $0.title == title }
+                    taxonomy.format = taxonomy.format == format ? nil : format
+                }
+                Text("AGE · OPTIONAL").studioLabel()
+                taxonomyChipRow(titles: NativeHostAgeRule.allCases.map(\.title), selected: taxonomy.age?.title) { title in
+                    let age = NativeHostAgeRule.allCases.first { $0.title == title }
+                    taxonomy.age = taxonomy.age == age ? nil : age
+                }
+            }.padding(14).studioSurface()
             VStack(alignment: .leading, spacing: 9) {
                 Text("PARTY TIER").studioLabel()
                 HStack(spacing: 7) {
@@ -427,7 +456,7 @@ struct NativeHostStudioView: View {
                 }.buttonStyle(.plain)
             }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
-            field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "80", keyboard: .numberPad)
+            field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 9) {
                 Text("MINIMUM MEMBERSHIP").studioLabel()
                 HStack(spacing: 7) {
@@ -461,7 +490,33 @@ struct NativeHostStudioView: View {
         }.buttonStyle(.plain)
     }
 
-    private func selectTemplate(_ id: NativePartyTemplateID) {
+    private func taxonomyChipRow(titles: [String], selected: String?, onTap: @escaping (String) -> Void) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 7)], alignment: .leading, spacing: 7) {
+            ForEach(titles, id: \.self) { title in
+                Button(action: { nativeImpactLight(); onTap(title) }) {
+                    Text(title)
+                        .font(.system(size: 11, weight: .black))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .foregroundColor(selected == title ? .black : .white)
+                        .background(selected == title ? Color.white : Color.white.opacity(0.06))
+                        .clipShape(Capsule())
+                }.buttonStyle(.plain).accessibilityLabel(title)
+            }
+        }
+    }
+
+    private func selectCategory(_ category: NativeHostCategory) {
+        taxonomy.select(category: category)
+        applyPrinter(taxonomy.type.printer)
+    }
+
+    private func selectType(_ type: NativeHostType) {
+        taxonomy.select(type: type)
+        applyPrinter(type.printer)
+    }
+
+    private func applyPrinter(_ id: NativePartyTemplateID) {
         templateID = id
         if id == .privateParty { accessMode = .privateApproval }
     }
@@ -553,7 +608,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

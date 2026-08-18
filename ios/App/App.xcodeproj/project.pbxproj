@@ -42,6 +42,7 @@
 			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
 		A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11002D00000000001100 /* NativeCollapsePlan.swift */; };
 		A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */; };
+		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
 			A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
 		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
 		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
@@ -117,6 +118,7 @@
 			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
 		A13F11002D00000000001100 /* NativeCollapsePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCollapsePlan.swift; sourceTree = "<group>"; };
 		A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAtlantaCorridor.swift; sourceTree = "<group>"; };
+		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
 			A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
 		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -195,6 +197,7 @@
 				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
 				A13F11002D00000000001100 /* NativeCollapsePlan.swift */,
 				A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */,
+				A13F12002D00000000001200 /* NativeHostTaxonomy.swift */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
 				A13F03022C0FF00100000053 /* BytspotAPIClient.swift */,
@@ -411,6 +414,7 @@
 				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
 				A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */,
 				A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */,
+				A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -587,7 +591,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -611,7 +615,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -635,7 +639,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.AppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -660,7 +664,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.Clip;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -682,7 +686,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.Clip;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -706,7 +710,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.14;
+				MARKETING_VERSION = 1.1.15;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bytspot.app.AppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

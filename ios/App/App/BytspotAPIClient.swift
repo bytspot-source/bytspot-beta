@@ -491,8 +491,10 @@ struct NativePartyDraftInput: Equatable {
     let ticketTiers: [NativePartyTicketTier]
     let cohosts: [NativePartyHostAssignment]
     let templateConfiguration: NativePartyTemplateConfiguration
+    /// Host Spark tags only. Never a new printer or a Live occupancy source.
+    let taxonomy: NativeHostTaxonomySelection?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
@@ -508,6 +510,7 @@ struct NativePartyDraftInput: Equatable {
         self.ticketTiers = ticketTiers
         self.cohosts = cohosts
         self.templateConfiguration = templateConfiguration
+        self.taxonomy = taxonomy
     }
 
     var validationMessage: String? {
@@ -539,9 +542,19 @@ struct NativePartyDraftInput: Equatable {
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
             "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
             "cohosts": cohosts.map { ["email": $0.email, "role": $0.role.rawValue] },
-            "templateConfig": templateConfiguration.rpcInput,
+            "templateConfig": templateConfigRPC,
             "source": "host-studio"
         ]
+    }
+
+    /// Extra hostCategory / hostType / hostFormat / hostAge keys ride on the
+    /// existing passthrough templateConfig. They never change `kind`.
+    private var templateConfigRPC: [String: Any] {
+        var config = templateConfiguration.rpcInput
+        if let taxonomy {
+            for (key, value) in taxonomy.rpcTags { config[key] = value }
+        }
+        return config
     }
 }
 

@@ -1800,7 +1800,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeHostTaxonomySelection.recommendedCapacity, 20)
         XCTAssertEqual(Set(NativeHostType.catalog.map(\.printer)), Set(NativePartyTemplateID.allCases))
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { !NativeHostType.types(in: $0).isEmpty })
-        XCTAssertTrue(NativeHostType.catalog.allSatisfy { NativeHostType.types(in: $0.category).contains(where: { type in type.id == $0.id }) })
+        XCTAssertTrue(NativeHostType.catalog.allSatisfy { item in NativeHostType.types(in: item.category).contains(where: { type in type.id == item.id }) })
         XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.printer, .popUp)
         XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.category, .nightlife)
         XCTAssertEqual(NativeHostType.type(id: "watch-party")?.printer, .premiere)

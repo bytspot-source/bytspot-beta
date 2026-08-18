@@ -1796,6 +1796,15 @@ final class NativeProfileDataAPITests: XCTestCase {
 
     func testNativeHostStudioContractCoversPartyOperatingSystem() {
         XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup, .releaseParty, .popUp])
+        XCTAssertEqual(NativeHostCategory.allCases.map(\.rawValue), ["party", "nightlife", "music", "sports", "food-drink", "social", "culture", "cars", "outdoor", "community"])
+        XCTAssertEqual(NativeHostTaxonomySelection.recommendedCapacity, 20)
+        XCTAssertEqual(Set(NativeHostType.catalog.map(\.printer)), Set(NativePartyTemplateID.allCases))
+        XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { !NativeHostType.types(in: $0).isEmpty })
+        XCTAssertTrue(NativeHostType.catalog.allSatisfy { NativeHostType.types(in: $0.category).contains(where: { type in type.id == $0.id }) })
+        XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.printer, .popUp)
+        XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.category, .nightlife)
+        XCTAssertEqual(NativeHostType.type(id: "watch-party")?.printer, .premiere)
+        XCTAssertEqual(NativeHostType.type(id: "house")?.printer, .privateParty)
         XCTAssertEqual(NativeLiveContentV2Contract.partyDraftCreateRoute, "/trpc/events.drafts.create")
         XCTAssertEqual(NativeLiveContentV2Contract.partyPublishRoute, "/trpc/events.publish")
         XCTAssertEqual(NativeLiveContentV2Contract.partyMediaUploadRoute, "/trpc/events.media.upload")
@@ -2047,6 +2056,46 @@ final class NativeProfileDataAPITests: XCTestCase {
         let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
+    }
+
+    func testHostTaxonomyTagsRideOnExistingTemplateConfigWithoutChangingKind() {
+        var taxonomy = NativeHostTaxonomySelection.default
+        taxonomy.select(category: .nightlife)
+        taxonomy.select(type: NativeHostType.type(id: "afrobeats")!)
+        taxonomy.format = .rooftop
+        taxonomy.age = .twentyOnePlus
+        XCTAssertEqual(taxonomy.type.printer, .popUp)
+        XCTAssertEqual(taxonomy.rpcTags["hostCategory"], "nightlife")
+        XCTAssertEqual(taxonomy.rpcTags["hostType"], "afrobeats")
+        XCTAssertEqual(taxonomy.rpcTags["hostFormat"], "rooftop")
+        XCTAssertEqual(taxonomy.rpcTags["hostAge"], "21-plus")
+
+        let destinations = NativePartyHostDestinations(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host")
+        let draft = NativePartyDraftInput(
+            templateID: taxonomy.type.printer,
+            title: "Afrobeats rooftop",
+            tagline: "One room.",
+            startsAt: Date(),
+            venueName: "Colony Square",
+            capacity: NativeHostTaxonomySelection.recommendedCapacity,
+            accessMode: .freeRSVP,
+            requiredMembershipTier: .green,
+            hostDestinations: destinations,
+            audienceCircleIDs: [],
+            itinerary: [],
+            ticketTiers: [],
+            cohosts: [],
+            templateConfiguration: .popUp(.public),
+            taxonomy: taxonomy
+        )
+        XCTAssertNil(draft.validationMessage)
+        let config = draft.rpcInput["templateConfig"] as? [String: Any]
+        XCTAssertEqual(config?["kind"] as? String, "pop-up")
+        XCTAssertEqual(config?["hostCategory"] as? String, "nightlife")
+        XCTAssertEqual(config?["hostType"] as? String, "afrobeats")
+        XCTAssertEqual(config?["hostFormat"] as? String, "rooftop")
+        XCTAssertEqual(draft.rpcInput["capacity"] as? Int, 20)
+        XCTAssertEqual(draft.rpcInput["templateId"] as? String, "pop-up")
     }
 
     func testPartyShareQRRendersConcreteImageWithDarkModules() throws {

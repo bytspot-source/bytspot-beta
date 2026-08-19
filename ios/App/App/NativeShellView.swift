@@ -3121,6 +3121,65 @@ private enum NativeDebugAutoSheetPreviewGate {
     }
 }
 
+private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
+    let enabled: Bool
+    let label: String
+    let action: () -> Void
+    let content: Content
+    @State private var offset: CGFloat = 0
+    private let reveal: CGFloat = 84
+
+    init(enabled: Bool, label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.enabled = enabled
+        self.label = label
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if enabled {
+                Button(action: {
+                    nativeImpactLight()
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { offset = 0 }
+                    action()
+                }) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundColor(.white)
+                        .frame(width: reveal, height: 44)
+                        .frame(maxHeight: .infinity)
+                        .background(NativeTheme.orange)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            Group {
+                if enabled {
+                    content.offset(x: offset).gesture(drag)
+                } else {
+                    content
+                }
+            }
+        }
+        .clipped()
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 18, coordinateSpace: .local)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                offset = max(min(value.translation.width, 0), -reveal)
+            }
+            .onEnded { value in
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    offset = value.translation.width < -reveal / 2 ? -reveal : 0
+                }
+            }
+    }
+}
+
 enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     case people = "People"
     case circles = "Social Circles"
@@ -3188,6 +3247,7 @@ private struct NativeNetworkHubView: View {
     @State private var peopleMetPartyID: String?
     @State private var peopleMetOptedIn = false
     @State private var peopleMetPeople: [NativePeopleMetPerson] = []
+    @State private var dismissedContactIDs: Set<String> = []
     let requestAuthentication: () -> Void
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
@@ -3272,6 +3332,9 @@ private struct NativeNetworkHubView: View {
                     Text("After you publish, the room stays here so you can reopen Party Control — guest list, door scan, pause — and retrieve the same share link if you forgot to send it.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
                 } else {
                     ForEach(hostedParties) { party in
+                        NativeNetworkSwipeToDeleteRow(enabled: NativeNetworkSwipePolicy.canDeleteRoom(), label: "Delete \(party.title)") {
+                            Task { await deleteHostedRoom(party) }
+                        } content: {
                         HStack(alignment: .center, spacing: 10) {
                             Button(action: {
                                 nativeImpactLight()
@@ -3316,6 +3379,7 @@ private struct NativeNetworkHubView: View {
                         .background(NativeProfileStyle.insetSurface)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .accessibilityIdentifier("native-hosted-room-\(party.id)")
+                        }
                     }
                 }
             }
@@ -3398,7 +3462,13 @@ private struct NativeNetworkHubView: View {
                 } else if filteredPeople.isEmpty {
                     NativeProfileEmptyState(title: "No matching people", subtitle: "Try another name from your current suggestions.", icon: "magnifyingglass")
                 } else {
-                    ForEach(filteredPeople) { suggestion in personRow(suggestion) }
+                    ForEach(filteredPeople) { suggestion in
+                        NativeNetworkSwipeToDeleteRow(enabled: NativeNetworkSwipePolicy.canDismissContact(), label: "Dismiss \(suggestion.name)") {
+                            dismissContact(suggestion)
+                        } content: {
+                            personRow(suggestion)
+                        }
+                    }
                 }
                 if selectedPersonID != nil { personActions }
             } else {
@@ -3461,7 +3531,13 @@ private struct NativeNetworkHubView: View {
             }
             if sessionStore.isAuthenticated, !circleSnapshot.groups.isEmpty {
                 networkSectionHeader("YOUR CIRCLES", count: circleSnapshot.groups.count)
-                ForEach(circleSnapshot.groups) { circle in circleRow(circle) }
+                ForEach(circleSnapshot.groups) { circle in
+                    NativeNetworkSwipeToDeleteRow(enabled: NativeNetworkSwipePolicy.canDeleteCircle(role: circle.role), label: "Delete \(circle.name)") {
+                        Task { await deleteCircle(circle) }
+                    } content: {
+                        circleRow(circle)
+                    }
+                }
             } else if sessionStore.isAuthenticated {
                 NativeProfileEmptyState(title: "No circles yet", subtitle: "Create a circle above to save the people you invite together.", icon: "person.3.sequence.fill")
             }
@@ -3578,7 +3654,16 @@ private struct NativeNetworkHubView: View {
     private func invitationSection(title: String, items: [NativeSocialInvitation]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if !items.isEmpty { networkSectionHeader(title, count: items.count) }
-            ForEach(items) { invitation in invitationRow(invitation) }
+            ForEach(items) { invitation in
+                NativeNetworkSwipeToDeleteRow(
+                    enabled: NativeNetworkSwipePolicy.canCancelInvitation(direction: invitation.direction, status: invitation.status),
+                    label: "Cancel invitation to \(invitation.personName)"
+                ) {
+                    Task { await cancelInvitation(invitation) }
+                } content: {
+                    invitationRow(invitation)
+                }
+            }
         }
     }
 
@@ -3628,7 +3713,8 @@ private struct NativeNetworkHubView: View {
 
     private var filteredPeople: [NativeFriendSuggestion] {
         let query = personQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty ? contactSyncStore.suggestions : contactSyncStore.suggestions.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        let visible = contactSyncStore.suggestions.filter { !dismissedContactIDs.contains($0.userId) }
+        return query.isEmpty ? visible : visible.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
     private var selectedCircleName: String? { circleSnapshot.groups.first { $0.id == selectedCircleID }?.name }
     private var hasSelectedMembership: Bool {
@@ -3643,6 +3729,7 @@ private struct NativeNetworkHubView: View {
     }
 
     private func refreshNetwork() async {
+        dismissedContactIDs = NativeNetworkDismissedContacts.load(userID: sessionStore.authenticatedUserID)
         guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
@@ -3689,6 +3776,59 @@ private struct NativeNetworkHubView: View {
     private func respond(to invitation: NativeSocialInvitation, response: String) async {
         isWorking = true; defer { isWorking = false }
         do { try await api.respondToSocialInvitationViaRpc(id: invitation.id, response: response); invitations = try await api.listSocialInvitationsViaRpc(); statusMessage = response == "accepted" ? "Invitation accepted." : "Invitation declined." } catch { statusMessage = "The invitation response couldn't be saved." }
+    }
+
+    private func deleteHostedRoom(_ party: NativeHostedParty) async {
+        isWorking = true; defer { isWorking = false }
+        do {
+            try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })).delete(party.id)
+            hostedParties.removeAll { $0.id == party.id }
+            statusMessage = "Room deleted."
+        } catch {
+            statusMessage = Self.networkMutationMessage(from: error, fallback: "This room couldn't be deleted.")
+        }
+    }
+
+    private func deleteCircle(_ circle: NativeSocialCircle) async {
+        guard NativeNetworkSwipePolicy.canDeleteCircle(role: circle.role) else { return }
+        isWorking = true; defer { isWorking = false }
+        do {
+            try await api.deleteSocialCircleViaRpc(circleID: circle.id)
+            circleSnapshot.groups.removeAll { $0.id == circle.id }
+            if selectedCircleID == circle.id { selectedCircleID = circleSnapshot.groups.first?.id }
+            statusMessage = "Circle deleted."
+        } catch {
+            statusMessage = Self.networkMutationMessage(from: error, fallback: "This circle couldn't be deleted.")
+        }
+    }
+
+    private func cancelInvitation(_ invitation: NativeSocialInvitation) async {
+        guard NativeNetworkSwipePolicy.canCancelInvitation(direction: invitation.direction, status: invitation.status) else { return }
+        isWorking = true; defer { isWorking = false }
+        do {
+            try await api.cancelSocialInvitationViaRpc(id: invitation.id)
+            invitations.removeAll { $0.id == invitation.id }
+            statusMessage = "Invitation cancelled."
+        } catch {
+            statusMessage = Self.networkMutationMessage(from: error, fallback: "This invitation couldn't be cancelled.")
+        }
+    }
+
+    private func dismissContact(_ person: NativeFriendSuggestion) {
+        dismissedContactIDs.insert(person.userId)
+        NativeNetworkDismissedContacts.save(dismissedContactIDs, userID: sessionStore.authenticatedUserID)
+        if selectedPersonID == person.userId { selectedPersonID = nil }
+        statusMessage = "\(person.name) dismissed."
+    }
+
+    static func networkMutationMessage(from error: Error, fallback: String) -> String {
+        let body = (error as? BytspotAPIClient.APIError).flatMap { error -> String? in
+            if case .server(_, let body) = error { return body }
+            return nil
+        } ?? String(describing: error)
+        if body.contains("can no longer be deleted") { return "This room has guests and can no longer be deleted." }
+        if body.contains("NOT_FOUND") || body.contains("not found") || body.contains("not awaiting") { return fallback }
+        return fallback
     }
 
     private func loadPeopleMetParty() async {

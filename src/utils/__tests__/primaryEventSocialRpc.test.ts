@@ -16,8 +16,10 @@ import {
 
 test('Network contract contains only people, circles, and invitation routes', () => {
   assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.groupsList, 'social.groups.list');
+  assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.groupsDelete, 'social.groups.delete');
   assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.groupsMembersAdd, 'social.groups.members.add');
   assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.invitesCreate, 'social.invites.create');
+  assert.equal(NETWORK_SOCIAL_RPC_CONTRACT.routes.invitesCancel, 'social.invites.cancel');
   assert.deepEqual(NETWORK_SOCIAL_RPC_CONTRACT.flow, ['Find a Person', 'Add to Circle', 'Send Invite']);
   assert.equal('draftsCreate' in NETWORK_SOCIAL_RPC_CONTRACT.routes, false);
 });

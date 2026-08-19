@@ -359,10 +359,13 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.tablesReserveRoute, "/trpc/tables.reserve")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsDeleteRoute, "/trpc/social.groups.delete")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsMembersAddRoute, "/trpc/social.groups.members.add")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesRespondRoute, "/trpc/social.invites.respond")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCancelRoute, "/trpc/social.invites.cancel")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyDraftDeleteRoute, "/trpc/events.drafts.delete")
     }
 
     func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
@@ -1700,10 +1703,13 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testNetworkUsesSocialCircleAndInvitationRoutes() throws {
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsListRoute, "/trpc/social.groups.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsCreateRoute, "/trpc/social.groups.create")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsDeleteRoute, "/trpc/social.groups.delete")
         XCTAssertEqual(NativeLiveContentV2Contract.socialGroupsMembersAddRoute, "/trpc/social.groups.members.add")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesListRoute, "/trpc/social.invites.list")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCreateRoute, "/trpc/social.invites.create")
         XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesRespondRoute, "/trpc/social.invites.respond")
+        XCTAssertEqual(NativeLiveContentV2Contract.socialInvitesCancelRoute, "/trpc/social.invites.cancel")
+        XCTAssertEqual(NativeLiveContentV2Contract.partyDraftDeleteRoute, "/trpc/events.drafts.delete")
         XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetOptInRoute, "/trpc/social.peopleMet.optIn")
         XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetOptOutRoute, "/trpc/social.peopleMet.optOut")
         XCTAssertEqual(NativeLiveContentV2Contract.socialPeopleMetStatusRoute, "/trpc/social.peopleMet.status")
@@ -1717,6 +1723,19 @@ final class NativeProfileDataAPITests: XCTestCase {
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(decoded["surface"] as? String, "network")
+    }
+
+    func testNetworkSwipePolicyOnlyEnablesRealDeleteCancelAndDismissPaths() {
+        XCTAssertTrue(NativeNetworkSwipePolicy.canDeleteRoom())
+        XCTAssertTrue(NativeNetworkSwipePolicy.canDeleteCircle(role: "owner"))
+        XCTAssertFalse(NativeNetworkSwipePolicy.canDeleteCircle(role: "member"))
+        XCTAssertFalse(NativeNetworkSwipePolicy.canDeleteCircle(role: "admin"))
+        XCTAssertTrue(NativeNetworkSwipePolicy.canCancelInvitation(direction: "outgoing", status: "pending"))
+        XCTAssertFalse(NativeNetworkSwipePolicy.canCancelInvitation(direction: "incoming", status: "pending"))
+        XCTAssertFalse(NativeNetworkSwipePolicy.canCancelInvitation(direction: "outgoing", status: "accepted"))
+        XCTAssertTrue(NativeNetworkSwipePolicy.canDismissContact())
+        XCTAssertEqual(NativeNetworkDismissedContacts.storageKey(userID: "user-1"), "bytspot.network.dismissed-contacts.user-1")
+        XCTAssertEqual(NativeNetworkDismissedContacts.storageKey(userID: "  "), "bytspot.network.dismissed-contacts.signed-out")
     }
 
     func testNetworkAuthenticationContinuationUsesTheStandardSignInIntent() {

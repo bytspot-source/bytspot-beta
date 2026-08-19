@@ -2191,25 +2191,34 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(presentation.message, "")
     }
 
-    func testHostDestinationPillsDeriveFromDraftLinksAndDecodeProfilePayload() {
-        XCTAssertEqual(NativeHostDestinationPill.pills(for: .empty), [])
-        let destinations = NativePartyHostDestinations(musicURL: "https://music.example.com", merchURL: " ", websiteURL: "", primarySocialPlatform: .tiktok, primarySocialURL: "https://tiktok.com/@host")
-        XCTAssertEqual(NativeHostDestinationPill.pills(for: destinations), [.music, .social])
+    func testHostIdentityValidatesHandlesAndDecodesProfilePayloadInOrder() {
+        // Socials take handles, links take HTTPS, handle rules enforced.
+        XCTAssertNil(NativeHostIdentityDestination(kind: .instagram, value: "@MidtownJohn", primary: true).validationMessage)
+        XCTAssertNotNil(NativeHostIdentityDestination(kind: .instagram, value: "https://instagram.com/host", primary: false).validationMessage)
+        XCTAssertNil(NativeHostIdentityDestination(kind: .music, value: "https://music.example.com", primary: false).validationMessage)
+        XCTAssertNotNil(NativeHostIdentityDestination(kind: .music, value: "http://insecure.example.com", primary: false).validationMessage)
+        XCTAssertNotNil(NativeHostIdentity(handle: "x", destinations: []).validationMessage)
+        XCTAssertNil(NativeHostIdentity(handle: "@midtownjohn", destinations: []).validationMessage)
 
-        let payload: [String: Any] = ["destinations": ["musicUrl": "https://music.example.com/host", "primarySocial": ["platform": "TikTok", "url": "https://tiktok.com/@host"]]]
-        let decoded = NativePartyStudioAPI.profileDestinations(from: payload)
-        XCTAssertEqual(decoded.musicURL, "https://music.example.com/host")
-        XCTAssertEqual(decoded.primarySocialPlatform, .tiktok)
-        XCTAssertEqual(decoded.primarySocialURL, "https://tiktok.com/@host")
-        XCTAssertEqual(NativePartyStudioAPI.profileDestinations(from: [String: Any]()), .empty)
+        // Payload decode preserves the host's order and the primary flag.
+        let payload: [String: Any] = ["handle": "midtownjohn", "destinations": [
+            ["kind": "tiktok", "value": "@midtownjohn", "primary": true],
+            ["kind": "music", "value": "https://music.example.com/host"],
+            ["kind": "unknown", "value": "x"],
+        ]]
+        let identity = NativeHostIdentity.fromPayload(payload)
+        XCTAssertEqual(identity.handle, "@midtownjohn")
+        XCTAssertEqual(identity.destinations.map(\.kind), [.tiktok, .music])
+        XCTAssertEqual(identity.destinations.first?.primary, true)
+        XCTAssertEqual(NativeHostIdentity.fromPayload([String: Any]()), .empty)
 
-        // Brand-capitalization drift never flips the platform to the default.
-        XCTAssertEqual(NativePartySocialPlatform.match("TikTok"), .tiktok)
-        XCTAssertEqual(NativePartySocialPlatform.match("tiktok"), .tiktok)
-        XCTAssertEqual(NativePartySocialPlatform.match("YouTube"), .youtube)
-        XCTAssertEqual(NativePartySocialPlatform.match("LinkedIn"), .linkedin)
-        XCTAssertNil(NativePartySocialPlatform.match("myspace"))
-        XCTAssertNil(NativePartySocialPlatform.match(nil))
+        // Round-trip: rpcInput carries order and only flags the primary.
+        let rpc = identity.rpcInput
+        XCTAssertEqual(rpc["handle"] as? String, "@midtownjohn")
+        let entries = rpc["destinations"] as? [[String: Any]]
+        XCTAssertEqual(entries?.map { $0["kind"] as? String }, ["tiktok", "music"])
+        XCTAssertEqual(entries?.first?["primary"] as? Bool, true)
+        XCTAssertNil(entries?.last?["primary"])
     }
 
     func testRunOfShowClockMathRollsToNextDayAndDerivesNowWithFallback() {
@@ -2247,7 +2256,25 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativePartyPassProjectsOnlyCanonicalOfficialHostDestinations() {
-        let row: [String: Any] = [
+        // New ordered identity list: order preserved, primary flagged, and a
+        // raw URL can never render as a label.
+        let identityRow: [String: Any] = ["host": [
+            "handle": "midtownjohn",
+            "destinationList": [
+                ["kind": "instagram", "label": "@MidtownJohn", "url": "https://instagram.com/MidtownJohn", "primary": true],
+                ["kind": "music", "label": "Music", "url": "https://music.example.com/host"],
+                ["kind": "merch", "label": "https://leaky.example.com", "url": "https://leaky.example.com"],
+                ["kind": "website", "label": "Website", "url": "http://insecure.example.com"],
+            ],
+        ]]
+        let identityDestinations = NativePartyPassAPI.destinations(from: identityRow)
+        XCTAssertEqual(identityDestinations.map(\.kind), [.instagram, .music])
+        XCTAssertEqual(identityDestinations.first?.label, "@MidtownJohn")
+        XCTAssertEqual(identityDestinations.first?.primary, true)
+        XCTAssertEqual(NativePartyPassAPI.hostHandle(from: identityRow), "@midtownjohn")
+
+        // Legacy object fallback still projects for already-published parties.
+        let legacyRow: [String: Any] = [
             "musicUrl": "https://music.example.com/root-alias",
             "host": ["destinations": [
                 "musicUrl": "https://music.example.com/host",
@@ -2255,9 +2282,10 @@ final class NativeProfileDataAPITests: XCTestCase {
                 "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/host"],
             ]],
         ]
-        let destinations = NativePartyPassAPI.destinations(from: row)
-        XCTAssertEqual(destinations.map(\.kind), [.music, .social])
+        let destinations = NativePartyPassAPI.destinations(from: legacyRow)
+        XCTAssertEqual(destinations.map(\.kind), [.music, .instagram])
         XCTAssertEqual(destinations.last?.label, "Instagram")
+        XCTAssertNil(NativePartyPassAPI.hostHandle(from: legacyRow))
         // Root-level aliases and non-HTTPS links never reach recipients.
         XCTAssertEqual(NativePartyPassAPI.destinations(from: ["musicUrl": "https://music.example.com/root-alias"]), [])
     }

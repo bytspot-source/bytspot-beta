@@ -439,16 +439,22 @@ struct PartyPassClipView: View {
     }
 
     @ViewBuilder private var hostDestinations: some View {
-        if !invite.hostDestinations.isEmpty {
+        if !invite.hostDestinations.isEmpty || invite.hostHandle != nil {
             PartyGlassCard {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(invite.hostName).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
-                    HStack(spacing: 5) {
-                        Image(systemName: "checkmark.seal.fill").font(.system(size: 11, weight: .bold)).foregroundColor(accent)
-                        Text("Official Host").font(.system(size: 11, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(accent)
+                    if let handle = invite.hostHandle {
+                        Text("Verified Handle").font(.system(size: 10, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(.white.opacity(0.52))
+                        HStack(spacing: 5) {
+                            Text(handle).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+                            Image(systemName: "checkmark.seal.fill").font(.system(size: 14, weight: .bold)).foregroundColor(accent)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Verified handle \(handle)")
+                    } else {
+                        Text(invite.hostName).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Official Host, verified destinations")
+                    Text("Official Host Destinations").font(.system(size: 11, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(accent)
+                        .accessibilityLabel("Official Host destinations")
                 }
                 ForEach(invite.hostDestinations) { destination in
                     Button { openURL(destination.url) } label: {

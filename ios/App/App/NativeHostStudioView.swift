@@ -83,12 +83,7 @@ struct NativeHostStudioView: View {
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
     @State private var locationDisclosure: NativePartyLocationDisclosure = .public
-    @State private var musicURL = ""
-    @State private var merchURL = ""
-    @State private var websiteURL = ""
-    @State private var primarySocialPlatform: NativePartySocialPlatform = .instagram
-    @State private var primarySocialURL = ""
-    @State private var enabledDestinationPills: Set<NativeHostDestinationPill> = []
+    @State private var hostIdentity = NativeHostIdentity.empty
     @State private var loadedProfileDestinations = false
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
@@ -407,33 +402,31 @@ struct NativeHostStudioView: View {
         beatOffsets.count == template.itinerary.count ? beatOffsets : template.itinerary.indices.map { $0 * 60 }
     }
 
+    /// Official Host identity editor. Horizontal pill scroll: tap adds a
+    /// destination (selected state), tap again removes it. Added destinations
+    /// list vertically below — reorder with arrows, star one as Primary ⭐.
+    /// Socials take handles; Bytspot owns the routing. No URLs in public UI.
     private var officialDestinationsEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("OFFICIAL HOST DESTINATIONS").studioLabel()
-            Text("Saved to your host profile. Tap a pill on to include that link; only verified HTTPS links appear on the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your @handle — never a link.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            field("Verified handle", text: $hostIdentity.handle, icon: "checkmark.seal.fill", prompt: "@yourhandle")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(NativeHostDestinationPill.allCases) { pill in destinationPill(pill) }
+                    ForEach(NativeHostDestinationKind.allCases) { kind in destinationPill(kind) }
                 }
             }
-            if enabledDestinationPills.contains(.music) { field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL) }
-            if enabledDestinationPills.contains(.shop) { field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL) }
-            if enabledDestinationPills.contains(.website) { field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL) }
-            if enabledDestinationPills.contains(.social) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
-                    Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
-                    field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
-                }
+            ForEach(Array(hostIdentity.destinations.enumerated()), id: \.element.id) { index, destination in
+                destinationRow(index: index, destination: destination)
             }
         }.padding(14).studioSurface()
-            .task { await prefillProfileDestinations() }
+            .task { await prefillHostIdentity() }
     }
 
-    private func destinationPill(_ pill: NativeHostDestinationPill) -> some View {
-        let isOn = enabledDestinationPills.contains(pill)
-        return Button(action: { toggleDestinationPill(pill) }) {
-            Label(pill.title, systemImage: pill.icon)
+    private func destinationPill(_ kind: NativeHostDestinationKind) -> some View {
+        let isOn = hostIdentity.destinations.contains { $0.kind == kind }
+        return Button(action: { toggleDestination(kind) }) {
+            Label(kind.title, systemImage: kind.icon)
                 .font(.system(size: 12, weight: .black))
                 .foregroundColor(isOn ? .black : .white.opacity(0.72))
                 .padding(.horizontal, 13).frame(height: 34)
@@ -441,34 +434,69 @@ struct NativeHostStudioView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(pill.title) destination")
-        .accessibilityValue(isOn ? "On" : "Off")
-        .accessibilityHint(isOn ? "Removes this link from the Party Pass." : "Adds this link to the Party Pass.")
+        .accessibilityLabel("\(kind.title) destination")
+        .accessibilityValue(isOn ? "Added" : "Not added")
+        .accessibilityHint(isOn ? "Removes this destination." : "Adds this destination.")
     }
 
-    private func toggleDestinationPill(_ pill: NativeHostDestinationPill) {
-        if enabledDestinationPills.contains(pill) {
-            enabledDestinationPills.remove(pill)
-            switch pill {
-            case .music: musicURL = ""
-            case .shop: merchURL = ""
-            case .website: websiteURL = ""
-            case .social: primarySocialURL = ""
+    @ViewBuilder private func destinationRow(index: Int, destination: NativeHostIdentityDestination) -> some View {
+        HStack(spacing: 8) {
+            field(destination.kind.title, text: destinationValueBinding(destination.kind), icon: destination.kind.icon, prompt: destination.kind.fieldPrompt, keyboard: destination.kind.isSocial ? .default : .URL)
+            Button(action: { setPrimary(destination.kind) }) {
+                Image(systemName: destination.primary ? "star.fill" : "star")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(destination.primary ? NativeTheme.cyan : .white.opacity(0.35))
             }
-        } else {
-            enabledDestinationPills.insert(pill)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(destination.kind.title) primary")
+            .accessibilityValue(destination.primary ? "Primary" : "Not primary")
+            VStack(spacing: 3) {
+                Button(action: { moveDestination(destination.kind, by: -1) }) { Image(systemName: "chevron.up").font(.system(size: 11, weight: .black)).foregroundColor(index == 0 ? .white.opacity(0.18) : .white.opacity(0.6)) }
+                    .buttonStyle(.plain).disabled(index == 0)
+                    .accessibilityLabel("Move \(destination.kind.title) up")
+                Button(action: { moveDestination(destination.kind, by: 1) }) { Image(systemName: "chevron.down").font(.system(size: 11, weight: .black)).foregroundColor(index == hostIdentity.destinations.count - 1 ? .white.opacity(0.18) : .white.opacity(0.6)) }
+                    .buttonStyle(.plain).disabled(index == hostIdentity.destinations.count - 1)
+                    .accessibilityLabel("Move \(destination.kind.title) down")
+            }
         }
     }
 
-    private func prefillProfileDestinations() async {
+    private func destinationValueBinding(_ kind: NativeHostDestinationKind) -> Binding<String> {
+        Binding(
+            get: { hostIdentity.destinations.first { $0.kind == kind }?.value ?? "" },
+            set: { value in
+                if let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) { hostIdentity.destinations[index].value = value }
+            }
+        )
+    }
+
+    private func toggleDestination(_ kind: NativeHostDestinationKind) {
+        if let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) {
+            hostIdentity.destinations.remove(at: index)
+        } else {
+            hostIdentity.destinations.append(NativeHostIdentityDestination(kind: kind, value: "", primary: false))
+        }
+    }
+
+    private func setPrimary(_ kind: NativeHostDestinationKind) {
+        for index in hostIdentity.destinations.indices {
+            let isTarget = hostIdentity.destinations[index].kind == kind
+            hostIdentity.destinations[index].primary = isTarget ? !hostIdentity.destinations[index].primary : false
+        }
+    }
+
+    private func moveDestination(_ kind: NativeHostDestinationKind, by delta: Int) {
+        guard let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) else { return }
+        let target = index + delta
+        guard hostIdentity.destinations.indices.contains(target) else { return }
+        hostIdentity.destinations.swapAt(index, target)
+    }
+
+    private func prefillHostIdentity() async {
         guard !loadedProfileDestinations, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return }
         loadedProfileDestinations = true
-        guard let saved = try? await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token })).loadHostDestinations() else { return }
-        if musicURL.isEmpty { musicURL = saved.musicURL }
-        if merchURL.isEmpty { merchURL = saved.merchURL }
-        if websiteURL.isEmpty { websiteURL = saved.websiteURL }
-        if primarySocialURL.isEmpty { primarySocialURL = saved.primarySocialURL; primarySocialPlatform = saved.primarySocialPlatform }
-        enabledDestinationPills = NativeHostDestinationPill.pills(for: draft.hostDestinations)
+        guard let saved = try? await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token })).loadHostIdentity() else { return }
+        if hostIdentity == .empty { hostIdentity = saved }
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
@@ -659,11 +687,12 @@ struct NativeHostStudioView: View {
             }
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
+            publishStage = "identity"
+            // Save the Official Host identity first: publish snapshots the
+            // profile onto the party, so the save must land before it.
+            if hostIdentity != .empty { try await api.saveHostIdentity(hostIdentity) }
             publishStage = "publish"
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
-            // The party snapshots destinations; the host profile stays the
-            // source of truth for the next room. Best-effort, never blocks.
-            try? await api.saveHostDestinations(draft.hostDestinations)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishPresentation.completePublish(with: result)
@@ -706,7 +735,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

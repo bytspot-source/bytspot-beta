@@ -242,6 +242,16 @@ enum BytspotAviationFallbackTests {
         rootDestinationDTO["musicUrl"] = "https://music.example.com/unapproved"
         rootDestinationDTO["primarySocial"] = ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]
         precondition(PartyPassInvite.fromPayload(rootDestinationDTO)?.hostDestinations.isEmpty == true, "Party Loop: only canonical host.destinations fields may reach recipients.")
+        var identityDTO = dto
+        identityDTO["host"] = ["handle": "midtownjohn", "destinationList": [
+            ["kind": "instagram", "label": "@MidtownJohn", "url": "https://instagram.com/MidtownJohn", "primary": true],
+            ["kind": "music", "label": "Music", "url": "https://music.example.com/host"],
+            ["kind": "merch", "label": "https://leaky.example.com", "url": "https://leaky.example.com"],
+        ]] as [String: Any]
+        let identityInvite = PartyPassInvite.fromPayload(identityDTO)
+        precondition(identityInvite?.hostHandle == "@midtownjohn", "Party Loop: the verified handle must reach recipients.")
+        precondition(identityInvite?.hostDestinations.map(\.label) == ["@MidtownJohn", "Music"], "Party Loop: ordered identity destinations must keep host order and never render a raw URL as a label.")
+        precondition(identityInvite?.hostDestinations.first?.kind == .social, "Party Loop: social identity destinations map to the social kind.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")

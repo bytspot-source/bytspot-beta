@@ -214,7 +214,8 @@ struct PartyHostDestination: Identifiable, Equatable {
     let label: String
     let url: URL
 
-    var id: String { kind.rawValue }
+    // Ordered identity lists may carry several socials (distinct labels).
+    var id: String { "\(kind.rawValue)-\(label)" }
 }
 
 /// The authoritative, Party-only representation used by `/party/<id>`.
@@ -235,6 +236,7 @@ struct PartyPassInvite: Equatable {
     let itinerary: [String]
     let note: String?
     let hostDestinations: [PartyHostDestination]
+    let hostHandle: String?
     let heroImageURL: URL?
     let thumbnailURL: URL?
     let photoURLs: [URL]
@@ -287,6 +289,7 @@ struct PartyPassInvite: Equatable {
             itinerary: stringArray(row["activityHighlights"]) ?? stringArray(row["highlights"]) ?? [],
             note: string(row["inviteNote"]),
             hostDestinations: hostDestinations(host: host),
+            hostHandle: string(host?["handle"]).map { "@\($0.hasPrefix("@") ? String($0.dropFirst()) : $0)" },
             heroImageURL: secureURL(row["heroImageURL"]),
             thumbnailURL: secureURL(row["thumbnailURL"]),
             photoURLs: ((row["photoURLs"] as? [Any]) ?? []).compactMap(secureURL).prefix(6).map { $0 }
@@ -318,6 +321,20 @@ struct PartyPassInvite: Equatable {
         return url
     }
     private static func hostDestinations(host: [String: Any]?) -> [PartyHostDestination] {
+        // Prefer the ordered Official Host identity list. Labels are @handles
+        // or display names — never raw URLs — and order is host-controlled.
+        if let list = host?["destinationList"] as? [[String: Any]], !list.isEmpty {
+            let socialKinds = ["instagram", "tiktok", "youtube", "x", "facebook", "linkedin"]
+            return list.compactMap { entry in
+                guard let rawKind = string(entry["kind"]), let label = string(entry["label"]),
+                      !label.lowercased().hasPrefix("http"), let url = secureURL(entry["url"]) else { return nil }
+                let kind: PartyHostDestinationKind
+                if socialKinds.contains(rawKind) { kind = .social }
+                else if let mapped = PartyHostDestinationKind(rawValue: rawKind) { kind = mapped }
+                else { return nil }
+                return PartyHostDestination(kind: kind, label: label, url: url)
+            }
+        }
         guard let source = object(host?["destinations"]) else { return [] }
         var results: [PartyHostDestination] = []
         if let url = secureURL(source["musicUrl"]) {

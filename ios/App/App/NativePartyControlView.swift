@@ -148,6 +148,9 @@ struct NativePartyControlAPI {
     let client: BytspotAPIClient
     private func query<T: Decodable>(_ type: T.Type, path: String, input: [String: Any] = [:]) async throws -> T { let payload = try await client.trpcQueryPayload(path: path, input: input); return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: payload)) }
     func hosted() async throws -> [NativeHostedParty] { try await query(NativeHostedPartyList.self, path: NativeLiveContentV2Contract.partyControlHostedRoute).parties }
+    func delete(_ partyID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyDraftDeleteRoute, method: "POST", input: ["partyId": partyID])
+    }
     func summary(_ partyID: String) async throws -> NativePartyControlSummary { try await query(NativePartyControlSummary.self, path: "/trpc/events.control.summary", input: ["partyId": partyID]) }
     func guests(_ partyID: String) async throws -> [NativePartyControlGuest] { try await query(NativePartyControlGuestList.self, path: "/trpc/events.control.guests", input: ["partyId": partyID, "status": "all"]).guests }
     func pause(_ partyID: String, paused: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setAdmissionPaused", method: "POST", input: ["partyId": partyID, "paused": paused]) }

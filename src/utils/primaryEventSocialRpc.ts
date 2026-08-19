@@ -9,8 +9,8 @@ export interface SocialInvitation { id: string; direction: InvitationDirection; 
 
 export const NETWORK_SOCIAL_RPC_CONTRACT = {
   routes: {
-    groupsList: 'social.groups.list', groupsCreate: 'social.groups.create', groupsMembersAdd: 'social.groups.members.add', groupsMembersRemove: 'social.groups.members.remove',
-    invitesCreate: 'social.invites.create', invitesList: 'social.invites.list', invitesRespond: 'social.invites.respond',
+    groupsList: 'social.groups.list', groupsCreate: 'social.groups.create', groupsDelete: 'social.groups.delete', groupsMembersAdd: 'social.groups.members.add', groupsMembersRemove: 'social.groups.members.remove',
+    invitesCreate: 'social.invites.create', invitesList: 'social.invites.list', invitesRespond: 'social.invites.respond', invitesCancel: 'social.invites.cancel',
   },
   flow: ['Find a Person', 'Add to Circle', 'Send Invite'],
   circlePurpose: 'Circles save repeated people selection so a venue can be shared with a group instantly.',

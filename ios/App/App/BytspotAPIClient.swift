@@ -267,6 +267,30 @@ struct NativeSocialInvitation: Equatable, Identifiable {
     }
 }
 
+/// Network swipe is only offered when a real delete/cancel/dismiss path exists.
+enum NativeNetworkSwipePolicy {
+    static func canDeleteRoom() -> Bool { true }
+    static func canDeleteCircle(role: String) -> Bool { role == "owner" }
+    static func canCancelInvitation(direction: String, status: String) -> Bool {
+        direction == "outgoing" && status == "pending"
+    }
+    static func canDismissContact() -> Bool { true }
+}
+
+enum NativeNetworkDismissedContacts {
+    static func storageKey(userID: String?) -> String {
+        "bytspot.network.dismissed-contacts.\(userID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "signed-out")"
+    }
+
+    static func load(userID: String?) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: storageKey(userID: userID)) ?? [])
+    }
+
+    static func save(_ ids: Set<String>, userID: String?) {
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: storageKey(userID: userID))
+    }
+}
+
 /// One mutual opt-in from social.peopleMet.list. Fail-closed: rows without a
 /// usable userId are dropped, and opt-in status decodes to false unless the
 /// server explicitly says otherwise.
@@ -1132,6 +1156,7 @@ enum NativeCheckInV2Contract {
 enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
     static let partyDraftCreateRoute = "/trpc/events.drafts.create"
+    static let partyDraftDeleteRoute = "/trpc/events.drafts.delete"
     static let partyPublishRoute = "/trpc/events.publish"
     static let partyMediaUploadRoute = "/trpc/events.media.upload"
     static let partyMediaResetRoute = "/trpc/events.media.reset"
@@ -1161,11 +1186,13 @@ enum NativeLiveContentV2Contract {
     static let tablesReserveRoute = "/trpc/tables.reserve"
     static let socialGroupsListRoute = "/trpc/social.groups.list"
     static let socialGroupsCreateRoute = "/trpc/social.groups.create"
+    static let socialGroupsDeleteRoute = "/trpc/social.groups.delete"
     static let socialGroupsMembersAddRoute = "/trpc/social.groups.members.add"
     static let socialGroupsMembersRemoveRoute = "/trpc/social.groups.members.remove"
     static let socialInvitesCreateRoute = "/trpc/social.invites.create"
     static let socialInvitesListRoute = "/trpc/social.invites.list"
     static let socialInvitesRespondRoute = "/trpc/social.invites.respond"
+    static let socialInvitesCancelRoute = "/trpc/social.invites.cancel"
     static let socialPeopleMetOptInRoute = "/trpc/social.peopleMet.optIn"
     static let socialPeopleMetOptOutRoute = "/trpc/social.peopleMet.optOut"
     static let socialPeopleMetStatusRoute = "/trpc/social.peopleMet.status"
@@ -1447,6 +1474,10 @@ struct NativeProfileDataAPI {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsMembersAddRoute, method: "POST", input: ["groupId": circleID, "userId": userID, "surface": "network"])
     }
 
+    func deleteSocialCircleViaRpc(circleID: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsDeleteRoute, method: "POST", input: ["groupId": circleID, "surface": "network"])
+    }
+
     func listSocialInvitationsViaRpc() async throws -> [NativeSocialInvitation] {
         let response = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.socialInvitesListRoute, input: ["surface": "network"])
         return NativeSocialInvitation.normalizeList(response)
@@ -1461,6 +1492,10 @@ struct NativeProfileDataAPI {
 
     func respondToSocialInvitationViaRpc(id: String, response: String) async throws {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesRespondRoute, method: "POST", input: ["inviteId": id, "response": response, "surface": "network"])
+    }
+
+    func cancelSocialInvitationViaRpc(id: String) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesCancelRoute, method: "POST", input: ["inviteId": id, "surface": "network"])
     }
 
     func peopleMetStatusViaRpc(partyID: String) async throws -> Bool {

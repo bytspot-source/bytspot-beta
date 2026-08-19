@@ -407,7 +407,23 @@ enum NativePrivatePartyGuestPolicy: String, CaseIterable, Codable, Identifiable 
 enum NativePartySocialPlatform: String, CaseIterable, Codable, Identifiable {
     case instagram, tiktok, youtube, x, facebook, linkedin
     var id: String { rawValue }
-    var title: String { rawValue == "x" ? "X" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .instagram: return "Instagram"
+        case .tiktok: return "TikTok"
+        case .youtube: return "YouTube"
+        case .x: return "X"
+        case .facebook: return "Facebook"
+        case .linkedin: return "LinkedIn"
+        }
+    }
+
+    /// Round-trip decode is case-insensitive on both the rawValue and the
+    /// display title, so stored payloads survive brand-capitalization drift.
+    static func match(_ name: String?) -> Self? {
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !name.isEmpty else { return nil }
+        return allCases.first { $0.rawValue == name || $0.title.lowercased() == name }
+    }
 }
 
 /// Host Studio's tap-on/off destination pills. A pill is "on" when its link
@@ -745,7 +761,7 @@ struct NativePartyStudioAPI {
         let row = objectRow(payload)
         guard let source = row["destinations"] as? [String: Any] else { return .empty }
         let social = source["primarySocial"] as? [String: Any]
-        let platform = (social?["platform"] as? String).flatMap { name in NativePartySocialPlatform.allCases.first { $0.title == name } }
+        let platform = NativePartySocialPlatform.match(social?["platform"] as? String)
         return NativePartyHostDestinations(
             musicURL: clean(source["musicUrl"]) ?? "",
             merchURL: clean(source["merchUrl"]) ?? "",

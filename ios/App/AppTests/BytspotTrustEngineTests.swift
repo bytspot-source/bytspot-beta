@@ -2202,6 +2202,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(decoded.primarySocialPlatform, .tiktok)
         XCTAssertEqual(decoded.primarySocialURL, "https://tiktok.com/@host")
         XCTAssertEqual(NativePartyStudioAPI.profileDestinations(from: [String: Any]()), .empty)
+
+        // Brand-capitalization drift never flips the platform to the default.
+        XCTAssertEqual(NativePartySocialPlatform.match("TikTok"), .tiktok)
+        XCTAssertEqual(NativePartySocialPlatform.match("tiktok"), .tiktok)
+        XCTAssertEqual(NativePartySocialPlatform.match("YouTube"), .youtube)
+        XCTAssertEqual(NativePartySocialPlatform.match("LinkedIn"), .linkedin)
+        XCTAssertNil(NativePartySocialPlatform.match("myspace"))
+        XCTAssertNil(NativePartySocialPlatform.match(nil))
     }
 
     func testRunOfShowClockMathRollsToNextDayAndDerivesNowWithFallback() {

@@ -932,6 +932,7 @@ private struct NativePartyPassPreview: View {
             NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
             officialHostBlock(party)
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
+            scheduledBlock(party)
             NativeWalletLine(title: party.locationDisclosure == "after-approval" ? "Location after approval" : party.isLocationWithheld ? "Location withheld" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
             Button(action: { Task { await planArrival(for: party) } }) {
@@ -950,6 +951,34 @@ private struct NativePartyPassPreview: View {
 
     private func accessLabel(_ value: String) -> String {
         value == "paid-ticket" ? "TICKET" : value == "private-approval" ? "APPROVAL" : "RSVP"
+    }
+
+    /// Scheduled Run of Show. The pass derives "Now" locally from the party
+    /// clock — no cron, no push. Before the first beat and after the party
+    /// closes (endsAt, or last beat + 60m) it falls back to plain times.
+    @ViewBuilder private func scheduledBlock(_ party: NativePartyPassRecord) -> some View {
+        if !party.runOfShow.isEmpty {
+            let nowIndex = NativeRunOfShowSchedule.currentBeatIndex(beats: party.runOfShow.map(\.scheduledAt), endsAt: party.endsAt, now: Date())
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SCHEDULED").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.textSecondary)
+                ForEach(Array(party.runOfShow.enumerated()), id: \.element.id) { index, beat in
+                    HStack(spacing: 10) {
+                        Text(beat.scheduledAt.formatted(date: .omitted, time: .shortened)).font(.system(size: 11.5, weight: .black)).foregroundColor(index == nowIndex ? NativeTheme.cyan : NativeTheme.textSecondary).frame(width: 66, alignment: .leading)
+                        Text(beat.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                        Spacer(minLength: 8)
+                        if index == nowIndex {
+                            Text("NOW").font(.system(size: 9, weight: .black)).tracking(1.0).foregroundColor(.black)
+                                .padding(.horizontal, 7).padding(.vertical, 3).background(NativeTheme.cyan).clipShape(Capsule())
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(index == nowIndex ? "\(beat.title), happening now" : "\(beat.title), scheduled")
+                }
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
     }
 
     /// Vertical Official Host identity block: name · verified badge, then one

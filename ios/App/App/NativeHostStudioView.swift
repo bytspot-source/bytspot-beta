@@ -67,6 +67,9 @@ struct NativeHostStudioView: View {
     @State private var title = ""
     @State private var tagline = "One moment. Your people."
     @State private var startsAt = Self.defaultStart
+    @State private var beatOffsets: [Int] = []
+    @State private var hostSetsEnd = false
+    @State private var endsAt = Self.defaultStart.addingTimeInterval(3 * 60 * 60)
     @State private var venueName = ""
     @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
     @State private var accessMode: NativePartyAccessMode = .privateApproval
@@ -317,12 +320,7 @@ struct NativeHostStudioView: View {
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
             locationDisclosureEditor
             officialDestinationsEditor
-            VStack(alignment: .leading, spacing: 7) {
-                Text("RUN OF SHOW").studioLabel()
-                ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
-                    HStack { Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle()); Text(item).font(.system(size: 12.5, weight: .bold)); Spacer(); Text(index == 0 ? "Doors" : "+\(index * 60)m").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.4)) }
-                }
-            }.padding(14).studioSurface()
+            runOfShowEditor
         }
     }
 
@@ -361,6 +359,52 @@ struct NativeHostStudioView: View {
         .onChange(of: locationDisclosure) { disclosure in
             if disclosure == .afterApproval { accessMode = .privateApproval }
         }
+    }
+
+    /// Editable Run of Show: each beat gets a wall-clock time picker on the
+    /// existing party clock (offsets roll to the next day for all-day rooms),
+    /// plus an optional host-set end. No second clock, no cron.
+    private var runOfShowEditor: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("RUN OF SHOW").studioLabel()
+            Text("Times ride the party clock. A beat earlier than the start rolls to the next day.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
+                HStack(spacing: 10) {
+                    Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle())
+                    Text(item).font(.system(size: 12.5, weight: .bold))
+                    Spacer()
+                    DatePicker("", selection: beatTimeBinding(index), displayedComponents: [.hourAndMinute])
+                        .labelsHidden()
+                        .accessibilityLabel("\(item) time")
+                }
+            }
+            Toggle(isOn: $hostSetsEnd.animation(.easeInOut(duration: 0.15))) {
+                Text("SET PARTY END").studioLabel()
+            }
+            .tint(NativeTheme.cyan)
+            if hostSetsEnd {
+                DatePicker("Party ends", selection: $endsAt, in: startsAt.addingTimeInterval(15 * 60)..., displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold))
+            } else {
+                Text("No end set: the party closes one hour after the last beat.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            }
+        }.padding(14).studioSurface()
+    }
+
+    private func beatTimeBinding(_ index: Int) -> Binding<Date> {
+        Binding(
+            get: { NativeRunOfShowSchedule.beatDate(offsetMinutes: currentBeatOffsets[index], startsAt: startsAt) },
+            set: { picked in
+                var offsets = currentBeatOffsets
+                offsets[index] = NativeRunOfShowSchedule.offsetMinutes(pickedTime: picked, startsAt: startsAt)
+                beatOffsets = offsets
+            }
+        )
+    }
+
+    /// Falls back to the template's hourly cadence until the host edits a beat
+    /// or the template (and its beat count) changes.
+    private var currentBeatOffsets: [Int] {
+        beatOffsets.count == template.itinerary.count ? beatOffsets : template.itinerary.indices.map { $0 * 60 }
     }
 
     private var officialDestinationsEditor: some View {
@@ -662,7 +706,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

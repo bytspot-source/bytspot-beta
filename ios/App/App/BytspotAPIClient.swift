@@ -544,6 +544,31 @@ enum NativePartyRoleContract {
 }
 
 struct NativePartyItineraryItem: Equatable { let title: String; let offsetMinutes: Int }
+
+/// Run of Show slice 1 clock math. Beats live on the party clock as offsets;
+/// pickers edit wall-clock times and roll to the next day when a beat's time
+/// lands before the party start (an all-day model without a second clock).
+enum NativeRunOfShowSchedule {
+    static func offsetMinutes(pickedTime: Date, startsAt: Date, calendar: Calendar = .current) -> Int {
+        let start = calendar.dateComponents([.hour, .minute], from: startsAt)
+        let picked = calendar.dateComponents([.hour, .minute], from: pickedTime)
+        let minutes = ((picked.hour ?? 0) * 60 + (picked.minute ?? 0)) - ((start.hour ?? 0) * 60 + (start.minute ?? 0))
+        return minutes >= 0 ? minutes : minutes + 24 * 60
+    }
+
+    static func beatDate(offsetMinutes: Int, startsAt: Date) -> Date {
+        startsAt.addingTimeInterval(TimeInterval(offsetMinutes * 60))
+    }
+
+    /// "Now" for the Party Pass: latest beat at-or-before now, while the party
+    /// runs. Falls back to endsAt or the last beat + 60m when no end is set.
+    static func currentBeatIndex(beats: [Date], endsAt: Date?, now: Date) -> Int? {
+        guard let first = beats.first, now >= first else { return nil }
+        let effectiveEnd = endsAt ?? beats.last.map { $0.addingTimeInterval(60 * 60) }
+        if let effectiveEnd, now >= effectiveEnd { return nil }
+        return beats.lastIndex(where: { $0 <= now })
+    }
+}
 struct NativePartyTicketTier: Equatable { let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier }
 struct NativePartyHostAssignment: Equatable { let email: String; let role: NativePartyHostRole }
 
@@ -552,6 +577,9 @@ struct NativePartyDraftInput: Equatable {
     let title: String
     let tagline: String
     let startsAt: Date
+    /// Optional host-set end. Nil lets the API derive it from the last
+    /// itinerary beat (+60m), or leave it null when there are no beats.
+    let endsAt: Date?
     let venueName: String
     let locationDisclosure: NativePartyLocationDisclosure
     let capacity: Int
@@ -566,11 +594,12 @@ struct NativePartyDraftInput: Equatable {
     /// Host Spark tags only. Never a new printer or a Live occupancy source.
     let taxonomy: NativeHostTaxonomySelection?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
         self.startsAt = startsAt
+        self.endsAt = endsAt
         self.venueName = venueName
         self.locationDisclosure = locationDisclosure
         self.capacity = capacity
@@ -587,6 +616,8 @@ struct NativePartyDraftInput: Equatable {
 
     var validationMessage: String? {
         if title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "Add a party title." }
+        if let endsAt, endsAt <= startsAt { return "Party end must be after the start." }
+        if let endsAt, endsAt.timeIntervalSince(startsAt) > 7 * 24 * 60 * 60 { return "Party cannot run longer than 7 days." }
         if venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add a venue." }
         if capacity < 2 { return "Capacity must be at least 2." }
         if let message = hostDestinations.validationMessage { return message }
@@ -603,9 +634,10 @@ struct NativePartyDraftInput: Equatable {
     }
 
     var rpcInput: [String: Any] {
-        [
+        var input: [String: Any] = [
             "templateId": templateID.rawValue, "title": title, "tagline": tagline,
-            "startsAt": ISO8601DateFormatter().string(from: startsAt), "venueName": venueName,
+            "startsAt": ISO8601DateFormatter().string(from: startsAt),
+            "venueName": venueName,
             "locationDisclosure": locationDisclosure.rawValue,
             "capacity": capacity, "accessMode": accessMode.rawValue,
             "requiredMembershipTier": requiredMembershipTier.rawValue,
@@ -617,6 +649,8 @@ struct NativePartyDraftInput: Equatable {
             "templateConfig": templateConfigRPC,
             "source": "host-studio"
         ]
+        if let endsAt { input["endsAt"] = ISO8601DateFormatter().string(from: endsAt) }
+        return input
     }
 
     /// Extra hostCategory / hostType / hostFormat / hostAge keys ride on the
@@ -790,8 +824,16 @@ struct NativePartyPassRecord: Equatable {
     let requiredTier: String
     let coverURL: URL?
     let hostDestinations: [NativePartyPassDestination]
+    let endsAt: Date?
+    let runOfShow: [NativePartyPassBeat]
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
+}
+
+struct NativePartyPassBeat: Equatable, Identifiable {
+    let title: String
+    let scheduledAt: Date
+    var id: String { "\(scheduledAt.timeIntervalSince1970)-\(title)" }
 }
 
 struct NativePartyPassAPI {
@@ -820,7 +862,26 @@ struct NativePartyPassAPI {
         } else {
             safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
         }
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row))
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row))
+    }
+
+    /// Scheduled beats fail closed: a malformed row drops that beat only, and
+    /// out-of-order beats are sorted so "Now" derivation stays monotonic.
+    static func beats(from row: [String: Any]) -> [NativePartyPassBeat] {
+        guard let rows = row["runOfShow"] as? [[String: Any]] else { return [] }
+        return rows.compactMap { beat in
+            guard let title = clean(beat["title"]), let scheduledAt = isoDate(beat["scheduledAt"]) else { return nil }
+            return NativePartyPassBeat(title: title, scheduledAt: scheduledAt)
+        }.sorted { $0.scheduledAt < $1.scheduledAt }
+    }
+
+    private static func isoDate(_ value: Any?) -> Date? {
+        guard let raw = clean(value) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 
     /// Mirrors the App Clip rule: only canonical `host.destinations` HTTPS

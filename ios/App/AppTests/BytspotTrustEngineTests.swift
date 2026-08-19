@@ -2204,6 +2204,40 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyStudioAPI.profileDestinations(from: [String: Any]()), .empty)
     }
 
+    func testRunOfShowClockMathRollsToNextDayAndDerivesNowWithFallback() {
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 20, minute: 0))!
+
+        // Same-evening beat: simple positive offset.
+        let tenPM = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 22, minute: 0))!
+        XCTAssertEqual(NativeRunOfShowSchedule.offsetMinutes(pickedTime: tenPM, startsAt: start, calendar: calendar), 120)
+        // A beat "earlier" than the start rolls to the next day (all-day model).
+        let oneAM = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 1, minute: 30))!
+        XCTAssertEqual(NativeRunOfShowSchedule.offsetMinutes(pickedTime: oneAM, startsAt: start, calendar: calendar), 330)
+        XCTAssertEqual(NativeRunOfShowSchedule.beatDate(offsetMinutes: 330, startsAt: start), start.addingTimeInterval(330 * 60))
+
+        // "Now" selection: latest beat at-or-before now while the party runs.
+        let beats = [start, start.addingTimeInterval(2 * 3600)]
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(-60)))
+        XCTAssertEqual(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(3600)), 0)
+        XCTAssertEqual(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(2 * 3600 + 60)), 1)
+        // Fallback close: no endsAt → last beat + 60m ends the show.
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(3 * 3600 + 60)))
+        // Host end wins over the fallback.
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: start.addingTimeInterval(2 * 3600 + 30 * 60), now: start.addingTimeInterval(2 * 3600 + 45 * 60)))
+    }
+
+    func testNativePartyPassDecodesScheduledBeatsSortedAndFailsClosedPerBeat() {
+        let row: [String: Any] = ["runOfShow": [
+            ["title": "Headliner", "scheduledAt": "2026-08-10T22:00:00.000Z"],
+            ["title": "Doors open", "scheduledAt": "2026-08-10T20:00:00.000Z"],
+            ["title": "Broken beat"],
+        ]]
+        let beats = NativePartyPassAPI.beats(from: row)
+        XCTAssertEqual(beats.map(\.title), ["Doors open", "Headliner"])
+        XCTAssertEqual(NativePartyPassAPI.beats(from: [:]), [])
+    }
+
     func testNativePartyPassProjectsOnlyCanonicalOfficialHostDestinations() {
         let row: [String: Any] = [
             "musicUrl": "https://music.example.com/root-alias",

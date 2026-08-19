@@ -409,8 +409,7 @@ struct NativeHostStudioView: View {
     private var officialDestinationsEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("OFFICIAL HOST DESTINATIONS").studioLabel()
-            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your @handle — never a link.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            field("Verified handle", text: $hostIdentity.handle, icon: "checkmark.seal.fill", prompt: "@yourhandle")
+            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your verified host name — never a link.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(NativeHostDestinationKind.allCases) { kind in destinationPill(kind) }
@@ -658,6 +657,8 @@ struct NativeHostStudioView: View {
         if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { publishPresentation.message = "Add a title and venue before setting the door."; return }
         if step == .door && draft.validationMessage != nil { publishPresentation.message = draft.validationMessage ?? "Review the door settings."; return }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
+        // Surface identity field errors before any draft or media work starts.
+        if let message = hostIdentity.validationMessage { publishPresentation.message = message; return }
         guard !isPublishing else { return }
         isPublishing = true
         publishTask = Task { await publish() }

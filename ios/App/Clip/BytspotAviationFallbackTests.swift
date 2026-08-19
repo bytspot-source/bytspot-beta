@@ -252,6 +252,9 @@ enum BytspotAviationFallbackTests {
         precondition(identityInvite?.hostHandle == "@midtownjohn", "Party Loop: the verified handle must reach recipients.")
         precondition(identityInvite?.hostDestinations.map(\.label) == ["@MidtownJohn", "Music"], "Party Loop: ordered identity destinations must keep host order and never render a raw URL as a label.")
         precondition(identityInvite?.hostDestinations.first?.kind == .social, "Party Loop: social identity destinations map to the social kind.")
+        var leakyLegacy = dto
+        leakyLegacy["host"] = ["destinations": ["primarySocial": ["platform": "https://evil.example.com", "url": "https://instagram.com/host"]]] as [String: Any]
+        precondition(PartyPassInvite.fromPayload(leakyLegacy)?.hostDestinations.map(\.label) == ["Social"], "Party Loop: a crafted URL as the legacy platform must never render as public text.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")

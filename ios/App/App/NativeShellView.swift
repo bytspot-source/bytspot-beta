@@ -983,45 +983,33 @@ private struct NativePartyPassPreview: View {
 
     /// Vertical Official Host identity block: name · verified badge, then one
     /// row per approved destination. Renders nothing when the host saved none.
-    /// Vertical Official Host identity: "@handle ✓" then "Official Host
-    /// Destinations" with one row per host-ordered destination. Labels are
-    /// @handles or display names — raw URLs never render; they only route.
+    /// Vertical Official Host destinations. The pass header already carries
+    /// the verified host name (the sign-in identity), so this block lists
+    /// only the host-ordered destinations — labels are @handles or display
+    /// names; raw URLs never render, they only route.
     @ViewBuilder private func officialHostBlock(_ party: NativePartyPassRecord) -> some View {
-        if !party.hostDestinations.isEmpty || party.hostHandle != nil {
+        if !party.hostDestinations.isEmpty {
             VStack(alignment: .leading, spacing: 9) {
-                if let handle = party.hostHandle {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("VERIFIED HANDLE").font(.system(size: 9, weight: .black)).tracking(1.1).foregroundColor(NativeTheme.textSecondary)
-                        HStack(spacing: 5) {
-                            Text(handle).font(.system(size: 16, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                            Image(systemName: "checkmark.seal.fill").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Verified handle \(handle)")
-                }
-                if !party.hostDestinations.isEmpty {
-                    Text("OFFICIAL HOST DESTINATIONS").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.cyan)
-                    ForEach(party.hostDestinations) { destination in
-                        Button(action: { UIApplication.shared.open(destination.url) }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: destination.kind.icon).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(destination.kind.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(0.9).foregroundColor(NativeTheme.textSecondary)
-                                    Text(destination.label).font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
-                                }
-                                Spacer(minLength: 8)
-                                if destination.primary {
-                                    Image(systemName: "star.fill").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.cyan)
-                                        .accessibilityLabel("Primary destination")
-                                }
-                                Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                Text("OFFICIAL HOST DESTINATIONS").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.cyan)
+                ForEach(party.hostDestinations) { destination in
+                    Button(action: { UIApplication.shared.open(destination.url) }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: destination.kind.icon).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(destination.kind.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(0.9).foregroundColor(NativeTheme.textSecondary)
+                                Text(destination.label).font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
                             }
-                            .padding(.vertical, 4).contentShape(Rectangle())
+                            Spacer(minLength: 8)
+                            if destination.primary {
+                                Image(systemName: "star.fill").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.cyan)
+                                    .accessibilityLabel("Primary destination")
+                            }
+                            Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open \(destination.kind.title): \(destination.label)")
+                        .padding(.vertical, 4).contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(destination.kind.title): \(destination.label)")
                 }
             }
             .padding(12)

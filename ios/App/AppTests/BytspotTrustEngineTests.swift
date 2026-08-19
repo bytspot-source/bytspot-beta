@@ -2290,6 +2290,9 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(destinations.map(\.kind), [.music, .instagram])
         XCTAssertEqual(destinations.last?.label, "Instagram")
         XCTAssertNil(NativePartyPassAPI.hostHandle(from: legacyRow))
+        // A crafted URL as the legacy platform never renders as public text.
+        let leakyLegacy: [String: Any] = ["host": ["destinations": ["primarySocial": ["platform": "https://evil.example.com", "url": "https://instagram.com/host"]]]]
+        XCTAssertEqual(NativePartyPassAPI.destinations(from: leakyLegacy).map(\.label), ["Social"])
         // Root-level aliases and non-HTTPS links never reach recipients.
         XCTAssertEqual(NativePartyPassAPI.destinations(from: ["musicUrl": "https://music.example.com/root-alias"]), [])
     }

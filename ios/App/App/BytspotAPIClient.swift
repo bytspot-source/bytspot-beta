@@ -996,7 +996,10 @@ struct NativePartyPassAPI {
         if let url = secureURL(source["merchUrl"]) { results.append(NativePartyPassDestination(kind: .merch, label: "Shop", url: url, primary: false)) }
         if let url = secureURL(source["websiteUrl"]) { results.append(NativePartyPassDestination(kind: .website, label: "Visit website", url: url, primary: false)) }
         if let social = source["primarySocial"] as? [String: Any], let url = secureURL(social["url"]), let platform = clean(social["platform"]) {
-            results.append(NativePartyPassDestination(kind: NativeHostDestinationKind(rawValue: platform.lowercased()) ?? .instagram, label: platform, url: url, primary: true))
+            // Legacy platform text is server-stored and untrusted: only a
+            // recognized platform name may render; anything else says Social.
+            let kind = NativeHostDestinationKind(rawValue: platform.lowercased())
+            results.append(NativePartyPassDestination(kind: kind ?? .instagram, label: kind?.title ?? "Social", url: url, primary: true))
         }
         return results
     }

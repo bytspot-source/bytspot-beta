@@ -439,20 +439,17 @@ struct PartyPassClipView: View {
     }
 
     @ViewBuilder private var hostDestinations: some View {
-        if !invite.hostDestinations.isEmpty || invite.hostHandle != nil {
+        if !invite.hostDestinations.isEmpty {
             PartyGlassCard {
                 VStack(alignment: .leading, spacing: 3) {
-                    if let handle = invite.hostHandle {
-                        Text("Verified Handle").font(.system(size: 10, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(.white.opacity(0.52))
-                        HStack(spacing: 5) {
-                            Text(handle).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
-                            Image(systemName: "checkmark.seal.fill").font(.system(size: 14, weight: .bold)).foregroundColor(accent)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Verified handle \(handle)")
-                    } else {
+                    // The recipient sees the verified host name — the identity
+                    // the host signed in with — never a separate handle field.
+                    HStack(spacing: 5) {
                         Text(invite.hostName).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+                        Image(systemName: "checkmark.seal.fill").font(.system(size: 14, weight: .bold)).foregroundColor(accent)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Verified host \(invite.hostName)")
                     Text("Official Host Destinations").font(.system(size: 11, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(accent)
                         .accessibilityLabel("Official Host destinations")
                 }

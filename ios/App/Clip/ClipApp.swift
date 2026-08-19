@@ -348,7 +348,10 @@ struct PartyPassInvite: Equatable {
         }
         let primarySocial = object(source["primarySocial"])
         if let socialURL = secureURL(primarySocial?["url"]), let socialLabel = string(primarySocial?["platform"]) {
-            results.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
+            // Legacy platform text is untrusted: only a recognized platform
+            // name renders; anything URL-like or unknown says Social.
+            let known = ["instagram": "Instagram", "tiktok": "TikTok", "youtube": "YouTube", "x": "X", "facebook": "Facebook", "linkedin": "LinkedIn"][socialLabel.lowercased()]
+            results.append(PartyHostDestination(kind: .social, label: known ?? "Social", url: socialURL))
         }
         return results
     }

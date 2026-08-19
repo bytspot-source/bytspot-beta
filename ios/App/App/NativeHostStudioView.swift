@@ -85,6 +85,9 @@ struct NativeHostStudioView: View {
     @State private var locationDisclosure: NativePartyLocationDisclosure = .public
     @State private var hostIdentity = NativeHostIdentity.empty
     @State private var loadedProfileDestinations = false
+    /// True only after a successful profile fetch. A failed load must never
+    /// persist an empty list over an existing profile.
+    @State private var didLoadHostIdentity = false
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishPresentation = NativePartyPassPresentation()
@@ -495,6 +498,7 @@ struct NativeHostStudioView: View {
         guard !loadedProfileDestinations, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return }
         loadedProfileDestinations = true
         guard let saved = try? await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token })).loadHostIdentity() else { return }
+        didLoadHostIdentity = true
         if hostIdentity == .empty { hostIdentity = saved }
     }
 
@@ -691,7 +695,11 @@ struct NativeHostStudioView: View {
             publishStage = "identity"
             // Save the Official Host identity first: publish snapshots the
             // profile onto the party, so the save must land before it.
-            if hostIdentity != .empty { try await api.saveHostIdentity(hostIdentity) }
+            // Persist the current selection — including an empty list — only
+            // after a successful profile load, so a transient fetch failure
+            // cannot wipe a real profile and a cleared editor cannot leak
+            // stale destinations onto the next publish snapshot.
+            if didLoadHostIdentity { try await api.saveHostIdentity(hostIdentity) }
             publishStage = "publish"
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()

@@ -2223,6 +2223,13 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(entries?.map { $0["kind"] as? String }, ["tiktok", "music"])
         XCTAssertEqual(entries?.first?["primary"] as? Bool, true)
         XCTAssertNil(entries?.last?["primary"])
+
+        // A cleared editor is still a persistable identity: save must send
+        // destinations: [] so publish cannot snapshot a stale profile.
+        let cleared = NativeHostIdentity.empty.rpcInput
+        XCTAssertEqual((cleared["destinations"] as? [[String: Any]])?.isEmpty, true)
+        XCTAssertNil(cleared["handle"])
+        XCTAssertTrue(NativeHostIdentity.empty == NativeHostIdentity(handle: "", destinations: []))
     }
 
     func testRunOfShowClockMathRollsToNextDayAndDerivesNowWithFallback() {

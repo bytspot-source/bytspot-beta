@@ -1234,7 +1234,7 @@ final class ClipInvocationModel: ObservableObject {
         return nil
     }
 
-    static func partyRoute(from pathParts: [String]) -> PartyPassInvite.Route {
+    nonisolated static func partyRoute(from pathParts: [String]) -> PartyPassInvite.Route {
         guard pathParts.first?.lowercased() == "party" else { return .none }
         guard let partyID = PartyPassInvite.partyID(from: pathParts) else { return .invalid }
         return .party(id: partyID)

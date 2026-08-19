@@ -1903,7 +1903,11 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(payload?["musicUrl"] as? String, "https://music.example.com/host")
         XCTAssertEqual((payload?["primarySocial"] as? [String: Any])?["platform"] as? String, "Instagram")
         XCTAssertEqual(NativePartyHostDestinations(musicURL: "http://not-secure.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host").validationMessage, "Music links must use HTTPS.")
-        XCTAssertEqual(NativePartyHostDestinations.empty.validationMessage, "Add one primary social link.")
+        // Empty legacy destinations are valid: new drafts omit them entirely
+        // and rely on the publish-time Official Host identity snapshot.
+        XCTAssertNil(NativePartyHostDestinations.empty.validationMessage)
+        XCTAssertEqual(NativePartyHostDestinations(musicURL: "https://music.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "").validationMessage, "Add one primary social link.")
+        XCTAssertNil(NativePartyDraftInput(templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room.", startsAt: Date(), venueName: "Aster Room", capacity: 80, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .standard).rpcInput["hostDestinations"])
     }
 
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {

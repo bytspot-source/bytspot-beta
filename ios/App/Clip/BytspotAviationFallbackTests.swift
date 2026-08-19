@@ -333,6 +333,10 @@ enum BytspotAviationFallbackTests {
         precondition(withheldInvite?.locationIsWithheld == true && withheldInvite?.locationLabel == "Location withheld by host", "Party Loop: host-withheld locations must remain redacted.")
         precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"), "Party Loop: /party/<id> must route to the Party Pass.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party"]) == .invalid, "Party Loop: a bare /party link must fail as a party, never fall through to the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party", "a", "b"]) == .invalid, "Party Loop: malformed party paths must fail as a party, never fall through to the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes stay on the catalog.")
         var missingSource = dto
         missingSource.removeValue(forKey: "source")
         precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")

@@ -30,8 +30,9 @@ struct BytspotClipApp: App {
                     // the screencap sweep) so the deep-link walkthrough is
                     // reachable.
                     guard invocation.invocationURL == nil else { return }
-                    if let env = ProcessInfo.processInfo.environment["BYT_DEBUG_URL"],
-                       let url = URL(string: env) {
+                    let env = ProcessInfo.processInfo.environment
+                    if let raw = env["BYT_DEBUG_URL"] ?? env["_XCAppClipURL"],
+                       let url = URL(string: raw) {
                         invocation.handle(url: url)
                         return
                     }
@@ -262,6 +263,14 @@ struct PartyPassInvite: Equatable {
         guard pathParts.count == 2, pathParts[0].lowercased() == "party" else { return nil }
         let id = pathParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         return id.isEmpty || id.count > 200 ? nil : id
+    }
+
+    /// A `/party/…` link is always a Party Pass. Malformed party paths fail
+    /// as a party — never fall through to the patch/vendor catalog.
+    enum Route: Equatable {
+        case none
+        case party(id: String)
+        case invalid
     }
 
     static func fromPayload(_ value: Any) -> Self? {
@@ -775,11 +784,17 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        if let partyID = PartyPassInvite.partyID(from: pathParts) {
+        switch Self.partyRoute(from: pathParts) {
+        case .party(let partyID):
             flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
             return
+        case .invalid:
+            flow = .partyFailed(partyID: "", message: "This Party Pass link is invalid. Ask the host for a fresh link.")
+            return
+        case .none:
+            break
         }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
@@ -1217,6 +1232,12 @@ final class ClipInvocationModel: ObservableObject {
             return pathParts[0]
         }
         return nil
+    }
+
+    static func partyRoute(from pathParts: [String]) -> PartyPassInvite.Route {
+        guard pathParts.first?.lowercased() == "party" else { return .none }
+        guard let partyID = PartyPassInvite.partyID(from: pathParts) else { return .invalid }
+        return .party(id: partyID)
     }
 
     private static func pathParts(from components: URLComponents) -> [String] {

@@ -665,7 +665,23 @@ struct PartyPassClipView: View {
     @MainActor
     private func primaryAction() { guard !isBusy, let action = effectiveAction else { return }; switch action { case .authenticate: Task { await authenticate() }; case .ticket: guard PartyPassPresentationRules.canStartTicketSelection(for: passState, tiers: invite.ticketTiers) else { statusMessage = "Ticket tiers are unavailable right now. Continue in the app to check availability."; return }; showTicketTiers = true; case .rsvp, .requestApproval: Task { await rsvp() }; case .viewPass, .unavailable: break } }
     @MainActor
-    private func authenticate() async { guard !isBusy else { return }; isPerformingAction = true; statusMessage = "Signing in securely…"; defer { isPerformingAction = false }; do { let credential = try await authController.requestAppleCredential(); _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName); viewerName = ClipAuthStore.displayName; await resolvePass() } catch { statusMessage = "Sign in could not be completed. Please try again." } }
+    private func authenticate() async {
+        guard !isBusy else { return }
+        isPerformingAction = true
+        statusMessage = "Signing in securely…"
+        defer { isPerformingAction = false }
+        do {
+            let credential = try await authController.requestAppleCredential()
+            _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName)
+            viewerName = ClipAuthStore.displayName
+        } catch {
+            statusMessage = PartyPassPresentationRules.signInFailureMessage(from: error)
+            return
+        }
+        // Pass lookup is a separate server call. A ticket/pass miss must not
+        // look like Apple Sign-In failed.
+        await resolvePass()
+    }
     @MainActor
     private func rsvp() async {
         guard !isBusy else { return }
@@ -815,6 +831,21 @@ enum PartyPassPresentationRules {
 
     static func canStartTicketSelection(for passState: ClipPartyPassState?, tiers: [ClipPartyTicketTier]) -> Bool {
         passState?.action == .ticket && !tiers.isEmpty
+    }
+
+    /// Apple / auth.appleSignIn failures only. Pass resolve has its own copy.
+    static func signInFailureMessage(from error: Error) -> String {
+        if let authError = error as? ClipGuestAuthController.AuthError {
+            return authError.errorDescription ?? "Sign in could not be completed. Please try again."
+        }
+        switch error {
+        case ClipPatchVerifier.VerifyError.server(let message):
+            return message.isEmpty ? "Sign in could not be completed. Please try again." : message
+        case ClipPatchVerifier.VerifyError.network:
+            return "Sign in could not be completed. Please try again."
+        default:
+            return "Sign in could not be completed. Please try again."
+        }
     }
 }
 
@@ -1905,11 +1936,12 @@ struct ClipInviteView: View {
             do {
                 let credential = try await authController.requestAppleCredential()
                 _ = try await ClipPatchVerifier().appleSignIn(identityToken: credential.identityToken, email: credential.email, name: credential.fullName)
-                partyPass = nil
-                await refreshPartyPass()
             } catch {
-                statusMessage = joinErrorText(from: error)
+                statusMessage = PartyPassPresentationRules.signInFailureMessage(from: error)
+                return
             }
+            partyPass = nil
+            await refreshPartyPass()
         case .rsvp, .requestApproval:
             isResolvingPartyPass = true
             defer { isResolvingPartyPass = false }

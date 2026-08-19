@@ -386,6 +386,12 @@ enum BytspotAviationFallbackTests {
             !PartyPassPresentationRules.canStartTicketSelection(for: ClipPartyPassState(partyID: "party-preview-1", action: .ticket, guestStatus: "not_joined", accessGranted: false), tiers: []),
             "Party Loop: ticket selection must fail closed when the server provides no ticket tiers."
         )
+        precondition(
+            PartyPassPresentationRules.signInFailureMessage(from: ClipGuestAuthController.AuthError.cancelled) == "Sign in was cancelled." &&
+            PartyPassPresentationRules.signInFailureMessage(from: ClipPatchVerifier.VerifyError.server("Apple sign-in could not be verified")) == "Apple sign-in could not be verified" &&
+            PartyPassPresentationRules.signInFailureMessage(from: ClipPatchVerifier.VerifyError.network("offline")) == "Sign in could not be completed. Please try again.",
+            "Party Loop: Apple Sign-In failures must stay distinct from a later Party Pass lookup miss."
+        )
         let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public"]
         precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
     }
